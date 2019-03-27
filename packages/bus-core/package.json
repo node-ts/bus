@@ -1,0 +1,39 @@
+{
+  "name": "@node-ts/bus-core",
+  "version": "0.0.2",
+  "description": "Core bus logic",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc --project tsconfig.json --declaration"
+  },
+  "dependencies": {
+    "@node-ts/bus-messages": "^0.0.2",
+    "@node-ts/logger-core": "^0.0.6",
+    "@types/node": "^10.12.24",
+    "autobind-decorator": "^2.4.0",
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13",
+    "tslib": "^1.9.3"
+  },
+  "devDependencies": {
+    "@node-ts/code-standards": "^0.0.9",
+    "inversify": "^5.0.1",
+    "tslint": "^5.12.1",
+    "typemoq": "^2.1.0",
+    "typescript": "^3.3.3"
+  },
+  "peerDependencies": {
+    "inversify": ">= 5.0.1"
+  },
+  "keywords": [
+    "typescript",
+    "bus",
+    "messaging",
+    "microservices",
+    "distributed systems",
+    "CQRS",
+    "ES"
+  ]
+}

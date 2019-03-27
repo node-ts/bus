@@ -1,0 +1,77 @@
+{
+  "name": "@node-ts/bus",
+  "version": "0.0.1",
+  "main": "index.js",
+  "repository": "github:node-ts/bus.git",
+  "author": "Andrew den Hertog <andrew.denhertog@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "build": "lerna run build",
+    "clean": "lerna run clean && rm -r node_modules",
+    "lint": "lerna run lint",
+    "publish": "lerna run package:publish",
+    "test": "jest \"(src\\/.+\\.|/)(integration|spec)\\.ts$\"",
+    "test:watch": "yarn run test --watch"
+  },
+  "keywords": [
+    "typescript",
+    "enterprise service bus",
+    "distributed system",
+    "message bus",
+    "node"
+  ],
+  "dependencies": {
+    "@node-ts/code-standards": "^0.0.8",
+    "@types/jest": "^24.0.1",
+    "inversify": "^5.0.1",
+    "jest": "^24.1.0",
+    "lerna": "^3.11.0",
+    "reflect-metadata": "^0.1.13",
+    "ts-jest": "^23.10.5",
+    "tslib": "^1.9.3",
+    "typescript": "^3.3.3"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "packages/**/*.ts",
+      "!packages/**/index.ts"
+    ],
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "transformIgnorePatterns": [
+      "[/\\\\]node_modules[/\\\\](?!node-ts.+).+\\.ts$"
+    ],
+    "coveragePathIgnorePatterns": [
+      ".*\\.d\\.ts",
+      "<rootDir>/node_modules/"
+    ],
+    "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
+    "setupFilesAfterEnv": [
+      "<rootDir>/test/setup.ts"
+    ],
+    "modulePathIgnorePatterns": [
+      "dist/"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json"
+    ],
+    "testEnvironment": "node",
+    "bail": true,
+    "coverageReporters": [
+      "html"
+    ],
+    "globals": {
+      "ts-jest": {
+        "babelConfig": true
+      }
+    }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}

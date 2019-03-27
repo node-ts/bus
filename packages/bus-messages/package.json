@@ -1,0 +1,30 @@
+{
+  "name": "@node-ts/bus-messages",
+  "version": "0.0.2",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.json --declaration",
+    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
+    "lint:fix": "yarn lint --fix",
+    "package:publish": "npm publish --access=public"
+  },
+  "dependencies": {
+    "tslib": "^1.9.3"
+  },
+  "devDependencies": {
+    "@node-ts/code-standards": "^0.0.10",
+    "typescript": "^3.3.3"
+  },
+  "keywords": [
+    "typescript",
+    "bus",
+    "messaging",
+    "microservices",
+    "distributed systems",
+    "CQRS",
+    "ES"
+  ]
+}

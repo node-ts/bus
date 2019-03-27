@@ -1,0 +1,11 @@
+{
+  "extends": "./node_modules/@node-ts/code-standards/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "./packages",
+    "paths": {
+      "@node-ts/*": ["./*/src"]
+    },
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}
