@@ -6,7 +6,8 @@
   "types": "./dist/index.d.ts",
   "license": "MIT",
   "scripts": {
-    "build": "tsc --project tsconfig.json --declaration"
+    "build": "tsc --project tsconfig.json --declaration",
+    "package:publish": "npm publish --access=public"
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.0.2",

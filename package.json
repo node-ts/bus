@@ -11,7 +11,7 @@
     "build": "lerna run build",
     "clean": "lerna run clean && rm -r node_modules",
     "lint": "lerna run lint",
-    "publish": "lerna run package:publish",
+    "packages:publish": "lerna run package:publish",
     "test": "jest \"(src\\/.+\\.|/)(integration|spec)\\.ts$\"",
     "test:watch": "yarn run test --watch"
   },
