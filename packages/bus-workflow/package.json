@@ -8,8 +8,7 @@
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.json --declaration",
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
-    "lint:fix": "yarn lint --fix",
-    "package:publish": "npm publish --access=public"
+    "lint:fix": "yarn lint --fix"
   },
   "dependencies": {
     "@node-ts/bus-core": "^0.0.2",

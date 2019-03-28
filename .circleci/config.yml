@@ -31,8 +31,14 @@ jobs:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
-          name: Publish package
-          command: npm run packages:publish
+          name: Publish core
+          command: npm publish packages/bus-core --access=public
+      - run:
+          name: Publish messages
+          command: npm publish packages/bus-messages --access=public
+        - run:
+          name: Publish workflow
+          command: npm publish packages/bus-workflow --access=public
 
 workflows:
   version: 2
