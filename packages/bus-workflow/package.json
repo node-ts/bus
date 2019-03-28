@@ -31,7 +31,9 @@
   },
   "keywords": [
     "typescript",
+    "enterprise integration patterns",
     "long running processes",
+    "process manager",
     "bus",
     "messaging",
     "microservices",

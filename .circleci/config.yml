@@ -13,6 +13,21 @@ jobs:
       - attach_workspace:
           at: ~/repo
       - run:
+          name: Install dependencies
+          command: yarn
+      - run:
+          name: Bootstrap
+          command: yarn run bootstrap
+      - run:
+          name: Build
+          command: yarn run build
+      - run:
+          name: Lint
+          command: yarn run lint
+      - run:
+          name: Test
+          command: yarn run test
+      - run:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:

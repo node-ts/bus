@@ -17,9 +17,7 @@ describe('ServiceBus', () => {
 
   beforeAll(() => {
     container = new TestContainer()
-
     queue = new MemoryQueue()
-
     sut = container.get(BUS_SYMBOLS.Bus)
   })
 
