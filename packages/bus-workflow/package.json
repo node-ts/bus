@@ -12,15 +12,22 @@
     "package:publish": "npm publish --access=public"
   },
   "dependencies": {
-    "tslib": "^1.9.3"
+    "@node-ts/bus-core": "^0.0.2",
+    "@node-ts/bus-messages": "^0.0.2",
+    "@node-ts/logger-core": "^0.0.9",
+    "tslib": "^1.9.3",
+    "uuid": "^3.3.2"
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "typescript": "^3.3.3",
-    "inversify": "^5.0.1"
+    "@types/uuid": "^3.4.4",
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13",
+    "typescript": "^3.3.3"
   },
   "peerDependencies": {
-    "inversify": "^5.0.1"
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13"
   },
   "keywords": [
     "typescript",

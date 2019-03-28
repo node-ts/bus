@@ -1,5 +1,17 @@
 import { injectable } from 'inversify'
 
+export enum WorkflowDataStatus {
+  /**
+   * The workflow is still active and has not yet finished
+   */
+  Running = 'running',
+
+  /**
+   * The workflow has completed and will not receive further messages
+   */
+  Complete = 'complete'
+}
+
 /**
  * A base workflow data definition to model and persist the state of a workflow throughout
  * its lifespan.
@@ -20,7 +32,7 @@ export abstract class WorkflowData {
   /**
    * Marks if the workflow is currently running or has ended
    */
-  $status: 'running' | 'complete'
+  $status: WorkflowDataStatus
 
   /**
    * A unique name for the workflow data. This should be formatted in a namespace style,

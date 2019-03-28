@@ -1,15 +1,17 @@
-# @node-ts/bus-messages
+# @node-ts/bus-workflow
 
-This package should be consumed wherever your application defines message contracts. Messages are small pieces of data that get passed around between services. They can define an instruction to perform an action, or report that something has just occurred.
+Workflows (aka sagas, process managers, long running processes, message driven state machines), are a way to orchestrate higher level logic over a distributed or reliable/durable system. This is a key [enterprise integration pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html).
 
-`@node-ts/bus-messages` defines three types of messages:
+![Workflow](assets/workflow.gif?raw=true "Workflow")
 
-## Command
+Workflows are often started by a particular event (eg: `OrderPlaced`) and coordinate all the activities to complete a process. In this case, the workflow would be responsible for fulfilling an order, which may mean capturing payment, picking inventory, shipping, sending receipts etc. These steps may be independent of one another, or dependent and must be executed in order. The process may take a few seconds, or a few weeks. 
 
-Commands are a type of message that represents an instruction to do work. These can be technical instructions such as `BackupDatabase`, `ScaleOutLoadBalancer`, or modeled after your business domains like `ChargeCreditCard`, `PostMerchandise`.
+Regardless of these behaviours, the workflow will listen for events that signal the completion of each step, and may send out commands to invoke the next step. Once all steps have completed, the workflow will flag itself as complete and no further actions will be taken by it.
 
-A commands are sent to a single service for processing, and generally result in the publication of one or more `Events`
+## Installation
 
-## Event
+Ideally services that host workflows should be somewhat isolated and contain no other concerns. 
 
-An event is a message emitted by the system when "something" happens. Again this could be a technical task being completed such as `DatabaseBackedup`, `LoadBalancerScaledOut` or as a result of changes in your business `CreditCardCharged`, `MerchandisePosted`.
+```bash
+npm i reflect-metadata inversify @node-ts/bus-workflow @node-ts/bus-core
+```

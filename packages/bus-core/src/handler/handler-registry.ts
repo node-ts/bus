@@ -1,10 +1,10 @@
 import { Message } from '@node-ts/bus-messages'
-import { Container, decorate, inject, injectable } from 'inversify'
+import { Container, decorate, inject, injectable, interfaces } from 'inversify'
 import { ClassConstructor, isClassConstructor } from '../util/class-constructor'
 import { Handler, HandlerPrototype } from './handler'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 
-type HandlerType = ClassConstructor<Handler<Message>> | (() => Handler<Message>)
+type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
 
 interface HandlerRegistration<MessageType extends Message> {
   defaultContainer: Container
@@ -25,6 +25,8 @@ interface HandlerRegistrations {
   [key: string]: RegisteredHandlers
 }
 
+type MessageName = string
+
 /**
  * An internal singleton that contains all registrations of messages to functions that handle
  * those messages.
@@ -34,7 +36,7 @@ export class HandlerRegistry {
 
   private registry: HandlerRegistrations = {}
   private container: Container
-  private unhandledMessages: string[] = []
+  private unhandledMessages: MessageName[] = []
 
   constructor (
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
@@ -42,10 +44,10 @@ export class HandlerRegistry {
   }
 
   /**
-   * Registers a function handler for a message
+   * Registers that a function handles a particular message type
    * @param messageName Name of the message to register, from the `$name` property of the message.
-   * @param symbol A unique symbol to identify the registration mapping
-   * @param handler A function handler to dispatch messages to as they arrive
+   * @param symbol A unique symbol to identify the binding of the message to the function
+   * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
    */
   register<TMessage extends Message> (
@@ -56,47 +58,52 @@ export class HandlerRegistry {
   ): void {
 
     if (!this.registry[messageName]) {
+      // Register that the message will have subscriptions
       this.registry[messageName] = {
         messageType,
         handlers: []
       }
     }
 
-    const constructorName = getHandlerConstructorName(handler)
+    const handlerName = getHandlerName(handler)
     const handlerAlreadyRegistered = this.registry[messageName].handlers.some(f => f.symbol === symbol)
 
     if (handlerAlreadyRegistered) {
-      this.logger.warn('Handler attempted to be re-registered', { handlerName: constructorName })
+      this.logger.warn(`Attempted to re-register a handler that's already registered`, { handlerName })
     } else {
       if (isClassConstructor(handler)) {
-        const registeredHandlers = [].concat.apply(
+        const allRegisteredHandlers = [].concat.apply(
           [],
-          Object.keys(this.registry).map(k => this.registry[k].handlers)
+          Object.keys(this.registry).map(msgName => this.registry[msgName].handlers)
         ) as HandlerBinding[]
 
-        const handlerNameAlreadyRegistered = registeredHandlers
+        const handlerNameAlreadyRegistered = allRegisteredHandlers
           .some((f: HandlerBinding) => f.handler.name === handler.name)
 
         if (handlerNameAlreadyRegistered) {
           throw new Error(
-            `Attempted to register multiple handlers with the same name ("${handler.name}").`
-            + `Handler names must be unique`
+            `Attempted to register a handler, when a handler with the same name has already been registered. `
+            + `Handlers must be registered with a unique name - "${handler.name}"`
           )
         }
+
         try {
+          // Ensure the handler is available for injection
           decorate(injectable(), handler)
-        } catch (error) {
-          this.logger.debug('Handler already already has the "injectable()" decorator attached')
+          this.logger.trace(`Handler "${handler.name}" was missing the "injectable()" decorator. `
+            + `This has been added automatically`)
+        } catch {
+          // An error is expected here if the injectable() decorator was attached to the handler
         }
       } else {
-        throw new Error(`Handler should be a class type (${handler})`)
+        throw new Error(`Attempted to register a handler that isn't a class type (${handlerName}).`)
       }
       const handlerDetails: HandlerBinding = {
         symbol,
         handler
       }
       this.registry[messageName].handlers.push(handlerDetails)
-      this.logger.info('Handler registered', { messageType: messageName, handler: constructorName })
+      this.logger.info('Handler registered', { messageType: messageName, handler: handlerName })
     }
   }
 
@@ -122,7 +129,7 @@ export class HandlerRegistry {
         try {
           return container.get<Handler<MessageType>>(h.symbol)
         } catch (error) {
-          this.logger.error('Could not resolve instance of handler.', { messageType: messageName, error })
+          this.logger.error('Could not get handlers for message from the IoC container.', { messageName, error })
           throw error
         }
       }
@@ -167,9 +174,10 @@ export class HandlerRegistry {
   private bindHandlers (): void {
     Object.keys(this.registry).forEach(messageName => {
       const messageHandler = this.registry[messageName]
+
       messageHandler.handlers.forEach(handlerRegistration => {
-        const handlerName = getHandlerConstructorName(handlerRegistration.handler)
-        this.logger.info('Binding handler for message.', { messageName, handlerName })
+        const handlerName = getHandlerName(handlerRegistration.handler)
+        this.logger.info('Binding handler to message', { messageName, handlerName })
 
         if (isClassConstructor(handlerRegistration.handler)) {
           this.container
@@ -187,7 +195,7 @@ export class HandlerRegistry {
   }
 }
 
-function getHandlerConstructorName (handler: HandlerType): string {
+function getHandlerName (handler: HandlerType): string {
   return isClassConstructor(handler)
     ? (handler.prototype as HandlerPrototype).constructor.name
     : handler.constructor.name
