@@ -170,7 +170,6 @@ export class HandlerRegistry {
     return handler.constructor.name
   }
 
-
   private bindHandlers (): void {
     Object.keys(this.registry).forEach(messageName => {
       const messageHandler = this.registry[messageName]

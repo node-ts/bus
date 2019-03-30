@@ -38,6 +38,10 @@
       "packages/**/*.ts",
       "!packages/**/index.ts"
     ],
+    "collectCoverage": true,
+    "coverageReporters": [
+      "text"
+    ],
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
@@ -62,9 +66,6 @@
     ],
     "testEnvironment": "node",
     "bail": true,
-    "coverageReporters": [
-      "html"
-    ],
     "globals": {
       "ts-jest": {
         "babelConfig": true

@@ -2,6 +2,7 @@ import { HandlerRegistry } from './handler-registry'
 import { Mock, IMock, Times, It } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
 import { TestEvent, TestEventHandler, TestCommandHandler } from '../test'
+import { Container, interfaces } from 'inversify'
 
 describe('HandlerRegistry', () => {
   let sut: HandlerRegistry
@@ -21,10 +22,47 @@ describe('HandlerRegistry', () => {
   })
 
   describe('when registring a handler', () => {
-    it('should register the handler', () => {
+    beforeEach(() => {
       sut.register(messageName, symbol, handler, messageType)
+    })
+
+    it('should register the handler', () => {
       const handlers = sut.get(messageName)
       expect(handlers).toHaveLength(1)
+    })
+
+    describe('when binding handlers to the container', () => {
+      let container: IMock<Container>
+      let bindingTo: IMock<interfaces.BindingToSyntax<{}>>
+      let bindingWhenOn: IMock<interfaces.BindingInWhenOnSyntax<{}>>
+
+      beforeEach(() => {
+        container = Mock.ofType<Container>()
+        bindingTo = Mock.ofType<interfaces.BindingToSyntax<{}>>()
+        bindingWhenOn = Mock.ofType<interfaces.BindingInWhenOnSyntax<{}>>()
+
+        container
+          .setup(c => c.bind(It.isAny()))
+          .returns(() => bindingTo.object)
+          .verifiable(Times.once())
+
+        bindingTo
+          .setup(b => b.to(handler))
+          .returns(() => bindingWhenOn.object)
+          .verifiable(Times.once())
+
+        bindingWhenOn
+          .setup(b => b.inTransientScope())
+          .verifiable(Times.once())
+
+        sut.bindHandlersToContainer(container.object)
+      })
+
+      it('should bind each handler', () => {
+        container.verifyAll()
+        bindingTo.verifyAll()
+        bindingWhenOn.verifyAll()
+      })
     })
   })
 
@@ -34,7 +72,7 @@ describe('HandlerRegistry', () => {
       sut.register(messageName, symbol, handler, messageType)
     })
 
-    fit('should warn that the handler is already registered', () => {
+    it('should warn that the handler is already registered', () => {
       logger.verify(
         l => l.warn('Attempted to re-register a handler that\'s already registered', It.isAny()),
         Times.once()
