@@ -1,4 +1,4 @@
-import { WorkflowData, WorkflowDataStatus } from './workflow-data'
+import { WorkflowData, WorkflowStatus } from './workflow-data'
 
 /**
  * Writes any final changes to the workflow data and flags that the workflow is now complete. Any further messages
@@ -9,6 +9,6 @@ export function workflowComplete<WorkflowDataType extends WorkflowData> (
 ): WorkflowDataType {
   return {
     ...data,
-    $status: WorkflowDataStatus.Complete
+    $status: WorkflowStatus.Complete
   }
 }

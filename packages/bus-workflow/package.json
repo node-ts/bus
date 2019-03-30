@@ -23,6 +23,7 @@
     "@types/uuid": "^3.4.4",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
+    "typemoq": "^2.1.0",
     "typescript": "^3.3.3"
   },
   "peerDependencies": {

@@ -38,7 +38,7 @@
       "packages/**/*.ts",
       "!packages/**/index.ts"
     ],
-    "collectCoverage": true,
+    "collectCoverage": false,
     "coverageReporters": [
       "text"
     ],

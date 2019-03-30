@@ -1,6 +1,6 @@
 import { injectable } from 'inversify'
 
-export enum WorkflowDataStatus {
+export enum WorkflowStatus {
   /**
    * The workflow is still active and has not yet finished
    */
@@ -32,7 +32,7 @@ export abstract class WorkflowData {
   /**
    * Marks if the workflow is currently running or has ended
    */
-  $status: WorkflowDataStatus
+  $status: WorkflowStatus
 
   /**
    * A unique name for the workflow data. This should be formatted in a namespace style,
