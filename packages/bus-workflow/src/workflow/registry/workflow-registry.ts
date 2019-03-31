@@ -35,13 +35,13 @@ export class WorkflowRegistry {
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
     @inject(WORKFLOW_SYMBOLS.Persistence) private readonly persistence: Persistence,
     @inject(WORKFLOW_INTERNAL_SYMBOLS.StartedByProxy) private readonly startedByFactory: (
-        dataConstructor: WorkflowDataConstructor<WorkflowData>,
+        workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
         handler: WorkflowHandlerFn<Message, WorkflowData>
       ) => StartedByProxy<Message, WorkflowData>,
     @inject(WORKFLOW_INTERNAL_SYMBOLS.HandlesProxy) private readonly handlesFactory: (
       handler: WorkflowHandlerFn<Message, WorkflowData>,
-      dataConstructor: WorkflowDataConstructor<WorkflowData>,
-      messageMapper: MessageWorkflowMapping<Message, WorkflowData>
+      workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
+      messageMapping: MessageWorkflowMapping<Message, WorkflowData>
     ) => HandlesProxy<Message, WorkflowData>
   ) {
   }
@@ -106,7 +106,7 @@ export class WorkflowRegistry {
 
     startedByHandlers.forEach(step => {
       const messageName = new step.messageConstructor().$name
-      const handler = (context: interfaces.Context) => {
+      const handlerFactory = (context: interfaces.Context) => {
         const workflow = context.container.resolve(registration.workflowConstructor) as PropertyObject
         type HandlerFn = WorkflowHandlerFn<Message, WorkflowData>
         return this.startedByFactory(
@@ -118,7 +118,7 @@ export class WorkflowRegistry {
       this.handlerRegistry.register(
         messageName,
         Symbol.for(`node-ts/bus/workflow/${messageName}-started-by-proxy`),
-        handler,
+        handlerFactory,
         step.messageConstructor
       )
     })

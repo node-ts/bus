@@ -5,4 +5,5 @@ export class TestWorkflowData extends WorkflowData {
   $name = TestWorkflowData.NAME
 
   property1: string
+  eventValue: string
 }

@@ -1,4 +1,4 @@
-export const handlerIdProperty = Symbol('node-ts/workflow/handler-id-property')
+export const handlerIdProperty = Symbol.for('node-ts/workflow/handler-id-property')
 
 export interface HandlerWithId {
   readonly [handlerIdProperty]: string

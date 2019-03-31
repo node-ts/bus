@@ -1,5 +1,5 @@
-import { ClassConstructor } from '../../utility'
 import { Message } from '@node-ts/bus-messages'
+import { ClassConstructor } from '../../utility'
 import { WorkflowData } from '../workflow-data'
 import { ReflectExtensions } from '../../utility/reflect-extensions'
 import { Workflow, WorkflowConstructor } from '../workflow'

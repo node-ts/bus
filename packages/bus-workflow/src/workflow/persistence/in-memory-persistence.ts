@@ -3,6 +3,7 @@ import { WorkflowData, WorkflowStatus } from '../workflow-data'
 import { ClassConstructor } from '../../utility'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message } from '@node-ts/bus-messages'
+import { injectable } from 'inversify'
 
 interface WorkflowStorage {
   [workflowDataName: string]: WorkflowData[]
@@ -13,6 +14,7 @@ interface WorkflowStorage {
  * be warned that all workflow data will not survive a process restart or application shut down. As
  * such this should only be used for testing, prototyping or handling unimportant workflows.
  */
+@injectable()
 export class InMemoryPersistence implements Persistence {
 
   private workflowData: WorkflowStorage = {}

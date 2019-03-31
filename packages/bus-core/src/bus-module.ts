@@ -6,6 +6,7 @@ import { JsonSerializer } from './serialization'
 import { ApplicationBootstrap } from './application-bootstrap'
 import { HandlerRegistry } from './handler'
 import { ClassConstructor } from './util'
+import { bindLogger } from '@node-ts/logger-core'
 
 export class BusModule extends ContainerModule {
 
@@ -25,5 +26,6 @@ function bindService<T> (
   symbol: symbol,
   service: ClassConstructor<T>
 ): interfaces.BindingInWhenOnSyntax<{}> {
+  bindLogger(bind, service)
   return bind(symbol).to(service)
 }

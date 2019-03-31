@@ -95,8 +95,6 @@ export class HandlerRegistry {
         } catch {
           // An error is expected here if the injectable() decorator was attached to the handler
         }
-      } else {
-        throw new Error(`Attempted to register a handler that isn't a class type (${handlerName}).`)
       }
       const handlerDetails: HandlerBinding = {
         symbol,

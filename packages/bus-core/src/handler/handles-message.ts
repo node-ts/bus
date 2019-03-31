@@ -24,6 +24,6 @@ export function HandlesMessage<
     const prototype = handlerConstructor.prototype as HandlerPrototype
     prototype.$messageName = message.$name
     prototype.$message = messageConstructor
-    prototype.$symbol = Symbol()
+    prototype.$symbol = Symbol.for(`node-ts/bus-core/handles-message/${handlerConstructor.name}`)
   }
 }

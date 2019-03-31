@@ -10,17 +10,17 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
   extends WorkflowHandlerProxy<TMessage, TWorkflowData> {
 
   constructor (
-    underlyingHandler: WorkflowHandlerFn<TMessage, TWorkflowData>,
-    dataConstructor: WorkflowDataConstructor<TWorkflowData>,
-    private messageMapper: MessageWorkflowMapping<TMessage, TWorkflowData>,
+    handler: WorkflowHandlerFn<TMessage, TWorkflowData>,
+    workflowDataConstructor: WorkflowDataConstructor<TWorkflowData>,
+    private messageMapping: MessageWorkflowMapping<TMessage, TWorkflowData>,
     persistence: Persistence,
     logger: Logger
   ) {
-    super(underlyingHandler, dataConstructor, persistence, logger)
+    super(handler, workflowDataConstructor, persistence, logger)
   }
 
   async getWorkflowData (message: TMessage): Promise<TWorkflowData[]> {
-    const searchValue = this.messageMapper.lookupMessage(message)
+    const searchValue = this.messageMapping.lookupMessage(message)
 
     if (!searchValue) {
       this.logger.trace('Message mapper returned undefined and will not resolve to any workflow data.', {
@@ -32,7 +32,7 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
 
     return this.persistence.getWorkflowData<TWorkflowData, TMessage>(
       this.workflowDataConstructor,
-      this.messageMapper,
+      this.messageMapping,
       message
     )
   }

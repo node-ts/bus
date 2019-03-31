@@ -1,5 +1,6 @@
 export const WORKFLOW_SYMBOLS = {
-  Persistence: Symbol.for('node-ts/workflow/persistence')
+  Persistence: Symbol.for('node-ts/workflow/persistence'),
+  WorkflowRegistry: Symbol.for('node-ts/workflow/workflow-registry')
 }
 
 export const WORKFLOW_INTERNAL_SYMBOLS = {
