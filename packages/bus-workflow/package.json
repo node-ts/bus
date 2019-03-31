@@ -40,6 +40,8 @@
     "microservices",
     "distributed systems",
     "CQRS",
-    "ES"
+    "ES",
+    "NServiceBus",
+    "Mule ESB"
   ]
 }
