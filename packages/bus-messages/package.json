@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-messages",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
