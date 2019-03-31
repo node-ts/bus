@@ -12,8 +12,8 @@
     "lint:fix": "yarn lint --fix"
   },
   "dependencies": {
-    "@node-ts/bus-core": "^0.0.2",
-    "@node-ts/bus-messages": "^0.0.2",
+    "@node-ts/bus-core": "^0.0.8",
+    "@node-ts/bus-messages": "^0.0.6",
     "@node-ts/logger-core": "^0.0.9",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"

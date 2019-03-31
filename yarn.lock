@@ -759,19 +759,6 @@
     call-me-maybe "^1.0.1"
     glob-to-regexp "^0.3.0"
 
-"@node-ts/bus-core@^0.0.2":
-  version "0.0.2"
-  resolved "https://registry.yarnpkg.com/@node-ts/bus-core/-/bus-core-0.0.2.tgz#962d413d7ac63b5a7a77da3421293420d17cd508"
-  integrity sha512-6X1vS6aER23byoxSzYcCxCCbqQ/OALnD+y1MX8Ds9MzuLKUD/7VEiL4eZaGDneBLu4IsgejoJLRKrl0BwfcG1w==
-  dependencies:
-    "@node-ts/bus-messages" "^0.0.2"
-    "@node-ts/logger-core" "^0.0.6"
-    "@types/node" "^10.12.24"
-    autobind-decorator "^2.4.0"
-    inversify "^5.0.1"
-    reflect-metadata "^0.1.13"
-    tslib "^1.9.3"
-
 "@node-ts/bus-messages@^0.0.2":
   version "0.0.2"
   resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.0.2.tgz#32d00e6b1e8751aa0d8dceaecb15e65c10433a71"

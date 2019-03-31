@@ -8,7 +8,7 @@ import { sleep } from '../utility'
 import { WorkflowStatus } from './workflow-data'
 import { WorkflowRegistry } from './registry/workflow-registry'
 import { WorkflowModule } from '../workflow-module'
-import { LOGGER_SYMBOLS, LoggerModule, ConsoleLogger } from '@node-ts/logger-core'
+import { LoggerModule } from '@node-ts/logger-core'
 
 describe('Workflow', () => {
   let container: Container
@@ -19,7 +19,6 @@ describe('Workflow', () => {
     container.load(new LoggerModule())
     container.load(new BusModule())
     container.load(new WorkflowModule())
-    container.bind(LOGGER_SYMBOLS.Logger).toConstantValue(new ConsoleLogger('Workflow Test'))
 
     persistence = container.get<Persistence>(WORKFLOW_SYMBOLS.Persistence)
 
