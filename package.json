@@ -23,7 +23,7 @@
     "node"
   ],
   "dependencies": {
-    "@node-ts/code-standards": "^0.0.8",
+    "@node-ts/code-standards": "^0.0.10",
     "@types/jest": "^24.0.1",
     "inversify": "^5.0.1",
     "jest": "^24.1.0",
