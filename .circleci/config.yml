@@ -32,7 +32,7 @@ jobs:
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
           name: Publish core
-          command: npx lerna publish from-package
+          command: npx lerna publish from-package --yes
 
 workflows:
   version: 2
