@@ -2,6 +2,8 @@ import { InMemoryPersistence } from './in-memory-persistence'
 import { TestWorkflowData, TestCommand } from '../../test'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowStatus } from '../workflow-data'
+import { Mock } from 'typemoq'
+import { Logger } from '@node-ts/logger-core'
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
@@ -11,7 +13,9 @@ describe('InMemoryPersistence', () => {
   )
 
   beforeEach(() => {
-    sut = new InMemoryPersistence()
+    sut = new InMemoryPersistence(
+      Mock.ofType<Logger>().object
+    )
   })
 
   describe('when getting workflow data', () => {
