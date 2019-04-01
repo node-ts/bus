@@ -7,13 +7,15 @@ import { StartedByProxy } from './workflow/registry/started-by-proxy'
 import { Message } from '@node-ts/bus-messages'
 import { WorkflowData, WorkflowDataConstructor } from './workflow'
 import { WorkflowHandlerFn } from './workflow/registry/workflow-handler-fn'
-import { LOGGER_SYMBOLS, LoggerFactory } from '@node-ts/logger-core'
-import { MessageWorkflowMapping } from './workflow/message-workflow-mapping';
+import { LOGGER_SYMBOLS, LoggerFactory, bindLogger } from '@node-ts/logger-core'
+import { MessageWorkflowMapping } from './workflow/message-workflow-mapping'
 
 export class WorkflowModule extends ContainerModule {
   constructor () {
     super (bind => {
       bind(WORKFLOW_SYMBOLS.Persistence).to(InMemoryPersistence).inSingletonScope()
+      bindLogger(bind, InMemoryPersistence)
+
       bind(WORKFLOW_SYMBOLS.WorkflowRegistry).to(WorkflowRegistry).inSingletonScope()
 
       bind<StartedByProxy<Message, WorkflowData>>(WORKFLOW_INTERNAL_SYMBOLS.StartedByProxy)

@@ -69,6 +69,13 @@ export class WorkflowRegistry {
     })
   }
 
+  /**
+   * Initialize all services that are used to support workflows. This registers all messages subscribed to
+   * in workflows as handlers with the bus, as well as initializing the persistence service so that workflow
+   * states can be stored.
+   *
+   * This should be called once as the application is starting.
+   */
   async initializeWorkflows (): Promise<void> {
     if (this.isInitialized || this.isInitializing) {
       throw new Error('Attempted to initialize workflow registry after it has already been initialized.')

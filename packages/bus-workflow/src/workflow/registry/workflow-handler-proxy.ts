@@ -43,11 +43,11 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
 
       if (workflowDataOutput) {
         this.logger.trace('Changes detected in workflow data and will be persisted.')
-        const updatedWorkflowData = {
-          ...new this.workflowDataConstructor(),
-          ...workflowData,
-          ...workflowDataOutput
-        }
+        const updatedWorkflowData = Object.assign(
+          new this.workflowDataConstructor(),
+          workflowData,
+          workflowDataOutput
+        )
         await this.persist(updatedWorkflowData)
       } else {
         this.logger.trace('No changes detected in workflow data.')

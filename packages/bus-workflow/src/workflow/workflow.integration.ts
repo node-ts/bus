@@ -24,10 +24,10 @@ describe('Workflow', () => {
 
     const workflowRegistry = container.get<WorkflowRegistry>(WORKFLOW_SYMBOLS.WorkflowRegistry)
     workflowRegistry.register(TestWorkflow, TestWorkflowData)
+    await workflowRegistry.initializeWorkflows()
 
     const bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     await bootstrap.initialize(container)
-    await workflowRegistry.initializeWorkflows()
   })
 
   describe('when a message that starts a workflow is received', () => {

@@ -9,7 +9,5 @@ export class TestContainer extends Container {
     super()
     this.load(new LoggerModule())
     this.load(new BusModule())
-
-    this.bind(LOGGER_SYMBOLS.Logger).toConstantValue(Mock.ofType<Logger>().object)
   }
 }

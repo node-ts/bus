@@ -19,10 +19,10 @@ export class TestWorkflow implements Workflow<TestWorkflowData> {
   @StartedBy<TestCommand, TestWorkflowData, 'handleTestCommand'>(TestCommand)
   async handleTestCommand (command: TestCommand): Promise<TestWorkflowData> {
     await this.bus.send(new RunTask(command.property1!))
-    return {
-      ...new TestWorkflowData(),
-      property1: command.property1!
-    }
+    return Object.assign(
+      new TestWorkflowData(),
+      { property1: command.property1! }
+    )
   }
 
   @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'eventValue')

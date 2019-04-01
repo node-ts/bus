@@ -3,7 +3,8 @@ import { WorkflowData, WorkflowStatus } from '../workflow-data'
 import { ClassConstructor } from '../../utility'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message } from '@node-ts/bus-messages'
-import { injectable } from 'inversify'
+import { injectable, inject } from 'inversify'
+import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 
 interface WorkflowStorage {
   [workflowDataName: string]: WorkflowData[]
@@ -18,6 +19,11 @@ interface WorkflowStorage {
 export class InMemoryPersistence implements Persistence {
 
   private workflowData: WorkflowStorage = {}
+
+  constructor (
+    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
+  ) {
+  }
 
   async initializeWorkflow<TWorkflowData extends WorkflowData> (
     workflowDataConstructor: ClassConstructor<TWorkflowData>,
