@@ -11,6 +11,9 @@
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
     "lint:fix": "yarn lint --fix"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@node-ts/bus-core": "^0.0.8",
     "@node-ts/bus-messages": "^0.0.6",

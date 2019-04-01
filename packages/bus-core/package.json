@@ -9,6 +9,9 @@
   "scripts": {
     "build": "tsc --project tsconfig.json --declaration"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@node-ts/bus-messages": "^0.0.2",
     "@node-ts/logger-core": "^0.0.6",
