@@ -1,5 +1,8 @@
 # @node-ts/bus-workflow
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+[![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)
+
 Workflows (aka sagas, process managers, long running processes, message driven state machines), are a way to orchestrate higher level logic over a distributed or reliable/durable system. This is a key [enterprise integration pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html).
 
 ![Workflow](assets/workflow.gif?raw=true "Workflow")
