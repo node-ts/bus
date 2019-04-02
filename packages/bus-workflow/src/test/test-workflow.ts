@@ -6,7 +6,7 @@ import { TestCommand } from './test-command'
 import { StartedBy, Handles } from '../workflow/decorators'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
-import { workflowComplete } from '../workflow/workflow-complete'
+import { completeWorkflow } from '../workflow/complete-workflow'
 
 @injectable()
 export class TestWorkflow implements Workflow<TestWorkflowData> {
@@ -27,7 +27,7 @@ export class TestWorkflow implements Workflow<TestWorkflowData> {
 
   @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'eventValue')
   async handleTaskRan (event: TaskRan, data: TestWorkflowData): Promise<Partial<TestWorkflowData>> {
-    return workflowComplete({
+    return completeWorkflow({
       ...data,
       eventValue: event.value
     })

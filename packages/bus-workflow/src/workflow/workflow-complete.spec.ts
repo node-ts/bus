@@ -1,11 +1,11 @@
-import { workflowComplete } from './workflow-complete'
+import { completeWorkflow } from './complete-workflow'
 import { TestWorkflowData } from '../test'
 import { WorkflowStatus } from './workflow-data'
 
-describe('WorkflowComplete', () => {
+describe('CompleteWorkflow', () => {
   it('should set the workflow status to complete', () => {
     const workflow = new TestWorkflowData()
-    const result = workflowComplete(workflow)
+    const result = completeWorkflow(workflow)
     expect(result.$status).toEqual(WorkflowStatus.Complete)
   })
 })
