@@ -1,5 +1,7 @@
 # @node-ts/bus
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+
 An enterprise service bus for distributed node applications.
 
 This library is inspired by [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/), as well as other message based libraries such as [NServiceBus](https://particular.net/nservicebus) for .NET and [Mule ESB](https://www.mulesoft.com/resources/esb/what-mule-esb) for Java. It provides a simple way to send and receive messages in node.
