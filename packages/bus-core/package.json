@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.1.1",
-    "@node-ts/logger-core": "^0.0.13",
     "@types/node": "^11.12.2",
     "autobind-decorator": "^2.4.0",
     "inversify": "^5.0.1",
@@ -22,6 +21,7 @@
     "tslib": "^1.9.3"
   },
   "devDependencies": {
+    "@node-ts/logger-core": "^0.0.13",
     "@node-ts/code-standards": "^0.0.10",
     "inversify": "^5.0.1",
     "tslint": "^5.12.1",
@@ -29,6 +29,7 @@
     "typescript": "^3.3.3"
   },
   "peerDependencies": {
+    "@node-ts/logger-core": "^0.0.13",
     "inversify": ">= 5.0.1"
   },
   "keywords": [
