@@ -11,7 +11,7 @@ export async function sleep (timeoutMs: number): Promise<void> {
 
 const configuration: RabbitMqTransportConfiguration = {
   queueName: 'node-ts/bus-rabbitmq-test',
-  connectionString: 'amqp://guest:guest@localhost'
+  connectionString: 'amqp://guest:guest@0.0.0.0'
 }
 
 describe('RabbitMqTransport', () => {
