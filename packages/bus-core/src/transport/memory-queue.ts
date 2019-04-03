@@ -3,7 +3,7 @@ import { Transport } from './transport'
 import { Event, Command, Message } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 
-interface InMemoryMessage {
+export interface InMemoryMessage {
   isProcessing: boolean
   payload: Message
 }
