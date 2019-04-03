@@ -2,7 +2,7 @@ import { ContainerModule } from 'inversify'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { connect } from 'amqplib'
 import { RabbitMqTransport } from './rabbitmq-transport'
-import { bindLogger } from '@node-ts/logger-core';
+import { bindLogger } from '@node-ts/logger-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 export class BusRabbitMqModule extends ContainerModule {

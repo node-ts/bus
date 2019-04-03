@@ -66,7 +66,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    await this.channel.ack(message.raw)
+    this.channel.ack(message.raw)
   }
 
   async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
