@@ -1,0 +1,56 @@
+{
+  "name": "@node-ts/bus-rabbitmq",
+  "version": "0.0.1",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "repository": "github:node-ts/bus.git",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.json --declaration",
+    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
+    "lint:fix": "yarn lint --fix"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@node-ts/bus-core": "^0.1.4",
+    "@node-ts/bus-messages": "^0.1.1",
+    "amqplib": "^0.5.3",
+    "tslib": "^1.9.3",
+    "uuid": "^3.3.2"
+  },
+  "devDependencies": {
+    "@node-ts/bus-core": "^0.1.4",
+    "@node-ts/code-standards": "^0.0.10",
+    "@node-ts/logger-core": "^0.0.13",
+    "@types/amqplib": "^0.5.11",
+    "@types/uuid": "^3.4.4",
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13",
+    "typemoq": "^2.1.0",
+    "typescript": "^3.3.3"
+  },
+  "peerDependencies": {
+    "@node-ts/bus-core": "^0.1.4",
+    "@node-ts/logger-core": "^0.0.13",
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13"
+  },
+  "keywords": [
+    "rabbitmq",
+    "typescript",
+    "enterprise integration patterns",
+    "bus",
+    "messaging",
+    "microservices",
+    "distributed systems",
+    "framework",
+    "enterprise framework",
+    "CQRS",
+    "ES",
+    "NServiceBus",
+    "Mule ESB"
+  ]
+}

@@ -18,7 +18,7 @@ export class ServiceBus implements Bus {
   private runningWorkerCount = 0
 
   constructor (
-    @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport,
+    @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry
   ) {
@@ -81,11 +81,12 @@ export class ServiceBus implements Bus {
     try {
       const message = await this.transport.readNextMessage()
 
+      await this.transport.deleteMessage(message!)
       if (message) {
         this.logger.debug('Message read from transport', { message })
 
         try {
-          await this.dispatchMessageToHandlers(message)
+          await this.dispatchMessageToHandlers(message.domainMessage)
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {

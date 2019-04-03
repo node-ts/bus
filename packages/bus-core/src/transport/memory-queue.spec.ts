@@ -1,6 +1,7 @@
-import { MemoryQueue } from './memory-queue'
+import { MemoryQueue, InMemoryMessage } from './memory-queue'
 import { TestEvent } from '../test/test-event'
 import { TestCommand } from '../test/test-command'
+import { TransportMessage } from '../../dist';
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -35,7 +36,7 @@ describe('MemoryQueue', () => {
     it('should return the message when the queue has one', async () => {
       await sut.publish(event)
       const message = await sut.readNextMessage()
-      expect(message).toEqual(event)
+      expect(message!.domainMessage).toEqual(event)
     })
 
     it('should return the oldest message when there are many', async () => {
@@ -43,20 +44,28 @@ describe('MemoryQueue', () => {
       await sut.send(command)
 
       const firstMessage = await sut.readNextMessage()
-      expect(firstMessage).toEqual(event)
+      expect(firstMessage!.domainMessage).toEqual(event)
 
       const secondMessage = await sut.readNextMessage()
-      expect(secondMessage).toEqual(command)
+      expect(secondMessage!.domainMessage).toEqual(command)
     })
   })
 
   describe('when returning a message back onto the queue', () => {
-    it('should insert it at the start', async () => {
+    let message: TransportMessage<InMemoryMessage> | undefined
+    beforeEach(async () => {
       await sut.publish(event)
-      await sut.returnMessage(command)
-      expect(sut.depth).toEqual(2)
-      const firstMessage = await sut.readNextMessage()
-      expect(firstMessage).toEqual(command)
+      message = await sut.readNextMessage()
+    })
+
+    it('should toggle the inProcessing flag to true when read', () => {
+      expect(message).toBeDefined()
+      expect(message!.raw.isProcessing).toEqual(true)
+    })
+
+    it('should toggle the inProcessing flag to false', async () => {
+      await sut.returnMessage(message!)
+      expect(message!.raw.isProcessing).toEqual(false)
     })
   })
 })
