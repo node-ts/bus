@@ -1,5 +1,6 @@
-import { Event, Command, Message } from '@node-ts/bus-messages'
+import { Event, Command } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
+import { HandlerRegistry } from '../handler'
 
 export interface Transport<TransportMessageType> {
   publish<TEvent extends Event> (event: TEvent): Promise<void>
@@ -7,6 +8,6 @@ export interface Transport<TransportMessageType> {
   readNextMessage (): Promise<TransportMessage<TransportMessageType> | undefined>
   deleteMessage (message: TransportMessage<TransportMessageType>): Promise<void>
   returnMessage (message: TransportMessage<TransportMessageType>): Promise<void>
-  initialize? (): Promise<void>
+  initialize? (handlerRegistry: HandlerRegistry): Promise<void>
   dispose? (): Promise<void>
 }
