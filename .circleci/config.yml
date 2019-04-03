@@ -27,14 +27,14 @@ jobs:
       - run:
           name: Unit Test
           command: yarn run test:unit
-      - setup_remote_docker
-      - run:
-          name: Integration Test
-          command: |
-            docker run --name rabbit -d -p 8080:15672 -p 5672:5672 rabbitmq:3-management
-            docker create -v /repo --name repo alpine:3.4 /bin/true
-            docker cp . repo:/repo
-            docker run -it --volumes-from repo --workdir /repo/bus node:8.15.0 yarn test:integration
+      # - setup_remote_docker
+      # - run:
+      #     name: Integration Test
+      #     command: |
+      #       docker run --name rabbit -d -p 8080:15672 -p 5672:5672 rabbitmq:3-management
+      #       docker create -v /repo --name repo alpine:3.4 /bin/true
+      #       docker cp . repo:/repo
+      #       docker run -it --volumes-from repo --workdir /repo/bus node:8.15.0 yarn test:integration
 
   deploy:
     <<: *defaults
