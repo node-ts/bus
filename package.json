@@ -14,8 +14,8 @@
     "lint": "lerna run lint",
     "test": "yarn test:unit && yarn test:integration",
     "test:unit": "jest \"(src\\/.+\\.|/)spec\\.ts$\"",
-    "test:integration": "jest --runInBand \"(src\\/.+\\.|/)rabbitmq-transport.integration\\.ts$\"",
-    "test:watch": "yarn run test --watch"
+    "test:unit:watch": "yarn run test:unit --watch",
+    "test:integration": "jest --runInBand \"(src\\/.+\\.|/)rabbitmq-transport.integration\\.ts$\""
   },
   "keywords": [
     "typescript",

@@ -28,7 +28,7 @@ container.load(new BusRabbitMqModule())
 
 const rabbitConfiguration: RabbitMqTransportConfiguration = {
   queueName: 'accounts-application-queue',
-  connectionString: 'amqp://admin:password@localhost'
+  connectionString: 'amqp://guest:guest@localhost'
 }
 container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(rabbitConfiguration)
 ```

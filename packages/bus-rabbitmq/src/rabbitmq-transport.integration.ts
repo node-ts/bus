@@ -10,8 +10,8 @@ export async function sleep (timeoutMs: number): Promise<void> {
 }
 
 const configuration: RabbitMqTransportConfiguration = {
-  queueName: 'rabbitmq-queue',
-  connectionString: 'amqp://admin:password@localhost'
+  queueName: 'node-ts/bus-rabbitmq-test',
+  connectionString: 'amqp://guest:guest@localhost'
 }
 
 describe('RabbitMqTransport', () => {
@@ -56,10 +56,6 @@ describe('RabbitMqTransport', () => {
       const event = new TestEvent()
       beforeEach(async () => {
         await sut.publish(event)
-      })
-
-      afterEach(async () => {
-        await channel.purgeQueue(configuration.queueName)
       })
 
       it('should create a fanout exchange with the name of the event', async () => {
