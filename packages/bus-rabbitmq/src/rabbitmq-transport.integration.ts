@@ -3,14 +3,15 @@ import { TestContainer, TestEvent, TestCommand, TestCommandHandler } from '../te
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
 import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, HandlerRegistry } from '@node-ts/bus-core'
-import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration';
+import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
 }
 
 const configuration: RabbitMqTransportConfiguration = {
-  queueName: 'rabbitmq-queue'
+  queueName: 'rabbitmq-queue',
+  connectionString: 'amqp://admin:password@localhost'
 }
 
 describe('RabbitMqTransport', () => {
