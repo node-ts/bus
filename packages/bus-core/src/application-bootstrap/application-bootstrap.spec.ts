@@ -5,18 +5,22 @@ import { HandlerRegistry } from '../handler'
 import { Logger } from '@node-ts/logger-core'
 import { Container } from 'inversify'
 import { TestCommandHandler, TestCommand } from '../test'
+import { Transport } from '../transport'
 
 describe('ApplicationBootstrap', () => {
   let sut: ApplicationBootstrap
   let bus: IMock<Bus>
+  let transport: IMock<Transport>
   let handlerRegistry: IMock<HandlerRegistry>
 
   beforeEach(() => {
     bus = Mock.ofType<Bus>()
+    transport = Mock.ofType<Transport>()
     handlerRegistry = Mock.ofType<HandlerRegistry>()
 
     sut = new ApplicationBootstrap(
       bus.object,
+      transport.object,
       handlerRegistry.object,
       Mock.ofType<Logger>().object
     )

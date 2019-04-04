@@ -6,6 +6,7 @@ import { Handler, HandlerPrototype } from '../handler/handler'
 import { HandlerRegistry } from '../handler'
 import { Bus } from '../service-bus'
 import { ClassConstructor } from '../util'
+import { Transport } from '../transport'
 
 @injectable()
 export class ApplicationBootstrap {
@@ -14,14 +15,21 @@ export class ApplicationBootstrap {
 
   constructor (
     @inject(BUS_SYMBOLS.Bus) private bus: Bus,
+    @inject(BUS_SYMBOLS.Transport) private transport: Transport,
     @inject(BUS_SYMBOLS.HandlerRegistry) private handlerRegistry: HandlerRegistry,
     @inject(LOGGER_SYMBOLS.Logger) private logger: Logger
   ) {
   }
 
   async initialize (container: Container): Promise<void> {
+    if (this.isInitialized) {
+      throw new Error('Application already initialized')
+    }
     this.logger.info('Initializing bus application')
     this.handlerRegistry.bindHandlersToContainer(container)
+    if (this.transport.initialize) {
+      await this.transport.initialize(this.handlerRegistry)
+    }
     await this.bus.start()
     this.isInitialized = true
   }
