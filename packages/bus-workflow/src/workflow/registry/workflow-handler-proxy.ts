@@ -28,8 +28,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
       Ensure that the workflow data fields are immutable by consumers to ensure modifications are done
       via return values
     */
-    const mutableWorkflowDataItems = await this.getWorkflowData(message)
-    const workflowDataItems = mutableWorkflowDataItems.map(w => Object.freeze(w))
+    const workflowDataItems = await this.getWorkflowData(message)
 
     this.logger.debug('Workflow data retrieved', { workflowData: workflowDataItems, message })
 
@@ -39,16 +38,26 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
     }
 
     const handlerPromises = workflowDataItems.map(async workflowData => {
-      const workflowDataOutput = await this.handler(message, workflowData)
+      const immutableWorkflow = Object.freeze({...workflowData})
+      const workflowDataOutput = await this.handler(message, immutableWorkflow)
 
       if (workflowDataOutput) {
-        this.logger.trace('Changes detected in workflow data and will be persisted.')
+        this.logger.debug('Changes detected in workflow data and will be persisted.')
         const updatedWorkflowData = Object.assign(
           new this.workflowDataConstructor(),
           workflowData,
-          workflowDataOutput
+          workflowDataOutput,
+          { $version: workflowData.$version + 1 }
         )
-        await this.persist(updatedWorkflowData)
+        try {
+          await this.persist(updatedWorkflowData)
+        } catch (error) {
+          this.logger.warn(
+            'Error persisting workflow data',
+            { err: error, workflow: this.workflowDataConstructor.name }
+          )
+          throw error
+        }
       } else {
         this.logger.trace('No changes detected in workflow data.')
       }
@@ -57,7 +66,12 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
   }
 
   async persist (data: TWorkflowData): Promise<void> {
-    await this.persistence.saveWorkflowData(data)
+    try {
+      await this.persistence.saveWorkflowData(data)
+    } catch (err) {
+      this.logger.error('Error persisting workflow data', { err })
+      throw err
+    }
   }
 
   abstract getWorkflowData (message: TMessage): Promise<TWorkflowData[]>

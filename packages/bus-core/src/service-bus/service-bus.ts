@@ -61,10 +61,6 @@ export class ServiceBus implements Bus {
   }
 
   private async applicationLoop (): Promise<void> {
-    await this.handleMessageLoop()
-  }
-
-  private async handleMessageLoop (): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {
       const messageHandled = await this.handleNextMessage()
@@ -81,7 +77,6 @@ export class ServiceBus implements Bus {
     try {
       const message = await this.transport.readNextMessage()
 
-      await this.transport.deleteMessage(message!)
       if (message) {
         this.logger.debug('Message read from transport', { message })
 
@@ -107,9 +102,12 @@ export class ServiceBus implements Bus {
       this.logger.warn(`No handlers registered for message ${message.$name}. Message will be discarded`)
       return
     }
-    await Promise.all(handlers.map(async h => {
-      const handler = h.resolveHandler(h.defaultContainer)
-      await handler.handle(message)
+
+    const handlersToInvoke = handlers.map(h => h.resolveHandler(h.defaultContainer))
+    this.logger.debug('Dispatching message to handlers', { messageName: message.$name })
+
+    await Promise.all(handlersToInvoke.map(async h => {
+      await h.handle(message)
     }))
   }
 }

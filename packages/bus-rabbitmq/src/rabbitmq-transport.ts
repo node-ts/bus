@@ -29,11 +29,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
-    this.logger.info('Initializing rabbitmq transport')
+    this.logger.info('Initializing RabbitMQ transport')
     this.connection = await this.connectionFactory()
     this.channel = await this.connection.createChannel()
     await this.bindExchangesToQueue(handlerRegistry)
-    await this.channel.prefetch(1)
+    this.logger.info('RabbitMQ transport initialized')
   }
 
   async dispose (): Promise<void> {
@@ -66,15 +66,18 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
+    this.logger.debug('Deleting message', { rawMessage: message.raw })
     this.channel.ack(message.raw)
   }
 
   async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
+    this.logger.debug('Returning message', { rawMessage: message.raw })
     this.channel.nack(message.raw)
   }
 
   private async assertExchange (messageName: string): Promise<void> {
     if (!this.assertedExchanges[messageName]) {
+      this.logger.debug('Asserting exchange', { messageName })
       await this.channel.assertExchange(messageName, 'fanout', { durable: true })
       this.assertedExchanges[messageName] = true
     }
@@ -88,7 +91,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         const exchangeName = messageName
         await this.assertExchange(messageName)
 
-        this.logger.info('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
+        this.logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
       })
 

@@ -1,7 +1,9 @@
 import { MemoryQueue, InMemoryMessage } from './memory-queue'
 import { TestEvent } from '../test/test-event'
 import { TestCommand } from '../test/test-command'
-import { TransportMessage } from '../../dist';
+import { TransportMessage } from '../transport'
+import { Mock } from 'typemoq'
+import { Logger } from '@node-ts/logger-core'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -10,7 +12,9 @@ describe('MemoryQueue', () => {
   let sut: MemoryQueue
 
   beforeEach(() => {
-    sut = new MemoryQueue()
+    sut = new MemoryQueue(
+      Mock.ofType<Logger>().object
+    )
   })
 
   describe('when publishing an event', () => {
@@ -49,6 +53,17 @@ describe('MemoryQueue', () => {
       const secondMessage = await sut.readNextMessage()
       expect(secondMessage!.domainMessage).toEqual(command)
     })
+
+    it('should retain the queue depth while the message is unacknowledged', async () => {
+      await sut.publish(event)
+      expect(sut.depth).toEqual(1)
+
+      const message = await sut.readNextMessage()
+      expect(sut.depth).toEqual(1)
+
+      await sut.deleteMessage(message!)
+      expect(sut.depth).toEqual(0)
+    })
   })
 
   describe('when returning a message back onto the queue', () => {
@@ -58,14 +73,14 @@ describe('MemoryQueue', () => {
       message = await sut.readNextMessage()
     })
 
-    it('should toggle the inProcessing flag to true when read', () => {
+    it('should toggle the inFlight flag to true when read', () => {
       expect(message).toBeDefined()
-      expect(message!.raw.isProcessing).toEqual(true)
+      expect(message!.raw.inFlight).toEqual(true)
     })
 
-    it('should toggle the inProcessing flag to false', async () => {
+    it('should toggle the inFlight flag to false', async () => {
       await sut.returnMessage(message!)
-      expect(message!.raw.isProcessing).toEqual(false)
+      expect(message!.raw.inFlight).toEqual(false)
     })
   })
 })

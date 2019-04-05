@@ -59,7 +59,15 @@ export class InMemoryPersistence implements Persistence {
     const existingWorkflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
     const existingItem = existingWorkflowData.find(d => d.$workflowId === workflowData.$workflowId)
     if (existingItem) {
-      Object.assign(existingItem, workflowData)
+      try {
+        Object.assign(
+          existingItem,
+          workflowData
+        )
+      } catch (err) {
+        this.logger.error('Unable to update data', { err })
+        throw err
+      }
     } else {
       existingWorkflowData.push(workflowData)
     }

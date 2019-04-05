@@ -25,13 +25,30 @@ export class ApplicationBootstrap {
     if (this.isInitialized) {
       throw new Error('Application already initialized')
     }
-    this.logger.info('Initializing bus application')
+    this.logger.info('Initializing bus application...')
     this.handlerRegistry.bindHandlersToContainer(container)
     if (this.transport.initialize) {
       await this.transport.initialize(this.handlerRegistry)
     }
     await this.bus.start()
     this.isInitialized = true
+    this.logger.info('Bus application initialized')
+  }
+
+  async dispose (): Promise<void> {
+    if (!this.isInitialized) {
+      throw new Error('Application has not been initialized')
+    }
+
+    this.logger.info('Disposing bus application...')
+
+    await this.bus.stop()
+
+    if (this.transport.dispose) {
+      await this.transport.dispose()
+    }
+
+    this.logger.info('Bus application disposed')
   }
 
   registerHandler (handler: ClassConstructor<Handler<Message>>): void {

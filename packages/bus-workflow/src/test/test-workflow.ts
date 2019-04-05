@@ -25,7 +25,7 @@ export class TestWorkflow implements Workflow<TestWorkflowData> {
     )
   }
 
-  @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'eventValue')
+  @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'property1')
   async handleTaskRan (event: TaskRan, data: TestWorkflowData): Promise<Partial<TestWorkflowData>> {
     return completeWorkflow({
       ...data,

@@ -174,7 +174,7 @@ export class HandlerRegistry {
 
       messageHandler.handlers.forEach(handlerRegistration => {
         const handlerName = getHandlerName(handlerRegistration.handler)
-        this.logger.info('Binding handler to message', { messageName, handlerName })
+        this.logger.debug('Binding handler to message', { messageName, handlerName })
 
         if (isClassConstructor(handlerRegistration.handler)) {
           this.container

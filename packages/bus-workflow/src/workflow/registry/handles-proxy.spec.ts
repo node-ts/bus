@@ -5,6 +5,8 @@ import { Logger } from '@node-ts/logger-core'
 import { TestCommand, TestWorkflowData } from '../../test'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
+import * as uuid from 'uuid'
+import { WorkflowStatus } from '../workflow-data'
 
 describe('HandlesProxy', () => {
   let persistence: IMock<Persistence>
@@ -39,6 +41,9 @@ describe('HandlesProxy', () => {
       command = new TestCommand('value')
 
       dataInput = new TestWorkflowData()
+      dataInput.$workflowId = uuid.v4()
+      dataInput.$status = WorkflowStatus.Running
+
       persistence
         .setup(async x => x.getWorkflowData(
             TestWorkflowData,
@@ -50,8 +55,9 @@ describe('HandlesProxy', () => {
 
       dataOutput = { property1: command.property1! }
       handler
-        .setup(x => x(command, dataInput))
+        .setup(x => x(command, It.isObjectWith({...dataInput})))
         .returns(async () => dataOutput)
+        .verifiable(Times.once())
 
       await sut.handle(command)
     })
@@ -64,12 +70,12 @@ describe('HandlesProxy', () => {
     })
 
     it('should call handler with captured message and data from persistence', () => {
-      handler.verify(x => x(command, dataInput), Times.once())
+      handler.verifyAll()
     })
 
     it('should save workflow data to persistence', () => {
       persistence.verify(
-        async x => x.saveWorkflowData(It.isObjectWith(dataOutput)),
+        async x => x.saveWorkflowData(It.isObjectWith({...dataOutput})),
         Times.once()
       )
     })

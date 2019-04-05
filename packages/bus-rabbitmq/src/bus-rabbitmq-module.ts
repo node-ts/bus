@@ -13,6 +13,7 @@ export class BusRabbitMqModule extends ContainerModule {
         .to(RabbitMqTransport)
         .inSingletonScope()
       bindLogger(bind, RabbitMqTransport)
+
       rebind<Transport<{}>>(BUS_SYMBOLS.Transport)
         .to(RabbitMqTransport)
         .inSingletonScope()

@@ -32,3 +32,11 @@ const rabbitConfiguration: RabbitMqTransportConfiguration = {
 }
 container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(rabbitConfiguration)
 ```
+
+## Development
+
+Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
+
+```bash
+docker run -d -p 8080:15672 -p 5672:5672 rabbitmq:3-management
+```
