@@ -17,6 +17,7 @@ export class BusModule extends ContainerModule {
       bindService(bind, BUS_SYMBOLS.Serializer, JsonSerializer)
       bindService(bind, BUS_SYMBOLS.ApplicationBootstrap, ApplicationBootstrap).inSingletonScope()
       bindService(bind, BUS_SYMBOLS.HandlerRegistry, HandlerRegistry).inSingletonScope()
+      bindService(bind, BUS_SYMBOLS.JsonSerializer, JsonSerializer)
     })
   }
 }

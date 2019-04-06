@@ -1,17 +1,18 @@
 import { WorkflowData, WorkflowDataConstructor } from '../workflow-data'
 import { WorkflowConstructor } from '../workflow'
-import { ClassConstructor, PropertyObject } from '../../utility'
+import { PropertyObject } from '../../utility'
 import { injectable, inject, interfaces } from 'inversify'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { Message } from '@node-ts/bus-messages'
-import { HandlerRegistry, BUS_SYMBOLS } from '@node-ts/bus-core'
+import { HandlerRegistry, BUS_SYMBOLS, ClassConstructor } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { WORKFLOW_SYMBOLS, WORKFLOW_INTERNAL_SYMBOLS } from '../../workflow-symbols'
+import { BUS_WORKFLOW_SYMBOLS, BUS_WORKFLOW_INTERNAL_SYMBOLS } from '../../bus-workflow-symbols'
 import { Persistence } from '../persistence'
 import { StartedByProxy } from './started-by-proxy'
 import { HandlesProxy } from './handles-proxy'
 import { WorkflowStartedByMetadata } from '../decorators/started-by'
 import { WorkflowHandlesMetadata } from '../decorators/handles'
+import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 
 interface WorkflowRegistration {
   workflowConstructor: WorkflowConstructor<WorkflowData>,
@@ -33,16 +34,17 @@ export class WorkflowRegistry {
 
   constructor (
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
-    @inject(WORKFLOW_SYMBOLS.Persistence) private readonly persistence: Persistence,
-    @inject(WORKFLOW_INTERNAL_SYMBOLS.StartedByProxy) private readonly startedByFactory: (
+    @inject(BUS_WORKFLOW_SYMBOLS.Persistence) private readonly persistence: Persistence,
+    @inject(BUS_WORKFLOW_INTERNAL_SYMBOLS.StartedByProxy) private readonly startedByFactory: (
         workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
         handler: WorkflowHandlerFn<Message, WorkflowData>
       ) => StartedByProxy<Message, WorkflowData>,
-    @inject(WORKFLOW_INTERNAL_SYMBOLS.HandlesProxy) private readonly handlesFactory: (
+    @inject(BUS_WORKFLOW_INTERNAL_SYMBOLS.HandlesProxy) private readonly handlesFactory: (
       handler: WorkflowHandlerFn<Message, WorkflowData>,
       workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
       messageMapping: MessageWorkflowMapping<Message, WorkflowData>
-    ) => HandlesProxy<Message, WorkflowData>
+    ) => HandlesProxy<Message, WorkflowData>,
+    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
   ) {
   }
 
@@ -82,6 +84,7 @@ export class WorkflowRegistry {
     }
 
     this.isInitializing = true
+    this.logger.info('Initializing workflows...')
 
     if (this.persistence.initialize) {
       await this.persistence.initialize()
@@ -96,11 +99,19 @@ export class WorkflowRegistry {
 
       const messageWorkflowMappings = messageHandlers.map(s => s.messageWorkflowMapping)
       await this.persistence.initializeWorkflow(registration.workflowDataConstructor, messageWorkflowMappings)
+      this.logger.debug('Workflow initialized', { workflowName: registration.workflowConstructor.name })
     }
 
     this.workflowRegistry = []
     this.isInitialized = true
     this.isInitializing = false
+    this.logger.info('Workflows initialized')
+  }
+
+  async dispose (): Promise<void> {
+    if (this.persistence.dispose) {
+      await this.persistence.dispose()
+    }
   }
 
   private registerStartedBy (

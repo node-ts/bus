@@ -1,10 +1,10 @@
-import { ClassConstructor } from '../../utility'
 import { Message } from '@node-ts/bus-messages'
 import { WorkflowData } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { ReflectExtensions } from '../../utility/reflect-extensions'
 import { Workflow, WorkflowConstructor } from '../workflow'
 import { WorkflowWithHandler } from './handler-workflow'
+import { ClassConstructor } from '@node-ts/bus-core'
 
 export const WORKFLOW_HANDLES_METADATA_KEY = Symbol.for('node-ts/bus/workflow-handles-steps')
 

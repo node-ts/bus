@@ -1,6 +1,7 @@
 import { injectable } from 'inversify'
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
+import { classToPlain, plainToClass, serialize, deserialize } from 'class-transformer'
 
 /**
  * A very unsafe, basic JSON serializer. This will serialize objects to strings, but will
@@ -10,10 +11,18 @@ import { ClassConstructor } from '../util'
 @injectable()
 export class JsonSerializer implements Serializer {
   serialize<T extends object> (obj: T): string {
-    return JSON.stringify(obj)
+    return serialize(obj)
   }
 
-  deserialize<T extends object> (val: string, _: ClassConstructor<T>): T {
-    return JSON.parse(val) as T
+  deserialize<T extends object> (val: string, classConstructor: ClassConstructor<T>): T {
+    return deserialize<T> (classConstructor, val)
+  }
+
+  toPlain<T extends object> (obj: T): object {
+    return classToPlain(obj)
+  }
+
+  toClass<T extends object> (obj: object, classConstructor: ClassConstructor<T>): T {
+    return plainToClass(classConstructor, obj)
   }
 }

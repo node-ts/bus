@@ -1,4 +1,4 @@
-import { ClassConstructor } from '../utility'
+import { ClassConstructor } from '@node-ts/bus-core'
 import { WorkflowData } from './workflow-data'
 
 export type WorkflowConstructor<

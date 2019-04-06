@@ -1,13 +1,13 @@
 import { Container } from 'inversify'
 import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
 import { Persistence } from './persistence'
-import { WORKFLOW_SYMBOLS } from '../workflow-symbols'
+import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
 import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan } from '../test'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { sleep } from '../utility'
 import { WorkflowStatus } from './workflow-data'
 import { WorkflowRegistry } from './registry/workflow-registry'
-import { WorkflowModule } from '../workflow-module'
+import { BusWorkflowModule } from '../bus-workflow-module'
 import { LoggerModule } from '@node-ts/logger-core'
 
 describe('Workflow', () => {
@@ -19,11 +19,11 @@ describe('Workflow', () => {
     container = new Container()
     container.load(new LoggerModule())
     container.load(new BusModule())
-    container.load(new WorkflowModule())
+    container.load(new BusWorkflowModule())
 
-    persistence = container.get<Persistence>(WORKFLOW_SYMBOLS.Persistence)
+    persistence = container.get<Persistence>(BUS_WORKFLOW_SYMBOLS.Persistence)
 
-    const workflowRegistry = container.get<WorkflowRegistry>(WORKFLOW_SYMBOLS.WorkflowRegistry)
+    const workflowRegistry = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
     workflowRegistry.register(TestWorkflow, TestWorkflowData)
     await workflowRegistry.initializeWorkflows()
 
