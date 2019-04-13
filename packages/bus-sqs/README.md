@@ -26,7 +26,49 @@ container.load(new LoggerModule())
 container.load(new BusModule())
 container.load(new BusSqsModule())
 
-const sqsConfiguration: SqsConfiguration = {
+const resourcePrefix = 'integration'
+const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
+const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
+const AWS_REGION = process.env.AWS_REGION
+const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID
+
+// A sample configuration that sets up rules and conventions for the messaging infrastructure.
+const sqsConfiguration: SqsTransportConfiguration = {
+  queueName: `${resourcePrefix}-test`,
+  queueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${resourcePrefix}-test`,
+  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
+
+  deadLetterQueueName: `${resourcePrefix}-dead-letter`,
+  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
+
+  resolveTopicName: (messageName: string) =>
+    `${resourcePrefix}-${normalizeMessageName(messageName)}`,
+
+  resolveTopicArn: (topicName: string) =>
+    `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`,
+
+  queuePolicy: `
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Principal": "*",
+        "Effect": "Allow",
+        "Action": [
+          "sqs:SendMessage"
+        ],
+        "Resource": [
+          "arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
+        ],
+        "Condition": {
+          "ArnLike": {
+            "aws:SourceArn": "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
+          }
+        }
+      }
+    ]
+  }
+`
 }
 container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
 ```

@@ -24,7 +24,7 @@
   "devDependencies": {
     "@node-ts/bus-core": "^0.1.4",
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.13",
+    "@node-ts/logger-core": "^0.0.15",
     "@types/amqplib": "^0.5.11",
     "@types/uuid": "^3.4.4",
     "inversify": "^5.0.1",

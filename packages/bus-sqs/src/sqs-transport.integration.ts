@@ -1,9 +1,11 @@
 import { SqsTransport } from './sqs-transport'
-import { TestContainer, TestCommandHandler } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
-import { SQS } from 'aws-sdk'
+import { TestContainer, TestCommandHandler, TestCommand, HandleChecker, HANDLE_CHECKER } from '../test'
+import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
+import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
+import { IMock, Mock, Times } from 'typemoq'
+import * as uuid from 'uuid'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -13,25 +15,25 @@ function getEnvVar (key: string): string {
   return value
 }
 
-const resourcePrefix = 'node-ts'
+const resourcePrefix = 'integration'
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
 
 const sqsConfiguration: SqsTransportConfiguration = {
-  queueName: `${resourcePrefix}-test-queue`,
-  queueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${resourcePrefix}-test-queue`,
-  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test-queue`,
+  queueName: `${resourcePrefix}-test`,
+  queueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${resourcePrefix}-test`,
+  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
 
-  deadLetterQueueName: `${resourcePrefix}-dead-letter-queue`,
-  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter-queue`,
+  deadLetterQueueName: `${resourcePrefix}-dead-letter`,
+  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
 
   resolveTopicName: (messageName: string) =>
     `${resourcePrefix}-${normalizeMessageName(messageName)}`,
 
-  resolveTopicArn: (messageName: string) =>
-    `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-${normalizeMessageName(messageName)}`,
+  resolveTopicArn: (topicName: string) =>
+    `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`,
 
   queuePolicy: `
   {
@@ -45,7 +47,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
         ],
         "Resource": [
           "arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
-        ]
+        ],
         "Condition": {
           "ArnLike": {
             "aws:SourceArn": "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
@@ -62,20 +64,38 @@ describe('SqsTransport', () => {
   let sut: SqsTransport
   let bootstrap: ApplicationBootstrap
   let sqs: SQS
+  let sns: SNS
+  let bus: Bus
+
+  let handleChecker: IMock<HandleChecker>
 
   beforeAll(async () => {
     container = new TestContainer()
     container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
     sut = container.get(BUS_SYMBOLS.Transport)
     sqs = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
+    sns = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sns)
+    bus = container.get(BUS_SYMBOLS.Bus)
     bootstrap = container.get(BUS_SYMBOLS.ApplicationBootstrap)
+
+    handleChecker = Mock.ofType<HandleChecker>()
+    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
+
     bootstrap.registerHandler(TestCommandHandler)
   })
 
   afterAll(async () => {
+    // tslint:disable-next-line:no-magic-numbers A timeout > 10s which is the default sqs receive timeout
+    jest.setTimeout(15000)
     await bootstrap.dispose()
     await sqs.deleteQueue({
       QueueUrl: sqsConfiguration.queueUrl
+    }).promise()
+    await sqs.deleteQueue({
+      QueueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
+    }).promise()
+    await sns.deleteTopic({
+      TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
     }).promise()
   })
 
@@ -93,8 +113,36 @@ describe('SqsTransport', () => {
       expect(result.QueueUrls).toHaveLength(1)
     })
 
-    // it('should subscribe the queue to all message topics', () => {
-    // })
-  })
+    it('should create the dead letter queue', async () => {
+      const result = await sqs.listQueues({
+        QueueNamePrefix: sqsConfiguration.deadLetterQueueName
+      }).promise()
 
+      expect(result.QueueUrls).toHaveLength(1)
+    })
+
+    it('should subscribe the queue to all message topics', async () => {
+      const result = await sns.getTopicAttributes({
+        TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
+      }).promise()
+
+      expect(result.Attributes).toBeDefined()
+    })
+
+    describe('when sending a command', () => {
+      const testCommand = new TestCommand(uuid.v4())
+
+      beforeAll(async () => {
+        await bus.send(testCommand)
+      })
+
+      it('should receive and dispatch to the handler', async () => {
+        await sleep(1000 * 2)
+        handleChecker.verify(
+          h => h.check(),
+          Times.once()
+        )
+      })
+    })
+  })
 })

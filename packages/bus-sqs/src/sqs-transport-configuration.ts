@@ -44,7 +44,7 @@ export interface SqsTransportConfiguration {
    *       ],
    *       "Resource": [
    *         "arn:aws:sqs:us-west-2:12345678:production-*"
-   *       ]
+   *       ],
    *       "Condition": {
    *         "ArnLike": {
    *           "aws:SourceArn": "arn:aws:sns:us-west-2:12345678:production-*"
@@ -66,11 +66,11 @@ export interface SqsTransportConfiguration {
   resolveTopicName (messageName: string): string
 
   /**
-   * A resolver function that maps a message name to an SNS topic arn
-   * @param messageName Name of the message to map
-   * @returns An SNS topic url where messages of @param messageName are sent
+   * A resolver function that maps an SNS topic name to an SNS topic arn
+   * @param topicName Name of the message to map
+   * @returns An SNS topic url where messages are sent
    * @example
-   *  resolveTopicArn (messageName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:production-${messageName}`
+   *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
    */
-  resolveTopicArn (messageName: string): string
+  resolveTopicArn (topicName: string): string
 }

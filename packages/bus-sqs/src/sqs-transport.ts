@@ -57,7 +57,7 @@ export class SqsTransport implements Transport<SQS.Message> {
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
       QueueUrl: this.sqsConfiguration.queueUrl,
-      WaitTimeSeconds: 60,
+      WaitTimeSeconds: 10,
       MaxNumberOfMessages: 1,
       AttributeNames: ['ApproximateReceiveCount']
     }
@@ -190,13 +190,14 @@ export class SqsTransport implements Transport<SQS.Message> {
   private async publishMessage (message: Message): Promise<void> {
     await this.assertSnsTopic(message)
 
-    const topicArn = this.sqsConfiguration.resolveTopicArn(message.$name)
+    const topicName = this.sqsConfiguration.resolveTopicName(message.$name)
+    const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
     this.logger.trace('Publishing message to sns', { message, topicArn })
 
     const snsMessage: SNS.PublishInput = {
-      Message: JSON.stringify(message),
+      TopicArn: topicArn,
       Subject: message.$name,
-      TopicArn: topicArn
+      Message: JSON.stringify(message)
     }
     await this.sns.publish(snsMessage).promise()
   }
@@ -247,18 +248,19 @@ export class SqsTransport implements Transport<SQS.Message> {
   private async deleteSqsMessage (sqsMessage: SQS.Message): Promise<void> {
     const deleteMessageRequest: SQS.DeleteMessageRequest = {
       QueueUrl: this.sqsConfiguration.queueUrl,
-      ReceiptHandle: sqsMessage.ReceiptHandle as string
+      ReceiptHandle: sqsMessage.ReceiptHandle!
     }
+    this.logger.debug('Deleting message from sqs queue', { deleteMessageRequest })
     await this.sqs.deleteMessage(deleteMessageRequest).promise()
   }
 
   private async attachPolicyToQueue (queueUrl: string): Promise<void> {
     const policy = this.sqsConfiguration.queuePolicy
     const setQueuePolicyRequest: SQS.SetQueueAttributesRequest = {
+      QueueUrl: queueUrl,
       Attributes: {
         Policy: policy
-      },
-      QueueUrl: queueUrl
+      }
     }
 
     this.logger.info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
