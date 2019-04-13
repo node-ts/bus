@@ -1,5 +1,5 @@
 import { ContainerModule } from 'inversify'
-import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
+import { BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
 import { bindLogger } from '@node-ts/logger-core'
 import { BUS_SYMBOLS, Transport } from '@node-ts/bus-core'
 import { SqsTransport } from './sqs-transport'
