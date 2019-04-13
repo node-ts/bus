@@ -19,7 +19,8 @@ class Contract {
 
 describe('JsonSerializer', () => {
   let sut: JsonSerializer
-  const contract = new Contract('a', 1, new Date())
+  const date = new Date(2000, 2, 1, 10, 0, 0, 0)
+  const contract = new Contract('a', 1, date)
 
   beforeEach(() => {
     sut = new JsonSerializer()
@@ -31,19 +32,20 @@ describe('JsonSerializer', () => {
       result = sut.serialize({
         a: 'a',
         b: 1,
-        c: new Date(2000, 2, 1)
+        c: date
       })
     })
 
     it('should convert an object to a string', () => {
-      expect(result).toEqual('{"a":"a","b":1,"c":"2000-02-29T14:00:00.000Z"}')
+      expect(result).toEqual(`{"a":"a","b":1,"c":"${date.toISOString()}"}`)
     })
   })
 
   describe('when deserializing', () => {
     let result: Contract
+    const date = new Date(200)
     beforeEach(() => {
-      result = sut.deserialize('{"a":"a","b":1,"c":"2000-02-29T14:00:00.000Z"}', Contract)
+      result = sut.deserialize(`{"a":"a","b":1,"c":"${date.toISOString()}"}`, Contract)
     })
 
     it('should deserialize to a plain object', () => {
@@ -51,7 +53,7 @@ describe('JsonSerializer', () => {
       expect(result.c).toBeDefined()
       // tslint:disable-next-line:no-unbound-method Testing presence
       expect(result.c.toUTCString).toBeDefined()
-      expect(result.c.getDate()).toEqual(new Date(2000, 2, 1).getDate())
+      expect(result.c.getDate()).toEqual(date.getDate())
     })
   })
 
