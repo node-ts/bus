@@ -14,10 +14,10 @@
   resolved "https://registry.yarnpkg.com/@node-ts/code-standards/-/code-standards-0.0.10.tgz#0393a085f0ca0a6d7470d8f7e733b091b2671e0e"
   integrity sha512-6tWLW8r5HV8BGBwGZ6QBFKDpNrGJZfyCd8KkUk+BXAJX/NS/6qw8dxVwjk6atCbSgSxjpp37CjCH9uDRPdLnBA==
 
-"@node-ts/logger-core@^0.0.13":
-  version "0.0.13"
-  resolved "https://registry.yarnpkg.com/@node-ts/logger-core/-/logger-core-0.0.13.tgz#962f03c1177abc0a1d25b4cd2efa629bd6418020"
-  integrity sha512-HkKTn2yGODsFujS4A2cL/TUji/bnvsiayMUYcDma9+3eMwTBJep7ZMd3k4Mpe5xiYKZrtnusRMDuoP35T51LVA==
+"@node-ts/logger-core@^0.0.15":
+  version "0.0.15"
+  resolved "https://registry.yarnpkg.com/@node-ts/logger-core/-/logger-core-0.0.15.tgz#1d0c4a209fc5f372e9016a8c56519cebb37c2fed"
+  integrity sha512-tjtukqiX8sn0Ghzt9ZpFsxPfc9qSVI4emk5JYnT1LTp/1enRSjxCmxpqAdS1Tjd9T+blVLzxUF8Tmw4oAXLemw==
   dependencies:
     inversify "^5.0.1"
     tslint "^5.12.1"

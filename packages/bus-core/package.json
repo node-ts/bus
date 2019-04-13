@@ -23,14 +23,14 @@
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.13",
+    "@node-ts/logger-core": "^0.0.15",
     "inversify": "^5.0.1",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",
     "typescript": "^3.3.3"
   },
   "peerDependencies": {
-    "@node-ts/logger-core": "^0.0.13",
+    "@node-ts/logger-core": "^0.0.15",
     "inversify": ">= 5.0.1"
   },
   "keywords": [
