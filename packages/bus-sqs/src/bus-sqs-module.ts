@@ -14,8 +14,7 @@ export class BusSqsModule extends ContainerModule {
       bindLogger(bind, SqsTransport)
 
       rebind<Transport<SQS.Message>>(BUS_SYMBOLS.Transport)
-        .to(SqsTransport)
-        .inSingletonScope()
+        .toDynamicValue(c => c.container.get<SqsTransport>(BUS_SQS_INTERNAL_SYMBOLS.SqsTransport))
 
       bind(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
         .toConstantValue(new SQS())
