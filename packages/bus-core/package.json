@@ -30,7 +30,7 @@
     "typescript": "^3.3.3"
   },
   "peerDependencies": {
-    "@node-ts/logger-core": "^0.0.13",
+    "@node-ts/logger-core": "^0.0.15",
     "inversify": ">= 5.0.1"
   },
   "keywords": [
