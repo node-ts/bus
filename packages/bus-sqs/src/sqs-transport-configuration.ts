@@ -26,6 +26,7 @@ export interface SqsTransportConfiguration {
 
   /**
    * ARN of the dead letter queue. This queue will be created if it doesn't already exist
+   * @example arn:aws:sqs:us-west-2:12345678:production-dead-letter-queue
    */
   deadLetterQueueArn: string
 
