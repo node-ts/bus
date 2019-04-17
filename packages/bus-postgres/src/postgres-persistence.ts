@@ -169,7 +169,7 @@ export class PostgresPersistence implements Persistence {
     oldVersion: number,
     newVersion: number
   ): Promise<void> {
-    if (oldVersion === 0) {
+    if (oldVersion === 1) {
       // This is a new workflow, so just insert the data
       await this.postgres.query(`
         insert into ${tableName} (
