@@ -55,7 +55,7 @@ describe('PostgresPersistence', () => {
     const workflowData = new TestWorkflowData()
     workflowData.$workflowId = uuid.v4()
     workflowData.$status = WorkflowStatus.Running
-    workflowData.$version = 1
+    workflowData.$version = 0
     workflowData.eventValue = 'abc'
     workflowData.property1 = 'something'
 
@@ -86,7 +86,7 @@ describe('PostgresPersistence', () => {
         )
         expect(results).toHaveLength(1)
         dataV1 = results[0]
-        expect(dataV1).toMatchObject({ ...workflowData, $version: 2 })
+        expect(dataV1).toMatchObject({ ...workflowData, $version: 1 })
       })
 
       describe('when updating the workflow data', () => {
@@ -111,7 +111,7 @@ describe('PostgresPersistence', () => {
         it('should return the updates', () => {
           expect(dataV2).toMatchObject({
             ...updates,
-            $version: 3
+            $version: 2
           })
         })
       })

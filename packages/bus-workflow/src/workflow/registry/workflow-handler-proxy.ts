@@ -11,6 +11,8 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
 
   readonly [handlerIdProperty]: string
 
+  protected abstract versionIncrement: number
+
   constructor (
     readonly handler: WorkflowHandlerFn<TMessage, TWorkflowData>,
     protected readonly workflowDataConstructor: WorkflowDataConstructor<TWorkflowData>,
@@ -47,7 +49,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
           new this.workflowDataConstructor(),
           workflowData,
           workflowDataOutput,
-          { $version: workflowData.$version + 1 }
+          { $version: workflowData.$version + this.versionIncrement }
         )
         try {
           await this.persist(updatedWorkflowData)
