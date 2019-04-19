@@ -6,6 +6,8 @@ import { sleep } from '../util'
 import { Container } from 'inversify'
 import { TestContainer } from '../test/test-container'
 import { BUS_SYMBOLS } from '../bus-symbols'
+import { Logger } from '@node-ts/logger-core'
+import { Mock } from 'typemoq'
 
 const event = new TestEvent()
 
@@ -17,7 +19,7 @@ describe('ServiceBus', () => {
 
   beforeAll(() => {
     container = new TestContainer()
-    queue = new MemoryQueue()
+    queue = new MemoryQueue(Mock.ofType<Logger>().object)
     sut = container.get(BUS_SYMBOLS.Bus)
   })
 

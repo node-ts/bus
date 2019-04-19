@@ -55,7 +55,10 @@ describe('StartedByProxy', () => {
 
     it('should save the workflow data', () => {
       persistence.verify(
-        async x => x.saveWorkflowData(It.isObjectWith(dataOutput)),
+        async x => x.saveWorkflowData(It.isObjectWith<TestWorkflowData>({
+          ...dataOutput,
+          $version: 0
+        })),
         Times.once()
       )
     })
