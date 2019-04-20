@@ -9,8 +9,6 @@ import { Persistence } from '../persistence'
 export class HandlesProxy<TMessage extends Message, TWorkflowData extends WorkflowData>
   extends WorkflowHandlerProxy<TMessage, TWorkflowData> {
 
-  protected versionIncrement = 1
-
   constructor (
     handler: WorkflowHandlerFn<TMessage, TWorkflowData>,
     workflowDataConstructor: WorkflowDataConstructor<TWorkflowData>,

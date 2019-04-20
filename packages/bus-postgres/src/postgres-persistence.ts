@@ -170,6 +170,8 @@ export class PostgresPersistence implements Persistence {
     newVersion: number
   ): Promise<void> {
     if (oldVersion === 0) {
+      this.logger.debug('Inserting new workflow data', { tableName, workflowId, oldVersion, newVersion })
+
       // This is a new workflow, so just insert the data
       await this.postgres.query(`
         insert into ${tableName} (
@@ -187,6 +189,8 @@ export class PostgresPersistence implements Persistence {
           this.serializer.serialize(plainWorkflowData)
         ])
     } else {
+      this.logger.debug('Updating existing workflow data', { tableName, workflowId, oldVersion, newVersion })
+
       // This is an exsiting workflow, so update teh data
       const result = await this.postgres.query(`
         update
@@ -197,13 +201,14 @@ export class PostgresPersistence implements Persistence {
         where
           id = $3
           and version = $4;`,
-          [
-            newVersion,
-            this.serializer.serialize(plainWorkflowData),
-            workflowId,
-            oldVersion
-          ]
-        )
+        [
+          newVersion,
+          this.serializer.serialize(plainWorkflowData),
+          workflowId,
+          oldVersion
+        ]
+      )
+
       if (result.rowCount === 0) {
         throw new WorkflowDataNotFound(workflowId, tableName, oldVersion)
       }

@@ -11,8 +11,6 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
 
   readonly [handlerIdProperty]: string
 
-  protected abstract versionIncrement: number
-
   constructor (
     readonly handler: WorkflowHandlerFn<TMessage, TWorkflowData>,
     protected readonly workflowDataConstructor: WorkflowDataConstructor<TWorkflowData>,
@@ -48,8 +46,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
         const updatedWorkflowData = Object.assign(
           new this.workflowDataConstructor(),
           workflowData,
-          workflowDataOutput,
-          { $version: workflowData.$version + this.versionIncrement }
+          workflowDataOutput
         )
         try {
           await this.persist(updatedWorkflowData)
@@ -67,7 +64,9 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
     await Promise.all(handlerPromises)
   }
 
-  async persist (data: TWorkflowData): Promise<void> {
+  abstract getWorkflowData (message: TMessage): Promise<TWorkflowData[]>
+
+  private async persist (data: TWorkflowData): Promise<void> {
     try {
       await this.persistence.saveWorkflowData(data)
     } catch (err) {
@@ -75,8 +74,6 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
       throw err
     }
   }
-
-  abstract getWorkflowData (message: TMessage): Promise<TWorkflowData[]>
 }
 
 function normalizeHandlerName (handlerName: string): string {

@@ -9,8 +9,6 @@ import * as uuid from 'uuid'
 export class StartedByProxy<TMessage extends Message, TWorkflowData extends WorkflowData>
   extends WorkflowHandlerProxy<TMessage, TWorkflowData> {
 
-  protected versionIncrement = 0
-
   constructor (
     workflowDataConstructor: WorkflowDataConstructor<TWorkflowData>,
     handler: WorkflowHandlerFn<TMessage, TWorkflowData>,
