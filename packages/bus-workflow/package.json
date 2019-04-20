@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-workflow",
   "description": "A workflow engine for orchestrating logic flows in distributed applications.",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
