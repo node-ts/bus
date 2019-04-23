@@ -782,6 +782,15 @@
     tslint "^5.12.1"
     typemoq "^2.1.0"
 
+"@node-ts/logger-core@^0.0.16":
+  version "0.0.16"
+  resolved "https://registry.yarnpkg.com/@node-ts/logger-core/-/logger-core-0.0.16.tgz#d0a395fae47bfdeb4756890a0c443d9cd6e02a6a"
+  integrity sha512-SxroxYCWKGpe1bmQYAyJDs1CauUV8k28r/vebk+61Ibz7iyoMrhAaU4j9Xpcgz6RFLQUGihWWShC+eUE9ONoLQ==
+  dependencies:
+    inversify "^5.0.1"
+    tslint "^5.12.1"
+    typemoq "^2.1.0"
+
 "@nodelib/fs.stat@^1.1.2":
   version "1.1.3"
   resolved "https://registry.yarnpkg.com/@nodelib/fs.stat/-/fs.stat-1.1.3.tgz#2b5a3ab3f918cca48a8c754c08168e3f03eba61b"
