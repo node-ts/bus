@@ -67,6 +67,7 @@ workflows:
             branches:
               ignore:
                 - master
+                - gh-pages
       - deploy:
           filters:
             branches:
