@@ -11,6 +11,9 @@
     "bootstrap": "lerna bootstrap",
     "build": "lerna run build",
     "clean": "lerna run clean && rm -r node_modules",
+    "docs:dev": "vuepress dev",
+    "docs:build": "vuepress build",
+    "docs:deploy": "./deploy-docs.sh",
     "lint": "lerna run lint",
     "test": "yarn test:unit && yarn test:integration",
     "test:unit": "jest \"(src\\/.+\\.|/)spec\\.ts$\"",
@@ -76,5 +79,8 @@
   },
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "devDependencies": {
+    "vuepress": "^0.14.11"
+  }
 }

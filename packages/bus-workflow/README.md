@@ -4,12 +4,10 @@ sidebarDepth: 3
 
 # @node-ts/bus-workflow
 
-[[toc]]
-
 [![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
 [![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)
 
-Workflows are a pattern that help you write applications that scale in both size and complexity. This library is built for performance and can be infinitely scalable to meet the needs of both modest and enterprise scale systems.
+Workflows are a pattern that help you write applications that scale in both size and complexity. This library is built for performance and can be scaled to meet the needs of both modest and enterprise scale systems.
 
 Workflows (aka sagas, process managers, long running processes, message driven state machines), are a way to orchestrate higher level logic over a distributed or reliable/durable system. This is a key [enterprise integration pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html).
 
@@ -72,7 +70,7 @@ The persistence takes care of concurrency issues when multiple concurrent handle
 
 ### Reliability
 
-Workflows have the same reliability guarantees as normal message handlers. Any internal errors, failures to commit workflow data, or failures to send outgoing messages will result in the operation aborting and the originating message being placed back on the queue for retry.
+Workflows have the same reliability guarantees as normal [message handlers](/packages/bus-core/src/handler/). Any internal errors, failures to commit workflow data, or failures to send outgoing messages will result in the operation aborting and the originating message being placed back on the queue for retry.
 
 ## Creating a new Workflow
 
@@ -88,17 +86,11 @@ A workflow must have the following conditions met:
 
 The following represents a simple workflow that sends a welcome message to new users and subscribes them to a mailing list.
 
-```typescript
-// user-signup-workflow.ts
-import {
-  UserSignedUp,
-  SendWelcomeEmail,
-  SubscribeToMailingList,
-  Uuid
-} from 'contracts'
-import { WorkflowData, Workflow, completeWorkflow } from '@node-ts/bus-workflow'
-import { injectable } from 'inversify'
+`user-signup-workflow-data.ts` is a workflow data definition that describes the state that the workflow will create and update throughout its lifetime.  
 
+```typescript
+// user-signup-workflow-data.ts
+import { WorkflowData } from '@node-ts/bus-workflow'
 export class UserSignupWorkflowData extends WorkflowData {
   // The name needs to be unique to distinguish it from other persisted workflow
   static readonly NAME = 'node-ts/bus-workflow/user-signup-workflow-data'
@@ -108,6 +100,21 @@ export class UserSignupWorkflowData extends WorkflowData {
   welcomeEmailSent: boolean
   subscribedToMailingList: boolean
 }
+```
+
+`user-signup-workflow.ts` contains the workflow definition. It describes what messages start the workflow (`UserSignedUp`) and which subsequent messages it listens for and handles (`WelcomeEmailSent`, `SubscribedToMailingList`).
+
+```typescript
+// user-signup-workflow.ts
+import {
+  UserSignedUp,
+  SendWelcomeEmail,
+  SubscribeToMailingList,
+  Uuid
+} from 'contracts'
+import { Workflow, completeWorkflow } from '@node-ts/bus-workflow'
+import { injectable } from 'inversify'
+import { UserSignupWorkflowData } from './user-signup-workflow-data'
 
 @injectable()
 export class UserSignupWorkflow implements Workflow<UserSignupWorkflowData> {
@@ -169,6 +176,8 @@ export class UserSignupWorkflow implements Workflow<UserSignupWorkflowData> {
   }
 }
 ```
+
+`workflow-container.ts` is an example on how to register the workflow with the workflow registry and then how to start the service running. This uses [Inversify](http://inversify.io/) as the IoC provider.
 
 ```typescript
 // workflow-container.ts
