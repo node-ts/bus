@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-messages",
   "description": "A core set of message definitions for distributed applications.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
