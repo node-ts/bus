@@ -37,6 +37,7 @@
     "reflect-metadata": "^0.1.13"
   },
   "keywords": [
+    "esb",
     "typescript",
     "Business Process Management",
     "BPM",

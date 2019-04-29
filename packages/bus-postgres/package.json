@@ -42,6 +42,7 @@
     "reflect-metadata": "^0.1.13"
   },
   "keywords": [
+    "esb",
     "postgres",
     "typescript",
     "enterprise integration patterns",

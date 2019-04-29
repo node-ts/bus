@@ -34,7 +34,7 @@
     "inversify": ">= 5.0.1"
   },
   "keywords": [
-    "typescript",
+    "esb",
     "bus",
     "messaging",
     "microservices",
@@ -42,6 +42,7 @@
     "CQRS",
     "ES",
     "NServiceBus",
-    "Mule ESB"
+    "Mule ESB",
+    "typescript"
   ]
 }

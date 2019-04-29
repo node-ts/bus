@@ -39,6 +39,7 @@
     "reflect-metadata": "^0.1.13"
   },
   "keywords": [
+    "esb",
     "SQS",
     "typescript",
     "enterprise integration patterns",
