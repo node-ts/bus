@@ -6,6 +6,14 @@ module.exports = {
   base: '/bus/',
   ga: 'UA-139036417-1',
   serviceWorker: true,
+  plugins: [
+    [
+			require('vue-github-buttons/plugins/vuepress'),
+			{
+				useCache: false
+			}
+		]
+  ],
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
@@ -25,11 +33,13 @@ module.exports = {
         items: [
           { text: 'Postgres', link: '/packages/bus-postgres/' }
         ]
-      }
+      },
+      { text: 'Github', link: 'https://github.com/node-ts/bus' },
     ],
     sidebar: {
       '/': [
         ['/', 'Home'],
+        ['/packages/bus-messages/', 'Messages'],
         ['/packages/bus-core/src/handler/', 'Handlers'],
         ['/packages/bus-core/src/transport/', 'Transports'],
         ['/packages/bus-workflow/', 'Workflows'],
