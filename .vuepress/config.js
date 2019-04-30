@@ -6,14 +6,6 @@ module.exports = {
   base: '/bus/',
   ga: 'UA-139036417-1',
   serviceWorker: true,
-  plugins: [
-    [
-			require('vue-github-buttons/plugins/vuepress'),
-			{
-				useCache: false
-			}
-		]
-  ],
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
