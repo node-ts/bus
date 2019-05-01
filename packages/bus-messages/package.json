@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-messages",
   "description": "A core set of message definitions for distributed applications.",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +23,7 @@
     "typescript": "^3.3.3"
   },
   "keywords": [
-    "typescript",
+    "esb",
     "bus",
     "messaging",
     "microservices",
@@ -31,6 +31,7 @@
     "CQRS",
     "ES",
     "NServiceBus",
-    "Mule ESB"
+    "Mule ESB",
+    "typescript"
   ]
 }
