@@ -37,11 +37,11 @@ Define the handler:
 // send-email-handler.ts
 
 import { injectable } from 'inversify'
-import { Handles, Handler } from '@node-ts/bus-core'
+import { HandlesMessage, Handler } from '@node-ts/bus-core'
 import { SendEmail } from 'my-corporation/commands'
 import { SERVICE_SYMBOLS, EmailService } from '../services'
 
-@Handles(SendEmail)
+@HandlesMessage(SendEmail)
 export class SendEmailHandler implements Handler<SendEmail> {
   
   constructor (
