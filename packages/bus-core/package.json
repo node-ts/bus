@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.1.4",
-    "@types/node": "^11.13.4",
+    "@types/node": "^11.13.8",
     "autobind-decorator": "^2.4.0",
     "class-transformer": "^0.2.0",
     "inversify": "^5.0.1",
