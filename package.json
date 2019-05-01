@@ -2,7 +2,7 @@
   "name": "@node-ts/bus",
   "version": "0.0.1",
   "main": "index.js",
-  "description": "A typescript based enterprise service bus framework based on enterprise integration patterns",
+  "description": "A service bus for message-based, distributed node applications",
   "repository": "github:node-ts/bus.git",
   "author": "Andrew den Hertog <andrew.denhertog@gmail.com>",
   "license": "MIT",
@@ -29,53 +29,26 @@
   ],
   "dependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@types/jest": "^24.0.1",
+    "@types/jest": "^24.0.12",
     "inversify": "^5.0.1",
-    "jest": "^24.1.0",
+    "jest": "^24.7.1",
     "lerna": "^3.11.0",
     "reflect-metadata": "^0.1.13",
-    "ts-jest": "^24.0.0",
+    "ts-jest": "^24.0.2",
     "tslib": "^1.9.3",
     "typescript": "^3.3.3"
   },
   "jest": {
-    "collectCoverageFrom": [
-      "packages/**/*.ts",
-      "!packages/**/index.ts"
-    ],
-    "collectCoverage": false,
-    "coverageReporters": [
-      "text"
-    ],
-    "transform": {
-      "^.+\\.ts$": "ts-jest"
-    },
-    "transformIgnorePatterns": [
-      "[/\\\\]node_modules[/\\\\](?!node-ts.+).+\\.ts$"
-    ],
-    "coveragePathIgnorePatterns": [
-      ".*\\.d\\.ts",
-      "<rootDir>/node_modules/"
-    ],
-    "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
+    "preset": "ts-jest",
     "setupFilesAfterEnv": [
       "<rootDir>/test/setup.ts"
     ],
-    "modulePathIgnorePatterns": [
-      "dist/"
+    "transformIgnorePatterns": [
+      "[/\\\\]node_modules[/\\\\](?!node-ts.+).+\\.ts$"
     ],
-    "moduleFileExtensions": [
-      "ts",
-      "js",
-      "json"
-    ],
+    "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "testEnvironment": "node",
-    "bail": true,
-    "globals": {
-      "ts-jest": {
-        "babelConfig": true
-      }
-    }
+    "bail": true
   },
   "workspaces": [
     "packages/*"
