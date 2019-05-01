@@ -1,20 +1,29 @@
 import { MemoryQueue, InMemoryMessage } from './memory-queue'
-import { TestEvent } from '../test/test-event'
-import { TestCommand } from '../test/test-command'
+import { TestCommand, TestEvent, TestCommand2 } from '../test'
 import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
+import { HandlerRegistry } from '../handler'
 
 const event = new TestEvent()
 const command = new TestCommand()
+const command2 = new TestCommand2()
 
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
+  const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sut = new MemoryQueue(
       Mock.ofType<Logger>().object
     )
+
+    const handlerRegistry = Mock.ofType<HandlerRegistry>()
+    handlerRegistry
+      .setup(h => h.getMessageNames())
+      .returns(() => handledMessageNames)
+
+    await sut.initialize(handlerRegistry.object)
   })
 
   describe('when publishing an event', () => {
@@ -28,6 +37,13 @@ describe('MemoryQueue', () => {
     it('should push the command onto the memory queue', async () => {
       await sut.send(command)
       expect(sut.depth).toEqual(1)
+    })
+  })
+
+  describe('when sending a message that is not handled', () => {
+    it('should not push the message onto the queue', async () => {
+      await sut.send(command2)
+      expect(sut.depth).toEqual(0)
     })
   })
 

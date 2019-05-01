@@ -3,6 +3,7 @@ import { Transport } from './transport'
 import { Event, Command, Message } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import { HandlerRegistry } from '../handler'
 
 export interface InMemoryMessage {
   inFlight: boolean
@@ -20,22 +21,31 @@ export interface InMemoryMessage {
 export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
+  private messagesWithHandlers: { [key: string]: {} }
 
   constructor (
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
   ) {
   }
 
+  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
+    this.messagesWithHandlers = {}
+    handlerRegistry.getMessageNames()
+      .forEach(messageName => this.messagesWithHandlers[messageName] = {})
+  }
+
+  async dispose (): Promise<void> {
+    if (this.queue.length > 0) {
+      this.logger.warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
+    }
+  }
+
   async publish<TEvent extends Event> (event: TEvent): Promise<void> {
-    const message = toTransportMessage(event, false)
-    this.queue.push(message)
-    this.logger.debug('Published event to queue', { event, queueSize: this.queue.length })
+    this.addToQueue(event)
   }
 
   async send<TCommand extends Command> (command: TCommand): Promise<void> {
-    const message = toTransportMessage(command, false)
-    this.queue.push(message)
-    this.logger.debug('Sent command to queue', { command, queueSize: this.queue.length })
+    this.addToQueue(command)
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
@@ -65,6 +75,16 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   get depth (): number {
     return this.queue.length
+  }
+
+  private addToQueue (message: Message): void {
+    if (this.messagesWithHandlers[message.$name]) {
+      const transportMessage = toTransportMessage(message, false)
+      this.queue.push(transportMessage)
+      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+    } else {
+      this.logger.warn('Message was not sent as it has not registered handlers', { message })
+    }
   }
 }
 
