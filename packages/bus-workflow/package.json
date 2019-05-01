@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-workflow",
   "description": "A workflow engine for orchestrating logic flows in distributed applications.",
-  "version": "0.1.18",
+  "version": "0.1.21",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,12 +16,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.1.2",
+    "@node-ts/bus-messages": "^0.1.4",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^0.1.13",
+    "@node-ts/bus-core": "^0.1.16",
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.16",
     "@types/uuid": "^3.4.4",
@@ -31,12 +31,13 @@
     "typescript": "^3.3.3"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^0.1.4",
+    "@node-ts/bus-core": "^0.1.15",
     "@node-ts/logger-core": "^0.0.16",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13"
   },
   "keywords": [
+    "esb",
     "typescript",
     "Business Process Management",
     "BPM",
