@@ -31,6 +31,10 @@ For example consider an online hotel booking message based system:
 
 This library can be combined with the Domain Driven Design library [@node-ts/ddd](https://www.github.com/node-ts/ddd) that helps align software with the business domain.
 
+## Getting Started
+
+The fastest way to get started with this service bus is to clone the starter project at [@node-ts/bus-starter](https://github.com/node-ts/bus-starter).
+
 ## Components
 
 This library consists of the following main components:
