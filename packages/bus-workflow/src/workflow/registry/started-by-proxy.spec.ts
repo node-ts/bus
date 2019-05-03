@@ -1,6 +1,5 @@
 import { IMock, It, Mock, Times } from 'typemoq'
 import { StartedByProxy } from './started-by-proxy'
-import { completeWorkflow } from '../complete-workflow'
 import { Persistence } from '../persistence'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { TestCommand, TestWorkflowData } from '../../test'
@@ -75,7 +74,7 @@ describe('StartedByProxy', () => {
         // tslint:disable-next-line:no-unsafe-any
         .setup(x => x(command, It.isAny()))
         .callback(() => {
-          dataOutput = completeWorkflow(dataOutput)
+          dataOutput = { ...dataOutput, $status: WorkflowStatus.Complete }
         })
         .returns(async () => dataOutput)
 

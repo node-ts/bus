@@ -6,14 +6,14 @@ import { TestCommand } from './test-command'
 import { StartedBy, Handles } from '../workflow/decorators'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
-import { completeWorkflow } from '../workflow/complete-workflow'
 
 @injectable()
-export class TestWorkflow implements Workflow<TestWorkflowData> {
+export class TestWorkflow extends Workflow<TestWorkflowData> {
 
   constructor (
     @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
   ) {
+    super()
   }
 
   @StartedBy<TestCommand, TestWorkflowData, 'handleTestCommand'>(TestCommand)
@@ -26,11 +26,9 @@ export class TestWorkflow implements Workflow<TestWorkflowData> {
   }
 
   @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'property1')
-  async handleTaskRan (event: TaskRan, data: TestWorkflowData): Promise<Partial<TestWorkflowData>> {
-    return completeWorkflow({
-      ...data,
+  async handleTaskRan (event: TaskRan): Promise<Partial<TestWorkflowData>> {
+    return this.complete({
       eventValue: event.value
     })
   }
-
 }

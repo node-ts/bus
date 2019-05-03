@@ -79,8 +79,43 @@ A workflow must have the following conditions met:
 1. Implement `Workflow<>` from `@node-ts/bus-workflow`
 2. Define a `WorkflowData` type that extends `WorkflowData` from `@node-ts/bus-workflow`
 3. Contain at least 1 message handling function decorated with `StartedBy`
-4. Contain at least 1 message handling function that returns `completeWorkflow()` from `@node-ts/bus-workflow`
+4. Contain at least 1 message handling function that returns `this.complete()` from the super class `Workflow<>`
 5. Be registered with the `WorkflowRegistry` from `@node-ts/bus-workflow`
+
+### Completing a workflow
+
+Workflows that have completed their work should be marked as completed. This means that they will no longer react to any future events. This is done by returning `this.complete()` at the end of your message handler.
+
+```typescript
+@injectable()
+export class ProcessDocumentWorkflow extends Workflow<ProcessDocumentWorkflowData> {
+
+  @Handles<DocumentSaved, ProcessDocumentWorkflowData, 'handlesDocumentSaved'>(DocumentSaved)
+  handlesDocumentSaved (_: DocumentSaved): Partial<ProcessDocumentWorkflowData> {
+    return this.complete()
+  }
+}
+```
+
+### Discarding state changes
+
+Occasionally there are times when the workflow data shouldn't persist after a message has been handled. This is particularly relevant in cases where a workflow should only handle a message under certain circumstances.
+
+For example, if your workflow is started by an `S3ObjectCreated` event, but should only create a new workflow if the object key is prefixed with `/documents`, then this can be achieved by returning `this.discard()` in the workflow like so:
+
+```typescript
+@injectable()
+export class ProcessDocumentWorkflow extends Workflow<ProcessDocumentWorkflowData> {
+
+  @StartedBy<S3ObjectCreated, ProcessDocumentWorkflowData, 'handlesS3ObjectCreated'>(S3ObjectCreated)
+  handlesS3ObjectCreated (s3ObjectCreated: S3ObjectCreated): Partial<ProcessDocumentWorkflowData> {
+    if (s3ObjectCreated.key.indexOf('/documents') === 0) {
+      return {} // Starts a new workflow
+    }
+    return this.discard() // Do not start a new workflow
+  }
+}
+```
 
 ### Example
 
@@ -112,16 +147,17 @@ import {
   SubscribeToMailingList,
   Uuid
 } from 'contracts'
-import { Workflow, completeWorkflow } from '@node-ts/bus-workflow'
+import { Workflow } from '@node-ts/bus-workflow'
 import { injectable } from 'inversify'
 import { UserSignupWorkflowData } from './user-signup-workflow-data'
 
 @injectable()
-export class UserSignupWorkflow implements Workflow<UserSignupWorkflowData> {
+export class UserSignupWorkflow extends Workflow<UserSignupWorkflowData> {
 
   constructor (
     @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
   ) {
+    super()
   }
 
   /**
@@ -154,7 +190,7 @@ export class UserSignupWorkflow implements Workflow<UserSignupWorkflowData> {
   )
   handlesWelcomeEmailSent (_: WelcomeEmailSent, workflowData: UserSignupWorkflowData): Partial<UserSignupWorkflowData> {
     if (workflowData.subscribedToMailingList) {
-      return completeWorkflow({ welcomeEmailSent: true })
+      return this.complete({ welcomeEmailSent: true })
     }
     // We're still waiting for the mailing list subscription to go through, so just return these state changes to be persisted
     return { welcomeEmailSent: true }
@@ -167,7 +203,7 @@ export class UserSignupWorkflow implements Workflow<UserSignupWorkflowData> {
   )
   handlesSubscribedToMailingList (_: SubscribedToMailingList, workflowData: UserSignupWorkflowData): Partial<UserSignupWorkflowData> {
     if (workflowData.welcomeEmailSent) {
-      return completeWorkflow({ subscribedToMailingList: true })
+      return this.complete({ subscribedToMailingList: true })
     }
     // We're still waiting for the welcome email to be sent, so just return these state changes to be persisted
     return {

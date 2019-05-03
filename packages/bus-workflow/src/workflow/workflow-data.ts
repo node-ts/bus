@@ -9,7 +9,12 @@ export enum WorkflowStatus {
   /**
    * The workflow has completed and will not receive further messages
    */
-  Complete = 'complete'
+  Complete = 'complete',
+
+  /**
+   * A pseudo status to indicate that changes to the current state should not be persisted
+   */
+  Discard = 'discard'
 }
 
 /**

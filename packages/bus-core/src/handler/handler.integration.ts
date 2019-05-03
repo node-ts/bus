@@ -20,7 +20,7 @@ describe('Handler', () => {
   let messageLogger: IMock<MessageLogger>
 
   beforeAll(async () => {
-    container = new TestContainer()
+    container = new TestContainer().silenceLogs()
 
     messageLogger = Mock.ofType<MessageLogger>()
     container.bind(MESSAGE_LOGGER).toConstantValue(messageLogger.object)

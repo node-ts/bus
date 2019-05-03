@@ -83,7 +83,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
       this.queue.push(transportMessage)
       this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
     } else {
-      this.logger.warn('Message was not sent as it has not registered handlers', { message })
+      this.logger.warn('Message was not sent as it has no registered handlers', { message })
     }
   }
 }

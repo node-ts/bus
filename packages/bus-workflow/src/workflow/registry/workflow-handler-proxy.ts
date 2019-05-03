@@ -1,5 +1,5 @@
 import { Message } from '@node-ts/bus-messages'
-import { WorkflowData, WorkflowDataConstructor } from '../workflow-data'
+import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
 import { Logger } from '@node-ts/logger-core'
 import { Handler } from '@node-ts/bus-core'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
@@ -38,16 +38,25 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
     }
 
     const handlerPromises = workflowDataItems.map(async workflowData => {
-      const immutableWorkflow = Object.freeze({...workflowData})
-      const workflowDataOutput = await this.handler(message, immutableWorkflow)
+      const immutableWorkflowData = Object.freeze({...workflowData})
+      const workflowDataOutput = await this.handler(message, immutableWorkflowData)
 
-      if (workflowDataOutput) {
-        this.logger.debug('Changes detected in workflow data and will be persisted.')
+      if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
+        this.logger.debug(
+          'Workflow step is discarding state changes. State changes will not be persisted',
+          { workflowId: immutableWorkflowData.$workflowId, workflowName: this.workflowDataConstructor.name }
+        )
+      } else if (workflowDataOutput) {
+        this.logger.debug(
+          'Changes detected in workflow data and will be persisted.',
+          { workflowId: immutableWorkflowData.$workflowId, workflowName: this.workflowDataConstructor.name }
+        )
         const updatedWorkflowData = Object.assign(
           new this.workflowDataConstructor(),
           workflowData,
           workflowDataOutput
         )
+
         try {
           await this.persist(updatedWorkflowData)
         } catch (error) {
@@ -58,7 +67,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
           throw error
         }
       } else {
-        this.logger.trace('No changes detected in workflow data.')
+        this.logger.trace('No changes detected in workflow data.', { workflowId: immutableWorkflowData.$workflowId })
       }
     })
     await Promise.all(handlerPromises)
@@ -69,6 +78,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
   private async persist (data: TWorkflowData): Promise<void> {
     try {
       await this.persistence.saveWorkflowData(data)
+      this.logger.info('Saving workflow data', { data })
     } catch (err) {
       this.logger.error('Error persisting workflow data', { err })
       throw err

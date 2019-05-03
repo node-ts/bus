@@ -45,6 +45,9 @@ export class InMemoryPersistence implements Persistence {
 
     const workflowDataName = workflowDataConstructor.name
     const workflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
+    if (!workflowData) {
+      this.logger.error('Workflow data not initialized', { workflowDataName })
+    }
     return workflowData
       .filter(data =>
         (includeCompleted || data.$status === WorkflowStatus.Running)

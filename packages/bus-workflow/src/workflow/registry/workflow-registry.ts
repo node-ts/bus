@@ -13,6 +13,7 @@ import { HandlesProxy } from './handles-proxy'
 import { WorkflowStartedByMetadata } from '../decorators/started-by'
 import { WorkflowHandlesMetadata } from '../decorators/handles'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import * as uuid from 'uuid'
 
 interface WorkflowRegistration {
   workflowConstructor: WorkflowConstructor<WorkflowData>,
@@ -135,7 +136,7 @@ export class WorkflowRegistry {
 
       this.handlerRegistry.register(
         messageName,
-        Symbol.for(`node-ts/bus/workflow/${messageName}-started-by-proxy`),
+        Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-started-by-proxy`),
         handlerFactory,
         step.messageConstructor
       )
@@ -160,7 +161,7 @@ export class WorkflowRegistry {
       }
       this.handlerRegistry.register(
         messageName,
-        Symbol.for(`node-ts/bus/workflow/${messageName}-handles-proxy`),
+        Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-handles-proxy`),
         handler,
         step.messageConstructor
       )

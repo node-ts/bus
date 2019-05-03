@@ -104,8 +104,6 @@ export class ServiceBus implements Bus {
     }
 
     const handlersToInvoke = handlers.map(h => h.resolveHandler(h.defaultContainer))
-    this.logger.debug('Dispatching message to handlers', { messageName: message.$name })
-
     await Promise.all(handlersToInvoke.map(async h => {
       await h.handle(message)
     }))

@@ -67,11 +67,12 @@ Consider the following business process that sends emails to the hotel, and then
 Writing this process as a workflow is simple and resilient:
 
 ```typescript
-export class ReservationWorkflow implements Workflow<ReservationWorkflowData> {
+export class ReservationWorkflow extends Workflow<ReservationWorkflowData> {
 
   constructor (
     @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
   ) {
+    super()
   }
 
   /**
@@ -108,7 +109,7 @@ export class ReservationWorkflow implements Workflow<ReservationWorkflowData> {
     await this.bus.send(sendItineraryToCustomer)
 
     // Nothing left to do for this workfow, so mark it as complete
-    return completeWorkflow()
+    return this.complete()
   }
 
 }

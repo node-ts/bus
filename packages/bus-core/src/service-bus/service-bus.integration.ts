@@ -8,6 +8,7 @@ import { TestContainer } from '../test/test-container'
 import { BUS_SYMBOLS } from '../bus-symbols'
 import { Logger } from '@node-ts/logger-core'
 import { Mock } from 'typemoq'
+import { HandlerRegistry } from '../handler'
 
 const event = new TestEvent()
 
@@ -17,9 +18,12 @@ describe('ServiceBus', () => {
   let sut: ServiceBus
   let queue: MemoryQueue
 
-  beforeAll(() => {
-    container = new TestContainer()
+  beforeAll(async () => {
+    container = new TestContainer().silenceLogs()
     queue = new MemoryQueue(Mock.ofType<Logger>().object)
+    const transport = container.get<MemoryQueue>(BUS_SYMBOLS.Transport)
+    const registry = container.get<HandlerRegistry>(BUS_SYMBOLS.HandlerRegistry)
+    await transport.initialize(registry)
     sut = container.get(BUS_SYMBOLS.Bus)
   })
 
