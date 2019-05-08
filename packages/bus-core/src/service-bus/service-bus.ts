@@ -7,6 +7,7 @@ import { Event, Command, Message } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { sleep } from '../util'
 import { HandlerRegistry } from '../handler'
+import * as serializeError from 'serialize-error'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -85,13 +86,17 @@ export class ServiceBus implements Bus {
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
-          this.logger.warn('Message was unsuccessfully handled. Returning to queue', { message, error })
+          this.logger.warn(
+            'Message was unsuccessfully handled. Returning to queue',
+            { message, error: serializeError(error) }
+          )
           await this.transport.returnMessage(message)
+          return false
         }
         return true
       }
     } catch (error) {
-      this.logger.error('Failed to receive message from transport', { error })
+      this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
   }

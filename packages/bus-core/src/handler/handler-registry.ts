@@ -3,6 +3,7 @@ import { Container, decorate, inject, injectable, interfaces } from 'inversify'
 import { ClassConstructor, isClassConstructor } from '../util/class-constructor'
 import { Handler, HandlerPrototype } from './handler'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import * as serializeError from 'serialize-error'
 
 type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
 
@@ -123,11 +124,17 @@ export class HandlerRegistry {
     return this.registry[messageName].handlers.map(h => ({
       defaultContainer: this.container,
       resolveHandler: (container: Container) => {
-        this.logger.debug(`Resolving ${messageName}`)
+        this.logger.debug(`Resolving handlers for ${messageName}`)
         try {
           return container.get<Handler<MessageType>>(h.symbol)
         } catch (error) {
-          this.logger.error('Could not get handlers for message from the IoC container.', { messageName, error })
+          this.logger.error(
+            'Could not resolve handler from the IoC container.',
+            {
+              messageName,
+              error: serializeError(error)
+            }
+          )
           throw error
         }
       }
