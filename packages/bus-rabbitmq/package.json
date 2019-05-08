@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-rabbitmq",
   "description": "A RabbitMQ transport adapter for @node-ts/bus-core.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,7 +16,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-core": "^0.2.1",
+    "@node-ts/bus-core": "^0.2.2",
     "@node-ts/bus-messages": "^0.1.4",
     "amqplib": "^0.5.3",
     "tslib": "^1.9.3",
