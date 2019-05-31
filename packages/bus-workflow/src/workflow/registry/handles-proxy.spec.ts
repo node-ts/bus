@@ -59,7 +59,7 @@ describe('HandlesProxy', () => {
 
       dataOutput = { property1: command.property1! }
       handler
-        .setup(x => x(command, It.isObjectWith({...dataInput})))
+        .setup(x => x(command, It.isObjectWith({...dataInput}), messageOptions))
         .returns(async () => dataOutput)
         .verifiable(Times.once())
 
