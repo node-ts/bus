@@ -25,6 +25,7 @@
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.17",
+    "@types/faker": "^4.1.5",
     "inversify": "^5.0.1",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",

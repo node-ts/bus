@@ -52,7 +52,7 @@ describe('WorkflowMisconfigured', () => {
   describe('when a misconfigured workflow is invoked', () => {
     it('should log an error', () => {
       logger.verify(
-        l => l.error('Could not get handler for message from the IoC container.', It.isAny()),
+        l => l.error('Could not resolve handler from the IoC container.', It.isAny()),
         Times.atLeastOnce()
       )
     })

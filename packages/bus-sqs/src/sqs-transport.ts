@@ -2,10 +2,11 @@ import { Command, Event, Message } from '@node-ts/bus-messages'
 import { SNS, SQS } from 'aws-sdk'
 import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
 import { inject, injectable } from 'inversify'
-import { Transport, TransportMessage, HandlerRegistry } from '@node-ts/bus-core'
+import { Transport, TransportMessage, HandlerRegistry, MessageOptions, MessageAttributes } from '@node-ts/bus-core'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { BUS_SQS_SYMBOLS, BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
+import { MessageAttributeMap, MessageAttributeValue } from 'aws-sdk/clients/sns'
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
@@ -46,12 +47,12 @@ export class SqsTransport implements Transport<SQS.Message> {
   ) {
   }
 
-  async publish<EventType extends Event> (event: EventType): Promise<void> {
-    await this.publishMessage(event)
+  async publish<EventType extends Event> (event: EventType, messageOptions: MessageOptions): Promise<void> {
+    await this.publishMessage(event, messageOptions)
   }
 
-  async send<CommandType extends Command> (command: CommandType): Promise<void> {
-    await this.publishMessage(command)
+  async send<CommandType extends Command> (command: CommandType, messageOptions: MessageOptions): Promise<void> {
+    await this.publishMessage(command, messageOptions)
   }
 
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
@@ -97,10 +98,13 @@ export class SqsTransport implements Transport<SQS.Message> {
         return undefined
       }
 
+      const options = fromMessageAttributeMap(sqsMessage.MessageAttributes)
+
       return {
         id: sqsMessage.MessageId,
         raw: sqsMessage,
-        domainMessage: JSON.parse(snsMessage.Message) as Message
+        domainMessage: JSON.parse(snsMessage.Message) as Message,
+        options
       }
     } catch (error) {
       this.logger.warn(
@@ -187,7 +191,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     }
   }
 
-  private async publishMessage (message: Message): Promise<void> {
+  private async publishMessage (message: Message, messageOptions: MessageOptions): Promise<void> {
     await this.assertSnsTopic(message)
 
     const topicName = this.sqsConfiguration.resolveTopicName(message.$name)
@@ -197,7 +201,8 @@ export class SqsTransport implements Transport<SQS.Message> {
     const snsMessage: SNS.PublishInput = {
       TopicArn: topicArn,
       Subject: message.$name,
-      Message: JSON.stringify(message)
+      Message: JSON.stringify(message),
+      MessageAttributes: toMessageAttributeMap(messageOptions)
     }
     await this.sns.publish(snsMessage).promise()
   }
@@ -277,4 +282,78 @@ function calculateVisibilityTimeout (sqsMessage: SQS.Message): Seconds {
   // tslint:disable-next-line:no-magic-numbers This will be replaced with a more comprehensive retry strategy
   const delay: Milliseconds = 5 ^ numberOfFailures // Delays from 5ms to ~2.5 hrs
   return delay / MILLISECONDS_IN_SECONDS
+}
+
+export function toMessageAttributeMap (messageOptions: MessageOptions): MessageAttributeMap {
+  const map: MessageAttributeMap = {}
+
+  const toAttributeValue = (value: string | number) => {
+    const isNumber = typeof value === 'number'
+
+    const attribute: MessageAttributeValue = {
+      DataType: isNumber ? 'Number' : 'String',
+      StringValue: value.toString()
+    }
+
+    return attribute
+  }
+
+  if (messageOptions.attributes) {
+    Object.keys(messageOptions.attributes).forEach(key => {
+      const value = messageOptions.attributes![key]
+      map[`attributes.${key}`] = toAttributeValue(value)
+    })
+  }
+
+  if (messageOptions.stickyAttributes) {
+    Object.keys(messageOptions.stickyAttributes).forEach(key => {
+      const value = messageOptions.stickyAttributes![key]
+      map[`stickyAttributes.${key}`] = toAttributeValue(value)
+    })
+  }
+
+  if (messageOptions.correlationId) {
+    map.correlationId = {
+      DataType: 'String',
+      StringValue: messageOptions.correlationId
+    }
+  }
+  return map
+}
+
+export function fromMessageAttributeMap (sqsAttributes: SQS.MessageBodyAttributeMap | undefined): MessageOptions {
+  const messageOptions = new MessageOptions()
+
+  if (sqsAttributes) {
+    messageOptions.correlationId = sqsAttributes.correlationId
+      ? sqsAttributes.correlationId.StringValue
+      : undefined
+
+    const attributes: MessageAttributes = {}
+    const stickyAttributes: MessageAttributes = {}
+
+    Object.keys(attributes).forEach(key => {
+      let cleansedKey: string | undefined
+      if (key.startsWith('attributes.')) {
+        cleansedKey = key.substr('attributes.'.length)
+        attributes[cleansedKey] = getAttributeValue(sqsAttributes, cleansedKey)
+      } else if (key.startsWith('stickyAttributes.')) {
+        cleansedKey = key.substr('stickyAttributes.'.length)
+        stickyAttributes[cleansedKey] = getAttributeValue(sqsAttributes, cleansedKey)
+      }
+    })
+
+    messageOptions.attributes = Object.keys(attributes).length ? attributes : undefined
+    messageOptions.stickyAttributes = Object.keys(stickyAttributes).length ? stickyAttributes : undefined
+  }
+
+  return messageOptions
+}
+
+function getAttributeValue (attributes: SQS.MessageBodyAttributeMap, key: string): string | number {
+  const attribute = attributes[key]
+  const value = attribute.DataType === 'Number'
+    ? Number(attribute.StringValue)
+    : attribute.StringValue!
+  return value
 }
