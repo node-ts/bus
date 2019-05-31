@@ -43,7 +43,7 @@ This library consists of the following main components:
 
 Message handlers are simple, stateless functions that are invoked each time a message that your application subscribes to is received. They take the message as an argument, perform an action based on the message, and then complete. 
 
-Messages can be sent using `bus.send()` for commands and `bus.publish()` for events (see [@node-ts/bus-messages](https://github.com/node-ts/bus-messages) for more information about the two). For example:
+Messages can be sent using `bus.send()` for commands and `bus.publish()` for events (see [@node-ts/bus-messages](packages/bus-messages/) for more information about the two). For example:
 
 ```typescript
 import { inject, injectable } from 'inversify'
