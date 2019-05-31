@@ -5,5 +5,5 @@ import { MessageOptions } from '@node-ts/bus-core'
 export type WorkflowHandlerFn<TMessage extends Message, TWorkflowData extends WorkflowData> = (
   message: TMessage,
   data: Readonly<TWorkflowData>,
-  messageOptions?: MessageOptions
+  messageOptions: MessageOptions
 ) => Promise<Partial<TWorkflowData>> | Promise<void> | Partial<TWorkflowData> | void

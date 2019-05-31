@@ -22,7 +22,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
   }
 
   async handle (message: TMessage, messageOptions: MessageOptions): Promise<void> {
-    this.logger.debug('Getting workflow data for message', { message })
+    this.logger.debug('Getting workflow data for message', { message, messageOptions })
 
     /*
       Ensure that the workflow data fields are immutable by consumers to ensure modifications are done
@@ -39,7 +39,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
 
     const handlerPromises = workflowDataItems.map(async workflowData => {
       const immutableWorkflowData = Object.freeze({...workflowData})
-      const workflowDataOutput = await this.handler(message, immutableWorkflowData)
+      const workflowDataOutput = await this.handler(message, immutableWorkflowData, messageOptions)
 
       if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
         this.logger.debug(

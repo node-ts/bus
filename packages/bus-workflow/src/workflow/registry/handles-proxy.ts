@@ -21,7 +21,7 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
   }
 
   async getWorkflowData (message: TMessage, messageOptions: MessageOptions): Promise<TWorkflowData[]> {
-    const searchValue = this.messageMapping.lookupMessage(message)
+    const searchValue = this.messageMapping.lookupMessage(message, messageOptions)
 
     if (!searchValue) {
       this.logger.trace('Message mapper returned undefined and will not resolve to any workflow data.', {
