@@ -43,7 +43,29 @@ This library consists of the following main components:
 
 Message handlers are simple, stateless functions that are invoked each time a message that your application subscribes to is received. They take the message as an argument, perform an action based on the message, and then complete. 
 
-Here's a simple message handler. Just declare a class that `HandlesMessage`, and this framework will automatically take care of configuring the underlying message transport so that your app receives these messages regardless of where it's sent from.
+Messages can be sent using `bus.send()` for commands and `bus.publish()` for events (see [@node-ts/bus-messages](https://github.com/node-ts/bus-messages) for more information about the two). For example:
+
+```typescript
+import { inject, injectable } from 'inversify'
+import { Bus, BUS_SYMBOLS } from '@node-ts/bus-core'
+import { ReserveRoom, ProgramCompleted } from './messages'
+
+@injectable()
+export class Program {
+  constructor (
+    @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
+  ) {
+  }
+
+  async run (): Promise<void> {
+    await this.bus.send(new ReserveRoom())
+    await this.bus.publish(new ProgramCompleted())
+  }
+}
+
+```
+
+Here's a simple message handler that will execute the `ReserveRoom` command that was sent above. By declaring a class with `HandlesMessage`, this framework will automatically take care of configuring the underlying message transport. It doesn't matter where the command is sent from, or which application has this handler - the message will arrive.
 
 ```typescript
 @HandlesMessage(ReserveRoom)
@@ -53,6 +75,7 @@ export class ReserveRoomHandler {
   }
 }
 ```
+
 
 For more information on handlers, see [@node-ts/bus-core/handlers](packages/bus-core/src/handler/)
 

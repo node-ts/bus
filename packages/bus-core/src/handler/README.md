@@ -14,6 +14,7 @@ import { HandlesMessage } from '@node-ts/bus-core'
 import { SendWelcomeEmail } from 'contracts'
 import { inject } from 'inversify'
 import { ACCOUNT_SYMBOLS, EmailService } from 'domain'
+import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 
 @HandlesMessage(SendWelcomeEmail)
 export class GenerateTranscriptHandler {
@@ -57,6 +58,22 @@ bootstrap.initialize(container)
 ## Consuming messages
 
 Messages read from the underlying transport aren't immediately removed. Instead, a read lock or visibility flag is placed on the message at the transport so that it won't be read by other consumers. These flags are designed to be relatively short lived, around 30 seconds or so, as the handler is expected to process the message quickly so that the message can be removed. 
+
+## Receiving message options, attributes and metadata
+
+Additional metadata can be sent along with messages that don't belong to the message body, but is instead added to the message headers or attributes as metadata. This is sent to messages handlers as a second, optional parameter. For example:
+
+```typescript
+class Handler {
+  async handle (
+    _: Command,
+    messageOptions: MessageOptions<{ userId: string }>
+  ): Promise<void> {
+    this.logger.info('Example consuming message headers', { userId: messageOptions.attributes.userId })
+  }
+}
+
+```
 
 ## Messages that fail processing
 
