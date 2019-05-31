@@ -4,6 +4,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowStatus } from '../workflow-data'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
+import { MessageOptions } from '@node-ts/bus-core';
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
@@ -19,6 +20,8 @@ describe('InMemoryPersistence', () => {
   })
 
   describe('when getting workflow data', () => {
+    const messageOptions = new MessageOptions()
+
     beforeEach(async () => {
       const mapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData>(
         command => command.property1,
@@ -38,7 +41,8 @@ describe('InMemoryPersistence', () => {
         result = await sut.getWorkflowData(
           TestWorkflowData,
           propertyMapping,
-          message
+          message,
+          messageOptions
         )
       })
 
@@ -58,7 +62,8 @@ describe('InMemoryPersistence', () => {
         result = await sut.getWorkflowData(
           TestWorkflowData,
           unmatchedMapping,
-          new TestCommand('abc')
+          new TestCommand('abc'),
+          messageOptions
         )
       })
 
@@ -89,6 +94,8 @@ describe('InMemoryPersistence', () => {
     describe('for an existing workflow', () => {
       const testCommand = new TestCommand('a')
       const workflowId = 'abc'
+      const messageOptions = new MessageOptions()
+
       beforeEach(async () => {
         const workflowData = new TestWorkflowData()
         workflowData.$workflowId = workflowId
@@ -107,7 +114,8 @@ describe('InMemoryPersistence', () => {
         const workflowData = await sut.getWorkflowData(
           TestWorkflowData,
           propertyMapping,
-          testCommand
+          testCommand,
+          messageOptions
         )
 
         expect(workflowData).toHaveLength(1)

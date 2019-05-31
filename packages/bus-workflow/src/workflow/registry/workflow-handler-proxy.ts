@@ -1,7 +1,7 @@
 import { Message } from '@node-ts/bus-messages'
 import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
 import { Logger } from '@node-ts/logger-core'
-import { Handler } from '@node-ts/bus-core'
+import { Handler, MessageOptions } from '@node-ts/bus-core'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { Persistence } from '../persistence'
 import { HandlerWithId, handlerIdProperty } from './handler-with-id'
@@ -21,14 +21,14 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
       `${new workflowDataConstructor().$name}.${normalizeHandlerName(handler.name)}`
   }
 
-  async handle (message: TMessage): Promise<void> {
-    this.logger.debug('Getting workflow data for message', { message })
+  async handle (message: TMessage, messageOptions: MessageOptions): Promise<void> {
+    this.logger.debug('Getting workflow data for message', { message, messageOptions })
 
     /*
       Ensure that the workflow data fields are immutable by consumers to ensure modifications are done
       via return values
     */
-    const workflowDataItems = await this.getWorkflowData(message)
+    const workflowDataItems = await this.getWorkflowData(message, messageOptions)
 
     this.logger.debug('Workflow data retrieved', { workflowData: workflowDataItems, message })
 
@@ -39,7 +39,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
 
     const handlerPromises = workflowDataItems.map(async workflowData => {
       const immutableWorkflowData = Object.freeze({...workflowData})
-      const workflowDataOutput = await this.handler(message, immutableWorkflowData)
+      const workflowDataOutput = await this.handler(message, immutableWorkflowData, messageOptions)
 
       if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
         this.logger.debug(
@@ -73,7 +73,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
     await Promise.all(handlerPromises)
   }
 
-  abstract getWorkflowData (message: TMessage): Promise<TWorkflowData[]>
+  abstract getWorkflowData (message: TMessage, messageOptions: MessageOptions): Promise<TWorkflowData[]>
 
   private async persist (data: TWorkflowData): Promise<void> {
     try {

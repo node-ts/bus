@@ -4,6 +4,8 @@ import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
+import { MessageOptions } from '../service-bus'
+import * as faker from 'faker'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -12,6 +14,9 @@ const command2 = new TestCommand2()
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
   const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
+  const messageOptions: MessageOptions = {
+    correlationId: faker.random.uuid()
+  }
 
   beforeEach(async () => {
     sut = new MemoryQueue(
@@ -28,21 +33,21 @@ describe('MemoryQueue', () => {
 
   describe('when publishing an event', () => {
     it('should push the event onto the memory queue', async () => {
-      await sut.publish(event)
+      await sut.publish(event, messageOptions)
       expect(sut.depth).toEqual(1)
     })
   })
 
   describe('when sending a command', () => {
     it('should push the command onto the memory queue', async () => {
-      await sut.send(command)
+      await sut.send(command, messageOptions)
       expect(sut.depth).toEqual(1)
     })
   })
 
   describe('when sending a message that is not handled', () => {
     it('should not push the message onto the queue', async () => {
-      await sut.send(command2)
+      await sut.send(command2, messageOptions)
       expect(sut.depth).toEqual(0)
     })
   })
@@ -54,20 +59,20 @@ describe('MemoryQueue', () => {
     })
 
     it('should return the message when the queue has one', async () => {
-      await sut.publish(event)
+      await sut.publish(event, messageOptions)
       const message = await sut.readNextMessage()
       expect(message!.domainMessage).toEqual(event)
     })
 
     it('should read new messages with seenCount equal to 1', async () => {
-      await sut.publish(event)
+      await sut.publish(event, messageOptions)
       const message = await sut.readNextMessage()
       expect(message!.raw.seenCount).toEqual(0)
     })
 
     it('should return the oldest message when there are many', async () => {
-      await sut.publish(event)
-      await sut.send(command)
+      await sut.publish(event, messageOptions)
+      await sut.send(command, {})
 
       const firstMessage = await sut.readNextMessage()
       expect(firstMessage!.domainMessage).toEqual(event)
@@ -77,7 +82,7 @@ describe('MemoryQueue', () => {
     })
 
     it('should retain the queue depth while the message is unacknowledged', async () => {
-      await sut.publish(event)
+      await sut.publish(event, messageOptions)
       expect(sut.depth).toEqual(1)
 
       const message = await sut.readNextMessage()
@@ -91,7 +96,7 @@ describe('MemoryQueue', () => {
   describe('when returning a message back onto the queue', () => {
     let message: TransportMessage<InMemoryMessage> | undefined
     beforeEach(async () => {
-      await sut.publish(event)
+      await sut.publish(event, messageOptions)
       message = await sut.readNextMessage()
     })
 
@@ -114,7 +119,7 @@ describe('MemoryQueue', () => {
   describe('when retrying a message has been retried beyond the retry limit', () => {
     let message: TransportMessage<InMemoryMessage> | undefined
     beforeEach(async () => {
-      await sut.publish(event)
+      await sut.publish(event, messageOptions)
 
       let attempt = 0
       while (attempt < RETRY_LIMIT) {

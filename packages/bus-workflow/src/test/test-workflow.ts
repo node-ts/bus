@@ -6,6 +6,7 @@ import { TestCommand } from './test-command'
 import { StartedBy, Handles } from '../workflow/decorators'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
+import { FinalTask } from './final-task'
 
 @injectable()
 export class TestWorkflow extends Workflow<TestWorkflowData> {
@@ -26,8 +27,17 @@ export class TestWorkflow extends Workflow<TestWorkflowData> {
 
   @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'property1')
   async handleTaskRan (event: TaskRan): Promise<Partial<TestWorkflowData>> {
-    return this.complete({
-      eventValue: event.value
-    })
+    return {
+      property1: event.value
+    }
+  }
+
+  @Handles<FinalTask, TestWorkflowData, 'handleFinalTask'>(
+    FinalTask,
+    (_, messageOptions) => messageOptions.correlationId,
+    '$workflowId'
+  )
+  async handleFinalTask (_: FinalTask): Promise<Partial<TestWorkflowData>> {
+    return this.complete()
   }
 }

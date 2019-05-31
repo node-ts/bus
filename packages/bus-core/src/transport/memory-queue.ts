@@ -4,6 +4,7 @@ import { Event, Command, Message } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
+import { MessageOptions } from '../service-bus'
 
 export const RETRY_LIMIT = 10
 
@@ -55,12 +56,12 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
-  async publish<TEvent extends Event> (event: TEvent): Promise<void> {
-    this.addToQueue(event)
+  async publish<TEvent extends Event> (event: TEvent, messageOptions: MessageOptions): Promise<void> {
+    this.addToQueue(event, messageOptions)
   }
 
-  async send<TCommand extends Command> (command: TCommand): Promise<void> {
-    this.addToQueue(command)
+  async send<TCommand extends Command> (command: TCommand, messageOptions: MessageOptions): Promise<void> {
+    this.addToQueue(command, messageOptions)
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
@@ -109,9 +110,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     await this.deleteMessage(message)
   }
 
-  private addToQueue (message: Message): void {
+  private addToQueue (message: Message, messageOptions: MessageOptions): void {
     if (this.messagesWithHandlers[message.$name]) {
-      const transportMessage = toTransportMessage(message, false)
+      const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)
       this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
     } else {
@@ -120,10 +121,15 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 }
 
-function toTransportMessage (message: Message, isProcessing: boolean): TransportMessage<InMemoryMessage> {
+function toTransportMessage (
+  message: Message,
+  messageOptions: MessageOptions,
+  isProcessing: boolean
+): TransportMessage<InMemoryMessage> {
   return {
     id: undefined,
     domainMessage: message,
+    options: messageOptions,
     raw: {
       seenCount: 0,
       payload: message,

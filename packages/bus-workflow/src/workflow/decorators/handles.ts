@@ -4,7 +4,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { ReflectExtensions } from '../../utility/reflect-extensions'
 import { Workflow, WorkflowConstructor } from '../workflow'
 import { WorkflowWithHandler } from './handler-workflow'
-import { ClassConstructor } from '@node-ts/bus-core'
+import { ClassConstructor, MessageOptions } from '@node-ts/bus-core'
 
 export const WORKFLOW_HANDLES_METADATA_KEY = Symbol.for('node-ts/bus/workflow-handles-steps')
 
@@ -38,7 +38,7 @@ export function Handles<
     WorkflowWithHandler<MessageType, WorkflowDataType, KeyType>
 > (
   messageConstructor: ClassConstructor<MessageType>,
-  messageLookup: (message: MessageType) => string | undefined,
+  messageLookup: (message: MessageType, messageOptions: MessageOptions) => string | undefined,
   workflowDataProperty: keyof WorkflowDataType & string
 ): (target: TargetType, propertyKey: KeyType) => void {
   return (target: TargetType, propertyKey: string): void =>

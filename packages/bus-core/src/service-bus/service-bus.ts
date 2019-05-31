@@ -8,6 +8,7 @@ import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { sleep } from '../util'
 import { HandlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
+import { MessageOptions } from './message-options'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -25,14 +26,20 @@ export class ServiceBus implements Bus {
   ) {
   }
 
-  async publish<TEvent extends Event> (event: TEvent): Promise<void> {
+  async publish<TEvent extends Event> (
+    event: TEvent,
+    messageOptions: MessageOptions = new MessageOptions()
+  ): Promise<void> {
     this.logger.debug('publish', { event })
-    return this.transport.publish(event)
+    return this.transport.publish(event, messageOptions)
   }
 
-  async send<TCommand extends Command> (command: TCommand): Promise<void> {
+  async send<TCommand extends Command> (
+    command: TCommand,
+    messageOptions: MessageOptions = new MessageOptions()
+  ): Promise<void> {
     this.logger.debug('send', { command })
-    return this.transport.send(command)
+    return this.transport.send(command, messageOptions)
   }
 
   async start (): Promise<void> {
@@ -82,7 +89,7 @@ export class ServiceBus implements Bus {
         this.logger.debug('Message read from transport', { message })
 
         try {
-          await this.dispatchMessageToHandlers(message.domainMessage)
+          await this.dispatchMessageToHandlers(message.domainMessage, message.options)
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
@@ -101,7 +108,7 @@ export class ServiceBus implements Bus {
     return false
   }
 
-  private async dispatchMessageToHandlers (message: Message): Promise<void> {
+  private async dispatchMessageToHandlers (message: Message, messageOptions: MessageOptions): Promise<void> {
     const handlers = this.handlerRegistry.get(message.$name)
     if (handlers.length === 0) {
       this.logger.warn(`No handlers registered for message ${message.$name}. Message will be discarded`)
@@ -110,7 +117,7 @@ export class ServiceBus implements Bus {
 
     const handlersToInvoke = handlers.map(h => h.resolveHandler(h.defaultContainer))
     await Promise.all(handlersToInvoke.map(async h => {
-      await h.handle(message)
+      await h.handle(message, messageOptions)
     }))
   }
 }

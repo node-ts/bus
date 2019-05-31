@@ -7,6 +7,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import * as uuid from 'uuid'
 import { WorkflowStatus } from '../workflow-data'
+import { MessageOptions } from '@node-ts/bus-core';
 
 describe('HandlesProxy', () => {
   let persistence: IMock<Persistence>
@@ -34,11 +35,13 @@ describe('HandlesProxy', () => {
 
   describe('when handling a message', () => {
     let command: TestCommand
+    let messageOptions: MessageOptions
     let dataInput: TestWorkflowData
     let dataOutput: Partial<TestWorkflowData>
 
     beforeEach(async () => {
       command = new TestCommand('value')
+      messageOptions = new MessageOptions()
 
       dataInput = new TestWorkflowData()
       dataInput.$workflowId = uuid.v4()
@@ -48,23 +51,24 @@ describe('HandlesProxy', () => {
         .setup(async x => x.getWorkflowData(
             TestWorkflowData,
             mapping,
-            command
+            command,
+            messageOptions
           )
         )
         .returns(async () => [dataInput])
 
       dataOutput = { property1: command.property1! }
       handler
-        .setup(x => x(command, It.isObjectWith({...dataInput})))
+        .setup(x => x(command, It.isObjectWith({...dataInput}), messageOptions))
         .returns(async () => dataOutput)
         .verifiable(Times.once())
 
-      await sut.handle(command)
+      await sut.handle(command, messageOptions)
     })
 
     it('should get workflow data from persistence', () => {
       persistence.verify(
-        async x => x.getWorkflowData(TestWorkflowData, mapping, command),
+        async x => x.getWorkflowData(TestWorkflowData, mapping, command, messageOptions),
         Times.once()
       )
     })
@@ -91,13 +95,14 @@ describe('HandlesProxy', () => {
 
   describe('when getting workflow data for an undefined message property', () => {
     let comand: TestCommand
+    const messageOptions = new MessageOptions()
 
     beforeEach(() => {
       comand = new TestCommand(undefined)
     })
 
     it('should return an empty set of workflow data', async () => {
-      const result = await sut.getWorkflowData(comand)
+      const result = await sut.getWorkflowData(comand, messageOptions)
       expect(result).toHaveLength(0)
     })
   })

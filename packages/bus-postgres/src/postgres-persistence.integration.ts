@@ -1,4 +1,4 @@
-import { Bus, ApplicationBootstrap, BUS_SYMBOLS } from '@node-ts/bus-core'
+import { Bus, ApplicationBootstrap, BUS_SYMBOLS, MessageOptions } from '@node-ts/bus-core'
 import { PostgresPersistence } from './postgres-persistence'
 import { TestContainer, TestWorkflow, TestWorkflowData, TestCommand } from '../test'
 import { BUS_WORKFLOW_SYMBOLS, WorkflowRegistry, MessageWorkflowMapping, WorkflowStatus } from '@node-ts/bus-workflow'
@@ -71,6 +71,7 @@ describe('PostgresPersistence', () => {
 
     describe('when getting the workflow data by property', () => {
       const testCommand = new TestCommand(workflowData.property1)
+      const messageOptions = new MessageOptions()
       let dataV1: TestWorkflowData
       let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowData>
 
@@ -82,7 +83,8 @@ describe('PostgresPersistence', () => {
         const results = await sut.getWorkflowData(
           TestWorkflowData,
           mapping,
-          testCommand
+          testCommand,
+          messageOptions
         )
         expect(results).toHaveLength(1)
         dataV1 = results[0]
@@ -103,7 +105,8 @@ describe('PostgresPersistence', () => {
           const results = await sut.getWorkflowData(
             TestWorkflowData,
             mapping,
-            testCommand
+            testCommand,
+            messageOptions
           )
           dataV2 = results[0]
         })
