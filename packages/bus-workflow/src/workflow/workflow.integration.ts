@@ -1,5 +1,5 @@
 import { Container } from 'inversify'
-import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
+import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap, MessageOptions } from '@node-ts/bus-core'
 import { Persistence } from './persistence'
 import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
 import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan } from '../test'
@@ -61,12 +61,14 @@ describe('Workflow', () => {
       'property1'
     )
     let workflowData: TestWorkflowData[]
+    const messageOptions = new MessageOptions()
 
     beforeAll(async () => {
       workflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
         TestWorkflowData,
         propertyMapping,
-        command
+        command,
+        messageOptions
       )
     })
 
@@ -90,6 +92,7 @@ describe('Workflow', () => {
           TestWorkflowData,
           propertyMapping,
           command,
+          messageOptions,
           true
         )
       })
@@ -106,6 +109,7 @@ describe('Workflow', () => {
   })
 
   describe('when a workflow is completed in a StartedBy handler', () => {
+    const messageOptions = new MessageOptions()
     const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> (
       cmd => cmd.property1,
       'property1'
@@ -116,6 +120,7 @@ describe('Workflow', () => {
         TestWorkflowStartedByCompletesData,
         propertyMapping,
         command,
+        messageOptions,
         true
       )
 
@@ -126,6 +131,7 @@ describe('Workflow', () => {
   })
 
   describe('when a StartedBy handler returns a discardStep', () => {
+    const messageOptions = new MessageOptions()
     const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> (
       cmd => cmd.property1,
       'property1'
@@ -136,6 +142,7 @@ describe('Workflow', () => {
         TestWorkflowStartedByDiscardData,
         propertyMapping,
         command,
+        messageOptions,
         true
       )
 

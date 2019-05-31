@@ -1,5 +1,5 @@
 import { Message } from '@node-ts/bus-messages'
-import { ClassConstructor } from '@node-ts/bus-core'
+import { ClassConstructor, MessageOptions } from '@node-ts/bus-core'
 import { WorkflowData } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 
@@ -40,6 +40,7 @@ export interface Persistence {
     workflowDataConstructor: ClassConstructor<WorkflowDataType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
     message: MessageType,
+    messageOptions: MessageOptions,
     includeCompleted?: boolean
   ): Promise<WorkflowDataType[]>
 

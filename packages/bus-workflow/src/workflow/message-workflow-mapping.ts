@@ -1,5 +1,6 @@
 import { Message } from '@node-ts/bus-messages'
 import { WorkflowData } from './workflow-data'
+import { MessageOptions } from '@node-ts/bus-core'
 
 export class MessageWorkflowMapping<MessageType extends Message, WorkflowDataType extends WorkflowData> {
 
@@ -9,7 +10,7 @@ export class MessageWorkflowMapping<MessageType extends Message, WorkflowDataTyp
    * @param workflowDataProperty The field in workflow data where the lookup value is matched against
    */
   constructor (
-    public lookupMessage: (message: MessageType) => string | undefined,
+    public lookupMessage: (message: MessageType, messageOptions?: MessageOptions) => string | undefined,
     readonly workflowDataProperty: keyof WorkflowDataType & string
   ) {
   }
