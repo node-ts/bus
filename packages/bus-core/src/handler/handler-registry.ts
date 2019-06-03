@@ -7,7 +7,7 @@ import * as serializeError from 'serialize-error'
 
 type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
 
-interface HandlerRegistration<MessageType extends Message> {
+export interface HandlerRegistration<MessageType extends Message> {
   defaultContainer: Container
   resolveHandler (handlerContextContainer: Container): Handler<MessageType>
 }

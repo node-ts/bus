@@ -1,4 +1,4 @@
-import { HandlesMessage, MessageAttributes, MessageOptions } from '@node-ts/bus-core'
+import { HandlesMessage, MessageAttributes, MessageAttributes } from '@node-ts/bus-core'
 import { TestCommand } from './test-command'
 import { inject } from 'inversify'
 
@@ -31,7 +31,7 @@ export class TestCommandHandler {
 
   async handle (
     _: TestCommand,
-    messageOptions: MessageOptions<CheckerAttributes, CheckerStickyAttributes>
+    messageOptions: MessageAttributes<CheckerAttributes, CheckerStickyAttributes>
   ): Promise<void> {
     this.handleChecker.check(
       messageOptions.correlationId!,

@@ -4,7 +4,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowStatus } from '../workflow-data'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
-import { MessageOptions } from '@node-ts/bus-core';
+import { MessageAttributes } from '@node-ts/bus-core';
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
@@ -20,7 +20,7 @@ describe('InMemoryPersistence', () => {
   })
 
   describe('when getting workflow data', () => {
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
 
     beforeEach(async () => {
       const mapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData>(
@@ -94,7 +94,7 @@ describe('InMemoryPersistence', () => {
     describe('for an existing workflow', () => {
       const testCommand = new TestCommand('a')
       const workflowId = 'abc'
-      const messageOptions = new MessageOptions()
+      const messageOptions = new MessageAttributes()
 
       beforeEach(async () => {
         const workflowData = new TestWorkflowData()

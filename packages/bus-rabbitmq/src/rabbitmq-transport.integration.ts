@@ -2,7 +2,7 @@ import { RabbitMqTransport } from './rabbitmq-transport'
 import { TestContainer, TestEvent, TestCommand, TestCommandHandler } from '../test'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
-import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus, MessageOptions } from '@node-ts/bus-core'
+import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus, MessageAttributes } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
 
@@ -85,7 +85,7 @@ describe('RabbitMqTransport', () => {
       describe('from a queue with messages', () => {
         const command = new TestCommand()
         let message: TransportMessage<RabbitMqMessage> | undefined
-        const messageOptions: MessageOptions = {
+        const messageOptions: MessageAttributes = {
           correlationId: faker.random.uuid(),
           attributes: {
             attribute1: 'a',

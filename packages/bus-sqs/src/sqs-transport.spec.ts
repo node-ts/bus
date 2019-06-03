@@ -1,11 +1,11 @@
 import { toMessageAttributeMap } from './sqs-transport'
-import { SNS  } from 'aws-sdk'
-import { MessageOptions } from '@node-ts/bus-core'
+import { SNS } from 'aws-sdk'
+import { MessageAttributes } from '@node-ts/bus-core'
 import * as faker from 'faker'
 
 describe('sqs-transport', () => {
   describe('when converting message attributes to SNS attribute values', () => {
-    const messageOptions: MessageOptions = {
+    const messageOptions: MessageAttributes = {
       correlationId: faker.random.uuid(),
       attributes: {
         attribute1: 'a',

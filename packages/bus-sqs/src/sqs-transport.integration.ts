@@ -8,7 +8,7 @@ import {
   CheckerAttributes,
   CheckerStickyAttributes
 } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep, MessageOptions } from '@node-ts/bus-core'
+import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep, MessageAttributes } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
@@ -140,7 +140,7 @@ describe('SqsTransport', () => {
 
     describe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4())
-      const messageOptions: MessageOptions<CheckerAttributes, CheckerStickyAttributes> = {
+      const messageOptions: MessageAttributes<CheckerAttributes, CheckerStickyAttributes> = {
         correlationId: faker.random.uuid(),
         attributes: {
           attribute1: 'a',

@@ -5,7 +5,7 @@ import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { TestCommand, TestWorkflowData } from '../../test'
 import { Logger } from '@node-ts/logger-core'
 import { WorkflowStatus } from '../workflow-data'
-import { MessageOptions } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-core'
 
 describe('StartedByProxy', () => {
   let persistence: IMock<Persistence>
@@ -30,7 +30,7 @@ describe('StartedByProxy', () => {
 
   describe('when handling messages', () => {
     let command: TestCommand
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
     let dataOutput: Partial<TestWorkflowData>
 
     beforeEach(async () => {
@@ -68,7 +68,7 @@ describe('StartedByProxy', () => {
 
   describe('when the workflow is completed', () => {
     let command: TestCommand
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
 
     beforeEach(async () => {
       command = new TestCommand('abc')

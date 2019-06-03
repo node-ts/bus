@@ -1,5 +1,5 @@
 import { Message } from '@node-ts/bus-messages'
-import { MessageOptions } from '../service-bus'
+import { MessageAttributes } from '../service-bus'
 import { ClassConstructor } from '@node-ts/logger-core'
 
 export interface HandlerPrototype {
@@ -14,5 +14,5 @@ export interface HandlerPrototype {
  * @param options (optional) Additional message options and metadata that were sent along with the message
  */
 export interface Handler<TMessage extends Message> {
-  handle (message: TMessage, messageOptions?: MessageOptions): Promise<void> | void
+  handle (message: TMessage, messageOptions?: MessageAttributes): Promise<void> | void
 }

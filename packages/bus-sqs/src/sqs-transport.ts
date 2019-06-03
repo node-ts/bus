@@ -2,11 +2,11 @@ import { Command, Event, Message } from '@node-ts/bus-messages'
 import { SNS, SQS } from 'aws-sdk'
 import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
 import { inject, injectable } from 'inversify'
-import { Transport, TransportMessage, HandlerRegistry, MessageOptions, MessageAttributes } from '@node-ts/bus-core'
+import { Transport, TransportMessage, HandlerRegistry, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-core'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { BUS_SQS_SYMBOLS, BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
-import { MessageAttributeMap, MessageAttributeValue } from 'aws-sdk/clients/sns'
+import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
@@ -47,11 +47,11 @@ export class SqsTransport implements Transport<SQS.Message> {
   ) {
   }
 
-  async publish<EventType extends Event> (event: EventType, messageOptions: MessageOptions): Promise<void> {
+  async publish<EventType extends Event> (event: EventType, messageOptions: MessageAttributes): Promise<void> {
     await this.publishMessage(event, messageOptions)
   }
 
-  async send<CommandType extends Command> (command: CommandType, messageOptions: MessageOptions): Promise<void> {
+  async send<CommandType extends Command> (command: CommandType, messageOptions: MessageAttributes): Promise<void> {
     await this.publishMessage(command, messageOptions)
   }
 
@@ -191,7 +191,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     }
   }
 
-  private async publishMessage (message: Message, messageOptions: MessageOptions): Promise<void> {
+  private async publishMessage (message: Message, messageOptions: MessageAttributes): Promise<void> {
     await this.assertSnsTopic(message)
 
     const topicName = this.sqsConfiguration.resolveTopicName(message.$name)
@@ -284,8 +284,8 @@ function calculateVisibilityTimeout (sqsMessage: SQS.Message): Seconds {
   return delay / MILLISECONDS_IN_SECONDS
 }
 
-export function toMessageAttributeMap (messageOptions: MessageOptions): MessageAttributeMap {
-  const map: MessageAttributeMap = {}
+export function toMessageAttributeMap (messageOptions: MessageAttributes): SNS.MessageAttributeMap {
+  const map: SNS.MessageAttributeMap = {}
 
   const toAttributeValue = (value: string | number) => {
     const isNumber = typeof value === 'number'
@@ -321,16 +321,16 @@ export function toMessageAttributeMap (messageOptions: MessageOptions): MessageA
   return map
 }
 
-export function fromMessageAttributeMap (sqsAttributes: SQS.MessageBodyAttributeMap | undefined): MessageOptions {
-  const messageOptions = new MessageOptions()
+export function fromMessageAttributeMap (sqsAttributes: SQS.MessageBodyAttributeMap | undefined): MessageAttributes {
+  const messageOptions = new MessageAttributes()
 
   if (sqsAttributes) {
     messageOptions.correlationId = sqsAttributes.correlationId
       ? sqsAttributes.correlationId.StringValue
       : undefined
 
-    const attributes: MessageAttributes = {}
-    const stickyAttributes: MessageAttributes = {}
+    const attributes: MessageAttributeMap = {}
+    const stickyAttributes: MessageAttributeMap = {}
 
     Object.keys(attributes).forEach(key => {
       let cleansedKey: string | undefined

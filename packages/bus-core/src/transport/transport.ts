@@ -1,7 +1,7 @@
 import { Event, Command } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { HandlerRegistry } from '../handler'
-import { MessageOptions } from '../service-bus'
+import { MessageAttributes } from '../service-bus'
 
 /**
  * A transport adapter interface that enables the service bus to use a messaging technology.
@@ -14,7 +14,7 @@ export interface Transport<TransportMessageType = {}> {
    * @param messageOptions Options that control the behaviour around how the message is sent and
    * additional information that travels with it.
    */
-  publish<TEvent extends Event> (event: TEvent, messageOptions: MessageOptions): Promise<void>
+  publish<TEvent extends Event> (event: TEvent, messageOptions: MessageAttributes): Promise<void>
 
   /**
    * Sends a command to the underlying transport. This is generally done to a topic or some other
@@ -23,7 +23,7 @@ export interface Transport<TransportMessageType = {}> {
    * @param messageOptions Options that control the behaviour around how the message is sent and
    * additional information that travels with it.
    */
-  send<TCommand extends Command> (command: TCommand, messageOptions: MessageOptions): Promise<void>
+  send<TCommand extends Command> (command: TCommand, messageOptions: MessageAttributes): Promise<void>
 
   /**
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`

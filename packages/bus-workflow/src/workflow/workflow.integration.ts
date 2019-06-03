@@ -1,5 +1,5 @@
 import { Container } from 'inversify'
-import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap, MessageOptions } from '@node-ts/bus-core'
+import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap, MessageAttributes } from '@node-ts/bus-core'
 import { Persistence } from './persistence'
 import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
 import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan, FinalTask } from '../test'
@@ -61,7 +61,7 @@ describe('Workflow', () => {
       'property1'
     )
     let workflowData: TestWorkflowData[]
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
 
     beforeAll(async () => {
       workflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
@@ -131,7 +131,7 @@ describe('Workflow', () => {
   })
 
   describe('when a workflow is completed in a StartedBy handler', () => {
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
     const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> (
       cmd => cmd.property1,
       'property1'
@@ -153,7 +153,7 @@ describe('Workflow', () => {
   })
 
   describe('when a StartedBy handler returns a discardStep', () => {
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
     const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> (
       cmd => cmd.property1,
       'property1'

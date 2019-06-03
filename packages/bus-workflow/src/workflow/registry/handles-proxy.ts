@@ -5,7 +5,7 @@ import { Logger } from '@node-ts/logger-core'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
-import { MessageOptions } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-core'
 
 export class HandlesProxy<TMessage extends Message, TWorkflowData extends WorkflowData>
   extends WorkflowHandlerProxy<TMessage, TWorkflowData> {
@@ -20,7 +20,7 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
     super(handler, workflowDataConstructor, persistence, logger)
   }
 
-  async getWorkflowData (message: TMessage, messageOptions: MessageOptions): Promise<TWorkflowData[]> {
+  async getWorkflowData (message: TMessage, messageOptions: MessageAttributes): Promise<TWorkflowData[]> {
     const searchValue = this.messageMapping.lookupMessage(message, messageOptions)
 
     if (!searchValue) {

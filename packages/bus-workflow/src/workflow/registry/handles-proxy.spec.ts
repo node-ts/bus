@@ -7,7 +7,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import * as uuid from 'uuid'
 import { WorkflowStatus } from '../workflow-data'
-import { MessageOptions } from '@node-ts/bus-core';
+import { MessageAttributes } from '@node-ts/bus-core';
 
 describe('HandlesProxy', () => {
   let persistence: IMock<Persistence>
@@ -35,13 +35,13 @@ describe('HandlesProxy', () => {
 
   describe('when handling a message', () => {
     let command: TestCommand
-    let messageOptions: MessageOptions
+    let messageOptions: MessageAttributes
     let dataInput: TestWorkflowData
     let dataOutput: Partial<TestWorkflowData>
 
     beforeEach(async () => {
       command = new TestCommand('value')
-      messageOptions = new MessageOptions()
+      messageOptions = new MessageAttributes()
 
       dataInput = new TestWorkflowData()
       dataInput.$workflowId = uuid.v4()
@@ -95,7 +95,7 @@ describe('HandlesProxy', () => {
 
   describe('when getting workflow data for an undefined message property', () => {
     let comand: TestCommand
-    const messageOptions = new MessageOptions()
+    const messageOptions = new MessageAttributes()
 
     beforeEach(() => {
       comand = new TestCommand(undefined)

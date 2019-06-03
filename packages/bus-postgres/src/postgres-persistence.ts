@@ -1,4 +1,4 @@
-import { ClassConstructor, BUS_SYMBOLS, JsonSerializer, MessageOptions } from '@node-ts/bus-core'
+import { ClassConstructor, BUS_SYMBOLS, JsonSerializer, MessageAttributes } from '@node-ts/bus-core'
 import { Message } from '@node-ts/bus-messages'
 import { Persistence, WorkflowData, MessageWorkflowMapping } from '@node-ts/bus-workflow'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
@@ -52,7 +52,7 @@ export class PostgresPersistence implements Persistence {
     workflowDataConstructor: ClassConstructor<WorkflowDataType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
     message: MessageType,
-    messageOptions: MessageOptions,
+    messageOptions: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowDataType[]> {
     this.logger.debug('Getting workflow data', { workflowDataName: workflowDataConstructor.name })
