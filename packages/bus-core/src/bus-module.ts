@@ -18,6 +18,8 @@ export class BusModule extends ContainerModule {
       bindService(bind, BUS_SYMBOLS.ApplicationBootstrap, ApplicationBootstrap).inSingletonScope()
       bindService(bind, BUS_SYMBOLS.HandlerRegistry, HandlerRegistry).inSingletonScope()
       bindService(bind, BUS_SYMBOLS.JsonSerializer, JsonSerializer)
+
+      bind(BUS_SYMBOLS.MessageHandlingContext).toConstantValue({})
     })
   }
 }
