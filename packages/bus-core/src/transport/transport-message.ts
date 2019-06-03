@@ -24,5 +24,5 @@ export interface TransportMessage<TransportMessageType> {
   /**
    * Additional attributes and metadata that was sent along with the message
    */
-  options: MessageAttributes
+  attributes: MessageAttributes
 }

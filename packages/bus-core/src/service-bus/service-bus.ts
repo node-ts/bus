@@ -93,7 +93,7 @@ export class ServiceBus implements Bus {
         this.logger.debug('Message read from transport', { message })
 
         try {
-          await this.dispatchMessageToHandlers(message.domainMessage, message.options)
+          await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {

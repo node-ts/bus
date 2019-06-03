@@ -129,7 +129,7 @@ function toTransportMessage (
   return {
     id: undefined,
     domainMessage: message,
-    options: messageOptions,
+    attributes: messageOptions,
     raw: {
       seenCount: 0,
       payload: message,

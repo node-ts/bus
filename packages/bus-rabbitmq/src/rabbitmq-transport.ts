@@ -41,12 +41,12 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.connection.close()
   }
 
-  async publish<TEvent extends Event> (event: TEvent, messageOptions: MessageAttributes): Promise<void> {
-    await this.publishMessage(event, messageOptions)
+  async publish<TEvent extends Event> (event: TEvent, messageAttriutes: MessageAttributes): Promise<void> {
+    await this.publishMessage(event, messageAttriutes)
   }
 
-  async send<TCommand extends Command> (command: TCommand, messageOptions: MessageAttributes): Promise<void> {
-    await this.publishMessage(command, messageOptions)
+  async send<TCommand extends Command> (command: TCommand, messageAttriutes: MessageAttributes): Promise<void> {
+    await this.publishMessage(command, messageAttriutes)
   }
 
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
@@ -57,7 +57,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payloadStr = m.content.toString('utf8')
     const payload = JSON.parse(payloadStr) as Message
 
-    const messageOptions: MessageAttributes = {
+    const attributes: MessageAttributes = {
       correlationId: m.properties.correlationId as string,
       attributes: m.properties.headers && m.properties.headers.attributes
         ? JSON.parse(m.properties.headers.attributes as string) as MessageAttributeMap
@@ -71,7 +71,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       id: undefined,
       domainMessage: payload,
       raw: m,
-      options: messageOptions
+      attributes
     }
   }
 
