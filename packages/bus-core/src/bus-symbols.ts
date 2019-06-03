@@ -9,4 +9,5 @@ export const BUS_SYMBOLS = {
 }
 
 export const BUS_INTERNAL_SYMBOLS = {
+  SessionScopeBinder: Symbol.for('@node-ts/bus-core/session-scope-binder')
 }
