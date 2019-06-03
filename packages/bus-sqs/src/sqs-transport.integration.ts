@@ -4,11 +4,9 @@ import {
   TestCommandHandler,
   TestCommand,
   HandleChecker,
-  HANDLE_CHECKER,
-  CheckerAttributes,
-  CheckerStickyAttributes
+  HANDLE_CHECKER
 } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep, MessageOptions } from '@node-ts/bus-core'
+import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep, MessageAttributes } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
@@ -140,7 +138,7 @@ describe('SqsTransport', () => {
 
     describe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4())
-      const messageOptions: MessageOptions<CheckerAttributes, CheckerStickyAttributes> = {
+      const messageOptions: MessageAttributes = {
         correlationId: faker.random.uuid(),
         attributes: {
           attribute1: 'a',
@@ -159,11 +157,7 @@ describe('SqsTransport', () => {
       it('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 2)
         handleChecker.verify(
-          h => h.check(
-            messageOptions.correlationId!,
-            It.isObjectWith(messageOptions.attributes!),
-            It.isObjectWith(messageOptions.stickyAttributes!)
-          ),
+          h => h.check(It.isObjectWith(messageOptions)),
           Times.once()
         )
       })

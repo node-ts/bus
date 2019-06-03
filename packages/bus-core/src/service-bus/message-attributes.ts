@@ -1,6 +1,6 @@
 type Uuid = string
 
-export interface MessageAttributes {
+export interface MessageAttributeMap {
   [key: string]: string | number
 }
 
@@ -8,9 +8,9 @@ export interface MessageAttributes {
  * Options that control the behaviour around how the message is sent and
  * additional information that travels with it.
  */
-export class MessageOptions<
-  AttributeType extends MessageAttributes = MessageAttributes,
-  StickyAttributeType extends MessageAttributes = MessageAttributes
+export class MessageAttributes<
+  AttributeType extends MessageAttributeMap = MessageAttributeMap,
+  StickyAttributeType extends MessageAttributeMap = MessageAttributeMap
 > {
   /**
    * An identifier that can be used to relate or group messages together.

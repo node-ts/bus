@@ -4,7 +4,7 @@ import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
-import { MessageOptions } from '../service-bus'
+import { MessageAttributes } from '../service-bus'
 import * as faker from 'faker'
 
 const event = new TestEvent()
@@ -14,7 +14,7 @@ const command2 = new TestCommand2()
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
   const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
-  const messageOptions: MessageOptions = {
+  const messageOptions: MessageAttributes = {
     correlationId: faker.random.uuid()
   }
 

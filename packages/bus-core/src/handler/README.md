@@ -67,7 +67,7 @@ Additional metadata can be sent along with messages that don't belong to the mes
 class Handler {
   async handle (
     _: Command,
-    messageOptions: MessageOptions<{ userId: string }>
+    messageOptions: MessageAttributes<{ userId: string }>
   ): Promise<void> {
     this.logger.info('Example consuming message headers', { userId: messageOptions.attributes.userId })
   }
