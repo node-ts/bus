@@ -120,9 +120,16 @@ async function creditCardChaged (
 }
 ```
 
-
 ## Usage
 
 Modelling your system using messages like the ones above is very powerful. There are no concerns around what handles them or how they're processed - they just represent an intent to change the system (`command`) or that a change in the system has occurred (`event`). 
 
 Over time the number of messages in your library will build up to describe the business domain you're modeling. The messages can be easily defined and well documented so that new developers can understand what they do without any technical detail, which encourages a well-documented system in code.
+
+## Message Attributes
+
+Additional metadata can be added to any type of message as attributes alongside the actual message.
+
+When sending via a transport (eg: SQS, RabbitMQ) the message is sent in a message envelope. Commands and Events are serialized into the message body, whilst attributes are added to the message header. 
+
+Attributes are designed to hold data that is related to technical concerns of routing the message, or auditing/logging information such as details around the originator.

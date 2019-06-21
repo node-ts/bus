@@ -1,11 +1,10 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowData, WorkflowDataConstructor } from '../workflow-data'
 import { WorkflowHandlerProxy } from './workflow-handler-proxy'
 import { Logger } from '@node-ts/logger-core'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
-import { MessageAttributes } from '@node-ts/bus-core'
 
 export class HandlesProxy<TMessage extends Message, TWorkflowData extends WorkflowData>
   extends WorkflowHandlerProxy<TMessage, TWorkflowData> {

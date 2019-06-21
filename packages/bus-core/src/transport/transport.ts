@@ -1,7 +1,6 @@
-import { Event, Command } from '@node-ts/bus-messages'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { HandlerRegistry } from '../handler'
-import { MessageAttributes } from '../service-bus'
 
 /**
  * A transport adapter interface that enables the service bus to use a messaging technology.

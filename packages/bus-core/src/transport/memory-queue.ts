@@ -1,10 +1,9 @@
 import { injectable, inject } from 'inversify'
 import { Transport } from './transport'
-import { Event, Command, Message } from '@node-ts/bus-messages'
+import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
-import { MessageAttributes } from '../service-bus'
 
 export const RETRY_LIMIT = 10
 

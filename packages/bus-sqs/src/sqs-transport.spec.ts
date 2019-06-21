@@ -1,6 +1,6 @@
 import { toMessageAttributeMap, SqsMessageAttributes, fromMessageAttributeMap } from './sqs-transport'
 import { SNS } from 'aws-sdk'
-import { MessageAttributes } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 
 describe('sqs-transport', () => {

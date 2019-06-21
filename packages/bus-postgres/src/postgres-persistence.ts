@@ -1,5 +1,5 @@
-import { ClassConstructor, BUS_SYMBOLS, JsonSerializer, MessageAttributes } from '@node-ts/bus-core'
-import { Message } from '@node-ts/bus-messages'
+import { ClassConstructor, BUS_SYMBOLS, JsonSerializer } from '@node-ts/bus-core'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Persistence, WorkflowData, MessageWorkflowMapping } from '@node-ts/bus-workflow'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { inject, injectable } from 'inversify'

@@ -3,12 +3,11 @@ import autobind from 'autobind-decorator'
 import { Bus, BusState } from './bus'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport } from '../transport'
-import { Event, Command, Message } from '@node-ts/bus-messages'
+import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
-import { MessageAttributes } from './message-attributes'
 import { SessionScopeBinder } from '../bus-module'
 
 const EMPTY_QUEUE_SLEEP_MS = 500

@@ -1,7 +1,7 @@
 import { HandlesMessage } from '../handler/handles-message'
 import { TestEvent } from './test-event'
 import { inject } from 'inversify'
-import { MessageAttributes } from '../service-bus'
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 export const MESSAGE_LOGGER = Symbol.for('@node-ts/bus-core/message-logger')
 export interface MessageLogger {

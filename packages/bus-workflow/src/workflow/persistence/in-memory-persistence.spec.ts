@@ -4,7 +4,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowStatus } from '../workflow-data'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
-import { MessageAttributes } from '@node-ts/bus-core';
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence

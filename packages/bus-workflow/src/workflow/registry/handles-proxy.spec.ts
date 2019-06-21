@@ -7,7 +7,7 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import * as uuid from 'uuid'
 import { WorkflowStatus } from '../workflow-data'
-import { MessageAttributes } from '@node-ts/bus-core';
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 describe('HandlesProxy', () => {
   let persistence: IMock<Persistence>

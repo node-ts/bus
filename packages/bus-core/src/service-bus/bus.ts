@@ -1,5 +1,4 @@
-import { Event, Command } from '@node-ts/bus-messages'
-import { MessageAttributes } from './message-attributes'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 
 export enum BusState {
   Stopped = 'stopped',
