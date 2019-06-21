@@ -29,7 +29,7 @@ export class MessageAttributes<
    * These attributes will be attached to the outgoing message, but will not
    * propagate beyond the first receipt
    */
-  attributes?: AttributeType
+  attributes: AttributeType = {} as AttributeType
 
   /**
    * Additional metadata that will be sent alongside the message payload.
@@ -39,5 +39,5 @@ export class MessageAttributes<
    * These values are sticky, in that they will propagate for any message that
    * is sent as a result of receiving the message with sticky attributes.
    */
-  stickyAttributes?: StickyAttributeType
+  stickyAttributes: StickyAttributeType = {} as StickyAttributeType
 }
