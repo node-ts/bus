@@ -1,5 +1,5 @@
-import { Event, Command, Message } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, HandlerRegistry, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-core'
+import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
+import { Transport, TransportMessage, HandlerRegistry } from '@node-ts/bus-core'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
 import { inject, injectable } from 'inversify'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'

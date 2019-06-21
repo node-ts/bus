@@ -4,7 +4,7 @@ import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
-import { MessageAttributes } from '../service-bus'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 
 const event = new TestEvent()

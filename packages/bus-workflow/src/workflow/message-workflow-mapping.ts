@@ -1,6 +1,5 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowData } from './workflow-data'
-import { MessageAttributes } from '@node-ts/bus-core'
 
 export class MessageWorkflowMapping<MessageType extends Message, WorkflowDataType extends WorkflowData> {
 

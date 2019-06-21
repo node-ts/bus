@@ -5,7 +5,7 @@ import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { TestCommand, TestWorkflowData } from '../../test'
 import { Logger } from '@node-ts/logger-core'
 import { WorkflowStatus } from '../workflow-data'
-import { MessageAttributes } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 describe('StartedByProxy', () => {
   let persistence: IMock<Persistence>

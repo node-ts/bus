@@ -1,5 +1,4 @@
-import { Message } from '@node-ts/bus-messages'
-import { MessageAttributes } from '../service-bus'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor } from '@node-ts/logger-core'
 
 export interface HandlerPrototype {
