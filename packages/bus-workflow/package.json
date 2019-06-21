@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-workflow",
   "description": "A workflow engine for orchestrating logic flows in distributed applications.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,12 +16,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.1.4",
+    "@node-ts/bus-messages": "^0.1.5",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^0.4.0",
+    "@node-ts/bus-core": "^0.4.1",
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.17",
     "@types/uuid": "^3.4.4",
