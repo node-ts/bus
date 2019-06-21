@@ -12,21 +12,6 @@ export class MessageAttributes<
   AttributeType extends MessageAttributeMap = MessageAttributeMap,
   StickyAttributeType extends MessageAttributeMap = MessageAttributeMap
 > {
-
-  constructor ({
-    correlationId,
-    attributes,
-    stickyAttributes
-  }: {
-    correlationId?: Uuid,
-    attributes?: AttributeType,
-    stickyAttributes?: StickyAttributeType
-  }) {
-    this.correlationId = correlationId
-    this.attributes = attributes || {} as AttributeType
-    this.stickyAttributes = stickyAttributes || {} as StickyAttributeType
-  }
-
   /**
    * An identifier that can be used to relate or group messages together.
    * This value is sticky, in that any messages that are sent as a result
@@ -55,4 +40,19 @@ export class MessageAttributes<
    * is sent as a result of receiving the message with sticky attributes.
    */
   stickyAttributes: StickyAttributeType
+
+  constructor ({
+    correlationId,
+    attributes,
+    stickyAttributes
+  }: {
+    correlationId?: Uuid,
+    attributes?: AttributeType,
+    stickyAttributes?: StickyAttributeType
+  }) {
+    this.correlationId = correlationId
+    this.attributes = attributes || {} as AttributeType
+    this.stickyAttributes = stickyAttributes || {} as StickyAttributeType
+  }
+
 }
