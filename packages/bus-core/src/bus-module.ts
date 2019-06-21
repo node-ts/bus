@@ -1,7 +1,7 @@
 import { ContainerModule, interfaces } from 'inversify'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from './bus-symbols'
 import { MemoryQueue } from './transport'
-import { ServiceBus } from './service-bus'
+import { ServiceBus, MessageAttributes } from './service-bus'
 import { JsonSerializer } from './serialization'
 import { ApplicationBootstrap } from './application-bootstrap'
 import { HandlerRegistry } from './handler'
@@ -27,7 +27,7 @@ export class BusModule extends ContainerModule {
       bindService(bind, BUS_SYMBOLS.HandlerRegistry, HandlerRegistry).inSingletonScope()
       bindService(bind, BUS_SYMBOLS.JsonSerializer, JsonSerializer)
 
-      bind(BUS_SYMBOLS.MessageHandlingContext).toConstantValue({})
+      bind(BUS_SYMBOLS.MessageHandlingContext).toConstantValue(new MessageAttributes())
     })
   }
 }
