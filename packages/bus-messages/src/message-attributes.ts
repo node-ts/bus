@@ -1,7 +1,7 @@
 type Uuid = string
 
 export interface MessageAttributeMap {
-  [key: string]: string | number
+  [key: string]: string | number | undefined
 }
 
 /**

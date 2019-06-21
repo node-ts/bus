@@ -317,15 +317,19 @@ export function toMessageAttributeMap (messageOptions: MessageAttributes): SNS.M
 
   if (messageOptions.attributes) {
     Object.keys(messageOptions.attributes).forEach(key => {
-      const value = messageOptions.attributes![key]
-      map[`attributes.${key}`] = toAttributeValue(value)
+      const value = messageOptions.attributes[key]
+      if (!!value) {
+        map[`attributes.${key}`] = toAttributeValue(value)
+      }
     })
   }
 
   if (messageOptions.stickyAttributes) {
     Object.keys(messageOptions.stickyAttributes).forEach(key => {
-      const value = messageOptions.stickyAttributes![key]
-      map[`stickyAttributes.${key}`] = toAttributeValue(value)
+      const value = messageOptions.stickyAttributes[key]
+      if (!!value) {
+        map[`stickyAttributes.${key}`] = toAttributeValue(value)
+      }
     })
   }
 
@@ -360,8 +364,8 @@ export function fromMessageAttributeMap (sqsAttributes: SqsMessageAttributes | u
       }
     })
 
-    messageOptions.attributes = Object.keys(attributes).length ? attributes : undefined
-    messageOptions.stickyAttributes = Object.keys(stickyAttributes).length ? stickyAttributes : undefined
+    messageOptions.attributes = Object.keys(attributes).length ? attributes : {}
+    messageOptions.stickyAttributes = Object.keys(stickyAttributes).length ? stickyAttributes : {}
   }
 
   return messageOptions

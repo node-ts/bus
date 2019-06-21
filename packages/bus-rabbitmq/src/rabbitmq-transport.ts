@@ -61,10 +61,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       correlationId: m.properties.correlationId as string,
       attributes: m.properties.headers && m.properties.headers.attributes
         ? JSON.parse(m.properties.headers.attributes as string) as MessageAttributeMap
-        : undefined,
+        : {},
       stickyAttributes: m.properties.headers && m.properties.headers.stickyAttributes
         ? JSON.parse(m.properties.headers.stickyAttributes as string) as MessageAttributeMap
-        : undefined
+        : {}
     }
 
     return {
