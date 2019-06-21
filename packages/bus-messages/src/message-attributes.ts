@@ -41,18 +41,17 @@ export class MessageAttributes<
    */
   stickyAttributes: StickyAttributeType
 
-  constructor ({
-    correlationId,
-    attributes,
-    stickyAttributes
-  }: {
+  constructor (properties?: {
     correlationId?: Uuid,
     attributes?: AttributeType,
     stickyAttributes?: StickyAttributeType
   }) {
-    this.correlationId = correlationId
-    this.attributes = attributes || {} as AttributeType
-    this.stickyAttributes = stickyAttributes || {} as StickyAttributeType
+    if (!!properties) {
+      const { correlationId, attributes, stickyAttributes } = properties
+      this.correlationId = correlationId
+      this.attributes = attributes || {} as AttributeType
+      this.stickyAttributes = stickyAttributes || {} as StickyAttributeType
+    }
   }
 
 }
