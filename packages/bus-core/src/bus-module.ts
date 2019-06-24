@@ -37,7 +37,7 @@ function bindService<T> (
   bind: interfaces.Bind,
   symbol: symbol,
   service: ClassConstructor<T>
-): interfaces.BindingInWhenOnSyntax<{}> {
+): interfaces.BindingInWhenOnSyntax<unknown> {
   bindLogger(bind, service)
   return bind(symbol).to(service)
 }

@@ -46,6 +46,9 @@ export class MessageAttributes<
     attributes?: AttributeType,
     stickyAttributes?: StickyAttributeType
   }) {
+    this.attributes = {} as AttributeType
+    this.stickyAttributes = {} as StickyAttributeType
+
     if (!!properties) {
       const { correlationId, attributes, stickyAttributes } = properties
       this.correlationId = correlationId
