@@ -1,4 +1,5 @@
-import { Bus, ApplicationBootstrap, BUS_SYMBOLS, MessageAttributes } from '@node-ts/bus-core'
+import { Bus, ApplicationBootstrap, BUS_SYMBOLS } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { PostgresPersistence } from './postgres-persistence'
 import { TestContainer, TestWorkflow, TestWorkflowData, TestCommand } from '../test'
 import { BUS_WORKFLOW_SYMBOLS, WorkflowRegistry, MessageWorkflowMapping, WorkflowStatus } from '@node-ts/bus-workflow'
