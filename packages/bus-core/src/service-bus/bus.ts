@@ -1,4 +1,4 @@
-import { Event, Command } from '@node-ts/bus-messages'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 
 export enum BusState {
   Stopped = 'stopped',
@@ -8,8 +8,8 @@ export enum BusState {
 }
 
 export interface Bus {
-  publish<EventType extends Event> (event: EventType): Promise<void>
-  send<CommandType extends Command> (command: CommandType): Promise<void>
+  publish<EventType extends Event> (event: EventType, messageOptions?: MessageAttributes): Promise<void>
+  send<CommandType extends Command> (command: CommandType, messageOptions?: MessageAttributes): Promise<void>
   start (): Promise<void>
   stop (): Promise<void>
 }

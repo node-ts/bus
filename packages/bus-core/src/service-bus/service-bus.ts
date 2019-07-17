@@ -1,12 +1,14 @@
 import { injectable, inject } from 'inversify'
 import autobind from 'autobind-decorator'
 import { Bus, BusState } from './bus'
-import { BUS_SYMBOLS } from '../bus-symbols'
+import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport } from '../transport'
-import { Event, Command, Message } from '@node-ts/bus-messages'
+import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { sleep } from '../util'
-import { HandlerRegistry } from '../handler'
+import { HandlerRegistry, HandlerRegistration } from '../handler'
+import * as serializeError from 'serialize-error'
+import { SessionScopeBinder } from '../bus-module'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -20,18 +22,27 @@ export class ServiceBus implements Bus {
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry
+    @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
+    @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes
   ) {
   }
 
-  async publish<TEvent extends Event> (event: TEvent): Promise<void> {
+  async publish<TEvent extends Event> (
+    event: TEvent,
+    messageOptions: MessageAttributes = new MessageAttributes()
+  ): Promise<void> {
     this.logger.debug('publish', { event })
-    return this.transport.publish(event)
+    const transportOptions = this.prepareTransportOptions(messageOptions)
+    return this.transport.publish(event, transportOptions)
   }
 
-  async send<TCommand extends Command> (command: TCommand): Promise<void> {
+  async send<TCommand extends Command> (
+    command: TCommand,
+    messageOptions: MessageAttributes = new MessageAttributes()
+  ): Promise<void> {
     this.logger.debug('send', { command })
-    return this.transport.send(command)
+    const transportOptions = this.prepareTransportOptions(messageOptions)
+    return this.transport.send(command, transportOptions)
   }
 
   async start (): Promise<void> {
@@ -81,31 +92,71 @@ export class ServiceBus implements Bus {
         this.logger.debug('Message read from transport', { message })
 
         try {
-          await this.dispatchMessageToHandlers(message.domainMessage)
+          await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
-          this.logger.warn('Message was unsuccessfully handled. Returning to queue', { message, error })
+          this.logger.warn(
+            'Message was unsuccessfully handled. Returning to queue',
+            { message, error: serializeError(error) }
+          )
           await this.transport.returnMessage(message)
+          return false
         }
         return true
       }
     } catch (error) {
-      this.logger.error('Failed to receive message from transport', { error })
+      this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
   }
 
-  private async dispatchMessageToHandlers (message: Message): Promise<void> {
+  private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
     const handlers = this.handlerRegistry.get(message.$name)
     if (handlers.length === 0) {
       this.logger.warn(`No handlers registered for message ${message.$name}. Message will be discarded`)
       return
     }
 
-    const handlersToInvoke = handlers.map(h => h.resolveHandler(h.defaultContainer))
-    await Promise.all(handlersToInvoke.map(async h => {
-      await h.handle(message)
-    }))
+    const handlersToInvoke = handlers.map(handler => dispatchMessageToHandler(
+      message,
+      context,
+      handler
+    ))
+
+    await Promise.all(handlersToInvoke)
   }
+
+  private prepareTransportOptions (clientOptions: MessageAttributes): MessageAttributes {
+    const result: MessageAttributes = {
+      correlationId: clientOptions.correlationId || this.messageHandlingContext.correlationId,
+      attributes: clientOptions.attributes,
+      stickyAttributes: {
+        ...clientOptions.stickyAttributes,
+        ...this.messageHandlingContext.stickyAttributes
+      }
+    }
+
+    return result
+  }
+}
+
+async function dispatchMessageToHandler (
+  message: Message,
+  context: MessageAttributes,
+  handlerRegistration: HandlerRegistration<Message>
+): Promise<void> {
+  const container = handlerRegistration.defaultContainer
+  const childContainer = container.createChild()
+
+  childContainer
+    .bind<MessageAttributes>(BUS_SYMBOLS.MessageHandlingContext)
+    .toConstantValue(context)
+
+  const sessionScopeBinder = container.get<SessionScopeBinder>(BUS_INTERNAL_SYMBOLS.SessionScopeBinder)
+  // tslint:disable-next-line:no-unsafe-any
+  sessionScopeBinder(childContainer.bind.bind(childContainer))
+
+  const handler = handlerRegistration.resolveHandler(childContainer)
+  handler.handle(message, context)
 }

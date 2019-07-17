@@ -1,4 +1,4 @@
-import { Event, Command, Message } from '@node-ts/bus-messages'
+import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
 import { Transport, TransportMessage, HandlerRegistry } from '@node-ts/bus-core'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
 import { inject, injectable } from 'inversify'
@@ -41,12 +41,12 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.connection.close()
   }
 
-  async publish<TEvent extends Event> (event: TEvent): Promise<void> {
-    await this.publishMessage(event)
+  async publish<TEvent extends Event> (event: TEvent, messageAttriutes: MessageAttributes): Promise<void> {
+    await this.publishMessage(event, messageAttriutes)
   }
 
-  async send<TCommand extends Command> (command: TCommand): Promise<void> {
-    await this.publishMessage(command)
+  async send<TCommand extends Command> (command: TCommand, messageAttriutes: MessageAttributes): Promise<void> {
+    await this.publishMessage(command, messageAttriutes)
   }
 
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
@@ -57,16 +57,34 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payloadStr = m.content.toString('utf8')
     const payload = JSON.parse(payloadStr) as Message
 
-    const result = {
+    const attributes: MessageAttributes = {
+      correlationId: m.properties.correlationId as string,
+      attributes: m.properties.headers && m.properties.headers.attributes
+        ? JSON.parse(m.properties.headers.attributes as string) as MessageAttributeMap
+        : {},
+      stickyAttributes: m.properties.headers && m.properties.headers.stickyAttributes
+        ? JSON.parse(m.properties.headers.stickyAttributes as string) as MessageAttributeMap
+        : {}
+    }
+
+    return {
       id: undefined,
       domainMessage: payload,
-      raw: m
+      raw: m,
+      attributes
     }
-    return result
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    this.logger.debug('Deleting message', { rawMessage: message.raw })
+    this.logger.debug(
+      'Deleting message',
+      {
+        rawMessage: {
+          ...message.raw,
+          content: message.raw.content.toString()
+        }
+      }
+    )
     this.channel.ack(message.raw)
   }
 
@@ -108,9 +126,15 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.channel.bindQueue(deadLetterQueue, deadLetterExchange, '')
   }
 
-  private async publishMessage (message: Message): Promise<void> {
+  private async publishMessage (message: Message, messageOptions: MessageAttributes): Promise<void> {
     await this.assertExchange(message.$name)
     const payload = JSON.stringify(message)
-    this.channel.publish(message.$name, '', Buffer.from(payload))
+    this.channel.publish(message.$name, '', Buffer.from(payload), {
+      correlationId: messageOptions.correlationId,
+      headers: {
+        attributes: messageOptions.attributes ? JSON.stringify(messageOptions.attributes) : undefined,
+        stickyAttributes: messageOptions.stickyAttributes ? JSON.stringify(messageOptions.stickyAttributes) : undefined
+      }
+    })
   }
 }

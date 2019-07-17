@@ -1,11 +1,18 @@
 import { SqsTransport } from './sqs-transport'
-import { TestContainer, TestCommandHandler, TestCommand, HandleChecker, HANDLE_CHECKER } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
+import {
+  TestContainer,
+  TestCommandHandler,
+  TestCommand,
+  HandleChecker,
+  HANDLE_CHECKER
+} from '../test'
+import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep, MessageAttributes } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { IMock, Mock, Times } from 'typemoq'
+import { IMock, Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
+import * as faker from 'faker'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -131,15 +138,26 @@ describe('SqsTransport', () => {
 
     describe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4())
+      const messageOptions: MessageAttributes = {
+        correlationId: faker.random.uuid(),
+        attributes: {
+          attribute1: 'a',
+          attribute2: 1
+        },
+        stickyAttributes: {
+          attribute1: 'b',
+          attribute2: 2
+        }
+      }
 
       beforeAll(async () => {
-        await bus.send(testCommand)
+        await bus.send(testCommand, messageOptions)
       })
 
       it('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 2)
         handleChecker.verify(
-          h => h.check(),
+          h => h.check(It.isObjectWith(messageOptions)),
           Times.once()
         )
       })

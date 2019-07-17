@@ -1,4 +1,4 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 
 /**
  * A message from the transport provider that encapsulates the raw message
@@ -19,4 +19,9 @@ export interface TransportMessage<TransportMessageType> {
    * The raw message as it was received from the transprot
    */
   raw: TransportMessageType
+
+  /**
+   * Additional attributes and metadata that was sent along with the message
+   */
+  attributes: MessageAttributes
 }

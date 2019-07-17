@@ -18,7 +18,7 @@
     "test": "yarn test:unit && yarn test:integration",
     "test:unit": "jest \"(src\\/.+\\.|/)spec\\.ts$\"",
     "test:unit:watch": "yarn run test:unit --watch",
-    "test:integration": "jest --runInBand \"bus-(core|messages|workflow)\\/(src\\/.+\\.|/)integration\\.ts$\""
+    "test:integration": "jest --runInBand \"bus-(core|messages|workflow).*(src\\/.+\\.|/)integration\\.ts$\""
   },
   "keywords": [
     "typescript",

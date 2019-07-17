@@ -1,4 +1,4 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowData } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { ReflectExtensions } from '../../utility/reflect-extensions'
@@ -38,7 +38,7 @@ export function Handles<
     WorkflowWithHandler<MessageType, WorkflowDataType, KeyType>
 > (
   messageConstructor: ClassConstructor<MessageType>,
-  messageLookup: (message: MessageType) => string | undefined,
+  messageLookup: (message: MessageType, messageOptions: MessageAttributes) => string | undefined,
   workflowDataProperty: keyof WorkflowDataType & string
 ): (target: TargetType, propertyKey: KeyType) => void {
   return (target: TargetType, propertyKey: string): void =>

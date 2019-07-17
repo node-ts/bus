@@ -2,7 +2,7 @@ import { Persistence } from './persistence'
 import { WorkflowData, WorkflowStatus } from '../workflow-data'
 import { ClassConstructor } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { injectable, inject } from 'inversify'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 
@@ -36,9 +36,10 @@ export class InMemoryPersistence implements Persistence {
     workflowDataConstructor: ClassConstructor<WorkflowDataType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
     message: MessageType,
+    messageOptions: MessageAttributes,
     includeCompleted?: boolean | undefined
   ): Promise<WorkflowDataType[]> {
-    const filterValue = messageMap.lookupMessage(message)
+    const filterValue = messageMap.lookupMessage(message, messageOptions)
     if (!filterValue) {
       return []
     }

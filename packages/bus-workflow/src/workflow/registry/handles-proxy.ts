@@ -1,4 +1,4 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowData, WorkflowDataConstructor } from '../workflow-data'
 import { WorkflowHandlerProxy } from './workflow-handler-proxy'
 import { Logger } from '@node-ts/logger-core'
@@ -19,8 +19,8 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
     super(handler, workflowDataConstructor, persistence, logger)
   }
 
-  async getWorkflowData (message: TMessage): Promise<TWorkflowData[]> {
-    const searchValue = this.messageMapping.lookupMessage(message)
+  async getWorkflowData (message: TMessage, messageOptions: MessageAttributes): Promise<TWorkflowData[]> {
+    const searchValue = this.messageMapping.lookupMessage(message, messageOptions)
 
     if (!searchValue) {
       this.logger.trace('Message mapper returned undefined and will not resolve to any workflow data.', {
@@ -33,7 +33,8 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
     return this.persistence.getWorkflowData<TWorkflowData, TMessage>(
       this.workflowDataConstructor,
       this.messageMapping,
-      message
+      message,
+      messageOptions
     )
   }
 }

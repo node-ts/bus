@@ -28,8 +28,8 @@ jobs:
           name: Unit Test
           command: yarn run test:unit
       - run:
-        name: Integration Test
-        command: yarn run test:integration
+          name: Integration Test
+          command: yarn run test:integration
       # - setup_remote_docker
       # - run:
       #     name: Integration Test

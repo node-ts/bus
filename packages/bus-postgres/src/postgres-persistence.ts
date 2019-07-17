@@ -1,5 +1,5 @@
 import { ClassConstructor, BUS_SYMBOLS, JsonSerializer } from '@node-ts/bus-core'
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Persistence, WorkflowData, MessageWorkflowMapping } from '@node-ts/bus-workflow'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { inject, injectable } from 'inversify'
@@ -52,12 +52,13 @@ export class PostgresPersistence implements Persistence {
     workflowDataConstructor: ClassConstructor<WorkflowDataType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
     message: MessageType,
+    messageOptions: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowDataType[]> {
     this.logger.debug('Getting workflow data', { workflowDataName: workflowDataConstructor.name })
     const workflowDataName = new workflowDataConstructor().$name
     const tableName = resolveQualifiedTableName(workflowDataName, this.configuration.schemaName)
-    const matcherValue = messageMap.lookupMessage(message)
+    const matcherValue = messageMap.lookupMessage(message, messageOptions)
 
     const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.workflowDataProperty}'`
     const query = `
@@ -139,14 +140,23 @@ export class PostgresPersistence implements Persistence {
 
     const createSecondaryIndexes = workflowFields.map(async workflowField => {
       const indexName = resolveIndexName(tableName, workflowField)
+      const indexNameWithSchema = `${this.configuration.schemaName}.${indexName}`
       const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${workflowField}'`
+      // Support Postgres 9.4+
       const createSecondaryIndex = `
-        create index if not exists
-          ${indexName}
-        on
-          ${tableName} ((${workflowDataField}))
-        where
-          (${workflowDataField}) is not null;
+        DO
+        $$
+        BEGIN
+          IF to_regclass('${indexNameWithSchema}') IS NULL THEN
+            CREATE INDEX
+              ${indexName}
+            ON
+              ${tableName} ((${workflowDataField}))
+            WHERE
+              (${workflowDataField}) is not null;
+          END IF;
+        END
+        $$;
       `
       this.logger.debug('Ensuring secondary index exists', { createSecondaryIndex })
       await this.postgres.query(createSecondaryIndex)
@@ -157,7 +167,18 @@ export class PostgresPersistence implements Persistence {
 
   private async createPrimaryIndex (tableName: string): Promise<void> {
     const primaryIndexName = resolveIndexName(tableName, 'id', 'version')
-    const createPrimaryIndexSql = `create index if not exists ${primaryIndexName} on ${tableName} (id, version);`
+    const primaryIndexNameWithSchema = `${this.configuration.schemaName}.${primaryIndexName}`
+    // Support Postgres 9.4+
+    const createPrimaryIndexSql = `
+      DO
+      $$
+      BEGIN
+        IF to_regclass('${primaryIndexNameWithSchema}') IS NULL THEN
+          CREATE INDEX ${primaryIndexName} ON ${tableName} (id, version);
+        END IF;
+      END
+      $$;
+    `
     this.logger.debug('Ensuring primary index exists', { createPrimaryIndexSql })
     await this.postgres.query(createPrimaryIndexSql)
   }

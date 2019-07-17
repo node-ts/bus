@@ -1,8 +1,8 @@
 import { Container } from 'inversify'
-import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
+import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap, MessageAttributes } from '@node-ts/bus-core'
 import { Persistence } from './persistence'
 import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
-import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan } from '../test'
+import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan, FinalTask } from '../test'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { sleep } from '../utility'
 import { WorkflowStatus } from './workflow-data'
@@ -61,12 +61,14 @@ describe('Workflow', () => {
       'property1'
     )
     let workflowData: TestWorkflowData[]
+    const messageOptions = new MessageAttributes()
 
     beforeAll(async () => {
       workflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
         TestWorkflowData,
         propertyMapping,
-        command
+        command,
+        messageOptions
       )
     })
 
@@ -80,32 +82,56 @@ describe('Workflow', () => {
 
     describe('and then a message for the next step is received', () => {
       const event = new TaskRan('abc')
-      let finalWorkflowData: TestWorkflowData[]
+      let nextWorkflowData: TestWorkflowData[]
 
       beforeAll(async () => {
         await bus.publish(event)
         await sleep(CONSUME_TIMEOUT)
 
-        finalWorkflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
+        nextWorkflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
           TestWorkflowData,
           propertyMapping,
           command,
+          messageOptions,
           true
         )
       })
 
       it('should handle that message', () => {
-        expect(finalWorkflowData).toHaveLength(1)
+        expect(nextWorkflowData).toHaveLength(1)
       })
 
-      it('should mark the workflow as complete', () => {
-        const data = finalWorkflowData[0]
-        expect(data.$status).toEqual(WorkflowStatus.Complete)
+      describe('and then a final message arrives', () => {
+        const finalTask = new FinalTask()
+        let finalWorkflowData: TestWorkflowData[]
+
+        beforeAll(async () => {
+          await bus.publish(
+            finalTask,
+            { correlationId: nextWorkflowData[0].$workflowId }
+          )
+          await sleep(CONSUME_TIMEOUT)
+
+          finalWorkflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
+            TestWorkflowData,
+            propertyMapping,
+            command,
+            messageOptions,
+            true
+          )
+        })
+
+        it('should mark the workflow as complete', () => {
+          expect(finalWorkflowData).toHaveLength(1)
+          const data = finalWorkflowData[0]
+          expect(data.$status).toEqual(WorkflowStatus.Complete)
+        })
       })
     })
   })
 
   describe('when a workflow is completed in a StartedBy handler', () => {
+    const messageOptions = new MessageAttributes()
     const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> (
       cmd => cmd.property1,
       'property1'
@@ -116,6 +142,7 @@ describe('Workflow', () => {
         TestWorkflowStartedByCompletesData,
         propertyMapping,
         command,
+        messageOptions,
         true
       )
 
@@ -126,6 +153,7 @@ describe('Workflow', () => {
   })
 
   describe('when a StartedBy handler returns a discardStep', () => {
+    const messageOptions = new MessageAttributes()
     const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> (
       cmd => cmd.property1,
       'property1'
@@ -136,6 +164,7 @@ describe('Workflow', () => {
         TestWorkflowStartedByDiscardData,
         propertyMapping,
         command,
+        messageOptions,
         true
       )
 

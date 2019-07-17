@@ -1,12 +1,26 @@
 import { injectable, inject } from 'inversify'
 import { Transport } from './transport'
-import { Event, Command, Message } from '@node-ts/bus-messages'
+import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
 
+export const RETRY_LIMIT = 10
+
 export interface InMemoryMessage {
+  /**
+   * If the message is currently being handled and not visible to other consumers
+   */
   inFlight: boolean
+
+  /**
+   * The number of times the message has been fetched from the queue
+   */
+  seenCount: number
+
+  /**
+   * The body of the message that was sent by the consumer
+   */
   payload: Message
 }
 
@@ -21,6 +35,7 @@ export interface InMemoryMessage {
 export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
+  private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
 
   constructor (
@@ -40,12 +55,12 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
-  async publish<TEvent extends Event> (event: TEvent): Promise<void> {
-    this.addToQueue(event)
+  async publish<TEvent extends Event> (event: TEvent, messageOptions: MessageAttributes): Promise<void> {
+    this.addToQueue(event, messageOptions)
   }
 
-  async send<TCommand extends Command> (command: TCommand): Promise<void> {
-    this.addToQueue(command)
+  async send<TCommand extends Command> (command: TCommand, messageOptions: MessageAttributes): Promise<void> {
+    this.addToQueue(command, messageOptions)
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
@@ -70,16 +85,33 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async returnMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
-    message.raw.inFlight = false
+    message.raw.seenCount++
+
+    if (message.raw.seenCount >= RETRY_LIMIT) {
+      // Message retries exhausted, send to DLQ
+      this.logger.info('Message retry limit exceeded, sending to dead letter queue', { message })
+      await this.sendToDeadLetterQueue(message)
+    } else {
+      message.raw.inFlight = false
+    }
   }
 
   get depth (): number {
     return this.queue.length
   }
 
-  private addToQueue (message: Message): void {
+  get deadLetterQueueDepth (): number {
+    return this.deadLetterQueue.length
+  }
+
+  private async sendToDeadLetterQueue (message: TransportMessage<InMemoryMessage>): Promise<void> {
+    this.deadLetterQueue.push(message)
+    await this.deleteMessage(message)
+  }
+
+  private addToQueue (message: Message, messageOptions: MessageAttributes): void {
     if (this.messagesWithHandlers[message.$name]) {
-      const transportMessage = toTransportMessage(message, false)
+      const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)
       this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
     } else {
@@ -88,11 +120,17 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 }
 
-function toTransportMessage (message: Message, isProcessing: boolean): TransportMessage<InMemoryMessage> {
+function toTransportMessage (
+  message: Message,
+  messageOptions: MessageAttributes,
+  isProcessing: boolean
+): TransportMessage<InMemoryMessage> {
   return {
     id: undefined,
     domainMessage: message,
+    attributes: messageOptions,
     raw: {
+      seenCount: 0,
       payload: message,
       inFlight: isProcessing
     }
