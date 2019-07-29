@@ -55,11 +55,11 @@ export class SqsTransport implements Transport<SQS.Message> {
   ) {
   }
 
-  async publish<EventType extends Event> (event: EventType, messageAttributes: MessageAttributes): Promise<void> {
+  async publish<EventType extends Event> (event: EventType, messageAttributes?: MessageAttributes): Promise<void> {
     await this.publishMessage(event, messageAttributes)
   }
 
-  async send<CommandType extends Command> (command: CommandType, messageAttributes: MessageAttributes): Promise<void> {
+  async send<CommandType extends Command> (command: CommandType, messageAttributes?: MessageAttributes): Promise<void> {
     await this.publishMessage(command, messageAttributes)
   }
 
@@ -204,7 +204,10 @@ export class SqsTransport implements Transport<SQS.Message> {
     }
   }
 
-  private async publishMessage (message: Message, messageAttributes: MessageAttributes): Promise<void> {
+  private async publishMessage (
+    message: Message,
+    messageAttributes: MessageAttributes = new MessageAttributes()
+  ): Promise<void> {
     await this.assertSnsTopic(message)
 
     const topicName = this.sqsConfiguration.resolveTopicName(message.$name)

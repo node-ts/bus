@@ -55,11 +55,11 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
-  async publish<TEvent extends Event> (event: TEvent, messageOptions: MessageAttributes): Promise<void> {
+  async publish<TEvent extends Event> (event: TEvent, messageOptions?: MessageAttributes): Promise<void> {
     this.addToQueue(event, messageOptions)
   }
 
-  async send<TCommand extends Command> (command: TCommand, messageOptions: MessageAttributes): Promise<void> {
+  async send<TCommand extends Command> (command: TCommand, messageOptions?: MessageAttributes): Promise<void> {
     this.addToQueue(command, messageOptions)
   }
 
@@ -109,7 +109,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     await this.deleteMessage(message)
   }
 
-  private addToQueue (message: Message, messageOptions: MessageAttributes): void {
+  private addToQueue (message: Message, messageOptions: MessageAttributes = new MessageAttributes()): void {
     if (this.messagesWithHandlers[message.$name]) {
       const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)

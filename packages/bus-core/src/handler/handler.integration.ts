@@ -1,5 +1,6 @@
 import { TestEvent } from '../test/test-event'
-import { Bus, MessageAttributes } from '../service-bus'
+import { Bus } from '../service-bus'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestCommand } from '../test/test-command'
 import { Container } from 'inversify'
 import { BUS_SYMBOLS } from '../bus-symbols'

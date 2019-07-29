@@ -1,4 +1,5 @@
-import { HandlesMessage, MessageAttributes } from '@node-ts/bus-core'
+import { HandlesMessage } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestCommand } from './test-command'
 import { inject } from 'inversify'
 
