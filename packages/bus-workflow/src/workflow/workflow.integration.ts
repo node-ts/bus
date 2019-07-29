@@ -1,5 +1,5 @@
 import { Container } from 'inversify'
-import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap, MessageAttributes } from '@node-ts/bus-core'
+import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
 import { Persistence } from './persistence'
 import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
 import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan, FinalTask } from '../test'
@@ -18,6 +18,7 @@ import {
   TestWorkflowStartedByDiscardData
 } from '../test/test-workflow-startedby-discard'
 import { Mock } from 'typemoq'
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 describe('Workflow', () => {
   let container: Container
@@ -108,7 +109,7 @@ describe('Workflow', () => {
         beforeAll(async () => {
           await bus.publish(
             finalTask,
-            { correlationId: nextWorkflowData[0].$workflowId }
+            new MessageAttributes({ correlationId: nextWorkflowData[0].$workflowId })
           )
           await sleep(CONSUME_TIMEOUT)
 

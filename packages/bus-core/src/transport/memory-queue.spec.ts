@@ -14,9 +14,9 @@ const command2 = new TestCommand2()
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
   const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
-  const messageOptions: MessageAttributes = {
+  const messageOptions = new MessageAttributes({
     correlationId: faker.random.uuid()
-  }
+   })
 
   beforeEach(async () => {
     sut = new MemoryQueue(
@@ -72,7 +72,7 @@ describe('MemoryQueue', () => {
 
     it('should return the oldest message when there are many', async () => {
       await sut.publish(event, messageOptions)
-      await sut.send(command, {})
+      await sut.send(command)
 
       const firstMessage = await sut.readNextMessage()
       expect(firstMessage!.domainMessage).toEqual(event)

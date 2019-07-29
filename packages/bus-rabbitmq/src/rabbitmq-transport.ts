@@ -41,12 +41,12 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.connection.close()
   }
 
-  async publish<TEvent extends Event> (event: TEvent, messageAttriutes: MessageAttributes): Promise<void> {
-    await this.publishMessage(event, messageAttriutes)
+  async publish<TEvent extends Event> (event: TEvent, messageAttributes?: MessageAttributes): Promise<void> {
+    await this.publishMessage(event, messageAttributes)
   }
 
-  async send<TCommand extends Command> (command: TCommand, messageAttriutes: MessageAttributes): Promise<void> {
-    await this.publishMessage(command, messageAttriutes)
+  async send<TCommand extends Command> (command: TCommand, messageAttributes?: MessageAttributes): Promise<void> {
+    await this.publishMessage(command, messageAttributes)
   }
 
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
@@ -126,7 +126,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.channel.bindQueue(deadLetterQueue, deadLetterExchange, '')
   }
 
-  private async publishMessage (message: Message, messageOptions: MessageAttributes): Promise<void> {
+  private async publishMessage (
+    message: Message,
+    messageOptions: MessageAttributes = new MessageAttributes()
+  ): Promise<void> {
     await this.assertExchange(message.$name)
     const payload = JSON.stringify(message)
     this.channel.publish(message.$name, '', Buffer.from(payload), {
