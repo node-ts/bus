@@ -2,9 +2,10 @@ import { RabbitMqTransport } from './rabbitmq-transport'
 import { TestContainer, TestEvent, TestCommand, TestCommandHandler } from '../test'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
-import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus, MessageAttributes } from '@node-ts/bus-core'
+import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -85,7 +86,7 @@ describe('RabbitMqTransport', () => {
       describe('from a queue with messages', () => {
         const command = new TestCommand()
         let message: TransportMessage<RabbitMqMessage> | undefined
-        const messageOptions: MessageAttributes = {
+        const messageOptions = new MessageAttributes({
           correlationId: faker.random.uuid(),
           attributes: {
             attribute1: 'a',
@@ -95,7 +96,7 @@ describe('RabbitMqTransport', () => {
             attribute1: 'b',
             attribute2: 2
           }
-        }
+        })
 
         beforeEach(async () => {
           await bus.send(command, messageOptions)
@@ -114,10 +115,10 @@ describe('RabbitMqTransport', () => {
         })
 
         it('should receive the message options', () => {
-          expect(message!.messageOptions).toBeDefined()
-          expect(message!.messageOptions.correlationId).toEqual(messageOptions.correlationId)
-          expect(message!.messageOptions.attributes).toMatchObject(messageOptions.attributes!)
-          expect(message!.messageOptions.stickyAttributes).toMatchObject(messageOptions.stickyAttributes!)
+          expect(message!.attributes).toBeDefined()
+          expect(message!.attributes.correlationId).toEqual(messageOptions.correlationId)
+          expect(message!.attributes.attributes).toMatchObject(messageOptions.attributes!)
+          expect(message!.attributes.stickyAttributes).toMatchObject(messageOptions.stickyAttributes!)
         })
 
         it('should should not ack the message from the queue', async () => {
