@@ -6,13 +6,14 @@ import {
   HandleChecker,
   HANDLE_CHECKER
 } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep, MessageAttributes } from '@node-ts/bus-core'
+import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { IMock, Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
