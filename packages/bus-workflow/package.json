@@ -23,7 +23,7 @@
   "devDependencies": {
     "@node-ts/bus-core": "^0.4.7",
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.17",
+    "@node-ts/logger-core": "^0.1.0",
     "@types/uuid": "^3.4.4",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
