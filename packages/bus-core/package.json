@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.17",
+    "@node-ts/logger-core": "^0.1.0",
     "@types/faker": "^4.1.5",
     "faker": "^4.1.0",
     "inversify": "^5.0.1",
