@@ -158,5 +158,5 @@ async function dispatchMessageToHandler (
   sessionScopeBinder(childContainer.bind.bind(childContainer))
 
   const handler = handlerRegistration.resolveHandler(childContainer)
-  handler.handle(message, context)
+  return handler.handle(message, context)
 }
