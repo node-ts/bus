@@ -37,24 +37,13 @@ export class TestContainer extends Container {
 }
 
 function logsToOutput (errorLevel: keyof Logger): (keyof Logger)[] {
-  const result: (keyof Logger)[] = []
-  switch (errorLevel) {
-    case 'debug':
-      result.push('debug')
-    case 'trace':
-      result.push('trace')
-    case 'info':
-      result.push('info')
-    case 'warn':
-      result.push('warn')
-    case 'error':
-      result.push('error')
-    case 'fatal':
-      result.push('fatal')
-      break
-    default:
-      assertUnreachable(errorLevel)
-      break
-  }
-  return result
+  const levels: (keyof Logger)[] = [
+    'debug',
+    'trace',
+    'info',
+    'warn',
+    'error',
+    'fatal'
+  ]
+  return levels.slice(levels.indexOf(errorLevel), levels.length)
 }
