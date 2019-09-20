@@ -6,6 +6,7 @@
       "@node-ts/*": ["./*/src"]
     },
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": false
   }
 }
