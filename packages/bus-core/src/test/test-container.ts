@@ -18,7 +18,7 @@ export class TestContainer extends Container {
    * Swallows logs during integration test runs. Useful in not cluttering up
    * the test output.
    *
-   * @param errorLevel The error to dispay logs for. @default LogLevel.warn
+   * @param errorLevel The error to dispay logs for. @default 'warn'
    */
   silenceLogs (errorLevel: keyof Logger = 'warn'): this {
     const factory = this.get<LoggerFactory>(LOGGER_SYMBOLS.LoggerFactory)
@@ -37,7 +37,6 @@ export class TestContainer extends Container {
 }
 
 function logsToOutput (errorLevel: keyof Logger): (keyof Logger)[] {
-  // tslint:disable:no-switch-case-fall-through
   const result: (keyof Logger)[] = []
   switch (errorLevel) {
     case 'debug':
