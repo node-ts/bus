@@ -12,7 +12,7 @@
     "build": "lerna run build",
     "clean": "lerna run clean && rm -r node_modules",
     "docs:dev": "vuepress dev",
-    "docs:build": "vuepress build",
+    "docs:build": "vuepress build && cp .vuepress/google* docs",
     "docs:deploy": "./deploy-docs.sh",
     "lint": "lerna run lint",
     "test": "yarn test:unit && yarn test:integration",
