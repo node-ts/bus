@@ -6,6 +6,11 @@ module.exports = {
   base: '/bus/',
   ga: 'UA-139036417-1',
   serviceWorker: true,
+  plugins: {
+    'sitemap': {
+      hostname: 'https://node-ts.github.io/bus'
+    }
+  },
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
