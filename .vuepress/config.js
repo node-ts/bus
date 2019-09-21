@@ -4,8 +4,17 @@ module.exports = {
   description: 'Enterprise message bus library for typescript',
   dest: './docs',
   base: '/bus/',
-  ga: 'UA-139036417-1',
   serviceWorker: true,
+  head: [
+    ['script', { async: 'async', src: 'https://www.googletagmanager.com/gtag/js?id=UA-139036417-1' }],
+    ['script', {}, `
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'UA-139036417-1');
+    `]
+  ],
   plugins: {
     'sitemap': {
       hostname: 'https://node-ts.github.io/bus'

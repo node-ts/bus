@@ -27,18 +27,6 @@
     "message bus",
     "node"
   ],
-  "dependencies": {
-    "@node-ts/code-standards": "^0.0.10",
-    "@types/jest": "^24.0.12",
-    "inversify": "^5.0.1",
-    "jest": "^24.7.1",
-    "lerna": "^3.11.0",
-    "reflect-metadata": "^0.1.13",
-    "ts-jest": "^24.0.2",
-    "tslib": "^1.9.3",
-    "typescript": "^3.3.3",
-    "vuepress-plugin-sitemap": "^2.1.2"
-  },
   "jest": {
     "preset": "ts-jest",
     "setupFilesAfterEnv": [
@@ -55,6 +43,16 @@
     "packages/*"
   ],
   "devDependencies": {
-    "vuepress": "^1.0.0"
+    "@node-ts/code-standards": "^0.0.10",
+    "@types/jest": "^24.0.12",
+    "inversify": "^5.0.1",
+    "jest": "^24.7.1",
+    "lerna": "^3.11.0",
+    "reflect-metadata": "^0.1.13",
+    "ts-jest": "^24.0.2",
+    "tslib": "^1.9.3",
+    "typescript": "^3.3.3",
+    "vuepress": "^1.1.0",
+    "vuepress-plugin-sitemap": "^2.1.2"
   }
 }
