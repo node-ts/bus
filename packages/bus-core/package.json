@@ -19,7 +19,7 @@
     "class-transformer": "^0.2.0",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
-    "serialize-error": "^4.1.0",
+    "serialize-error": "^5.0.0",
     "tslib": "^1.9.3"
   },
   "devDependencies": {
