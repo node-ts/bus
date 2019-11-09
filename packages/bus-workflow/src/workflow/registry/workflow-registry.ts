@@ -175,9 +175,10 @@ export class WorkflowRegistry {
         }
         return this.startedByFactory(
           AssignmentWorkflowData as ClassConstructor<WorkflowState>,
-          (message, _, __) => {
+          (message, _, messageAttributes) => {
             const result = handler!({
               message,
+              messageAttributes,
               state,
               dependencies
             })
@@ -252,8 +253,9 @@ export class WorkflowRegistry {
           $name = 'assignment'
         }
         return this.handlesFactory(
-          (message, _, __) => handler.handler({
+          (message, _, messageAttributes) => handler.handler({
               message,
+              messageAttributes,
               state,
               dependencies
             }),

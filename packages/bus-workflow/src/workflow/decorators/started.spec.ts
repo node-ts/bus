@@ -13,7 +13,6 @@ import { WorkflowRegistry } from '../registry/workflow-registry'
 import { WorkflowStatus } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 
-
 class AssignmentCreated extends Event {
   $name = 'my-app/accounts/assignment-created'
   $version = 1
@@ -36,8 +35,8 @@ class AssignmentAssigned extends Event {
   }
 }
 
-class CreateTranscriptionAssignmentBundle extends Command {
-  $name = 'my-app/accounts/create-transcription-assignment-bundle'
+class CreateAssignmentBundle extends Command {
+  $name = 'my-app/accounts/create-assignment-bundle'
   $version = 1
 
   constructor (
@@ -48,8 +47,8 @@ class CreateTranscriptionAssignmentBundle extends Command {
   }
 }
 
-class NotifyTranscriberOfAssignmentAssigned extends Command {
-  $name = 'my-app/accounts/notify-transcriber-assignment-assigned'
+class NotifyAssignmentAssigned extends Command {
+  $name = 'my-app/accounts/notify-assignment-assigned'
   $version = 1
 
   constructor (
@@ -71,8 +70,8 @@ class AssignmentReassigned extends Event {
   }
 }
 
-class NotifyUnassignedTranscriberOfAssignmentReassigned extends Command {
-  $name = 'my-app/accounts/notify-unassigned-transcriber-of-assignment-reassigned'
+class NotifyUnassignedAssignmentReassigned extends Command {
+  $name = 'my-app/accounts/notify-unassigned-assignment-reassigned'
   $version = 1
 
   constructor (
@@ -104,7 +103,7 @@ interface AssignmentWorkflowDependencies {
   logger: Logger
 }
 
-export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState,AssignmentWorkflowDependencies>(
+export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, AssignmentWorkflowDependencies>(
   'assignment',
   c => ({
     bus: c.get<Bus>(BUS_SYMBOLS.Bus),
@@ -122,8 +121,11 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState,Assignm
       AssignmentAssigned,
       async ({ message, dependencies: { bus } }) => {
         const bundleId = uuid.v4()
-        const createTranscriptionAssignmentBundle = new CreateTranscriptionAssignmentBundle(message.assignmentId, bundleId)
-        await bus.send(createTranscriptionAssignmentBundle)
+        const createAssignmentBundle = new CreateAssignmentBundle(
+          message.assignmentId,
+          bundleId
+        )
+        await bus.send(createAssignmentBundle)
         console.log('Handled AssignmentAssigned')
         return { bundleId }
       },
@@ -134,19 +136,21 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState,Assignm
     )
     .when(
       AssignmentReassigned,
-      async ({ message, state, dependencies: { bus } }) => {
-        const notifyTranscriberOfAssignmentAssigned = new NotifyTranscriberOfAssignmentAssigned(state.assignmentId)
-        await bus.send(notifyTranscriberOfAssignmentAssigned)
+      async ({ message, state, messageAttributes, dependencies: { bus } }) => {
+        console.log('correlationid', messageAttributes.correlationId)
+        const notifyAssignmentAssigned = new NotifyAssignmentAssigned(state.assignmentId)
+        await bus.send(notifyAssignmentAssigned)
 
-        const notifyTranscriberOfAssignmentReassigned = new NotifyUnassignedTranscriberOfAssignmentReassigned(
+        const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
           state.assignmentId,
           message.unassignedUserId
         )
-        await bus.send(notifyTranscriberOfAssignmentReassigned)
+        await bus.send(notifyAssignmentReassigned)
+        return {}
       },
       {
-        lookup: e => e.assignmentId,
-        mapping: 'assignmentId'
+        lookup: (_, messageAttributes) => messageAttributes.correlationId,
+        mapping: '$workflowId'
       }
     )
     .when(
@@ -230,13 +234,13 @@ describe('Workflow', () => {
 
     describe('and then a message for the next step is received', () => {
       const assignmentAssigned = new AssignmentAssigned(event.assignmentId)
-      let nextWorkflowData: AssignmentWorkflowData[]
+      let startedWorkflowData: AssignmentWorkflowData[]
 
       beforeAll(async () => {
         await bus.publish(assignmentAssigned)
         await sleep(CONSUME_TIMEOUT)
 
-        nextWorkflowData = await persistence.getWorkflowData(
+        startedWorkflowData = await persistence.getWorkflowData(
           AssignmentWorkflowData,
           propertyMapping,
           assignmentAssigned,
@@ -246,15 +250,18 @@ describe('Workflow', () => {
       })
 
       it('should handle that message', () => {
-        expect(nextWorkflowData).toHaveLength(1)
+        expect(startedWorkflowData).toHaveLength(1)
       })
 
       describe('and then a message for the next step is received', () => {
-        const filesBundled = new AssignmentReassigned(event.assignmentId, 'someone')
+        const assignmentReassigned = new AssignmentReassigned('foo', 'bar')
         let nextWorkflowData: AssignmentWorkflowData[]
 
         beforeAll(async () => {
-          await bus.publish(filesBundled)
+          await bus.publish(
+            assignmentReassigned,
+            { correlationId: startedWorkflowData[0].$workflowId, attributes: {}, stickyAttributes: {} }
+          )
           await sleep(CONSUME_TIMEOUT)
 
           nextWorkflowData = await persistence.getWorkflowData(
@@ -268,6 +275,7 @@ describe('Workflow', () => {
 
         it('should handle that message', () => {
           expect(nextWorkflowData).toHaveLength(1)
+          expect(nextWorkflowData[0].$version).toEqual(2)
         })
 
         describe('and then a final message arrives', () => {

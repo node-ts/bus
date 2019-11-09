@@ -1,8 +1,7 @@
 import { ClassConstructor } from '@node-ts/bus-core'
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { interfaces } from 'inversify'
 import { WorkflowStatus } from '../workflow-data'
-import { MessageWorkflowMapping } from '../message-workflow-mapping'
 
 export interface WorkflowState {
   $workflowId: string
@@ -19,6 +18,7 @@ export type HandlerReturnType<State> = Promise<Partial<State>>
 export type WhenHandler<MessageType extends Message, State extends WorkflowState, Dependenices> = (
   parameters: {
     message: MessageType,
+    messageAttributes: MessageAttributes,
     state: Readonly<State>
     dependencies: Dependenices
   }
@@ -26,7 +26,7 @@ export type WhenHandler<MessageType extends Message, State extends WorkflowState
 
 interface WhenOptions<MessageType extends Message, State extends WorkflowState> {
   mapping: keyof State & string
-  lookup (message: MessageType): string | undefined
+  lookup (message: MessageType, attributes: MessageAttributes): string | undefined
 }
 
 export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> => {
@@ -36,7 +36,7 @@ export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> 
   } as {} as Partial<State> // TODO naughty
 }
 
-export type OnWhenHandler = {
+export interface OnWhenHandler {
   handler: WhenHandler<Message, WorkflowState, {}>
   options: WhenOptions<Message, WorkflowState>
 }
