@@ -29,6 +29,7 @@ export class HandlesProxy<TMessage extends Message, TWorkflowData extends Workfl
       })
       return []
     }
+    console.log('Getting workflow data', { message, searchValue })
 
     return this.persistence.getWorkflowData<TWorkflowData, TMessage>(
       this.workflowDataConstructor,

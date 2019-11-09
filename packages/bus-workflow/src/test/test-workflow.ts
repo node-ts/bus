@@ -3,7 +3,7 @@ import { TestWorkflowData } from './test-workflow-data'
 import { injectable, inject } from 'inversify'
 import { BUS_SYMBOLS, Bus } from '@node-ts/bus-core'
 import { TestCommand } from './test-command'
-import { StartedBy, Handles } from '../workflow/decorators'
+import { StartedBy, Started, Handles } from '../workflow/decorators'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
 import { FinalTask } from './final-task'
@@ -17,7 +17,7 @@ export class TestWorkflow extends Workflow<TestWorkflowData> {
     super()
   }
 
-  @StartedBy<TestCommand, TestWorkflowData, 'handleTestCommand'>(TestCommand)
+  @Started(TestCommand)
   async handleTestCommand (command: TestCommand): Promise<Partial<TestWorkflowData>> {
     await this.bus.send(new RunTask(command.property1!))
     return {

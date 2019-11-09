@@ -29,7 +29,8 @@ export class InMemoryPersistence implements Persistence {
     workflowDataConstructor: ClassConstructor<TWorkflowData>,
     _: MessageWorkflowMapping<Message, WorkflowData>[]
   ): Promise<void> {
-    this.workflowData[workflowDataConstructor.name] = []
+    const name = new workflowDataConstructor().$name
+    this.workflowData[name] = []
   }
 
   async getWorkflowData<WorkflowDataType extends WorkflowData, MessageType extends Message> (
@@ -44,7 +45,7 @@ export class InMemoryPersistence implements Persistence {
       return []
     }
 
-    const workflowDataName = workflowDataConstructor.name
+    const workflowDataName = new workflowDataConstructor().$name
     const workflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
     if (!workflowData) {
       this.logger.error('Workflow data not initialized', { workflowDataName })
@@ -59,7 +60,7 @@ export class InMemoryPersistence implements Persistence {
   async saveWorkflowData<WorkflowDataType extends WorkflowData> (
     workflowData: WorkflowDataType
   ): Promise<void> {
-    const workflowDataName = workflowData.constructor.name
+    const workflowDataName = workflowData.$name
     const existingWorkflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
     const existingItem = existingWorkflowData.find(d => d.$workflowId === workflowData.$workflowId)
     if (existingItem) {

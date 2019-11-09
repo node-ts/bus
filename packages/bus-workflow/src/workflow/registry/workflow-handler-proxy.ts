@@ -49,7 +49,11 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
       } else if (workflowDataOutput) {
         this.logger.debug(
           'Changes detected in workflow data and will be persisted.',
-          { workflowId: immutableWorkflowData.$workflowId, workflowName: this.workflowDataConstructor.name }
+          {
+            workflowId: immutableWorkflowData.$workflowId,
+            workflowName: this.workflowDataConstructor.name,
+            changes: workflowDataOutput
+          }
         )
         const updatedWorkflowData = Object.assign(
           new this.workflowDataConstructor(),
