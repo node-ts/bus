@@ -158,7 +158,7 @@ export class WorkflowRegistry {
     startedByHandlers.forEach((handler, messageConstructor) => {
       const messageName = new messageConstructor().$name
       const handlerFactory = (context: interfaces.Context) => {
-        const state: WorkflowState = {
+        const initialWorkflowState: WorkflowState = {
           $workflowId: uuid.v4(),
           $name: workflow.workflowName,
           $status: WorkflowStatus.Running,
@@ -179,12 +179,12 @@ export class WorkflowRegistry {
             const result = handler!({
               message,
               messageAttributes,
-              state,
+              state: initialWorkflowState,
               dependencies
             })
             return {
               ...result,
-              ...state
+              ...initialWorkflowState
             }
           }
         )

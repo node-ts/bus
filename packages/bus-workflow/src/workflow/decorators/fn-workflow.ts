@@ -26,7 +26,8 @@ export type WhenHandler<MessageType extends Message, State extends WorkflowState
 
 interface WhenOptions<MessageType extends Message, State extends WorkflowState> {
   mapping: keyof State & string
-  lookup (message: MessageType, attributes: MessageAttributes): string | undefined
+  // tslint:disable-next-line:prefer-method-signature Avoid unbound this
+  lookup: (message: MessageType, attributes: MessageAttributes) => string | undefined
 }
 
 export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> => {
