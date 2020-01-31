@@ -1,10 +1,12 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { MessageAttributes, Message } from '@node-ts/bus-messages'
 import { ClassConstructor } from '@node-ts/logger-core'
 
-export interface HandlerPrototype {
-  $messageName: string
-  $message: ClassConstructor<Message>
+export type MessageType = Message | {}
+
+export interface HandlerPrototype<T extends MessageType> {
+  $message: ClassConstructor<T>
   $symbol: symbol
+  $resolver (message: T): boolean
 }
 
 /**
@@ -13,6 +15,6 @@ export interface HandlerPrototype {
  * @param options (optional) Additional message options and metadata that were sent along with the message
  * @returns An awaitable promise that resolves when the handler operation has completed
  */
-export interface Handler<TMessage extends Message> {
+export interface Handler<TMessage extends MessageType> {
   handle (message: TMessage, messageOptions?: MessageAttributes): Promise<void>
 }

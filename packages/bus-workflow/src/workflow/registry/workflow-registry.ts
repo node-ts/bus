@@ -135,7 +135,7 @@ export class WorkflowRegistry {
       }
 
       this.handlerRegistry.register(
-        messageName,
+        m => m.$name === messageName,
         Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-started-by-proxy`),
         handlerFactory,
         step.messageConstructor
@@ -160,7 +160,7 @@ export class WorkflowRegistry {
         )
       }
       this.handlerRegistry.register(
-        messageName,
+        m => m.$name === messageName,
         Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-handles-proxy`),
         handler,
         step.messageConstructor

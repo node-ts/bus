@@ -112,7 +112,7 @@ export class ServiceBus implements Bus {
   }
 
   private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
-    const handlers = this.handlerRegistry.get(message.$name)
+    const handlers = this.handlerRegistry.get(message)
     if (handlers.length === 0) {
       this.logger.warn(`No handlers registered for message ${message.$name}. Message will be discarded`)
       return

@@ -2,7 +2,7 @@ import { Message } from '@node-ts/bus-messages'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { Container, inject, injectable } from 'inversify'
 import { BUS_SYMBOLS } from '../bus-symbols'
-import { Handler, HandlerPrototype } from '../handler/handler'
+import { Handler, HandlerPrototype, MessageType } from '../handler/handler'
 import { HandlerRegistry } from '../handler'
 import { Bus } from '../service-bus'
 import { ClassConstructor } from '../util'
@@ -56,7 +56,7 @@ export class ApplicationBootstrap {
       throw new Error('Cannot call registerHandler() after initialize() has been called')
     }
 
-    const prototype = handler.prototype as HandlerPrototype
+    const prototype = handler.prototype as HandlerPrototype<MessageType>
     if (!prototype.$symbol) {
       throw new Error(
         `Missing symbol on ${prototype.constructor}.`
@@ -64,15 +64,8 @@ export class ApplicationBootstrap {
       )
     }
 
-    if (!prototype.$messageName) {
-      throw new Error(
-        `Missing message type on ${prototype.constructor}.`
-        + 'This could mean the handler class is missing the @Handles() decorator.'
-      )
-    }
-
     this.handlerRegistry.register(
-      prototype.$messageName,
+      prototype.$resolver,
       prototype.$symbol,
       handler,
       prototype.$message
