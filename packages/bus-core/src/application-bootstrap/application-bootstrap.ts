@@ -3,7 +3,7 @@ import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { Container, inject, injectable } from 'inversify'
 import { BUS_SYMBOLS } from '../bus-symbols'
 import { Handler, HandlerPrototype } from '../handler/handler'
-import { HandlerRegistry } from '../handler'
+import { HandlerRegistry, RawHandler } from '../handler'
 import { Bus } from '../service-bus'
 import { ClassConstructor } from '../util'
 import { Transport } from '../transport'
@@ -49,6 +49,10 @@ export class ApplicationBootstrap {
     }
 
     this.logger.info('Bus application disposed')
+  }
+
+  registerRawHandler (handler: ClassConstructor<RawHandler<Message>>): void {
+
   }
 
   registerHandler (handler: ClassConstructor<Handler<Message>>): void {

@@ -22,8 +22,33 @@ interface RegisteredHandlers {
   handlers: HandlerBinding[]
 }
 
+
 interface HandlerRegistrations {
-  [key: string]: RegisteredHandlers
+  /**
+   * A list of all handlers that receive domain messages (ie: inherit from `@node-ts/bus-messages/message`).
+   * The keys are the message unique message names, and the values are one or more
+   * handlers that will receive the message.
+   */
+  domainHandlers: {
+    [key: string]: RegisteredHandlers
+  }
+
+  /**
+   * An array of all handlers for raw messages. These are non-domain messages that originate in external
+   * systems or infrastructure services.
+   */
+  rawHandlers: {
+    /**
+     * Handler that will receive the message
+     */
+    handler: HandlerBinding
+
+    /**
+     * A resolver that is given a raw message and reports if its handlers should receive it
+     * @param message The raw message received from the bus
+     */
+    resolver (message: unknown): boolean
+  }[]
 }
 
 type MessageName = string
@@ -35,7 +60,10 @@ type MessageName = string
 @injectable()
 export class HandlerRegistry {
 
-  private registry: HandlerRegistrations = {}
+  private registry: HandlerRegistrations = {
+    domainHandlers: {},
+    rawHandlers: []
+  }
   private container: Container
   private unhandledMessages: MessageName[] = []
 
@@ -45,8 +73,17 @@ export class HandlerRegistry {
   }
 
   /**
-   * Registers that a function handles a particular message type
-   * @param messageName Name of the message to register, from the `$name` property of the message.
+   * Registers a handler for a raw message, that originates from an external system and does not
+   * conform to the `@node-ts/bus-messages/messsage` contract
+   *
+   */
+  registerRaw (): void {
+
+  }
+
+  /**
+   * Registers that a function handles a particular domain message type
+   * @param messageName Name of the domain message to register, from the `$name` property of the message.
    * @param symbol A unique symbol to identify the binding of the message to the function
    * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
@@ -58,16 +95,16 @@ export class HandlerRegistry {
     messageType: ClassConstructor<TMessage>
   ): void {
 
-    if (!this.registry[messageName]) {
+    if (!this.registry.domainHandlers[messageName]) {
       // Register that the message will have subscriptions
-      this.registry[messageName] = {
+      this.registry.domainHandlers[messageName] = {
         messageType,
         handlers: []
       }
     }
 
     const handlerName = getHandlerName(handler)
-    const handlerAlreadyRegistered = this.registry[messageName].handlers.some(f => f.symbol === symbol)
+    const handlerAlreadyRegistered = this.registry.domainHandlers[messageName].handlers.some(f => f.symbol === symbol)
 
     if (handlerAlreadyRegistered) {
       this.logger.warn(`Attempted to re-register a handler that's already registered`, { handlerName })
@@ -75,7 +112,7 @@ export class HandlerRegistry {
       if (isClassConstructor(handler)) {
         const allRegisteredHandlers = [].concat.apply(
           [],
-          Object.keys(this.registry).map(msgName => this.registry[msgName].handlers)
+          Object.keys(this.registry.domainHandlers).map(msgName => this.registry.domainHandlers[msgName].handlers)
         ) as HandlerBinding[]
 
         const handlerNameAlreadyRegistered = allRegisteredHandlers
@@ -101,7 +138,7 @@ export class HandlerRegistry {
         symbol,
         handler
       }
-      this.registry[messageName].handlers.push(handlerDetails)
+      this.registry.domainHandlers[messageName].handlers.push(handlerDetails)
       this.logger.info('Handler registered', { messageType: messageName, handler: handlerName })
     }
   }
@@ -111,7 +148,7 @@ export class HandlerRegistry {
    * @param messageName Name of the message to get handlers for, found in the `$name` property of the message
    */
   get<MessageType extends Message> (messageName: string): HandlerRegistration<MessageType>[] {
-    if (!(messageName in this.registry)) {
+    if (!(messageName in this.registry.domainHandlers)) {
       // No handlers for the given message
       if (!this.unhandledMessages.some(m => m === messageName)) {
         this.unhandledMessages.push(messageName)
@@ -121,7 +158,7 @@ export class HandlerRegistry {
       }
       return []
     }
-    return this.registry[messageName].handlers.map(h => ({
+    return this.registry.domainHandlers[messageName].handlers.map(h => ({
       defaultContainer: this.container,
       resolveHandler: (container: Container) => {
         this.logger.debug(`Resolving handlers for ${messageName}`)
@@ -145,7 +182,7 @@ export class HandlerRegistry {
    * Retrieves a list of all messages that have handler registrations
    */
   getMessageNames (): string[] {
-    return Object.keys(this.registry)
+    return Object.keys(this.registry.domainHandlers)
   }
 
   /**
@@ -153,10 +190,10 @@ export class HandlerRegistry {
    * @param messageName Message to get a class constructor for
    */
   getMessageConstructor<T extends Message> (messageName: string): ClassConstructor<T> | undefined {
-    if (!(messageName in this.registry)) {
+    if (!(messageName in this.registry.domainHandlers)) {
       return undefined
     }
-    return this.registry[messageName].messageType as ClassConstructor<T>
+    return this.registry.domainHandlers[messageName].messageType as ClassConstructor<T>
   }
 
   /**
@@ -176,8 +213,8 @@ export class HandlerRegistry {
   }
 
   private bindHandlers (): void {
-    Object.keys(this.registry).forEach(messageName => {
-      const messageHandler = this.registry[messageName]
+    Object.keys(this.registry.domainHandlers).forEach(messageName => {
+      const messageHandler = this.registry.domainHandlers[messageName]
 
       messageHandler.handlers.forEach(handlerRegistration => {
         const handlerName = getHandlerName(handlerRegistration.handler)

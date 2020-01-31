@@ -3,8 +3,12 @@ import {
   TestContainer,
   TestCommandHandler,
   TestCommand,
-  HandleChecker,
-  HANDLE_CHECKER
+  TestCommandHandleChecker,
+  HANDLE_CHECKER,
+  bounceEventExample,
+  BounceEventHandleChecker,
+  BOUNCE_EVENT_HANDLE_CHECKER,
+  BounceEventHandler
 } from '../test'
 import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
@@ -75,7 +79,8 @@ describe('SqsTransport', () => {
   let sns: SNS
   let bus: Bus
 
-  let handleChecker: IMock<HandleChecker>
+  let testCommandHandleChecker: IMock<TestCommandHandleChecker>
+  let bounceEventHandleChecker: IMock<BounceEventHandleChecker>
 
   beforeAll(async () => {
     container = new TestContainer()
@@ -86,10 +91,14 @@ describe('SqsTransport', () => {
     bus = container.get(BUS_SYMBOLS.Bus)
     bootstrap = container.get(BUS_SYMBOLS.ApplicationBootstrap)
 
-    handleChecker = Mock.ofType<HandleChecker>()
-    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
+    testCommandHandleChecker = Mock.ofType<TestCommandHandleChecker>()
+    container.bind(HANDLE_CHECKER).toConstantValue(testCommandHandleChecker.object)
+
+    bounceEventHandleChecker = Mock.ofType<BounceEventHandleChecker>()
+    container.bind(BOUNCE_EVENT_HANDLE_CHECKER).toConstantValue(bounceEventHandleChecker.object)
 
     bootstrap.registerHandler(TestCommandHandler)
+    bootstrap.registerHandler(BounceEventHandler)
   })
 
   afterAll(async () => {
@@ -137,6 +146,24 @@ describe('SqsTransport', () => {
       expect(result.Attributes).toBeDefined()
     })
 
+    describe('when sending a system message', () => {
+
+      beforeAll(async () => {
+        await sns.publish({
+          TopicArn: 'arn:aws:sns:us-west-2:767830011838:andrew-test',
+          Message: JSON.stringify(bounceEventExample)
+        }).promise()
+      })
+
+      it('should be dispatched to its handler', async () => {
+        await sleep(1000 * 2)
+        bounceEventHandleChecker.verify(
+          h => h.check(It.isObjectWith(bounceEventExample)),
+          Times.once()
+        )
+      })
+    })
+
     describe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4())
       const messageOptions: MessageAttributes = {
@@ -157,7 +184,7 @@ describe('SqsTransport', () => {
 
       it('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 2)
-        handleChecker.verify(
+        testCommandHandleChecker.verify(
           h => h.check(It.isObjectWith(messageOptions)),
           Times.once()
         )

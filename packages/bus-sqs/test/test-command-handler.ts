@@ -4,7 +4,7 @@ import { TestCommand } from './test-command'
 import { inject } from 'inversify'
 
 export const HANDLE_CHECKER = Symbol.for('node-ts/bus-sqs/integration/handle-checker')
-export interface HandleChecker {
+export interface TestCommandHandleChecker {
   check (attributes: MessageAttributes): void
 }
 
@@ -12,7 +12,7 @@ export interface HandleChecker {
 export class TestCommandHandler {
 
   constructor (
-    @inject(HANDLE_CHECKER) private readonly handleChecker: HandleChecker
+    @inject(HANDLE_CHECKER) private readonly handleChecker: TestCommandHandleChecker
   ) {
   }
 

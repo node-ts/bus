@@ -21,7 +21,7 @@ describe('HandlerRegistry', () => {
     )
   })
 
-  describe('when registring a handler', () => {
+  describe('when registering a handler', () => {
     beforeEach(() => {
       sut.register(messageName, symbol, handler, messageType)
     })
@@ -66,7 +66,15 @@ describe('HandlerRegistry', () => {
     })
   })
 
-  describe('when registrying a handler twice', () => {
+  // describe('when registering a raw handler', () => {
+  //   beforeEach(() => {
+  //     sut.registerRaw()
+  //   })
+
+  //   it('should register the handler', () => {})
+  // })
+
+  describe('when registering a handler twice', () => {
     beforeEach(() => {
       sut.register(messageName, symbol, handler, messageType)
       sut.register(messageName, symbol, handler, messageType)
