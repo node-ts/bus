@@ -159,6 +159,7 @@ export class WorkflowRegistry {
           step.messageWorkflowMapping
         )
       }
+
       this.handlerRegistry.register(
         m => m.$name === messageName,
         Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-handles-proxy`),
