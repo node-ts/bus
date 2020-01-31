@@ -73,7 +73,7 @@ describe('Workflow', () => {
       )
     })
 
-    it('should start a new workflow', () => {
+    fit('should start a new workflow', () => {
       expect(workflowData).toHaveLength(1)
       const data = workflowData[0]
       expect(data.$status).toEqual(WorkflowStatus.Running)

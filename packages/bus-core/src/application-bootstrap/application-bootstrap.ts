@@ -51,7 +51,7 @@ export class ApplicationBootstrap {
     this.logger.info('Bus application disposed')
   }
 
-  registerHandler (handler: ClassConstructor<Handler<Message>>): void {
+  registerHandler (handler: ClassConstructor<Handler<MessageType>>): void {
     if (this.isInitialized) {
       throw new Error('Cannot call registerHandler() after initialize() has been called')
     }
