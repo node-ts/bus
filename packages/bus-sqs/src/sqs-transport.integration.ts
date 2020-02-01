@@ -7,13 +7,16 @@ import {
   HANDLE_CHECKER
 } from '../test'
 import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
-import { SQS, SNS } from 'aws-sdk'
+import { SQS, SNS, AWSError } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { IMock, Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { TestSystemMessageHandler } from '../test/test-system-message-handler'
+import { PromiseResult } from 'aws-sdk/lib/request'
+import { TestSystemMessage } from '../test/test-system-message'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -91,6 +94,7 @@ describe('SqsTransport', () => {
     container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
 
     bootstrap.registerHandler(TestCommandHandler)
+    bootstrap.registerHandler(TestSystemMessageHandler)
   })
 
   afterAll(async () => {
@@ -138,6 +142,41 @@ describe('SqsTransport', () => {
       expect(result.Attributes).toBeDefined()
     })
 
+    describe('when a system message is received', () => {
+
+      const message = new TestSystemMessage()
+      const topicName = 'integration-test-system-messages'
+      let topic: PromiseResult<SNS.CreateTopicResponse, AWSError>
+
+      beforeAll(async () => {
+        // Manually subscribe the topic to the queue
+        topic = await sns.createTopic({ Name: topicName }).promise()
+        await sns.subscribe({
+          Protocol: 'sqs',
+          TopicArn: topic.TopicArn!,
+          Endpoint: sqsConfiguration.queueArn
+        }).promise()
+
+        await sns.publish({
+          Message: JSON.stringify(message)
+        }).promise()
+      })
+
+      afterAll(async () => {
+        await sns.deleteTopic({
+          TopicArn: topic.TopicArn!
+        }).promise()
+      })
+
+      it('should handle the system message', async () => {
+        await sleep(1000 * 8)
+        handleChecker.verify(
+          h => h.check(It.isObjectWith(message), It.isAny()),
+          Times.once()
+        )
+      })
+    })
+
     describe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4())
       const messageOptions: MessageAttributes = {
@@ -159,7 +198,7 @@ describe('SqsTransport', () => {
       it('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
-          h => h.check(It.isObjectWith(messageOptions)),
+          h => h.check(It.isObjectWith(testCommand), It.isObjectWith(messageOptions)),
           Times.once()
         )
       })
