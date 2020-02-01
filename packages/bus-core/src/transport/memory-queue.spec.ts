@@ -13,22 +13,20 @@ const command2 = new TestCommand2()
 
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
-  const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
+  const handledMessageNames = [TestCommand, TestEvent]
   const messageOptions = new MessageAttributes({
     correlationId: faker.random.uuid()
    })
 
-  beforeEach(async () => {
+  beforeEach(() => {
     sut = new MemoryQueue(
       Mock.ofType<Logger>().object
     )
 
     const handlerRegistry = Mock.ofType<HandlerRegistry>()
     handlerRegistry
-      .setup(h => h.getMessageNames())
+      .setup(h => h.subscribedBusMessages)
       .returns(() => handledMessageNames)
-
-    await sut.initialize(handlerRegistry.object)
   })
 
   describe('when publishing an event', () => {
