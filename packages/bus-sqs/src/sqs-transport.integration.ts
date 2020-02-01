@@ -78,6 +78,7 @@ describe('SqsTransport', () => {
   let handleChecker: IMock<HandleChecker>
 
   beforeAll(async () => {
+    jest.setTimeout(10000)
     container = new TestContainer()
     container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
     sut = container.get(BUS_SYMBOLS.Transport)
@@ -156,7 +157,7 @@ describe('SqsTransport', () => {
       })
 
       it('should receive and dispatch to the handler', async () => {
-        await sleep(1000 * 2)
+        await sleep(1000 * 8)
         handleChecker.verify(
           h => h.check(It.isObjectWith(messageOptions)),
           Times.once()
