@@ -86,13 +86,6 @@ describe('HandlerRegistry', () => {
     })
   })
 
-  describe('when adding two handlers of the same name', () => {
-    it('should throw an error', () => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
-      expect(() => sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)).toThrowError()
-    })
-  })
-
   describe('when getting a handler', () => {
     it('should return an empty array for an unregistered handler', () => {
       expect(sut.get(new TestCommand())).toHaveLength(0)

@@ -6,6 +6,7 @@ import { Logger } from '@node-ts/logger-core'
 import { Container } from 'inversify'
 import { TestCommandHandler, TestCommand } from '../test'
 import { Transport } from '../transport'
+import { Message } from '@node-ts/bus-messages'
 
 describe('ApplicationBootstrap', () => {
   let sut: ApplicationBootstrap
@@ -57,7 +58,7 @@ describe('ApplicationBootstrap', () => {
     it('should add the handler to the registry', () => {
       handlerRegistry.verify(
         h => h.register(
-          TestCommand.NAME,
+          It.isAny(),
           It.isAny(),
           TestCommandHandler,
           TestCommand
