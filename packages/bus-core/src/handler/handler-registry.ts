@@ -66,6 +66,12 @@ export class HandlerRegistry {
   ): void {
 
     const handlerName = getHandlerName(handler)
+    const handlerAlreadyRegistered = this.handlerResolvers.some(f => f.symbol === symbol)
+
+    if (handlerAlreadyRegistered) {
+      this.logger.warn(`Attempted to re-register a handler that's already registered`, { handlerName })
+      return
+    }
 
     if (isClassConstructor(handler)) {
       try {

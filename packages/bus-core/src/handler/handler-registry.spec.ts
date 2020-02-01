@@ -73,7 +73,7 @@ describe('HandlerRegistry', () => {
       sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
     })
 
-    fit('should warn that the handler is already registered', () => {
+    it('should warn that the handler is already registered', () => {
       logger.verify(
         l => l.warn('Attempted to re-register a handler that\'s already registered', It.isAny()),
         Times.once()
