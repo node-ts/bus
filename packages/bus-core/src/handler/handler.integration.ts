@@ -11,7 +11,6 @@ import { TestContainer } from '../test/test-container'
 import { MessageLogger, MESSAGE_LOGGER, TestEventHandler } from '../test'
 import * as faker from 'faker'
 import { SystemEvent, TestResolverHandler } from '../test/test-resolver-handler'
-import { Transport } from '../transport'
 
 const event = new TestEvent()
 const command = new TestCommand()

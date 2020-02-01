@@ -118,7 +118,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   /**
    * Creates a dead letter exchange + queue, binds, and returns the
-   * dead letter exchange nane
+   * dead letter exchange name
    */
   private async createDeadLetterQueue (): Promise<void> {
     await this.channel.assertExchange(deadLetterExchange, 'direct', { durable: true })

@@ -61,7 +61,7 @@ export class HandlerRegistry {
     resolver: (message: TMessage) => boolean,
     symbol: symbol,
     handler: HandlerType,
-    messageType: ClassConstructor<TMessage>
+    messageType?: ClassConstructor<TMessage>
   ): void {
 
     const handlerName = getHandlerName(handler)
@@ -78,7 +78,10 @@ export class HandlerRegistry {
     }
 
     this.handlerResolvers.push({ resolver, symbol, handler })
-    this.logger.info('Handler registered', { messageName: messageType.name, handler: handlerName })
+    this.logger.info(
+      'Handler registered',
+      { messageName: messageType ? messageType.name : undefined, handler: handlerName }
+    )
   }
 
   /**
