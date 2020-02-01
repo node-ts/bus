@@ -1,15 +1,16 @@
 import { HandlerRegistry } from './handler-registry'
 import { Mock, IMock, Times, It } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
-import { TestEvent, TestEventHandler, TestCommandHandler } from '../test'
+import { TestEvent, TestEventHandler, TestCommandHandler, TestCommand } from '../test'
 import { Container, interfaces } from 'inversify'
+import { Message } from '@node-ts/bus-messages'
 
 describe('HandlerRegistry', () => {
   let sut: HandlerRegistry
 
   let logger: IMock<Logger>
 
-  const messageName = TestEvent.name
+  const messageName = TestEvent.NAME
   const symbol = Symbol()
   const handler = TestEventHandler
   const messageType = TestEvent
@@ -21,13 +22,13 @@ describe('HandlerRegistry', () => {
     )
   })
 
-  describe('when registring a handler', () => {
+  describe('when registering a handler', () => {
     beforeEach(() => {
-      sut.register(messageName, symbol, handler, messageType)
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
     })
 
     it('should register the handler', () => {
-      const handlers = sut.get(messageName)
+      const handlers = sut.get(new TestEvent())
       expect(handlers).toHaveLength(1)
     })
 
@@ -66,13 +67,13 @@ describe('HandlerRegistry', () => {
     })
   })
 
-  describe('when registrying a handler twice', () => {
+  describe('when registering a handler twice', () => {
     beforeEach(() => {
-      sut.register(messageName, symbol, handler, messageType)
-      sut.register(messageName, symbol, handler, messageType)
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
     })
 
-    it('should warn that the handler is already registered', () => {
+    fit('should warn that the handler is already registered', () => {
       logger.verify(
         l => l.warn('Attempted to re-register a handler that\'s already registered', It.isAny()),
         Times.once()
@@ -80,32 +81,32 @@ describe('HandlerRegistry', () => {
     })
 
     it('should register a single instance of the handler', () => {
-      const handlers = sut.get(messageName)
+      const handlers = sut.get(new TestEvent())
       expect(handlers).toHaveLength(1)
     })
   })
 
   describe('when adding two handlers of the same name', () => {
     it('should throw an error', () => {
-      sut.register(messageName, symbol, handler, messageType)
-      expect(() => sut.register('random', symbol, handler, messageType)).toThrowError()
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
+      expect(() => sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)).toThrowError()
     })
   })
 
   describe('when getting a handler', () => {
-    it('should return an empty array for an unregisterd handler', () => {
-      expect(sut.get('')).toHaveLength(0)
+    it('should return an empty array for an unregistered handler', () => {
+      expect(sut.get(new TestCommand())).toHaveLength(0)
     })
 
     it('should return a single handler for a single registration', () => {
-      sut.register(messageName, symbol, handler, messageType)
-      expect(sut.get(messageName)).toHaveLength(1)
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
+      expect(sut.get(new TestEvent())).toHaveLength(1)
     })
 
     it('should return a multiple handlers for multiple registrations', () => {
-      sut.register(messageName, symbol, handler, messageType)
-      sut.register(messageName, Symbol(), TestCommandHandler, messageType)
-      expect(sut.get(messageName)).toHaveLength(2)
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
+      sut.register((m: Message) => m.$name === messageName, Symbol(), TestCommandHandler, messageType)
+      expect(sut.get(new TestEvent())).toHaveLength(2)
     })
   })
 

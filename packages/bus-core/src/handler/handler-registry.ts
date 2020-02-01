@@ -98,6 +98,7 @@ export class HandlerRegistry {
     const resolvedHandlers = this.handlerResolvers
       .filter(resolvers => resolvers.resolver(message))
 
+
     if (resolvedHandlers.length === 0) {
       // No handlers for the given message
       if (!this.unhandledMessages.some(m => m === messageName)) {

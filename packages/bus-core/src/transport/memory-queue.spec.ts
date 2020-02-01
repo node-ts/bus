@@ -18,7 +18,7 @@ describe('MemoryQueue', () => {
     correlationId: faker.random.uuid()
    })
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sut = new MemoryQueue(
       Mock.ofType<Logger>().object
     )
@@ -27,6 +27,8 @@ describe('MemoryQueue', () => {
     handlerRegistry
       .setup(h => h.subscribedBusMessages)
       .returns(() => handledMessageNames)
+
+    await sut.initialize(handlerRegistry.object)
   })
 
   describe('when publishing an event', () => {

@@ -36,10 +36,18 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
   private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
+  private messagesWithHandlers: { [key: string]: {} }
 
   constructor (
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
   ) {
+  }
+
+  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
+    this.messagesWithHandlers = {}
+    handlerRegistry.subscribedBusMessages
+      .map(ctor => new ctor().$name)
+      .forEach(messageName => this.messagesWithHandlers[messageName] = {})
   }
 
   async dispose (): Promise<void> {
@@ -103,9 +111,13 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   private addToQueue (message: Message, messageOptions: MessageAttributes = new MessageAttributes()): void {
-    const transportMessage = toTransportMessage(message, messageOptions, false)
-    this.queue.push(transportMessage)
-    this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+    if (this.messagesWithHandlers[message.$name]) {
+      const transportMessage = toTransportMessage(message, messageOptions, false)
+      this.queue.push(transportMessage)
+      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+    } else {
+      this.logger.warn('Message was not sent as it has no registered handlers', { message })
+    }
   }
 }
 
