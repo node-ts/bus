@@ -27,11 +27,10 @@ export function HandlesMessage<
     const isBusMessage = isClassConstructor(resolveWith)
 
     if (isBusMessage) {
-      const messageConstructor = resolveWith as ClassConstructor<TMessage>
+      const messageConstructor = resolveWith as ClassConstructor<Message>
       const message = new messageConstructor()
-      const busMessage = message as Message
       prototype.$message = messageConstructor
-      prototype.$resolver = m => (m as Message).$name === busMessage.$name
+      prototype.$resolver = m => (m as Message).$name === message.$name
     } else if (resolveWith instanceof Function) {
       prototype.$resolver = resolveWith as ((message: TMessage) => boolean)
     } else {

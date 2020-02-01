@@ -104,8 +104,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private async bindExchangesToQueue (handlerRegistry: HandlerRegistry): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
-    const subscriptionPromises = handlerRegistry.getMessageNames()
-      .map(async messageName => {
+    const subscriptionPromises = handlerRegistry.subscribedBusMessages
+      .map(async subscribedBusMessage => {
+        const messageName = new subscribedBusMessage().$name
         const exchangeName = messageName
         await this.assertExchange(messageName)
 

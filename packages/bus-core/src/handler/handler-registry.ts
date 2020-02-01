@@ -44,6 +44,7 @@ export class HandlerRegistry {
   private container: Container
   private unhandledMessages: MessageName[] = []
   private handlerResolvers: HandlerResolver[] = []
+  private registeredBusMessages: ClassConstructor<Message>[] = []
 
   constructor (
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
@@ -61,7 +62,7 @@ export class HandlerRegistry {
     resolver: (message: TMessage) => boolean,
     symbol: symbol,
     handler: HandlerType,
-    messageType?: ClassConstructor<TMessage>
+    messageType?: ClassConstructor<Message>
   ): void {
 
     const handlerName = getHandlerName(handler)
@@ -78,6 +79,9 @@ export class HandlerRegistry {
     }
 
     this.handlerResolvers.push({ resolver, symbol, handler })
+    if (!!messageType) {
+      this.registeredBusMessages.push(messageType)
+    }
     this.logger.info(
       'Handler registered',
       { messageName: messageType ? messageType.name : undefined, handler: handlerName }
@@ -139,6 +143,13 @@ export class HandlerRegistry {
    */
   getHandlerId (handler: Handler<Message>): string {
     return handler.constructor.name
+  }
+
+  /**
+   * Retrieves a list of all messages that have handler registrations
+   */
+  get subscribedBusMessages (): ClassConstructor<Message>[] {
+    return this.registeredBusMessages
   }
 
   private bindHandlers (): void {
