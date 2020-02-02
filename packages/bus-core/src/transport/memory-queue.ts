@@ -4,6 +4,7 @@ import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-message
 import { TransportMessage } from './transport-message'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
+import { MessageType } from '../handler/handler'
 
 export const RETRY_LIMIT = 10
 
@@ -21,7 +22,7 @@ export interface InMemoryMessage {
   /**
    * The body of the message that was sent by the consumer
    */
-  payload: Message
+  payload: MessageType
 }
 
 /**
@@ -97,6 +98,17 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
+  addToQueue (message: MessageType, messageOptions: MessageAttributes = new MessageAttributes()): void {
+    const isBusMessage = message instanceof Message
+    if (!isBusMessage || this.messagesWithHandlers[(message as Message).$name]) {
+      const transportMessage = toTransportMessage(message, messageOptions, false)
+      this.queue.push(transportMessage)
+      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+    } else {
+      this.logger.warn('Message was not sent as it has no registered handlers', { message })
+    }
+  }
+
   get depth (): number {
     return this.queue.length
   }
@@ -109,20 +121,10 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     this.deadLetterQueue.push(message)
     await this.deleteMessage(message)
   }
-
-  private addToQueue (message: Message, messageOptions: MessageAttributes = new MessageAttributes()): void {
-    if (this.messagesWithHandlers[message.$name]) {
-      const transportMessage = toTransportMessage(message, messageOptions, false)
-      this.queue.push(transportMessage)
-      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
-    } else {
-      this.logger.warn('Message was not sent as it has no registered handlers', { message })
-    }
-  }
 }
 
 function toTransportMessage (
-  message: Message,
+  message: MessageType,
   messageOptions: MessageAttributes,
   isProcessing: boolean
 ): TransportMessage<InMemoryMessage> {

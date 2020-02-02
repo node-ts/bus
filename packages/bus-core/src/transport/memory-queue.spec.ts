@@ -1,5 +1,5 @@
 import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
-import { TestCommand, TestEvent, TestCommand2 } from '../test'
+import { TestCommand, TestEvent, TestCommand2, TestSystemMessage } from '../test'
 import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
@@ -49,6 +49,13 @@ describe('MemoryQueue', () => {
     it('should not push the message onto the queue', async () => {
       await sut.send(command2, messageOptions)
       expect(sut.depth).toEqual(0)
+    })
+  })
+
+  describe('when sending a system message', () => {
+    it('should push the message onto the queue', async () => {
+      sut.addToQueue(new TestSystemMessage())
+      expect(sut.depth).toEqual(1)
     })
   })
 
