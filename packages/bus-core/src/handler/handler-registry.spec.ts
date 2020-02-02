@@ -22,7 +22,7 @@ describe('HandlerRegistry', () => {
     )
   })
 
-  describe('when registering a handler', () => {
+  describe('when registering a handler for a bus message', () => {
     beforeEach(() => {
       sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
     })
@@ -30,6 +30,11 @@ describe('HandlerRegistry', () => {
     it('should register the handler', () => {
       const handlers = sut.get(new TestEvent())
       expect(handlers).toHaveLength(1)
+    })
+
+    it('should add it to the subscribed bus messages list', () => {
+      const subscription = sut.subscribedBusMessages.find(s => new s().$name === messageType.NAME)
+      expect(subscription).toBeDefined()
     })
 
     describe('when binding handlers to the container', () => {
@@ -64,6 +69,17 @@ describe('HandlerRegistry', () => {
         bindingTo.verifyAll()
         bindingWhenOn.verifyAll()
       })
+    })
+  })
+
+  describe('when registering a handler for an external message', () => {
+    beforeEach(() => {
+      sut.register((m: Message) => m.$name === messageName, symbol, handler)
+    })
+
+    it('should not include the message in the subscribed bus messages list', () => {
+      const messageSubscription = sut.subscribedBusMessages.find(m => new m().$name === messageName)
+      expect(messageSubscription).toBeUndefined()
     })
   })
 

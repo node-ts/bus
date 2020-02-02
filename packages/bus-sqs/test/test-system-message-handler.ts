@@ -2,9 +2,9 @@ import { HandlesMessage } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { inject } from 'inversify'
 import { HANDLE_CHECKER, HandleChecker } from './test-command-handler'
-import { TestSystemMessage } from './test-system-message'
+import { TestSystemMessage, testSystemMessageName } from './test-system-message'
 
-@HandlesMessage(TestSystemMessage)
+@HandlesMessage((m: TestSystemMessage) => m.name === testSystemMessageName)
 export class TestSystemMessageHandler {
 
   constructor (

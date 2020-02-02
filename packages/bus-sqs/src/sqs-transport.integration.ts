@@ -151,6 +151,7 @@ describe('SqsTransport', () => {
       beforeAll(async () => {
         // Manually subscribe the topic to the queue
         topic = await sns.createTopic({ Name: topicName }).promise()
+
         await sns.subscribe({
           Protocol: 'sqs',
           TopicArn: topic.TopicArn!,
@@ -158,11 +159,23 @@ describe('SqsTransport', () => {
         }).promise()
 
         await sns.publish({
-          Message: JSON.stringify(message)
+          Message: JSON.stringify(message),
+          TopicArn: topic.TopicArn!
         }).promise()
       })
 
       afterAll(async () => {
+        const subscriptions = await sns.listSubscriptionsByTopic({
+          TopicArn: topic.TopicArn!
+        }).promise()
+
+
+        await Promise.all(
+          subscriptions
+            .Subscriptions!
+            .map((s: SNS.Subscription) => sns.unsubscribe({ SubscriptionArn: s.SubscriptionArn! }).promise())
+        )
+
         await sns.deleteTopic({
           TopicArn: topic.TopicArn!
         }).promise()
@@ -171,7 +184,7 @@ describe('SqsTransport', () => {
       it('should handle the system message', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
-          h => h.check(It.isObjectWith(message), It.isAny()),
+          h => h.check(It.isObjectWith({...message}), It.isAny()),
           Times.once()
         )
       })
@@ -198,7 +211,7 @@ describe('SqsTransport', () => {
       it('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
-          h => h.check(It.isObjectWith(testCommand), It.isObjectWith(messageOptions)),
+          h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
           Times.once()
         )
       })
