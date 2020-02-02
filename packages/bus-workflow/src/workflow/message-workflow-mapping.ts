@@ -10,7 +10,7 @@ export class MessageWorkflowMapping<MessageType extends Message, WorkflowDataTyp
    */
   constructor (
     public lookupMessage: (message: MessageType, messageOptions?: MessageAttributes) => string | undefined,
-    readonly workflowDataProperty: string
+    readonly workflowDataProperty: keyof WorkflowDataType & string
   ) {
   }
 }
