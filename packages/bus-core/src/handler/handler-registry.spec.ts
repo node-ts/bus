@@ -4,6 +4,7 @@ import { Logger } from '@node-ts/logger-core'
 import { TestEvent, TestEventHandler, TestCommandHandler, TestCommand } from '../test'
 import { Container, interfaces } from 'inversify'
 import { Message } from '@node-ts/bus-messages'
+import * as faker from 'faker'
 
 describe('HandlerRegistry', () => {
   let sut: HandlerRegistry
@@ -32,8 +33,8 @@ describe('HandlerRegistry', () => {
       expect(handlers).toHaveLength(1)
     })
 
-    it('should add it to the subscribed bus messages list', () => {
-      const subscription = sut.subscribedBusMessages.find(s => new s().$name === messageType.NAME)
+    it('should add it to the subscribed message subscription list', () => {
+      const subscription = sut.messageSubscriptions.find(s => new s.messageType!().$name === messageType.NAME)
       expect(subscription).toBeDefined()
     })
 
@@ -73,13 +74,15 @@ describe('HandlerRegistry', () => {
   })
 
   describe('when registering a handler for an external message', () => {
+    const identifier = faker.random.uuid()
+
     beforeEach(() => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler)
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, undefined, identifier)
     })
 
-    it('should not include the message in the subscribed bus messages list', () => {
-      const messageSubscription = sut.subscribedBusMessages.find(m => new m().$name === messageName)
-      expect(messageSubscription).toBeUndefined()
+    it('should include the message in the subscribed messages list', () => {
+      const messageSubscription = sut.messageSubscriptions.find(m => m.topicIdentifier === identifier)
+      expect(messageSubscription).toBeDefined()
     })
   })
 

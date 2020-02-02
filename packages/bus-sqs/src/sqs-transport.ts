@@ -242,7 +242,7 @@ export class SqsTransport implements Transport<SQS.Message> {
           )
         } else if (subscription.messageType) {
           const messageCtor = subscription.messageType
-          const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor!().$name)
+          const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor().$name)
           await this.createSnsTopic(topicName)
           topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
         } else {

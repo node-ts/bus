@@ -31,14 +31,14 @@ export class WorkflowHandlesMetadata {
  * @param workflowDataProperty A field in the workflow data to look up matched message data on
  */
 export function Handles<
-  MessageType extends Message,
+  TMessage extends Message,
   WorkflowDataType extends WorkflowData,
   KeyType extends string,
-  TargetType extends WorkflowWithHandler<MessageType, WorkflowDataType, KeyType> =
-    WorkflowWithHandler<MessageType, WorkflowDataType, KeyType>
+  TargetType extends WorkflowWithHandler<TMessage, WorkflowDataType, KeyType> =
+    WorkflowWithHandler<TMessage, WorkflowDataType, KeyType>
 > (
-  messageConstructor: ClassConstructor<MessageType>,
-  messageLookup: (message: MessageType, messageOptions: MessageAttributes) => string | undefined,
+  messageConstructor: ClassConstructor<TMessage>,
+  messageLookup: (message: TMessage, messageOptions: MessageAttributes) => string | undefined,
   workflowDataProperty: keyof WorkflowDataType & string
 ): (target: TargetType, propertyKey: KeyType) => void {
   return (target: TargetType, propertyKey: string): void =>

@@ -12,12 +12,7 @@ export interface HandlerRegistration<TMessage extends MessageType> {
   resolveHandler (handlerContextContainer: Container): Handler<TMessage>
 }
 
-interface HandlerBinding {
-  symbol: symbol
-  handler: HandlerType
-}
-
-interface HandlerResolver {
+export interface HandlerResolver {
   handler: HandlerType
   symbol: symbol
   topicIdentifier: string | undefined
