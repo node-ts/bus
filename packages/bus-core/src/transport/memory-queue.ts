@@ -46,7 +46,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
     this.messagesWithHandlers = {}
-    handlerRegistry.subscribedBusMessages
+    handlerRegistry.messageSubscriptions
+      .filter(subscription => !!subscription.messageType)
+      .map(subscription => subscription.messageType!)
       .map(ctor => new ctor().$name)
       .forEach(messageName => this.messagesWithHandlers[messageName] = {})
   }

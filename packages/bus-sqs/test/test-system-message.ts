@@ -1,10 +1,10 @@
 import * as faker from 'faker'
 
-export const testSystemMessageName = faker.random.uuid()
-
 export class TestSystemMessage {
+  static NAME = `integration-${faker.random.uuid()}`
+
   constructor (
-    readonly name = testSystemMessageName
+    readonly name = TestSystemMessage.NAME
   ) {
   }
 }

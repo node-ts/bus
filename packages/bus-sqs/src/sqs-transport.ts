@@ -229,14 +229,28 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async subscribeQueueToMessages (handlerRegistry: HandlerRegistry): Promise<void> {
     const queueArn = this.sqsConfiguration.queueArn
-    const queueSubscriptionPromises = handlerRegistry.subscribedBusMessages
-      .map(async subscribedBusMessage => {
-        const messageName = new subscribedBusMessage().$name
-        const topicName = this.sqsConfiguration.resolveTopicName(messageName)
-        await this.createSnsTopic(topicName)
+    const queueSubscriptionPromises = handlerRegistry.messageSubscriptions
+      .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
+      .map(async subscription => {
+        const messageCtor = subscription.messageType
 
-        const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
-        this.logger.info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })
+        if (!messageCtor && !subscription.topicIdentifier) {
+          throw new Error('Unable to subscribe SNS topic to queue - no topic information provided')
+        }
+
+        let topicArn: string
+        if (subscription.topicIdentifier) {
+          topicArn = subscription.topicIdentifier
+          this.logger.trace(
+            'Assuming supplied topicIdentifier already exists as an sns topic',
+            { topicIdentifier: topicArn }
+          )
+        } else {
+          const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor!().$name)
+          await this.createSnsTopic(topicName)
+          topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
+        }
+
         await this.subscribeToTopic(queueArn, topicArn)
       })
 
@@ -258,6 +272,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       Protocol: 'sqs',
       Endpoint: queueArn
     }
+    this.logger.info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
     await this.sns.subscribe(subscribeRequest).promise()
   }
 

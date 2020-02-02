@@ -68,7 +68,8 @@ export class ApplicationBootstrap {
       prototype.$resolver,
       prototype.$symbol,
       handler,
-      prototype.$message
+      prototype.$message,
+      prototype.$topicIdentifier
     )
   }
 }

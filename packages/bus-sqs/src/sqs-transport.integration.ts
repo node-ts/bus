@@ -79,6 +79,7 @@ describe('SqsTransport', () => {
   let bus: Bus
 
   let handleChecker: IMock<HandleChecker>
+  let testSystemMessageTopicArn: string
 
   beforeAll(async () => {
     jest.setTimeout(10000)
@@ -95,6 +96,9 @@ describe('SqsTransport', () => {
 
     bootstrap.registerHandler(TestCommandHandler)
     bootstrap.registerHandler(TestSystemMessageHandler)
+
+    const testSystemMessageTopic = await sns.createTopic({ Name: TestSystemMessage.NAME }).promise()
+    testSystemMessageTopicArn = testSystemMessageTopic.TopicArn!
   })
 
   afterAll(async () => {
@@ -110,12 +114,20 @@ describe('SqsTransport', () => {
     await sns.deleteTopic({
       TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
     }).promise()
+    await sns.deleteTopic({
+      TopicArn: testSystemMessageTopicArn
+    }).promise()
   })
 
   describe('when the transport has been initialized', () => {
 
     beforeAll(async () => {
       await bootstrap.initialize(container)
+    })
+
+    it('should subscribe the queue to manually provided topics', () => {
+      // Expect sns to exist
+      // Expect it's bound to the queue
     })
 
     it('should create the service queue', async () => {
@@ -145,39 +157,11 @@ describe('SqsTransport', () => {
     describe('when a system message is received', () => {
 
       const message = new TestSystemMessage()
-      const topicName = 'integration-test-system-messages'
-      let topic: PromiseResult<SNS.CreateTopicResponse, AWSError>
 
       beforeAll(async () => {
-        // Manually subscribe the topic to the queue
-        topic = await sns.createTopic({ Name: topicName }).promise()
-
-        await sns.subscribe({
-          Protocol: 'sqs',
-          TopicArn: topic.TopicArn!,
-          Endpoint: sqsConfiguration.queueArn
-        }).promise()
-
         await sns.publish({
           Message: JSON.stringify(message),
-          TopicArn: topic.TopicArn!
-        }).promise()
-      })
-
-      afterAll(async () => {
-        const subscriptions = await sns.listSubscriptionsByTopic({
-          TopicArn: topic.TopicArn!
-        }).promise()
-
-
-        await Promise.all(
-          subscriptions
-            .Subscriptions!
-            .map((s: SNS.Subscription) => sns.unsubscribe({ SubscriptionArn: s.SubscriptionArn! }).promise())
-        )
-
-        await sns.deleteTopic({
-          TopicArn: topic.TopicArn!
+          TopicArn: testSystemMessageTopicArn
         }).promise()
       })
 
