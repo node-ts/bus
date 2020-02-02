@@ -15,7 +15,6 @@ import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestSystemMessageHandler } from '../test/test-system-message-handler'
-import { PromiseResult } from 'aws-sdk/lib/request'
 import { TestSystemMessage } from '../test/test-system-message'
 
 function getEnvVar (key: string): string {

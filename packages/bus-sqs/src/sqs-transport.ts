@@ -232,23 +232,21 @@ export class SqsTransport implements Transport<SQS.Message> {
     const queueSubscriptionPromises = handlerRegistry.messageSubscriptions
       .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
       .map(async subscription => {
-        const messageCtor = subscription.messageType
-
-        if (!messageCtor && !subscription.topicIdentifier) {
-          throw new Error('Unable to subscribe SNS topic to queue - no topic information provided')
-        }
-
         let topicArn: string
+
         if (subscription.topicIdentifier) {
           topicArn = subscription.topicIdentifier
           this.logger.trace(
             'Assuming supplied topicIdentifier already exists as an sns topic',
             { topicIdentifier: topicArn }
           )
-        } else {
+        } else if (subscription.messageType) {
+          const messageCtor = subscription.messageType
           const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor!().$name)
           await this.createSnsTopic(topicName)
           topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
+        } else {
+          throw new Error('Unable to subscribe SNS topic to queue - no topic information provided')
         }
 
         await this.subscribeToTopic(queueArn, topicArn)

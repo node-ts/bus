@@ -105,11 +105,19 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private async bindExchangesToQueue (handlerRegistry: HandlerRegistry): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
-    const subscriptionPromises = handlerRegistry.subscribedBusMessages
-      .map(async subscribedBusMessage => {
-        const messageName = new subscribedBusMessage().$name
-        const exchangeName = messageName
-        await this.assertExchange(messageName)
+    const subscriptionPromises = handlerRegistry.messageSubscriptions
+      .map(async subscription => {
+
+        let exchangeName: string
+        if (subscription.topicIdentifier) {
+          exchangeName = subscription.topicIdentifier
+        } else if (subscription.messageType) {
+          const messageName = new subscription.messageType().$name
+          exchangeName = messageName
+          await this.assertExchange(messageName)
+        } else {
+          throw new Error('Unable to bind exchange to queue - no topic information provided')
+        }
 
         this.logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
