@@ -229,14 +229,26 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async subscribeQueueToMessages (handlerRegistry: HandlerRegistry): Promise<void> {
     const queueArn = this.sqsConfiguration.queueArn
-    const queueSubscriptionPromises = handlerRegistry.subscribedBusMessages
-      .map(async subscribedBusMessage => {
-        const messageName = new subscribedBusMessage().$name
-        const topicName = this.sqsConfiguration.resolveTopicName(messageName)
-        await this.createSnsTopic(topicName)
+    const queueSubscriptionPromises = handlerRegistry.messageSubscriptions
+      .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
+      .map(async subscription => {
+        let topicArn: string
 
-        const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
-        this.logger.info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })
+        if (subscription.topicIdentifier) {
+          topicArn = subscription.topicIdentifier
+          this.logger.trace(
+            'Assuming supplied topicIdentifier already exists as an sns topic',
+            { topicIdentifier: topicArn }
+          )
+        } else if (subscription.messageType) {
+          const messageCtor = subscription.messageType
+          const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor().$name)
+          await this.createSnsTopic(topicName)
+          topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
+        } else {
+          throw new Error('Unable to subscribe SNS topic to queue - no topic information provided')
+        }
+
         await this.subscribeToTopic(queueArn, topicArn)
       })
 
@@ -258,6 +270,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       Protocol: 'sqs',
       Endpoint: queueArn
     }
+    this.logger.info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
     await this.sns.subscribe(subscribeRequest).promise()
   }
 

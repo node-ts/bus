@@ -17,6 +17,16 @@ export interface HandlerPrototype<T extends MessageType> {
   $symbol: symbol
 
   /**
+   * An optional topic identifier where the source message is published to. This is used to
+   * subscribe the application queue to non-application type messages like infrastructure or
+   * third party messages.
+   *
+   * This field accepts identifiers of the transport used. eg. SQS transports will accept a
+   * source SNS arn, whereas a RabbitMQ transport would use a topic name.
+   */
+  $topicIdentifier: string | undefined
+
+  /**
    * The resolver to use that determines if a given message should be dispatched to the handler
    * it's attached to
    * @param message A message received from the underlying transport

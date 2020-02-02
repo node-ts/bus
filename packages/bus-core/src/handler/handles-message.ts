@@ -9,8 +9,7 @@ import { ClassConstructor, isClassConstructor } from '../util'
  *
  * The dispatcher will dispatch received messages to the `handle()` function of your class.
  *
- * @param messageConstructor The type of message that the function handles
- * @param customResolver A custom resolver to use to map messages to the handler. This can be used to handle
+ * @param messageConstructor A custom resolver to use to map messages to the handler. This can be used to handle
  * messages that originate in a different system or that don't conform to the `Message` conventions.
  */
 export function HandlesMessage<
@@ -18,11 +17,44 @@ export function HandlesMessage<
   THandler extends Handler<TMessage>,
   HandlerConstructor extends ClassConstructor<THandler>
 > (
-  resolveWith: ClassConstructor<TMessage> | ((message: TMessage) => boolean)
+  messageConstructor: ClassConstructor<TMessage>
+  ): (handlerConstructor: HandlerConstructor) => void
+
+/**
+ * Marks that the decorated class handles a particular message. When a message
+ * matching the given type is received from the underlying transport it will be dispatched
+ * to this function.
+ *
+ * The dispatcher will dispatch received messages to the `handle()` function of your class.
+ *
+ * @param resolveWith A custom resolver to use to map messages to the handler. This can be used to handle
+ * messages that originate in a different system or that don't conform to the `Message` conventions.
+ * @param topicIdentifier Identifies the topic where the message is sourced from. This topic must exist
+ * before being consumed as the library assumes it's managed externally
+ */
+export function HandlesMessage<
+  TMessage extends MessageType,
+  THandler extends Handler<TMessage>,
+  HandlerConstructor extends ClassConstructor<THandler>
+> (
+  resolveWith: (message: TMessage) => boolean,
+  topicIdentifier: string
+  ): (handlerConstructor: HandlerConstructor) => void
+
+
+
+export function HandlesMessage<
+  TMessage extends MessageType,
+  THandler extends Handler<TMessage>,
+  HandlerConstructor extends ClassConstructor<THandler>
+> (
+  resolveWith: ClassConstructor<TMessage> | ((message: TMessage) => boolean),
+  topicIdentifier?: string
   ): (handlerConstructor: HandlerConstructor) => void {
     return (handlerConstructor: HandlerConstructor) => {
     const prototype = handlerConstructor.prototype as HandlerPrototype<TMessage>
     prototype.$symbol = Symbol.for(`node-ts/bus-core/handles-message/${handlerConstructor.name}`)
+    prototype.$topicIdentifier = topicIdentifier
 
     const isBusMessage = isClassConstructor(resolveWith)
 

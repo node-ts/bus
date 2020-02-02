@@ -13,7 +13,7 @@ export class SystemEvent {
   }
 }
 
-@HandlesMessage((e: SystemEvent) => e.type === eventType)
+@HandlesMessage((e: SystemEvent) => e.type === eventType, '')
 export class TestResolverHandler {
   constructor (
     @inject(MESSAGE_LOGGER) private readonly messageLogger: MessageLogger

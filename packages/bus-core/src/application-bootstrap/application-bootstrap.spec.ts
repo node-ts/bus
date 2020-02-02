@@ -61,7 +61,8 @@ describe('ApplicationBootstrap', () => {
           It.isAny(),
           It.isAny(),
           TestCommandHandler,
-          TestCommand
+          TestCommand,
+          undefined
         ),
         Times.once()
       )

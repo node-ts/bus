@@ -8,7 +8,10 @@ export interface HandleChecker {
   check<T extends Object> (message: T, attributes: MessageAttributes): void
 }
 
-@HandlesMessage((m: TestSystemMessage) => m.name === TestSystemMessage.NAME)
+@HandlesMessage(
+  (m: TestSystemMessage) => m.name === TestSystemMessage.NAME,
+  TestSystemMessage.NAME
+)
 export class TestSystemMessageHandler {
 
   constructor (

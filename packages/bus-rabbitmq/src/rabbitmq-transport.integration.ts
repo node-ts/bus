@@ -40,6 +40,8 @@ describe('RabbitMqTransport', () => {
     connection = await connectionFactory()
     channel = await connection.createChannel()
 
+    await channel.assertExchange(TestSystemMessage.NAME, 'fanout', { durable: true })
+
     await bootstrap.initialize(container)
   })
 

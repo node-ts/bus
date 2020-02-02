@@ -12,25 +12,11 @@ export interface HandlerRegistration<TMessage extends MessageType> {
   resolveHandler (handlerContextContainer: Container): Handler<TMessage>
 }
 
-interface HandlerBinding {
-  symbol: symbol
-  handler: HandlerType
-}
-
-interface RegisteredHandlers {
-  messageType: ClassConstructor<Message>
-  handlers: HandlerBinding[]
-}
-
-interface HandlerRegistrations {
-  [key: string]: RegisteredHandlers
-}
-
-type MessageName = string
-
-interface HandlerResolver {
+export interface HandlerResolver {
   handler: HandlerType
   symbol: symbol
+  topicIdentifier: string | undefined
+  messageType: ClassConstructor<Message> | undefined
   resolver (message: unknown): boolean
 }
 
@@ -42,9 +28,7 @@ interface HandlerResolver {
 export class HandlerRegistry {
 
   private container: Container
-  private unhandledMessages: MessageName[] = []
   private handlerResolvers: HandlerResolver[] = []
-  private registeredBusMessages: ClassConstructor<Message>[] = []
 
   constructor (
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
@@ -57,12 +41,15 @@ export class HandlerRegistry {
    * @param symbol A unique symbol to identify the binding of the message to the function
    * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
+   * @param topicIdentifier Identifies the topic where the message is sourced from. This topic must exist
+   * before being consumed as the library assumes it's managed externally
    */
   register<TMessage extends MessageType = MessageType> (
     resolver: (message: TMessage) => boolean,
     symbol: symbol,
     handler: HandlerType,
-    messageType?: ClassConstructor<Message>
+    messageType?: ClassConstructor<Message>,
+    topicIdentifier?: string
   ): void {
 
     const handlerName = getHandlerName(handler)
@@ -84,10 +71,8 @@ export class HandlerRegistry {
       }
     }
 
-    this.handlerResolvers.push({ resolver, symbol, handler })
-    if (!!messageType) {
-      this.registeredBusMessages.push(messageType)
-    }
+    this.handlerResolvers.push({ messageType, resolver, symbol, handler, topicIdentifier })
+
     this.logger.info(
       'Handler registered',
       { messageName: messageType ? messageType.name : undefined, handler: handlerName }
@@ -151,8 +136,8 @@ export class HandlerRegistry {
   /**
    * Retrieves a list of all messages that have handler registrations
    */
-  get subscribedBusMessages (): ClassConstructor<Message>[] {
-    return this.registeredBusMessages
+  get messageSubscriptions (): HandlerResolver[] {
+    return this.handlerResolvers
   }
 
   private bindHandlers (): void {

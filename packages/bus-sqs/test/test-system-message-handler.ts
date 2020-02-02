@@ -2,9 +2,12 @@ import { HandlesMessage } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { inject } from 'inversify'
 import { HANDLE_CHECKER, HandleChecker } from './test-command-handler'
-import { TestSystemMessage, testSystemMessageName } from './test-system-message'
+import { TestSystemMessage } from './test-system-message'
 
-@HandlesMessage((m: TestSystemMessage) => m.name === testSystemMessageName)
+@HandlesMessage(
+  (m: TestSystemMessage) => m.name === TestSystemMessage.NAME,
+  `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+)
 export class TestSystemMessageHandler {
 
   constructor (

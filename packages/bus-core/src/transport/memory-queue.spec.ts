@@ -3,7 +3,7 @@ import { TestCommand, TestEvent, TestCommand2, TestSystemMessage } from '../test
 import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
-import { HandlerRegistry } from '../handler'
+import { HandlerRegistry, HandlerResolver } from '../handler'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 
@@ -13,7 +13,7 @@ const command2 = new TestCommand2()
 
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
-  const handledMessageNames = [TestCommand, TestEvent]
+  const handledMessages = [TestCommand, TestEvent]
   const messageOptions = new MessageAttributes({
     correlationId: faker.random.uuid()
    })
@@ -25,8 +25,8 @@ describe('MemoryQueue', () => {
 
     const handlerRegistry = Mock.ofType<HandlerRegistry>()
     handlerRegistry
-      .setup(h => h.subscribedBusMessages)
-      .returns(() => handledMessageNames)
+      .setup(h => h.messageSubscriptions)
+      .returns(() => handledMessages.map(h => ({ messageType: h }) as {} as HandlerResolver))
 
     await sut.initialize(handlerRegistry.object)
   })
