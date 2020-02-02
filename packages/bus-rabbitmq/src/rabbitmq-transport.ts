@@ -5,6 +5,7 @@ import { inject, injectable } from 'inversify'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
+import { MessageType } from '@node-ts/bus-core/dist/handler/handler'
 
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
 const deadLetterQueue = 'dead-letter'
@@ -50,27 +51,27 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
-    const m = await this.channel.get(this.configuration.queueName, { noAck: false })
-    if (m === false) {
+    const rabbitMessage = await this.channel.get(this.configuration.queueName, { noAck: false })
+    if (rabbitMessage === false) {
       return undefined
     }
-    const payloadStr = m.content.toString('utf8')
-    const payload = JSON.parse(payloadStr) as Message
+    const payloadStr = rabbitMessage.content.toString('utf8')
+    const payload = JSON.parse(payloadStr) as MessageType
 
     const attributes: MessageAttributes = {
-      correlationId: m.properties.correlationId as string,
-      attributes: m.properties.headers && m.properties.headers.attributes
-        ? JSON.parse(m.properties.headers.attributes as string) as MessageAttributeMap
+      correlationId: rabbitMessage.properties.correlationId as string,
+      attributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.attributes
+        ? JSON.parse(rabbitMessage.properties.headers.attributes as string) as MessageAttributeMap
         : {},
-      stickyAttributes: m.properties.headers && m.properties.headers.stickyAttributes
-        ? JSON.parse(m.properties.headers.stickyAttributes as string) as MessageAttributeMap
+      stickyAttributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.stickyAttributes
+        ? JSON.parse(rabbitMessage.properties.headers.stickyAttributes as string) as MessageAttributeMap
         : {}
     }
 
     return {
       id: undefined,
       domainMessage: payload,
-      raw: m,
+      raw: rabbitMessage,
       attributes
     }
   }
@@ -104,8 +105,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private async bindExchangesToQueue (handlerRegistry: HandlerRegistry): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
-    const subscriptionPromises = handlerRegistry.getMessageNames()
-      .map(async messageName => {
+    const subscriptionPromises = handlerRegistry.subscribedBusMessages
+      .map(async subscribedBusMessage => {
+        const messageName = new subscribedBusMessage().$name
         const exchangeName = messageName
         await this.assertExchange(messageName)
 
@@ -118,7 +120,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   /**
    * Creates a dead letter exchange + queue, binds, and returns the
-   * dead letter exchange nane
+   * dead letter exchange name
    */
   private async createDeadLetterQueue (): Promise<void> {
     await this.channel.assertExchange(deadLetterExchange, 'direct', { durable: true })

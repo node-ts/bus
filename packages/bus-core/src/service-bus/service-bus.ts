@@ -9,6 +9,7 @@ import { sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
 import { SessionScopeBinder } from '../bus-module'
+import { MessageType } from '../handler/handler'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -111,10 +112,10 @@ export class ServiceBus implements Bus {
     return false
   }
 
-  private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
-    const handlers = this.handlerRegistry.get(message.$name)
+  private async dispatchMessageToHandlers (message: MessageType, context: MessageAttributes): Promise<void> {
+    const handlers = this.handlerRegistry.get(message)
     if (handlers.length === 0) {
-      this.logger.warn(`No handlers registered for message ${message.$name}. Message will be discarded`)
+      this.logger.warn(`No handlers registered for message. Message will be discarded`, { messageType: message })
       return
     }
 
@@ -142,9 +143,9 @@ export class ServiceBus implements Bus {
 }
 
 async function dispatchMessageToHandler (
-  message: Message,
+  message: MessageType,
   context: MessageAttributes,
-  handlerRegistration: HandlerRegistration<Message>
+  handlerRegistration: HandlerRegistration<MessageType>
 ): Promise<void> {
   const container = handlerRegistration.defaultContainer
   const childContainer = container.createChild()

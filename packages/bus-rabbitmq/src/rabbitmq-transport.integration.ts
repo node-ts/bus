@@ -6,6 +6,8 @@ import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { TestSystemMessage } from '../test/test-system-message'
+import { TestSystemMessageHandler } from '../test/test-system-message-handler'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -32,6 +34,7 @@ describe('RabbitMqTransport', () => {
 
     bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     bootstrap.registerHandler(TestCommandHandler)
+    bootstrap.registerHandler(TestSystemMessageHandler)
 
     const connectionFactory = container.get<() => Promise<Connection>>(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
     connection = await connectionFactory()
@@ -82,6 +85,30 @@ describe('RabbitMqTransport', () => {
       })
     })
 
+    describe('when sending a system message', () => {
+      const command = new TestSystemMessage()
+      const channelName = command.name
+
+      beforeEach(async () => {
+        await channel.assertExchange(command.name, 'fanout')
+        await channel.bindQueue(configuration.queueName, command.name, '')
+      })
+
+      afterEach(async () => {
+        await channel.deleteExchange(command.name)
+      })
+
+      it('should handle system messages', async () => {
+        channel.publish(channelName, '', Buffer.from(JSON.stringify(command)))
+        jest.setTimeout(10000)
+        await sleep(5000)
+        const message = await sut.readNextMessage()
+
+        expect(message).toBeDefined()
+        expect(message!.domainMessage).toMatchObject(command)
+      })
+    })
+
     describe('when receiving the next message', () => {
       describe('from a queue with messages', () => {
         const command = new TestCommand()
@@ -127,5 +154,6 @@ describe('RabbitMqTransport', () => {
         })
       })
     })
+
   })
 })

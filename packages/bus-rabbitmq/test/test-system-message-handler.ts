@@ -1,15 +1,15 @@
 import { HandlesMessage } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { TestCommand } from './test-command'
 import { inject } from 'inversify'
+import { TestSystemMessage } from './test-system-message'
 
-export const HANDLE_CHECKER = Symbol.for('node-ts/bus-sqs/integration/handle-checker')
+export const HANDLE_CHECKER = Symbol.for('node-ts/bus-rabbitmq/integration/handle-checker')
 export interface HandleChecker {
   check<T extends Object> (message: T, attributes: MessageAttributes): void
 }
 
-@HandlesMessage(TestCommand)
-export class TestCommandHandler {
+@HandlesMessage((m: TestSystemMessage) => m.name === TestSystemMessage.NAME)
+export class TestSystemMessageHandler {
 
   constructor (
     @inject(HANDLE_CHECKER) private readonly handleChecker: HandleChecker
@@ -17,9 +17,9 @@ export class TestCommandHandler {
   }
 
   async handle (
-    command: TestCommand,
+    message: TestSystemMessage,
     messageAttributes: MessageAttributes
   ): Promise<void> {
-    this.handleChecker.check(command, messageAttributes)
+    this.handleChecker.check(message, messageAttributes)
   }
 }

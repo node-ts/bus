@@ -1,4 +1,5 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { MessageAttributes } from '@node-ts/bus-messages'
+import { MessageType } from '../handler/handler'
 
 /**
  * A message from the transport provider that encapsulates the raw message
@@ -13,10 +14,10 @@ export interface TransportMessage<TransportMessageType> {
   /**
    * The domain message payload transmitted in the payload
    */
-  domainMessage: Message
+  domainMessage: MessageType
 
   /**
-   * The raw message as it was received from the transprot
+   * The raw message as it was received from the transport
    */
   raw: TransportMessageType
 

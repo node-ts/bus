@@ -1,6 +1,6 @@
 import { TestEvent } from '../test/test-event'
 import { Bus } from '../service-bus'
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { MessageAttributes, Message } from '@node-ts/bus-messages'
 import { TestCommand } from '../test/test-command'
 import { Container } from 'inversify'
 import { BUS_SYMBOLS } from '../bus-symbols'
@@ -10,9 +10,11 @@ import { sleep } from '../util'
 import { TestContainer } from '../test/test-container'
 import { MessageLogger, MESSAGE_LOGGER, TestEventHandler } from '../test'
 import * as faker from 'faker'
+import { SystemEvent, TestResolverHandler } from '../test/test-resolver-handler'
 
 const event = new TestEvent()
 const command = new TestCommand()
+const systemEvent = new SystemEvent()
 
 const attributes: MessageAttributes = {
   correlationId: faker.random.uuid(),
@@ -37,14 +39,16 @@ describe('Handler', () => {
     container.bind(MESSAGE_LOGGER).toConstantValue(messageLogger.object)
 
     serviceBus = container.get(BUS_SYMBOLS.Bus)
-    bootstrapper = container.get(BUS_SYMBOLS.ApplicationBootstrap)
 
+    bootstrapper = container.get(BUS_SYMBOLS.ApplicationBootstrap)
     bootstrapper.registerHandler(TestEventHandler)
+    bootstrapper.registerHandler(TestResolverHandler)
     await bootstrapper.initialize(container)
 
     await serviceBus.publish(event)
     await serviceBus.publish(event, attributes)
     await serviceBus.send(command)
+    await serviceBus.publish(systemEvent as {} as Message)
     await sleep(1)
   })
 
@@ -65,6 +69,15 @@ describe('Handler', () => {
     it('should receive the attributes', () => {
       messageLogger.verify(
         m => m.log(It.isObjectWith(attributes)),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when a message matching a resolver is received', () => {
+    it('should receive the message', () => {
+      messageLogger.verify(
+        m => m.log(It.isObjectWith({ ...systemEvent })),
         Times.once()
       )
     })

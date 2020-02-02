@@ -1,5 +1,5 @@
 import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
-import { TestCommand, TestEvent, TestCommand2 } from '../test'
+import { TestCommand, TestEvent, TestCommand2, TestSystemMessage } from '../test'
 import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
@@ -13,7 +13,7 @@ const command2 = new TestCommand2()
 
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
-  const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
+  const handledMessageNames = [TestCommand, TestEvent]
   const messageOptions = new MessageAttributes({
     correlationId: faker.random.uuid()
    })
@@ -25,7 +25,7 @@ describe('MemoryQueue', () => {
 
     const handlerRegistry = Mock.ofType<HandlerRegistry>()
     handlerRegistry
-      .setup(h => h.getMessageNames())
+      .setup(h => h.subscribedBusMessages)
       .returns(() => handledMessageNames)
 
     await sut.initialize(handlerRegistry.object)
@@ -49,6 +49,13 @@ describe('MemoryQueue', () => {
     it('should not push the message onto the queue', async () => {
       await sut.send(command2, messageOptions)
       expect(sut.depth).toEqual(0)
+    })
+  })
+
+  describe('when sending a system message', () => {
+    it('should push the message onto the queue', async () => {
+      sut.addToQueue(new TestSystemMessage())
+      expect(sut.depth).toEqual(1)
     })
   })
 

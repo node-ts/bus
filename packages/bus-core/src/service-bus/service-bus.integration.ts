@@ -48,7 +48,6 @@ describe('ServiceBus', () => {
 
     callback = Mock.ofType<Callback>()
     container.bind(CALLBACK).toConstantValue(callback.object)
-    await transport.initialize(registry)
     await bootstrapper.initialize(container)
     sut = container.get(BUS_SYMBOLS.Bus)
   })

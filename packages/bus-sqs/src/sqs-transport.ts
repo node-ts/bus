@@ -229,8 +229,9 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async subscribeQueueToMessages (handlerRegistry: HandlerRegistry): Promise<void> {
     const queueArn = this.sqsConfiguration.queueArn
-    const queueSubscriptionPromises = handlerRegistry.getMessageNames()
-      .map(async messageName => {
+    const queueSubscriptionPromises = handlerRegistry.subscribedBusMessages
+      .map(async subscribedBusMessage => {
+        const messageName = new subscribedBusMessage().$name
         const topicName = this.sqsConfiguration.resolveTopicName(messageName)
         await this.createSnsTopic(topicName)
 
