@@ -7,9 +7,9 @@ import * as serializeError from 'serialize-error'
 
 type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
 
-export interface HandlerRegistration<MessageType extends Message> {
+export interface HandlerRegistration<TMessage extends MessageType> {
   defaultContainer: Container
-  resolveHandler (handlerContextContainer: Container): Handler<MessageType>
+  resolveHandler (handlerContextContainer: Container): Handler<TMessage>
 }
 
 interface HandlerBinding {
@@ -96,37 +96,33 @@ export class HandlerRegistry {
 
   /**
    * Gets all registered message handlers for a given message name
-   * @param messageName Name of the message to get handlers for, found in the `$name` property of the message
+   * @param message A message instance to resolve handlers for
    */
-  get<MessageType extends Message> (message: Message): HandlerRegistration<MessageType>[] {
-    const messageName = message.$name
-
+  get<TMessage extends MessageType> (message: TMessage): HandlerRegistration<TMessage>[] {
     const resolvedHandlers = this.handlerResolvers
       .filter(resolvers => resolvers.resolver(message))
 
-
     if (resolvedHandlers.length === 0) {
       // No handlers for the given message
-      if (!this.unhandledMessages.some(m => m === messageName)) {
-        this.unhandledMessages.push(messageName)
-        this.logger.warn(`No handlers were registered for message "${messageName}". ` +
-          `This could mean that either the handlers haven't been registered with bootstrap.registerHandler(), ` +
-          `or that the underlying transport is subscribed to messages that aren't handled and should be removed.`)
-      }
+      this.logger.warn(`No handlers were registered for message. ` +
+        `This could mean that either the handlers haven't been registered with bootstrap.registerHandler(), ` +
+        `or that the underlying transport is subscribed to messages that aren't handled and should be removed.`,
+        { receivedMessage: message }
+      )
       return []
     }
 
     return resolvedHandlers.map(h => ({
       defaultContainer: this.container,
       resolveHandler: (container: Container) => {
-        this.logger.debug(`Resolving handlers for ${messageName}`)
+        this.logger.debug(`Resolving handlers for message.`, { receivedMessage: message })
         try {
-          return container.get<Handler<MessageType>>(h.symbol)
+          return container.get<Handler<TMessage>>(h.symbol)
         } catch (error) {
           this.logger.error(
             'Could not resolve handler from the IoC container.',
             {
-              messageName,
+              receivedMessage: message,
               error: serializeError(error)
             }
           )
