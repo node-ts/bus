@@ -18,7 +18,7 @@
   "dependencies": {
     "@node-ts/bus-messages": "^0.2.1",
     "tslib": "^1.9.3",
-    "uuid": "^3.3.2"
+    "uuid": "^7.0.0"
   },
   "devDependencies": {
     "@node-ts/bus-core": "^0.5.1",
