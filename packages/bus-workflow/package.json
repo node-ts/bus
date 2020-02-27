@@ -24,7 +24,7 @@
     "@node-ts/bus-core": "^0.5.1",
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.17",
-    "@types/uuid": "^3.4.4",
+    "@types/uuid": "^7.0.0",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
     "typemoq": "^2.1.0",
