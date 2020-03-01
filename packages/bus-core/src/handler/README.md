@@ -75,6 +75,40 @@ class Handler {
 
 ```
 
+## System and non-domain messages
+
+Sometimes you want to subscribe your application to messages that it doesn't own or publish. This is common when integrating with external systems that publish messages that don't conform to the structure of those defined in `@node-ts/bus-messages`. In order to subscribe to and handle these types of messages, you need to provide a resolver and a topic identifier as part of your handler declaration.
+
+For example, let's say we're working with AWS and want to be notified every time there's a new S3 object created in a bucket. S3 publishes these events to an existing SNS topic, and we want to subscribe our application SQS queue to it and handle these messages. The handler declaration would look like this:
+
+```typescript
+import { S3Event } from 'aws-lambda'
+import { HandlesMessage, Handler } from '@node-ts/bus-core'
+
+@HandlesMessage(
+  (event: S3Event) => {
+    // At runtime, `event` may or may not be an S3Event so we need to assert
+    if (!Array.isArray(event.Records) || event.Records.length < 1) {
+      return false
+    }
+    // Likewise we could get different types of S3Events (eg: deletions)
+    return event.Records.some(eventsAreS3PutEvents)
+  }, 'arn:aws:sns:us-east-1:000000000000:s3-object-created' // ARN that identifies the topic to subscribe to
+)
+export class LogS3ObjectCreatedEventHandler implements Handler<S3Event> {
+
+  async handle (event: S3Event): Promise<void> { 
+    console.log('New S3 object created', event)
+  }
+}
+
+const eventsAreS3PutEvents = (e: S3EventRecord): boolean => e.eventName === 'ObjectCreated:Put'
+```
+
+When this handler is registered, it will automatically subscribe the application queue to the underlying topic. Note that the topic identifier is specific to the bus transport being used. Here `@node-ts/bus-sqs` is used so an SNS ARN is provided, but if you were using a different transport (eg: RabbitMQ) then you would provide a different identifier (eg: an Exchange name).
+
+All messages received from the queue will be sent to the resolver. Due to the prototype/duck typing nature of Javascript, you'll need to place assertions into the resolver so that your handler only receives messages you are intending to handle.
+
 ## Messages that fail processing
 
 When a message handling function throws an error while processing a message, the message is returned to the queue to be retried. Often the message will succeed on a subsequent retry depending on the reason for the error (eg: a core piece of infrastructure was down, an external service was unavailable, a network partition event occurred, a row lock version conflict stopped an update going through).
