@@ -5,7 +5,7 @@ Transports are the underlying message broker that `@node-ts/bus-core` uses to co
 Currently adapters for two technologies are implemented and available for use:
 
 * [@node-ts/bus-sqs](/packages/bus-sqs/)
-* [@node-ts/bus-postgres](/packages/bus-postgres/)
+* [@node-ts/bus-rabbitmq](/packages/bus-rabbitmq/)
 
 ## Implementing a Transport
 
