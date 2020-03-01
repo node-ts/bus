@@ -18,9 +18,9 @@ Once installed, load the `BusPostgresModiule` to your inversify container alongs
 ```typescript
 import { Container } from 'inversify'
 import { LoggerModule } from '@node-ts/logger-core'
-import { BusModule } from '@node-ts/bus-core'
-import { WorkflowModule } from '@node-ts/bus-workflow'
-import { BUS_POSTGRES_SYMBOLS, BusPostgresModule } from '@node-ts/bus-postgres'
+import { BUS_SYMBOLS, BusModule, ApplicationBootstrap } from '@node-ts/bus-core'
+import { BUS_WORKFLOW_SYMBOLS, WorkflowRegistry } from '@node-ts/bus-workflow'
+import { BUS_POSTGRES_SYMBOLS, BusPostgresModule, PostgresConfiguration } from '@node-ts/bus-postgres'
 
 const container = new Container()
 container.load(new LoggerModule())
@@ -37,11 +37,11 @@ container.bind(BUS_POSTGRES_SYMBOLS.PostgresConfiguration).toConstantValue(confi
 
 // Run the application
 const application = async () => {
-    workflows = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
+    const workflows = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
     workflows.register(TestWorkflow, TestWorkflowData) // Register all workflows here
     await workflows.initializeWorkflows()
 
-    bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
+    const bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     await bootstrap.initialize(container)
 }
 application
