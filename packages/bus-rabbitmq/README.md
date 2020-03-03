@@ -28,10 +28,19 @@ container.load(new BusRabbitMqModule())
 
 const rabbitConfiguration: RabbitMqTransportConfiguration = {
   queueName: 'accounts-application-queue',
-  connectionString: 'amqp://guest:guest@localhost'
+  connectionString: 'amqp://guest:guest@localhost',
+  maxRetries: 5
 }
 container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(rabbitConfiguration)
 ```
+
+## Configuration Options
+
+The RabbitMQ transport has the following configuration:
+
+*  **queueName** *(required)* The name of the service queue to create and read messages from.
+*  **connectionString** *(required)* An amqp formatted connection string that's used to connect to the RabbitMQ instance
+* **maxRetries** *(optional)* The number of attempts to retry failed messages before they're routed to the dead letter queue. *Default: 10*
 
 ## Development
 

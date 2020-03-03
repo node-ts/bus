@@ -1,5 +1,14 @@
-import { RabbitMqTransport } from './rabbitmq-transport'
-import { TestContainer, TestEvent, TestCommand, TestCommandHandler } from '../test'
+import { RabbitMqTransport, DEFAULT_MAX_RETRIES } from './rabbitmq-transport'
+import {
+  TestContainer,
+  TestEvent,
+  TestCommand,
+  TestCommandHandler,
+  TestPoisonedMessageHandler,
+  TestPoisonedMessage,
+  HANDLE_CHECKER,
+  HandleChecker
+} from '../test'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
 import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
@@ -8,6 +17,7 @@ import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestSystemMessage } from '../test/test-system-message'
 import { TestSystemMessageHandler } from '../test/test-system-message-handler'
+import { Mock, IMock, It, Times } from 'typemoq'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -15,7 +25,8 @@ export async function sleep (timeoutMs: number): Promise<void> {
 
 const configuration: RabbitMqTransportConfiguration = {
   queueName: 'node-ts/bus-rabbitmq-test',
-  connectionString: 'amqp://guest:guest@0.0.0.0'
+  connectionString: 'amqp://guest:guest@0.0.0.0',
+  maxRetries: 3
 }
 
 describe('RabbitMqTransport', () => {
@@ -25,9 +36,12 @@ describe('RabbitMqTransport', () => {
   let channel: Channel
   let container: TestContainer
   let bootstrap: ApplicationBootstrap
+  let handleChecker: IMock<HandleChecker>
 
   beforeAll(async () => {
+    handleChecker = Mock.ofType<HandleChecker>()
     container = new TestContainer()
+    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
     container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(configuration)
     bus = container.get(BUS_SYMBOLS.Bus)
     sut = container.get(BUS_SYMBOLS.Transport)
@@ -35,6 +49,7 @@ describe('RabbitMqTransport', () => {
     bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     bootstrap.registerHandler(TestCommandHandler)
     bootstrap.registerHandler(TestSystemMessageHandler)
+    bootstrap.registerHandler(TestPoisonedMessageHandler)
 
     const connectionFactory = container.get<() => Promise<Connection>>(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
     connection = await connectionFactory()
@@ -71,6 +86,35 @@ describe('RabbitMqTransport', () => {
       })
     })
 
+    describe('when retrying a poisoned message', () => {
+      const poisonedMessage = new TestPoisonedMessage(faker.random.uuid())
+      beforeAll(async () => {
+        jest.setTimeout(10000)
+        await bus.publish(poisonedMessage)
+        await new Promise<void>(resolve => {
+          channel.consume('dead-letter', msg => {
+            if (!msg) {
+              return
+            }
+
+            channel.ack(msg)
+
+            const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
+            if (message.id === poisonedMessage.id) {
+              resolve()
+            }
+          })
+        })
+      })
+
+      it(`it should fail after configuration.maxRetries attempts`, () => {
+        handleChecker.verify(
+          h => h.check(It.is<TestPoisonedMessage>(m => m.id === poisonedMessage.id), It.isAny()),
+          Times.exactly(configuration.maxRetries!)
+        )
+      })
+    })
+
     describe('when sending a command', () => {
       const command = new TestCommand()
       beforeEach(async () => {
@@ -91,23 +135,21 @@ describe('RabbitMqTransport', () => {
       const command = new TestSystemMessage()
       const channelName = command.name
 
-      beforeEach(async () => {
-        await channel.assertExchange(command.name, 'fanout')
-        await channel.bindQueue(configuration.queueName, command.name, '')
+      beforeAll(async () => {
+        jest.setTimeout(10000)
+        channel.publish(channelName, '', Buffer.from(JSON.stringify(command)))
+        await sleep(5000)
       })
 
-      afterEach(async () => {
+      afterAll(async () => {
         await channel.deleteExchange(command.name)
       })
 
       it('should handle system messages', async () => {
-        channel.publish(channelName, '', Buffer.from(JSON.stringify(command)))
-        jest.setTimeout(10000)
-        await sleep(5000)
-        const message = await sut.readNextMessage()
-
-        expect(message).toBeDefined()
-        expect(message!.domainMessage).toMatchObject(command)
+        handleChecker.verify(
+          h => h.check(It.is<TestSystemMessage>(m => m.name === command.name), It.isAny()),
+          Times.once()
+        )
       })
     })
 
