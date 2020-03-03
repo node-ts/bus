@@ -7,6 +7,7 @@ import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import { MessageType } from '@node-ts/bus-core/dist/handler/handler'
 
+export const DEFAULT_MAX_RETRIES = 10
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
 const deadLetterQueue = 'dead-letter'
 
@@ -19,6 +20,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private connection: Connection
   private channel: Channel
   private assertedExchanges: { [key: string]: boolean } = {}
+  private maxRetries: number
 
   constructor (
     @inject(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
@@ -27,6 +29,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       private readonly configuration: RabbitMqTransportConfiguration,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
   ) {
+    this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
   }
 
   async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
@@ -90,8 +93,16 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    this.logger.debug('Returning message', { rawMessage: message.raw })
-    this.channel.nack(message.raw)
+    const msg = JSON.parse(message.raw.content.toString())
+    const attempt = message.raw.fields.deliveryTag
+    const meta = { attempt, message: msg, rawMessage: message.raw }
+    if (attempt >= this.maxRetries) {
+      this.logger.debug('Message retries failed, sending to dead letter queue', meta)
+      this.channel.reject(message.raw, false)
+    } else {
+      this.logger.debug('Returning message', meta)
+      this.channel.nack(message.raw)
+    }
   }
 
   private async assertExchange (messageName: string): Promise<void> {
@@ -104,7 +115,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private async bindExchangesToQueue (handlerRegistry: HandlerRegistry): Promise<void> {
     await this.createDeadLetterQueue()
-    await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
+    await this.channel.assertQueue(
+      this.configuration.queueName,
+      { durable: true, deadLetterExchange }
+    )
     const subscriptionPromises = handlerRegistry.messageSubscriptions
       .map(async subscription => {
 

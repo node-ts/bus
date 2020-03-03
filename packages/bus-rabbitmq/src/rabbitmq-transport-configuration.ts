@@ -9,4 +9,10 @@ export interface RabbitMqTransportConfiguration {
    * @example amqp://guest:guest@localhost
    */
   connectionString: string
+
+  /**
+   * The maximum number of attempts to retry a failed message before routing it to the dead letter queue.
+   * @default 10
+   */
+  maxRetries?: number
 }
