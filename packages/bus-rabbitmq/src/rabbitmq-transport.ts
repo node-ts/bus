@@ -93,15 +93,25 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
+    const redeliveredCountKey = 'x-redelivered-count'
     const msg = JSON.parse(message.raw.content.toString())
-    const attempt = message.raw.fields.deliveryTag
-    const meta = { attempt, message: msg, rawMessage: message.raw }
+    const attempt = (message.raw.properties.headers[redeliveredCountKey] as number | undefined) || 1
+    const meta = { attempt, message: msg, properties: message.raw.properties }
+
     if (attempt >= this.maxRetries) {
       this.logger.debug('Message retries failed, sending to dead letter queue', meta)
       this.channel.reject(message.raw, false)
     } else {
       this.logger.debug('Returning message', meta)
-      this.channel.nack(message.raw)
+      this.channel.sendToQueue(
+        this.configuration.queueName,
+        message.raw.content,
+        {
+          ...message.raw.properties,
+          headers: { ...message.raw.properties.headers, [redeliveredCountKey]: attempt + 1  }
+        }
+      )
+      this.channel.ack(message.raw)
     }
   }
 

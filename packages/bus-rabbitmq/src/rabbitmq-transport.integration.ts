@@ -86,11 +86,20 @@ describe('RabbitMqTransport', () => {
       })
     })
 
-    describe('when retrying a poisoned message', () => {
-      const poisonedMessage = new TestPoisonedMessage(faker.random.uuid())
+    fdescribe('when retrying poisoned messages', () => {
+      const poisonedMessage1 = new TestPoisonedMessage(faker.random.uuid())
+      const poisonedMessage2 = new TestPoisonedMessage(faker.random.uuid())
+
+      const poisonedMessages = [poisonedMessage1, poisonedMessage2]
+
+      let dlqCount = 0
+
       beforeAll(async () => {
         jest.setTimeout(10000)
-        await bus.publish(poisonedMessage)
+        await Promise.all(
+          poisonedMessages
+            .map(m => bus.publish(m))
+        )
         await new Promise<void>(resolve => {
           channel.consume('dead-letter', msg => {
             if (!msg) {
@@ -100,7 +109,11 @@ describe('RabbitMqTransport', () => {
             channel.ack(msg)
 
             const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
-            if (message.id === poisonedMessage.id) {
+            if (poisonedMessages.some(poisonedMessage => message.id === poisonedMessage.id)) {
+              dlqCount++
+            }
+
+            if (dlqCount === poisonedMessages.length) {
               resolve()
             }
           })
@@ -109,7 +122,12 @@ describe('RabbitMqTransport', () => {
 
       it(`it should fail after configuration.maxRetries attempts`, () => {
         handleChecker.verify(
-          h => h.check(It.is<TestPoisonedMessage>(m => m.id === poisonedMessage.id), It.isAny()),
+          h => h.check(It.is<TestPoisonedMessage>(m => m.id === poisonedMessage1.id), It.isAny()),
+          Times.exactly(configuration.maxRetries!)
+        )
+
+        handleChecker.verify(
+          h => h.check(It.is<TestPoisonedMessage>(m => m.id === poisonedMessage2.id), It.isAny()),
           Times.exactly(configuration.maxRetries!)
         )
       })
