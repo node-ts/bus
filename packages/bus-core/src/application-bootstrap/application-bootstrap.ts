@@ -27,12 +27,19 @@ export class ApplicationBootstrap {
     }
     this.logger.info('Initializing bus application...')
     this.handlerRegistry.bindHandlersToContainer(container)
-    if (this.transport.initialize) {
-      await this.transport.initialize(this.handlerRegistry)
-    }
+    await this.initializeTransport()
     await this.bus.start()
     this.isInitialized = true
     this.logger.info('Bus application initialized')
+  }
+
+  async initializeSendOnly (): Promise<void> {
+    if (this.isInitialized) {
+      throw new Error('Application already initialized')
+    }
+    this.logger.info('Initializing send only bus application...')
+    await this.initializeTransport()
+    this.logger.info('Send only bus application initialized')
   }
 
   async dispose (): Promise<void> {
@@ -71,5 +78,11 @@ export class ApplicationBootstrap {
       prototype.$message,
       prototype.$topicIdentifier
     )
+  }
+
+  private async initializeTransport (): Promise<void> {
+    if (this.transport.initialize) {
+      await this.transport.initialize(this.handlerRegistry)
+    }
   }
 }

@@ -50,6 +50,29 @@ describe('ApplicationBootstrap', () => {
     })
   })
 
+  describe('when initializing send only', () => {
+    let container: IMock<Container>
+
+    beforeEach(async () => {
+      container = Mock.ofType<Container>()
+      await sut.initializeSendOnly()
+    })
+
+    it('should bind no handlers to the IoC container', () => {
+      handlerRegistry.verify(
+        h => h.bindHandlersToContainer(container.object),
+        Times.never()
+      )
+    })
+
+    it('should not start the bus', () => {
+      bus.verify(
+        async b => b.start(),
+        Times.never()
+      )
+    })
+  })  
+
   describe('when registering handlers', () => {
     beforeEach(() => {
       sut.registerHandler(TestCommandHandler)
