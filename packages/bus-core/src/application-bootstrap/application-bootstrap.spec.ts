@@ -71,6 +71,10 @@ describe('ApplicationBootstrap', () => {
         Times.never()
       )
     })
+
+    it('should throw an exception when initializing twice', async () => {
+      await expect(sut.initializeSendOnly()).rejects.toThrowError()
+    })
   })  
 
   describe('when registering handlers', () => {

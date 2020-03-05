@@ -37,8 +37,12 @@ export class ApplicationBootstrap {
     if (this.isInitialized) {
       throw new Error('Application already initialized')
     }
+    if (this.handlerRegistry.messageSubscriptions.length > 0) {
+      throw new Error('A send-only bus cannot have registered handlers')
+    }
     this.logger.info('Initializing send only bus application...')
     await this.initializeTransport()
+    this.isInitialized = true
     this.logger.info('Send only bus application initialized')
   }
 
