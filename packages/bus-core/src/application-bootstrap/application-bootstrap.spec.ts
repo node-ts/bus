@@ -1,12 +1,11 @@
 import { ApplicationBootstrap } from './application-bootstrap'
 import { Mock, IMock, Times, It } from 'typemoq'
 import { Bus } from '../service-bus'
-import { HandlerRegistry } from '../handler'
+import { HandlerRegistry, HandlerResolver } from '../handler'
 import { Logger } from '@node-ts/logger-core'
 import { Container } from 'inversify'
 import { TestCommandHandler, TestCommand } from '../test'
 import { Transport } from '../transport'
-import { Message } from '@node-ts/bus-messages'
 
 describe('ApplicationBootstrap', () => {
   let sut: ApplicationBootstrap
@@ -52,30 +51,36 @@ describe('ApplicationBootstrap', () => {
 
   describe('when initializing send only', () => {
     let container: IMock<Container>
-
-    beforeEach(async () => {
-      container = Mock.ofType<Container>()
-      await sut.initializeSendOnly()
+    describe('that starts successfully', () => {
+      beforeEach(async () => {
+        container = Mock.ofType<Container>()
+        await sut.initializeSendOnly()
+      })
+      it('should bind no handlers to the IoC container', () => {
+        handlerRegistry.verify(
+          h => h.bindHandlersToContainer(container.object),
+          Times.never()
+        )
+      })
+      it('should not start the bus', () => {
+        bus.verify(
+          async b => b.start(),
+          Times.never()
+        )
+      })
+      it('should throw an exception when initializing twice', async () => {
+        await expect(sut.initializeSendOnly()).rejects.toThrowError()
+      })
     })
-
-    it('should bind no handlers to the IoC container', () => {
-      handlerRegistry.verify(
-        h => h.bindHandlersToContainer(container.object),
-        Times.never()
-      )
+    describe('when handlers have been registered', () => {
+      it('should throw an error', async () => {
+        handlerRegistry
+          .setup(h => h.messageSubscriptions)
+          .returns(() => [{} as HandlerResolver])
+        await expect(sut.initializeSendOnly()).rejects.toThrowError()
+      })
     })
-
-    it('should not start the bus', () => {
-      bus.verify(
-        async b => b.start(),
-        Times.never()
-      )
-    })
-
-    it('should throw an exception when initializing twice', async () => {
-      await expect(sut.initializeSendOnly()).rejects.toThrowError()
-    })
-  })  
+  })
 
   describe('when registering handlers', () => {
     beforeEach(() => {
