@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@node-ts/bus-messages@^0.1.10":
-  version "0.1.10"
-  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.1.10.tgz#1c3943016ea66d273524e948e137c9ebac9e00f5"
-  integrity sha512-+y5zFAtC0NfnBXpbJpt2HXwf3PfS77OktkzxhC5QzNWMEljGcqzPe48RH+VVGBCVbsN3oxnkHd1J7pcOP21RtA==
+"@node-ts/bus-messages@^0.2.2":
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.2.2.tgz#b980f0aa9d6ab83f51b78330b05f9c0e722f8adc"
+  integrity sha512-XRHiNEmQCyeqHcGI76LZOVujub6VaRdEgNeLgL4zAj1gcHOiC/51/+PNB8FzAyaHltfi0oB7grGunLXd5aeMeg==
   dependencies:
     tslib "^1.9.3"
 
@@ -110,10 +110,10 @@ circular-json@^0.3.1:
   resolved "https://registry.yarnpkg.com/circular-json/-/circular-json-0.3.3.tgz#815c99ea84f6809529d2f45791bdf82711352d66"
   integrity sha512-UZK3NBx2Mca+b5LsG7bY183pHWt5Y1xts4P3Pz7ENTwGVnJOUWbRb3ocjvX7hx9tq/yTAdclXm9sZ38gNuem4A==
 
-class-transformer@^0.2.0:
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/class-transformer/-/class-transformer-0.2.0.tgz#e54b34112e8ef7f913ef938c81fed8ed949fc9c7"
-  integrity sha512-6N/5WkEmLZCKxyC2CAPYQIJt3pDZzDFag7AExpyWRm7CjaS/U62VDRU+Z2AUrQaNpnuiXRlli0so4PJUqGSVZQ==
+class-transformer@^0.2.3:
+  version "0.2.3"
+  resolved "https://registry.yarnpkg.com/class-transformer/-/class-transformer-0.2.3.tgz#598c92ca71dcca73f91ccb875d74a3847ccfa32d"
+  integrity sha512-qsP+0xoavpOlJHuYsQJsN58HXSl8Jvveo+T37rEvCEeRfMWoytAyR0Ua/YsFgpM6AZYZ/og2PJwArwzJl1aXtQ==
 
 color-convert@^1.9.0:
   version "1.9.3"
