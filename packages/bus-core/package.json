@@ -16,7 +16,7 @@
     "@node-ts/bus-messages": "^0.2.2",
     "@types/node": "^12.12.37",
     "autobind-decorator": "^2.4.0",
-    "class-transformer": "^0.2.0",
+    "class-transformer": "^0.2.3",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
     "serialize-error": "^4.1.0",
