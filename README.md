@@ -7,7 +7,7 @@ sidebarDepth: 3
 
 **A service bus for message-based, distributed node applications.**
 
-[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+
 [![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT) <iframe src="https://ghbtns.com/github-btn.html?user=node-ts&repo=bus&type=star&count=true" frameborder="0" scrolling="0" width="80px" height="20px"></iframe>
 <iframe src="https://ghbtns.com/github-btn.html?user=node-ts&repo=bus&type=watch&count=true&v=2" frameborder="0" scrolling="0" width="170px" height="20px"></iframe>
 
