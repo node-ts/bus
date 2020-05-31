@@ -18,7 +18,7 @@
   "dependencies": {
     "@node-ts/bus-core": "^0.5.3",
     "@node-ts/bus-messages": "^0.2.3",
-    "pg": "^7.9.0",
+    "pg": "^8.2.1",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
@@ -27,7 +27,7 @@
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.13",
     "@types/amqplib": "^0.5.11",
-    "@types/pg": "^7.4.14",
+    "@types/pg": "^7.14.3",
     "@types/uuid": "^3.4.4",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
