@@ -40,7 +40,7 @@ export class ServiceBus implements Bus {
     this.logger.debug('publish', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
 
-    this.messageHooks.publish.map(callback => callback(event, messageOptions))
+    await Promise.all(this.messageHooks.publish.map(callback => callback(event, messageOptions)))
     return this.transport.publish(event, transportOptions)
   }
 
@@ -51,7 +51,7 @@ export class ServiceBus implements Bus {
     this.logger.debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
 
-    this.messageHooks.send.map(callback => callback(command, messageOptions))
+    await Promise.all(this.messageHooks.send.map(callback => callback(command, messageOptions)))
     return this.transport.send(command, transportOptions)
   }
 
