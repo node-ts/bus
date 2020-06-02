@@ -3,13 +3,14 @@ import autobind from 'autobind-decorator'
 import { Bus, BusState, HookAction, HookCallback } from './bus'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport } from '../transport'
-import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
-import { sleep, assertUnreachable } from '../util'
+import { sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
 import { SessionScopeBinder } from '../bus-module'
 import { MessageType } from '../handler/handler'
+import { BusHooks } from './bus-hooks'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -20,16 +21,12 @@ export class ServiceBus implements Bus {
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
 
-  private messageHooks: { [key: string]: HookCallback[] } = {
-    send: [],
-    publish: []
-  }
-
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
-    @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes
+    @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes,
+    @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks
   ) {
   }
 
@@ -40,7 +37,7 @@ export class ServiceBus implements Bus {
     this.logger.debug('publish', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
 
-    await Promise.all(this.messageHooks.publish.map(callback => callback(event, messageOptions)))
+    await Promise.all(this.busHooks.publish.map(callback => callback(event, messageOptions)))
     return this.transport.publish(event, transportOptions)
   }
 
@@ -51,7 +48,7 @@ export class ServiceBus implements Bus {
     this.logger.debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
 
-    await Promise.all(this.messageHooks.send.map(callback => callback(command, messageOptions)))
+    await Promise.all(this.busHooks.send.map(callback => callback(command, messageOptions)))
     return this.transport.send(command, transportOptions)
   }
 
@@ -82,14 +79,11 @@ export class ServiceBus implements Bus {
   }
 
   on (action: HookAction, callback: HookCallback): void {
-    this.messageHooks[action].push(callback)
+    this.busHooks.on(action, callback)
   }
 
   off (action: HookAction, callback: HookCallback): void {
-    const index = this.messageHooks[action].indexOf(callback)
-    if (index >= 0) {
-      this.messageHooks[action].splice(index, 1)
-    }
+    this.busHooks.off(action, callback)
   }
 
   private async applicationLoop (): Promise<void> {
