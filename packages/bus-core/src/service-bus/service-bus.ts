@@ -1,11 +1,11 @@
 import { injectable, inject } from 'inversify'
 import autobind from 'autobind-decorator'
-import { Bus, BusState } from './bus'
+import { Bus, BusState, HookAction, HookCallback } from './bus'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
-import { sleep } from '../util'
+import { sleep, assertUnreachable } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
 import { SessionScopeBinder } from '../bus-module'
@@ -19,6 +19,11 @@ export class ServiceBus implements Bus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+
+  private messageHooks: { [key: string]: HookCallback[] } = {
+    send: [],
+    publish: []
+  }
 
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
@@ -34,6 +39,8 @@ export class ServiceBus implements Bus {
   ): Promise<void> {
     this.logger.debug('publish', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
+
+    this.messageHooks.publish.map(callback => callback(event, messageOptions))
     return this.transport.publish(event, transportOptions)
   }
 
@@ -43,6 +50,8 @@ export class ServiceBus implements Bus {
   ): Promise<void> {
     this.logger.debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
+
+    this.messageHooks.send.map(callback => callback(command, messageOptions))
     return this.transport.send(command, transportOptions)
   }
 
@@ -70,6 +79,10 @@ export class ServiceBus implements Bus {
 
   get state (): BusState {
     return this.internalState
+  }
+
+  on (action: HookAction, callback: HookCallback): void {
+    this.messageHooks[action].push(callback)
   }
 
   private async applicationLoop (): Promise<void> {

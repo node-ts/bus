@@ -2,14 +2,17 @@ import { ServiceBus } from './service-bus'
 import { MemoryQueue } from '../transport'
 import { BusState } from './bus'
 import { TestEvent } from '../test/test-event'
+import { TestEvent2 } from '../test/test-event-2'
+import { TestCommand } from '../test/test-command'
 import { sleep } from '../util'
 import { Container, inject } from 'inversify'
 import { TestContainer } from '../test/test-container'
 import { BUS_SYMBOLS } from '../bus-symbols'
 import { Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times } from 'typemoq'
-import { HandlerRegistry, HandlesMessage } from '../handler'
+import { HandlesMessage } from '../handler'
 import { ApplicationBootstrap } from '../application-bootstrap'
+import { MessageAttributes } from '@node-ts/bus-messages'
 
 const event = new TestEvent()
 type Callback = () => void
@@ -40,9 +43,6 @@ describe('ServiceBus', () => {
     container = new TestContainer().silenceLogs()
     queue = new MemoryQueue(Mock.ofType<Logger>().object)
 
-    const transport = container.get<MemoryQueue>(BUS_SYMBOLS.Transport)
-    const registry = container.get<HandlerRegistry>(BUS_SYMBOLS.HandlerRegistry)
-
     bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     bootstrapper.registerHandler(TestEventHandler)
 
@@ -56,6 +56,26 @@ describe('ServiceBus', () => {
     await bootstrapper.dispose()
   })
 
+  describe('when registering a send hook', () => {
+    it('should trigger the hook when send() is called', async () => {
+      const sendCallback = jest.fn()
+      sut.on('send', sendCallback)
+      const command = new TestCommand()
+      await sut.send(command)
+      expect(sendCallback).toHaveBeenCalledWith(command, expect.any(MessageAttributes))
+    })
+  })
+
+  describe('when registering a publish hook', () => {
+    it('should trigger the hook when publish() is called', async () => {
+      const publishCallback = jest.fn()
+      sut.on('publish', publishCallback)
+      const evt = new TestEvent2()
+      await sut.publish(evt)
+      expect(publishCallback).toHaveBeenCalledWith(evt, expect.any(MessageAttributes))
+    })
+  })
+
   describe('when starting the service bus', () => {
     it('should complete into a started state', () => {
       expect(sut.state).toEqual(BusState.Started)
@@ -67,7 +87,6 @@ describe('ServiceBus', () => {
       })
     })
   })
-
 
   describe('when a message is successfully handled from the queue', () => {
     it('should delete the message from the queue', async () => {

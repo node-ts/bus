@@ -88,3 +88,16 @@ export class Application {
   }
 }
 ```
+
+## Hooks
+
+Hooks are callback functions that are invoked each time an action occurs. These are commonly used to add in testing, logging or health probes centrally to the application.
+
+Hooks can be added by calling `.on()` on the bus. For example, to trigger a callback each time a message is attempted to be sent, use:
+
+```typescript
+addHook (): void {
+  const bus = this.container.get<Bus>(BUS_SYMBOLS.Bus)
+  bus.on('send', message => console.log('Sending', JSON.stringify(message)))
+}
+```
