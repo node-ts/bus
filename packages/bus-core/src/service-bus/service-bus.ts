@@ -85,6 +85,13 @@ export class ServiceBus implements Bus {
     this.messageHooks[action].push(callback)
   }
 
+  off (action: HookAction, callback: HookCallback): void {
+    const index = this.messageHooks[action].indexOf(callback)
+    if (index >= 0) {
+      this.messageHooks[action].splice(index, 1)
+    }
+  }
+
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {

@@ -98,6 +98,10 @@ Hooks can be added by calling `.on()` on the bus. For example, to trigger a call
 ```typescript
 addHook (): void {
   const bus = this.container.get<Bus>(BUS_SYMBOLS.Bus)
-  bus.on('send', message => console.log('Sending', JSON.stringify(message)))
+  const callback = message => console.log('Sending', JSON.stringify(message))
+  bus.on('send', callback)
+
+  // To remove the above hook, call bus.off():
+  bus.off('send', callback)
 }
 ```

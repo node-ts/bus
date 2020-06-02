@@ -20,4 +20,9 @@ export interface Bus {
    * Registers a @param callback function that is invoked for every instance of @param action occuring
    */
   on (action: HookAction, callback: HookCallback): void
+
+  /**
+   * Deregisters a @param callback function from firing when an @param action occurs
+   */
+  off (action: HookAction, callback: HookCallback): void
 }

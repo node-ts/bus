@@ -57,22 +57,42 @@ describe('ServiceBus', () => {
   })
 
   describe('when registering a send hook', () => {
-    it('should trigger the hook when send() is called', async () => {
-      const sendCallback = jest.fn()
+    const sendCallback = jest.fn()
+    const command = new TestCommand()
+
+    beforeAll(async () => {
       sut.on('send', sendCallback)
-      const command = new TestCommand()
       await sut.send(command)
+      sut.off('send', sendCallback)
+      await sut.send(command)
+    })
+
+    it('should trigger the hook once when send() is called', async () => {
       expect(sendCallback).toHaveBeenCalledWith(command, expect.any(MessageAttributes))
+    })
+
+    it('should only trigger the callback once before its removed', () => {
+      expect(sendCallback).toHaveBeenCalledTimes(1)
     })
   })
 
   describe('when registering a publish hook', () => {
-    it('should trigger the hook when publish() is called', async () => {
-      const publishCallback = jest.fn()
+    const publishCallback = jest.fn()
+    const evt = new TestEvent2()
+
+    beforeAll(async () => {
       sut.on('publish', publishCallback)
-      const evt = new TestEvent2()
       await sut.publish(evt)
+      sut.off('publish', publishCallback)
+      await sut.publish(evt)
+    })
+
+    it('should trigger the hook once when publish() is called', async () => {
       expect(publishCallback).toHaveBeenCalledWith(evt, expect.any(MessageAttributes))
+    })
+
+    it('should only trigger the callback once before its removed', () => {
+      expect(publishCallback).toHaveBeenCalledTimes(1)
     })
   })
 
