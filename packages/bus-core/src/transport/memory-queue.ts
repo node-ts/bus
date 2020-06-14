@@ -5,6 +5,7 @@ import { TransportMessage } from './transport-message'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { HandlerRegistry } from '../handler'
 import { MessageType } from '../handler/handler'
+import { BUS_SYMBOLS } from '../bus-symbols'
 
 export const RETRY_LIMIT = 10
 
@@ -40,13 +41,15 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   private messagesWithHandlers: { [key: string]: {} }
 
   constructor (
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
+    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
+    @inject(BUS_SYMBOLS.HandlerRegistry)
+      private readonly handlerRegistry: HandlerRegistry
   ) {
   }
 
-  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
+  async initialize (): Promise<void> {
     this.messagesWithHandlers = {}
-    handlerRegistry.messageSubscriptions
+    this.handlerRegistry.messageSubscriptions
       .filter(subscription => !!subscription.messageType)
       .map(subscription => subscription.messageType!)
       .map(ctor => new ctor().$name)

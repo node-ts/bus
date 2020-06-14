@@ -1,5 +1,5 @@
 import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, HandlerRegistry } from '@node-ts/bus-core'
+import { Transport, TransportMessage, HandlerRegistry, BUS_SYMBOLS } from '@node-ts/bus-core'
 import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
 import { inject, injectable } from 'inversify'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
@@ -27,16 +27,18 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       private readonly connectionFactory: () => Promise<Connection>,
     @inject(BUS_RABBITMQ_SYMBOLS.TransportConfiguration)
       private readonly configuration: RabbitMqTransportConfiguration,
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
+    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
+    @inject(BUS_SYMBOLS.HandlerRegistry)
+      private readonly handlerRegistry: HandlerRegistry
   ) {
     this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
   }
 
-  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
+  async initialize (): Promise<void> {
     this.logger.info('Initializing RabbitMQ transport')
     this.connection = await this.connectionFactory()
     this.channel = await this.connection.createChannel()
-    await this.bindExchangesToQueue(handlerRegistry)
+    await this.bindExchangesToQueue(this.handlerRegistry)
     this.logger.info('RabbitMQ transport initialized')
   }
 

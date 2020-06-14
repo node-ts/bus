@@ -1,4 +1,3 @@
-import { Message } from '@node-ts/bus-messages'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { Container, inject, injectable } from 'inversify'
 import { BUS_SYMBOLS } from '../bus-symbols'
@@ -86,7 +85,7 @@ export class ApplicationBootstrap {
 
   private async initializeTransport (): Promise<void> {
     if (this.transport.initialize) {
-      await this.transport.initialize(this.handlerRegistry)
+      await this.transport.initialize()
     }
   }
 }

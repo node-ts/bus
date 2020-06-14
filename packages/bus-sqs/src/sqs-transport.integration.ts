@@ -25,7 +25,8 @@ function getEnvVar (key: string): string {
   return value
 }
 
-const resourcePrefix = 'integration'
+// Use a randomize number otherwise aws will disallow recreat just deleted queue
+const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
@@ -174,7 +175,7 @@ describe('SqsTransport', () => {
     })
 
     describe('when sending a command', () => {
-      const testCommand = new TestCommand(uuid.v4())
+      const testCommand = new TestCommand(uuid.v4(), new Date())
       const messageOptions: MessageAttributes = {
         correlationId: faker.random.uuid(),
         attributes: {
@@ -191,7 +192,7 @@ describe('SqsTransport', () => {
         await bus.send(testCommand, messageOptions)
       })
 
-      it('should receive and dispatch to the handler', async () => {
+      fit('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
           h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
