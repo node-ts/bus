@@ -149,10 +149,10 @@ export class SqsTransport implements Transport<SQS.Message> {
   }
 
   async initialize (): Promise<void> {
-    await this.assertServiceQueue(this.handlerRegistry)
+    await this.assertServiceQueue()
   }
 
-  private async assertServiceQueue (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async assertServiceQueue (): Promise<void> {
     await this.assertSqsQueue(
       this.sqsConfiguration.deadLetterQueueName
     )
@@ -169,7 +169,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       serviceQueueAttributes
     )
 
-    await this.subscribeQueueToMessages(handlerRegistry)
+    await this.subscribeQueueToMessages()
     await this.attachPolicyToQueue(this.sqsConfiguration.queueUrl)
   }
 
@@ -237,7 +237,8 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.sns.publish(snsMessage).promise()
   }
 
-  private async subscribeQueueToMessages (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async subscribeQueueToMessages (): Promise<void> {
+    const handlerRegistry = this.handlerRegistry
     const queueArn = this.sqsConfiguration.queueArn
     const queueSubscriptionPromises = handlerRegistry.messageSubscriptions
       .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)

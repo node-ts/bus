@@ -192,7 +192,7 @@ describe('SqsTransport', () => {
         await bus.send(testCommand, messageOptions)
       })
 
-      fit('should receive and dispatch to the handler', async () => {
+      it('should receive and dispatch to the handler', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
           h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),

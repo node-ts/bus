@@ -38,7 +38,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.logger.info('Initializing RabbitMQ transport')
     this.connection = await this.connectionFactory()
     this.channel = await this.connection.createChannel()
-    await this.bindExchangesToQueue(this.handlerRegistry)
+    await this.bindExchangesToQueue()
     this.logger.info('RabbitMQ transport initialized')
   }
 
@@ -115,13 +115,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
   }
 
-  private async bindExchangesToQueue (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async bindExchangesToQueue (): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(
       this.configuration.queueName,
       { durable: true, deadLetterExchange }
     )
-    const subscriptionPromises = handlerRegistry.messageSubscriptions
+    const subscriptionPromises = this.handlerRegistry.messageSubscriptions
       .map(async subscription => {
 
         let exchangeName: string
