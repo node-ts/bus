@@ -122,4 +122,27 @@ describe('HandlerRegistry', () => {
     })
   })
 
+  describe('when getting a messageType', () => {
+
+    beforeEach(() => {
+      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
+    })
+
+    it('return msg constructor when found', () => {
+      const msg = {
+        $name: TestEvent.NAME
+      }
+      const result = sut.getMessageType(msg as Message)
+      expect(result).toBe(TestEvent)
+    })
+
+    it('return undefined when not found', () => {
+      const msg = {
+        $name: 'bluhbluh-very-important-command'
+      }
+      const result = sut.getMessageType(msg as Message)
+      expect(result).toBeUndefined()
+    })
+  })
+
 })

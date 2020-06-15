@@ -2,7 +2,10 @@ import { Command, Event, Message, MessageAttributes, MessageAttributeMap } from 
 import { SNS, SQS } from 'aws-sdk'
 import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
 import { inject, injectable } from 'inversify'
-import { Transport, TransportMessage, HandlerRegistry } from '@node-ts/bus-core'
+import {
+  Transport, TransportMessage, HandlerRegistry,
+  BUS_SYMBOLS, MessageSerializer
+} from '@node-ts/bus-core'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { BUS_SQS_SYMBOLS, BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
@@ -51,7 +54,12 @@ export class SqsTransport implements Transport<SQS.Message> {
     @inject(BUS_SQS_INTERNAL_SYMBOLS.Sqs) private readonly sqs: SQS,
     @inject(BUS_SQS_INTERNAL_SYMBOLS.Sns) private readonly sns: SNS,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SQS_SYMBOLS.SqsConfiguration) private readonly sqsConfiguration: SqsTransportConfiguration
+    @inject(BUS_SQS_SYMBOLS.SqsConfiguration) private readonly sqsConfiguration: SqsTransportConfiguration,
+    @inject(BUS_SYMBOLS.HandlerRegistry)
+      private readonly handlerRegistry: HandlerRegistry,
+    @inject(BUS_SYMBOLS.MessageSerializer)
+      private readonly messageSerializer: MessageSerializer
+
   ) {
   }
 
@@ -113,10 +121,12 @@ export class SqsTransport implements Transport<SQS.Message> {
         { transportAttributes: snsMessage.MessageAttributes, messageAttributes: attributes}
       )
 
+      const domainMessage = this.messageSerializer.deserialize(snsMessage.Message)
+
       return {
         id: sqsMessage.MessageId,
         raw: sqsMessage,
-        domainMessage: JSON.parse(snsMessage.Message) as Message,
+        domainMessage,
         attributes
       }
     } catch (error) {
@@ -138,11 +148,11 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.makeMessageVisible(message.raw)
   }
 
-  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
-    await this.assertServiceQueue(handlerRegistry)
+  async initialize (): Promise<void> {
+    await this.assertServiceQueue()
   }
 
-  private async assertServiceQueue (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async assertServiceQueue (): Promise<void> {
     await this.assertSqsQueue(
       this.sqsConfiguration.deadLetterQueueName
     )
@@ -159,7 +169,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       serviceQueueAttributes
     )
 
-    await this.subscribeQueueToMessages(handlerRegistry)
+    await this.subscribeQueueToMessages()
     await this.attachPolicyToQueue(this.sqsConfiguration.queueUrl)
   }
 
@@ -220,14 +230,15 @@ export class SqsTransport implements Transport<SQS.Message> {
     const snsMessage: SNS.PublishInput = {
       TopicArn: topicArn,
       Subject: message.$name,
-      Message: JSON.stringify(message),
+      Message: this.messageSerializer.serialize(message),
       MessageAttributes: attributeMap
     }
     this.logger.debug('Sending message to SNS', { snsMessage })
     await this.sns.publish(snsMessage).promise()
   }
 
-  private async subscribeQueueToMessages (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async subscribeQueueToMessages (): Promise<void> {
+    const handlerRegistry = this.handlerRegistry
     const queueArn = this.sqsConfiguration.queueArn
     const queueSubscriptionPromises = handlerRegistry.messageSubscriptions
       .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
