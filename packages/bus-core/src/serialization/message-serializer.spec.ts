@@ -1,10 +1,11 @@
 // tslint:disable:max-classes-per-file no-inferred-empty-object-type
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
-import { MessageSerializer } from './message-serializer';
+import { MessageSerializer } from './message-serializer'
 import { Mock, IMock, It } from 'typemoq'
 import { HandlerRegistry } from '../handler'
 import * as faker from 'faker'
+import { Message } from '@node-ts/bus-messages'
 
 class DummyMessage {
   $name = 'bluh'
@@ -18,12 +19,12 @@ class DummyMessage {
 
 class ToxicSerializer implements Serializer {
 
-  serialize (msg: any): string {
-    return msg.$name as string
+  serialize<MessageType extends Message> (message: MessageType): string {
+    return message.$name
   }
 
-  deserialize<T extends object> (msg: string, classType: ClassConstructor<T>): T {
-    return new classType(msg)
+  deserialize<MessageType extends Message> (message: string, classType: ClassConstructor<MessageType>): MessageType {
+    return new classType(message)
   }
 }
 
@@ -49,27 +50,25 @@ describe('MessageSerializer', () => {
     )
   })
 
-  it ('should use underlying serializer to serialize', () => {
-    const msg = {
-      $name: msgName
+  it('should use underlying serializer to serialize', () => {
+    const message: Message = {
+      $name: msgName,
+      $version: 1
     }
-    const result = sut.serialize(msg)
-    // As per toxic serializer's behavior
-    expect(result).toBe(msg.$name)
+    const result = sut.serialize(message)
+    expect(result).toBe(message.$name)
   })
 
-  it ('should use underlying deserializer to deserialize', () => {
+  it('should use underlying deserializer to deserialize', () => {
     const msg = {
       $name: msgName,
       text: faker.random.words()
     }
     const raw = JSON.stringify(msg)
 
-    const result = sut.deserialize(raw) as DummyMessage
+    const result = sut.deserialize<DummyMessage>(raw)
 
     handlerRegistry.verifyAll()
-
-    // As per toxic serializer's behavior
     expect(result.value).toBe(raw)
   })
 })

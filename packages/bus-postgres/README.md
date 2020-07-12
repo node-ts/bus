@@ -53,5 +53,5 @@ application
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
 
 ```bash
-docker run --name bus-postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
+docker run -d --name bus-postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
 ```

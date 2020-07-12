@@ -2,20 +2,25 @@ import { injectable } from 'inversify'
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
 import { classToPlain, plainToClass, serialize, deserialize } from 'class-transformer'
+import { Message } from '@node-ts/bus-messages'
 
 /**
- * A very unsafe, basic JSON serializer. This will serialize objects to strings, but will
- * deserialize strings into plain objects. These will NOT contain methods or special types,
- * so the usage of this serializer is limited.
+ * A JSON-based serializer that uses `class-transformer` to transform to and from
+ * class instances of an object rather than just their plain types. As a result,
+ * message types can use all of the serialization decorator hints provided by
+ * that library.
  */
 @injectable()
 export class JsonSerializer implements Serializer {
-  serialize<T extends object> (obj: T): string {
-    return serialize(obj)
+  serialize<MessageType extends Message> (message: MessageType): string {
+    return serialize(message)
   }
 
-  deserialize<T extends object> (val: string, classConstructor: ClassConstructor<T>): T {
-    return deserialize<T> (classConstructor, val)
+  deserialize<MessageType extends Message> (
+    serializedMessage: string,
+    classConstructor: ClassConstructor<MessageType>
+  ): MessageType {
+    return deserialize<MessageType> (classConstructor, serializedMessage)
   }
 
   toPlain<T extends object> (obj: T): object {
