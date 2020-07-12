@@ -1,3 +1,3 @@
 export * from './transport'
-export * from './memory-queue'
+export { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
 export * from './transport-message'

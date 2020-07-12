@@ -70,8 +70,8 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     this.addToQueue(command, messageOptions)
   }
 
-  async fail (rawMessage: TransportMessage<unknown>): Promise<void> {
-    await this.sendToDeadLetterQueue(rawMessage as TransportMessage<InMemoryMessage>)
+  async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
+    await this.sendToDeadLetterQueue(transportMessage as TransportMessage<InMemoryMessage>)
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
@@ -132,15 +132,15 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 }
 
-function toTransportMessage (
+export const toTransportMessage = (
   message: MessageType,
-  messageOptions: MessageAttributes,
+  messageAttributes: MessageAttributes,
   isProcessing: boolean
-): TransportMessage<InMemoryMessage> {
+): TransportMessage<InMemoryMessage> => {
   return {
     id: undefined,
     domainMessage: message,
-    attributes: messageOptions,
+    attributes: messageAttributes,
     raw: {
       seenCount: 0,
       payload: message,

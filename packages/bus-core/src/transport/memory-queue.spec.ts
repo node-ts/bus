@@ -1,5 +1,5 @@
-import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
-import { TestCommand, TestEvent, TestCommand2, TestSystemMessage } from '../test'
+import { MemoryQueue, InMemoryMessage, RETRY_LIMIT, toTransportMessage } from './memory-queue'
+import { TestCommand, TestEvent, TestCommand2, TestSystemMessage, TestFailMessage } from '../test'
 import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
@@ -19,16 +19,17 @@ describe('MemoryQueue', () => {
    })
 
   beforeEach(async () => {
-    sut = new MemoryQueue(
-      Mock.ofType<Logger>().object
-    )
-
     const handlerRegistry = Mock.ofType<HandlerRegistry>()
     handlerRegistry
       .setup(h => h.messageSubscriptions)
       .returns(() => handledMessages.map(h => ({ messageType: h }) as {} as HandlerResolver))
 
-    await sut.initialize(handlerRegistry.object)
+    sut = new MemoryQueue(
+      Mock.ofType<Logger>().object,
+      handlerRegistry.object
+    )
+
+    await sut.initialize()
   })
 
   describe('when publishing an event', () => {
@@ -56,6 +57,22 @@ describe('MemoryQueue', () => {
     it('should push the message onto the queue', async () => {
       sut.addToQueue(new TestSystemMessage())
       expect(sut.depth).toEqual(1)
+    })
+  })
+
+  describe('when failing a message', () => {
+    beforeEach(async () => {
+      const message = new TestFailMessage(faker.random.uuid())
+      const transportMessage = toTransportMessage(message, new MessageAttributes(), true)
+      await sut.fail(transportMessage)
+    })
+
+    it('should deliver the failed message to the dead letter queue', () => {
+      expect(sut.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should remove the message from the source queue', () => {
+      expect(sut.depth).toEqual(0)
     })
   })
 

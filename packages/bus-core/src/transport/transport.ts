@@ -24,10 +24,10 @@ export interface Transport<TransportMessageType = {}> {
   send<TCommand extends Command> (command: TCommand, messageOptions?: MessageAttributes): Promise<void>
 
   /**
-   * Forwards @param rawMessage to the dead letter queue. The message must have been read in from the queue and have
-   * a receipt handle.
+   * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
+   * queue and have a receipt handle.
    */
-  fail (rawMessage: TransportMessage<unknown>): Promise<void>
+  fail (transportMessage: TransportMessage<unknown>): Promise<void>
 
   /**
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
