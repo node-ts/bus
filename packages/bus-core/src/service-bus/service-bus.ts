@@ -1,9 +1,9 @@
-import { injectable, inject } from 'inversify'
+import { injectable, inject, optional } from 'inversify'
 import autobind from 'autobind-decorator'
 import { Bus, BusState, HookAction, HookCallback } from './bus'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
-import { Transport } from '../transport'
-import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
+import { Transport, TransportMessage } from '../transport'
+import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
@@ -11,8 +11,7 @@ import * as serializeError from 'serialize-error'
 import { SessionScopeBinder } from '../bus-module'
 import { MessageType } from '../handler/handler'
 import { BusHooks } from './bus-hooks'
-
-const EMPTY_QUEUE_SLEEP_MS = 500
+import { FailMessageOutsideHandlingContext } from '../error'
 
 @injectable()
 @autobind
@@ -26,7 +25,8 @@ export class ServiceBus implements Bus {
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
     @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes,
-    @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks
+    @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks,
+    @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
   ) {
   }
 
@@ -39,6 +39,15 @@ export class ServiceBus implements Bus {
 
     await Promise.all(this.busHooks.publish.map(callback => callback(event, messageOptions)))
     return this.transport.publish(event, transportOptions)
+  }
+
+  async fail (): Promise<void> {
+    if (!this.rawMessage) {
+      throw new FailMessageOutsideHandlingContext(this.rawMessage)
+
+    }
+    this.logger.debug('failing message', { message: this.rawMessage })
+    return this.transport.fail(this.rawMessage)
   }
 
   async send<TCommand extends Command> (
@@ -89,12 +98,7 @@ export class ServiceBus implements Bus {
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {
-      const messageHandled = await this.handleNextMessage()
-
-      // Avoids locking up CPU when there's no messages to be processed
-      if (!messageHandled) {
-        await sleep(EMPTY_QUEUE_SLEEP_MS)
-      }
+      await this.handleNextMessage()
     }
     this.runningWorkerCount--
   }
@@ -107,7 +111,7 @@ export class ServiceBus implements Bus {
         this.logger.debug('Message read from transport', { message })
 
         try {
-          await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
+          await this.dispatchMessageToHandlers(message)
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
@@ -126,16 +130,20 @@ export class ServiceBus implements Bus {
     return false
   }
 
-  private async dispatchMessageToHandlers (message: MessageType, context: MessageAttributes): Promise<void> {
-    const handlers = this.handlerRegistry.get(message)
+  private async dispatchMessageToHandlers (
+    rawMessage: TransportMessage<MessageType>
+  ): Promise<void> {
+    const handlers = this.handlerRegistry.get(rawMessage.domainMessage)
     if (handlers.length === 0) {
-      this.logger.warn(`No handlers registered for message. Message will be discarded`, { messageType: message })
+      this.logger.warn(
+        `No handlers registered for message. Message will be discarded`,
+        { messageType: rawMessage.domainMessage }
+      )
       return
     }
 
     const handlersToInvoke = handlers.map(handler => dispatchMessageToHandler(
-      message,
-      context,
+      rawMessage,
       handler
     ))
 
@@ -157,21 +165,24 @@ export class ServiceBus implements Bus {
 }
 
 async function dispatchMessageToHandler (
-  message: MessageType,
-  context: MessageAttributes,
+  rawMessage: TransportMessage<MessageType>,
   handlerRegistration: HandlerRegistration<MessageType>
 ): Promise<void> {
   const container = handlerRegistration.defaultContainer
   const childContainer = container.createChild()
 
   childContainer
+    .bind<TransportMessage<MessageType>>(BUS_INTERNAL_SYMBOLS.RawMessage)
+    .toConstantValue(rawMessage)
+
+  childContainer
     .bind<MessageAttributes>(BUS_SYMBOLS.MessageHandlingContext)
-    .toConstantValue(context)
+    .toConstantValue(rawMessage.attributes)
 
   const sessionScopeBinder = container.get<SessionScopeBinder>(BUS_INTERNAL_SYMBOLS.SessionScopeBinder)
   // tslint:disable-next-line:no-unsafe-any
   sessionScopeBinder(childContainer.bind.bind(childContainer))
 
   const handler = handlerRegistration.resolveHandler(childContainer)
-  return handler.handle(message, context)
+  return handler.handle(rawMessage.domainMessage, rawMessage.attributes)
 }

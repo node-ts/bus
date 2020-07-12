@@ -16,8 +16,23 @@ export interface Bus {
    */
   state: BusState
 
+  /**
+   * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
+   */
   publish<EventType extends Event> (event: EventType, messageOptions?: MessageAttributes): Promise<void>
+
+  /**
+   * Sends a command onto the bus. There should be exactly one subscriber of this command type who can
+   * process it and perform the requested action.
+   */
   send<CommandType extends Command> (command: CommandType, messageOptions?: MessageAttributes): Promise<void>
+
+  /**
+   * Immediately fail the message of the current receive context and deliver it to the dead letter queue
+   * (if configured). It will not be retried Any processing of the message by a different handler on the
+   * same service instance will still process it.
+   */
+  fail (): Promise<void>
 
   /**
    * For applications that handle messages, start reading messages off the underlying queue and process them.

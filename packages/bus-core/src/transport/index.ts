@@ -1,3 +1,3 @@
 export * from './transport'
-export * from './memory-queue'
+export { MemoryQueue, InMemoryMessage, RETRY_LIMIT, RECEIVE_TIMEOUT_MS } from './memory-queue'
 export * from './transport-message'

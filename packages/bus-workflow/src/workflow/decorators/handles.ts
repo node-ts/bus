@@ -8,12 +8,15 @@ import { ClassConstructor } from '@node-ts/bus-core'
 
 export const WORKFLOW_HANDLES_METADATA_KEY = Symbol.for('node-ts/bus/workflow-handles-steps')
 
-export class WorkflowHandlesMetadata {
+export class WorkflowHandlesMetadata<WorkflowDataType extends WorkflowData = WorkflowData> {
   propertyKey: string
   messageConstructor: ClassConstructor<Message>
-  messageWorkflowMapping: MessageWorkflowMapping<Message, WorkflowData>
+  messageWorkflowMapping: MessageWorkflowMapping<Message, WorkflowDataType>
 
-  static addStep (metadata: WorkflowHandlesMetadata, target: Workflow<WorkflowData>): void {
+  static addStep<WorkflowDataType extends WorkflowData> (
+    metadata: WorkflowHandlesMetadata<WorkflowDataType>,
+    target: Workflow<WorkflowDataType>
+  ): void {
     ReflectExtensions.defineMetadata(WORKFLOW_HANDLES_METADATA_KEY, metadata, target.constructor)
   }
 
@@ -39,14 +42,17 @@ export function Handles<
 > (
   messageConstructor: ClassConstructor<TMessage>,
   messageLookup: (message: TMessage, messageOptions: MessageAttributes) => string | undefined,
-  workflowDataProperty: keyof WorkflowDataType & string
+  workflowDataProperty: keyof WorkflowDataType
 ): (target: TargetType, propertyKey: KeyType) => void {
   return (target: TargetType, propertyKey: string): void =>
-    WorkflowHandlesMetadata.addStep(
+    WorkflowHandlesMetadata.addStep<WorkflowDataType>(
       {
         propertyKey,
         messageConstructor,
-        messageWorkflowMapping: new MessageWorkflowMapping(messageLookup, workflowDataProperty)
+        messageWorkflowMapping: new MessageWorkflowMapping<TMessage, WorkflowDataType>(
+          messageLookup,
+          workflowDataProperty
+        )
       },
       target
     )

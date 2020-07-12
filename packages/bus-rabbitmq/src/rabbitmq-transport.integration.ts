@@ -1,4 +1,4 @@
-import { RabbitMqTransport, DEFAULT_MAX_RETRIES } from './rabbitmq-transport'
+import { RabbitMqTransport } from './rabbitmq-transport'
 import {
   TestContainer,
   TestEvent,
@@ -7,10 +7,12 @@ import {
   TestPoisonedMessageHandler,
   TestPoisonedMessage,
   HANDLE_CHECKER,
-  HandleChecker
+  HandleChecker,
+  TestFailMessageHandler,
+  TestFailMessage
 } from '../test'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
-import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
+import { Connection, Channel, Message as RabbitMqMessage, ConsumeMessage } from 'amqplib'
 import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
@@ -50,6 +52,7 @@ describe('RabbitMqTransport', () => {
     bootstrap.registerHandler(TestCommandHandler)
     bootstrap.registerHandler(TestSystemMessageHandler)
     bootstrap.registerHandler(TestPoisonedMessageHandler)
+    bootstrap.registerHandler(TestFailMessageHandler)
 
     const connectionFactory = container.get<() => Promise<Connection>>(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
     connection = await connectionFactory()
@@ -92,18 +95,20 @@ describe('RabbitMqTransport', () => {
         jest.setTimeout(10000)
         await bus.publish(poisonedMessage)
         await new Promise<void>(resolve => {
+          const consumerTag = faker.random.uuid()
           channel.consume('dead-letter', msg => {
             if (!msg) {
               return
             }
 
             channel.ack(msg)
+            channel.cancel(consumerTag)
 
             const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
             if (message.id === poisonedMessage.id) {
               resolve()
             }
-          })
+          }, { consumerTag})
         })
       })
 
@@ -196,6 +201,51 @@ describe('RabbitMqTransport', () => {
           const queueDetails = await channel.checkQueue(configuration.queueName) as { messageCount: number }
           expect(queueDetails.messageCount).toEqual(0)
         })
+      })
+    })
+
+    describe('when failing a message', () => {
+      const failMessage = new TestFailMessage(faker.random.uuid())
+      const correlationId = faker.random.uuid()
+      let deadLetter: TestFailMessage | undefined
+      let rawDeadLetter: ConsumeMessage
+
+      beforeAll(async () => {
+        await bus.publish(failMessage, new MessageAttributes({ correlationId }))
+        await new Promise<void>(resolve => {
+          const consumerTag = faker.random.uuid()
+          channel.consume(
+            'dead-letter',
+            msg => {
+              if (!msg) {
+                return
+              }
+
+              channel.ack(msg)
+              channel.cancel(consumerTag)
+
+              const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
+              if (message.id === failMessage.id) {
+                deadLetter = message
+                rawDeadLetter = msg
+                resolve()
+              }
+            },
+            { consumerTag })
+        })
+      })
+
+      it('should deliver the failed message to the dead letter queue', () => {
+        expect(deadLetter).toBeDefined()
+      })
+
+      it('should remove the message from the source queue', async () => {
+        const queueDetails = await channel.checkQueue(configuration.queueName) as { messageCount: number }
+        expect(queueDetails.messageCount).toEqual(0)
+      })
+
+      it('should retain the same message attributes', () => {
+        expect(rawDeadLetter.properties.correlationId).toEqual(correlationId)
       })
     })
 

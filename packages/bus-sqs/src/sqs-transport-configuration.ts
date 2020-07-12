@@ -25,6 +25,12 @@ export interface SqsTransportConfiguration {
   deadLetterQueueName: string
 
   /**
+   * Url of the dead letter queue to fail messages to
+   * @example https://sqs.us-west-2.amazonaws.com/12345678/production-dead-letter-queue
+   */
+  deadLetterQueueUrl: string
+
+  /**
    * ARN of the dead letter queue. This queue will be created if it doesn't already exist
    * @example arn:aws:sqs:us-west-2:12345678:production-dead-letter-queue
    */

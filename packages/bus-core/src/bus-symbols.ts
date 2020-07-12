@@ -11,5 +11,6 @@ export const BUS_SYMBOLS = {
 
 export const BUS_INTERNAL_SYMBOLS = {
   SessionScopeBinder: Symbol.for('@node-ts/bus-core/session-scope-binder'),
-  BusHooks: Symbol.for('@node-ts/bus-core/bus-hooks')
+  BusHooks: Symbol.for('@node-ts/bus-core/bus-hooks'),
+  RawMessage: Symbol.for('@node-ts/bus-core/raw-message')
 }

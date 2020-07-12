@@ -71,6 +71,24 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.publishMessage(command, messageAttributes)
   }
 
+  async fail (transportMessage: TransportMessage<SQS.Message>): Promise<void> {
+    /*
+      SQS doesn't support forwarding a message to another queue. This approach will copy the message to the dead letter
+      queue and then delete it from the source queue. This changes its message id and other attributes such as receive
+      counts etc.
+
+      This isn't ideal, but the alternative is to flag the message as failed and visible and then NOOP handle it until
+      the redrive policy kicks in. This approach was not prefered due to the additional number of handles that would
+      need to happen.
+    */
+    await this.sqs.sendMessage({
+      QueueUrl: this.sqsConfiguration.deadLetterQueueUrl,
+      MessageBody: transportMessage.raw.Body!,
+      MessageAttributes: transportMessage.raw.MessageAttributes
+    }).promise()
+    await this.deleteMessage(transportMessage)
+  }
+
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
       QueueUrl: this.sqsConfiguration.queueUrl,

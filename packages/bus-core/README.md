@@ -1,6 +1,6 @@
 # @node-ts/bus-core
 
-[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+[![Known Vulnerabilities](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
 [![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 The core messaging framework. This package provides an in-memory queue and persistence by default, but is designed to be used with other @node-ts/bus-* packages that provide compatibility with other transports (SQS, RabbitMQ, Azure Queues) and persistence technologies (PostgreSQL, SQL Server, Oracle). 
@@ -29,7 +29,7 @@ export class ApplicationContainer extends Container {
 
 ## Register a message handler
 
-Messages are handled by defining and registring a handler class. Each time a message is received by the application, it will be dispatched to each of the registered handlers.
+Messages are handled by defining and registering a handler class. Each time a message is received by the application, it will be dispatched to each of the registered handlers.
 
 Define the handler:
 
@@ -105,3 +105,11 @@ addHook (): void {
   bus.off('send', callback)
 }
 ```
+
+## Failing a Message
+
+When an error is thrown whilst handling an error, the message is typically sent back to the queue so that it can be retried. 
+
+There are times when we know that a message will never succeed even if it were to be retried. In these situations we may not want to wait for our message to be retried before sending it to the dead letter queue, but instead bypass the retries and send it to the dead letter queue immediately.
+
+This can be done by calling `bus.fail()` from within the scope of a message handling context. This will instruct `@node-ts/bus` to forward the currently handled message to the dead letter queue and remove it from the service queue.
