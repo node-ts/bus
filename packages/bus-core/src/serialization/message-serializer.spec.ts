@@ -19,12 +19,12 @@ class DummyMessage {
 
 class ToxicSerializer implements Serializer {
 
-  serialize<MessageType extends Message> (message: MessageType): string {
-    return message.$name
+  serialize<ObjectType extends object> (obj: ObjectType): string {
+    return (obj as Message).$name
   }
 
-  deserialize<MessageType extends Message> (message: string, classType: ClassConstructor<MessageType>): MessageType {
-    return new classType(message)
+  deserialize<ObjectType extends object> (serialized: string, classType: ClassConstructor<ObjectType>): ObjectType {
+    return new classType(serialized)
   }
 }
 
