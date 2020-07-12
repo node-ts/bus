@@ -27,7 +27,7 @@ export class InMemoryPersistence implements Persistence {
 
   async initializeWorkflow<TWorkflowData extends WorkflowData> (
     workflowDataConstructor: ClassConstructor<TWorkflowData>,
-    _: MessageWorkflowMapping<Message, WorkflowData>[]
+    _: MessageWorkflowMapping<Message, TWorkflowData>[]
   ): Promise<void> {
     this.workflowData[workflowDataConstructor.name] = []
   }
