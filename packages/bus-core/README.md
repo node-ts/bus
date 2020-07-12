@@ -105,3 +105,11 @@ addHook (): void {
   bus.off('send', callback)
 }
 ```
+
+## Failing a Message
+
+When an error is thrown whilst handling an error, the message is typically sent back to the queue so that it can be retried. 
+
+There are times when we know that a message will never succeed even if it were to be retried. In these situations we may not want to wait for our message to be retried before sending it to the dead letter queue, but instead bypass the retries and send it to the dead letter queue immediately.
+
+This can be done by calling `bus.fail()` from within the scope of a message handling context. This will instruct `@node-ts/bus` to forward the currently handled message to the dead letter queue and remove it from the service queue.
