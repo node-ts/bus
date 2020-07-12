@@ -71,11 +71,13 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.publishMessage(command, messageAttributes)
   }
 
-  async fail<TMessage extends Message> (message: TMessage): Promise<void> {
-    this.sqs.sendMessage({
+  async fail (transportMessage: TransportMessage<SQS.Message>): Promise<void> {
+    await this.sqs.sendMessage({
       QueueUrl: this.sqsConfiguration.deadLetterQueueName,
-      MessageBody: this.messageSerializer.serialize(message)
-    })
+      MessageBody: transportMessage.raw.Body!,
+      MessageAttributes: transportMessage.raw.MessageAttributes
+    }).promise()
+    await this.deleteMessage(transportMessage)
   }
 
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
