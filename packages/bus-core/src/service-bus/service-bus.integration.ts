@@ -41,7 +41,10 @@ describe('ServiceBus', () => {
 
   beforeAll(async () => {
     container = new TestContainer().silenceLogs()
-    queue = new MemoryQueue(Mock.ofType<Logger>().object)
+    queue = new MemoryQueue(
+      Mock.ofType<Logger>().object,
+      container.get(BUS_SYMBOLS.HandlerRegistry)
+    )
 
     bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     bootstrapper.registerHandler(TestEventHandler)

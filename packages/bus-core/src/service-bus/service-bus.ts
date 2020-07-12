@@ -13,8 +13,6 @@ import { MessageType } from '../handler/handler'
 import { BusHooks } from './bus-hooks'
 import { FailMessageOutsideHandlingContext } from '../error'
 
-const EMPTY_QUEUE_SLEEP_MS = 500
-
 @injectable()
 @autobind
 export class ServiceBus implements Bus {
@@ -100,12 +98,7 @@ export class ServiceBus implements Bus {
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {
-      const messageHandled = await this.handleNextMessage()
-
-      // Avoids locking up CPU when there's no messages to be processed
-      if (!messageHandled) {
-        await sleep(EMPTY_QUEUE_SLEEP_MS)
-      }
+      await this.handleNextMessage()
     }
     this.runningWorkerCount--
   }
