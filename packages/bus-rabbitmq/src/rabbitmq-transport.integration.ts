@@ -204,7 +204,7 @@ describe('RabbitMqTransport', () => {
       })
     })
 
-    fdescribe('when failing a message', () => {
+    describe('when failing a message', () => {
       const failMessage = new TestFailMessage(faker.random.uuid())
       const correlationId = faker.random.uuid()
       let deadLetter: TestFailMessage | undefined
