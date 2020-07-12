@@ -9,7 +9,7 @@ import {
   TestFailMessage
 } from '../test'
 import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
-import { SQS, SNS, config } from 'aws-sdk'
+import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { IMock, Mock, Times, It } from 'typemoq'
