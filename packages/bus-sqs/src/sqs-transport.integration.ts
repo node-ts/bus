@@ -40,6 +40,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
   queueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
 
   deadLetterQueueName: `${resourcePrefix}-dead-letter`,
+  deadLetterQueueUrl: `http://localhost:4576/queue/${resourcePrefix}-dead-letter`,
   deadLetterQueueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
 
   resolveTopicName: (messageName: string) =>
@@ -219,23 +220,31 @@ describe('SqsTransport', () => {
     describe('when failing a message', () => {
       const messageToFail = new TestFailMessage(faker.random.uuid())
       let message: TestFailMessage
+      let receiveCount: number
       beforeAll(async () => {
-        await sut.publish(messageToFail)
         const deadLetterQueueUrl = `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
+        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
+        await sut.publish(messageToFail)
         const result = await sqs.receiveMessage({
           QueueUrl: deadLetterQueueUrl,
-          WaitTimeSeconds: 5
+          WaitTimeSeconds: 5,
+          AttributeNames: ['All']
         }).promise()
         if (result.Messages && result.Messages.length === 1) {
-          const rawMessage = result.Messages[0]
-          message = JSON.parse(rawMessage.Body!) as TestFailMessage
+          const transportMessage = result.Messages[0]
+          receiveCount = parseInt(transportMessage.Attributes!.ApproximateReceiveCount, 10)
+          const rawMessage = JSON.parse(transportMessage.Body!)
+          message = JSON.parse(rawMessage.Message) as TestFailMessage
         }
       })
 
       it('should forward it to the dead letter queue', () => {
         expect(message).toBeDefined()
-        expect(message.$name).toEqual(messageToFail.$name)
-        expect(message.id).toEqual(messageToFail.id)
+        expect(message).toMatchObject(messageToFail)
+      })
+
+      it('should only have received the message once', () => {
+        expect(receiveCount).toEqual(1)
       })
     })
   })
