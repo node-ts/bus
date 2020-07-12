@@ -23,17 +23,18 @@ export class MessageSerializer {
   ) {
   }
 
-  serialize<T extends object> (obj: T): string {
-    return this.serializer.serialize(obj)
+  serialize<MessageType extends Message> (message: MessageType): string {
+    return this.serializer.serialize(message)
   }
 
-  deserialize (val: string): Message {
-      const naiveDerializedMessage = JSON.parse(val) as Message
+  deserialize<MessageType extends Message> (serializedMessage: string): MessageType {
+      const naiveDerializedMessage = JSON.parse(serializedMessage) as Message
       const messageType = this.handlerRegistry.getMessageType(naiveDerializedMessage)
 
-      return !!messageType ? this.serializer.deserialize(
-        val,
-        messageType
-      ) : naiveDerializedMessage
+      return (!!messageType
+        ? this.serializer.deserialize(
+          serializedMessage,
+          messageType
+        ) : naiveDerializedMessage) as MessageType
   }
 }

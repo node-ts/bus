@@ -1,6 +1,6 @@
 import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, HandlerRegistry, BUS_SYMBOLS } from '@node-ts/bus-core'
-import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
+import { Transport, TransportMessage, HandlerRegistry, BUS_SYMBOLS, MessageSerializer } from '@node-ts/bus-core'
+import { Connection, Channel, Message as RabbitMqMessage, GetMessage } from 'amqplib'
 import { inject, injectable } from 'inversify'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
@@ -29,7 +29,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       private readonly configuration: RabbitMqTransportConfiguration,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry)
-      private readonly handlerRegistry: HandlerRegistry
+      private readonly handlerRegistry: HandlerRegistry,
+    @inject(BUS_SYMBOLS.MessageSerializer)
+      private readonly messageSerializer: MessageSerializer
   ) {
     this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
   }
@@ -55,13 +57,24 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.publishMessage(command, messageAttributes)
   }
 
+  async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
+    const rawMessage = transportMessage.raw as GetMessage
+    const serializedPayload = this.messageSerializer.serialize(transportMessage.domainMessage as Message)
+    this.channel.sendToQueue(
+      deadLetterQueue,
+      Buffer.from(serializedPayload),
+      rawMessage.properties
+    )
+    this.logger.debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue })
+  }
+
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
     const rabbitMessage = await this.channel.get(this.configuration.queueName, { noAck: false })
     if (rabbitMessage === false) {
       return undefined
     }
     const payloadStr = rabbitMessage.content.toString('utf8')
-    const payload = JSON.parse(payloadStr) as MessageType
+    const payload = this.messageSerializer.deserialize(payloadStr)
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string,
@@ -157,7 +170,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     messageOptions: MessageAttributes = new MessageAttributes()
   ): Promise<void> {
     await this.assertExchange(message.$name)
-    const payload = JSON.stringify(message)
+    const payload = this.messageSerializer.serialize(message)
     this.channel.publish(message.$name, '', Buffer.from(payload), {
       correlationId: messageOptions.correlationId,
       headers: {

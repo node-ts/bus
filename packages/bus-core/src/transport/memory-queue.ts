@@ -70,6 +70,10 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     this.addToQueue(command, messageOptions)
   }
 
+  async fail (rawMessage: TransportMessage<unknown>): Promise<void> {
+    await this.sendToDeadLetterQueue(rawMessage as TransportMessage<InMemoryMessage>)
+  }
+
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
     this.logger.debug('Reading next message', { queueSize: this.queue.length })
     const availableMessages = this.queue.filter(m => !m.raw.inFlight)

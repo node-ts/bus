@@ -71,6 +71,13 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.publishMessage(command, messageAttributes)
   }
 
+  async fail<TMessage extends Message> (message: TMessage): Promise<void> {
+    this.sqs.sendMessage({
+      QueueUrl: this.sqsConfiguration.deadLetterQueueName,
+      MessageBody: this.messageSerializer.serialize(message)
+    })
+  }
+
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
       QueueUrl: this.sqsConfiguration.queueUrl,
