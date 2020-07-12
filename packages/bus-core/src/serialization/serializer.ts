@@ -1,21 +1,19 @@
 import { ClassConstructor } from '../util'
-import { Message } from '@node-ts/bus-messages'
 
 /**
- * A serializer that's use to serialize messages before they go onto the transport, and deserialize them as they
- * are read from the transport.
+ * A serializer that's use to serialize/deserialize objects as they leave and enter the application boundary.
  */
 export interface Serializer {
   /**
    * Serializes a message into a string representation so it can be written to an underlying queue/topic
-   * @param message Message to serialize
+   * @param obj Message to serialize
    */
-  serialize<MessageType extends Message> (message: MessageType): string
+  serialize<ObjectType extends object> (obj: ObjectType): string
 
   /**
-   * Deserializes a string-based representation of message back into a strong class type.
-   * @param serialized Serialized string of the message to deserialize
-   * @param classType Type of the class to deserialize the message back into
+   * Deserializes a string-based representation of an object back into a strong class type.
+   * @param serialized Serialized string of the object to deserialize
+   * @param classType Type of the class to deserialize the object back into
    */
-  deserialize<MessageType extends Message> (serialized: string, classType: ClassConstructor<MessageType>): MessageType
+  deserialize<ObjectType extends object> (serialized: string, classType: ClassConstructor<ObjectType>): ObjectType
 }
