@@ -12,7 +12,7 @@ import {
   TestFailMessage
 } from '../test'
 import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
-import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
+import { Connection, Channel, Message as RabbitMqMessage, ConsumeMessage } from 'amqplib'
 import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
@@ -204,11 +204,14 @@ describe('RabbitMqTransport', () => {
       })
     })
 
-    describe('when failing a message', () => {
+    fdescribe('when failing a message', () => {
       const failMessage = new TestFailMessage(faker.random.uuid())
+      const correlationId = faker.random.uuid()
       let deadLetter: TestFailMessage | undefined
+      let rawDeadLetter: ConsumeMessage
+
       beforeAll(async () => {
-        await bus.publish(failMessage)
+        await bus.publish(failMessage, new MessageAttributes({ correlationId }))
         await new Promise<void>(resolve => {
           const consumerTag = faker.random.uuid()
           channel.consume(
@@ -224,6 +227,7 @@ describe('RabbitMqTransport', () => {
               const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
               if (message.id === failMessage.id) {
                 deadLetter = message
+                rawDeadLetter = msg
                 resolve()
               }
             },
@@ -238,6 +242,10 @@ describe('RabbitMqTransport', () => {
       it('should remove the message from the source queue', async () => {
         const queueDetails = await channel.checkQueue(configuration.queueName) as { messageCount: number }
         expect(queueDetails.messageCount).toEqual(0)
+      })
+
+      it('should retain the same message attributes', () => {
+        expect(rawDeadLetter.properties.correlationId).toEqual(correlationId)
       })
     })
 

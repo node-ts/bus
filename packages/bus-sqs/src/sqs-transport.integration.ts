@@ -1,4 +1,4 @@
-import { SqsTransport } from './sqs-transport'
+import { SqsTransport, SQSMessageBody, fromMessageAttributeMap } from './sqs-transport'
 import {
   TestContainer,
   TestCommandHandler,
@@ -219,12 +219,14 @@ describe('SqsTransport', () => {
 
     describe('when failing a message', () => {
       const messageToFail = new TestFailMessage(faker.random.uuid())
+      const correlationId = faker.random.uuid()
+      let messageAttributes: MessageAttributes
       let message: TestFailMessage
       let receiveCount: number
       beforeAll(async () => {
         const deadLetterQueueUrl = `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
         await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
-        await sut.publish(messageToFail)
+        await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
         const result = await sqs.receiveMessage({
           QueueUrl: deadLetterQueueUrl,
           WaitTimeSeconds: 5,
@@ -233,8 +235,9 @@ describe('SqsTransport', () => {
         if (result.Messages && result.Messages.length === 1) {
           const transportMessage = result.Messages[0]
           receiveCount = parseInt(transportMessage.Attributes!.ApproximateReceiveCount, 10)
-          const rawMessage = JSON.parse(transportMessage.Body!)
+          const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
           message = JSON.parse(rawMessage.Message) as TestFailMessage
+          messageAttributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
         }
       })
 
@@ -245,6 +248,10 @@ describe('SqsTransport', () => {
 
       it('should only have received the message once', () => {
         expect(receiveCount).toEqual(1)
+      })
+
+      it('should retain the same message attributes', () => {
+        expect(messageAttributes.correlationId).toEqual(correlationId)
       })
     })
   })
