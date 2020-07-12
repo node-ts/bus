@@ -78,5 +78,7 @@ container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguratio
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
 
 ```bash
-docker run localstack/localstack
+docker run -e SERVICES=sqs,sns -p 4575:4575 -p 4576:4576 localstack/localstack
 ```
+
+This will create a localstack instance running and exposing a mock sqs/sns that's compatible with the AWS-SDK. This same environment is used when running integration tests for the `SqsTransport`.
