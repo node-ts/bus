@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@node-ts/bus-messages@^0.2.2":
-  version "0.2.2"
-  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.2.2.tgz#b980f0aa9d6ab83f51b78330b05f9c0e722f8adc"
-  integrity sha512-XRHiNEmQCyeqHcGI76LZOVujub6VaRdEgNeLgL4zAj1gcHOiC/51/+PNB8FzAyaHltfi0oB7grGunLXd5aeMeg==
+"@node-ts/bus-messages@^0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.3.0.tgz#a5e19474e54f24ff683fa4fd8e54e65ecb68ce78"
+  integrity sha512-rrjo6v8dv21kqbYcWFkohmUS7BwIfn6xyCPiAxAvVpdQ2QYdUY1e9XYshWg9PSmlCtKKYh2Hs4kFf4Mj4Yc10A==
   dependencies:
     tslib "^1.9.3"
 
@@ -223,9 +223,9 @@ js-yaml@^3.7.0:
     esprima "^4.0.0"
 
 lodash@^4.17.4:
-  version "4.17.15"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.15.tgz#b447f6670a0455bbfeedd11392eff330ea097548"
-  integrity sha512-8xOcRHvCjnocdS5cpwXQXVzmmh5e5+saE2QGoeQmbKmRS6J3VQppPOIt0MnmE+4xlZoumy0GPG0D0MVIQbNA1A==
+  version "4.17.19"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.19.tgz#e48ddedbe30b3321783c5b4301fbd353bc1e4a4b"
+  integrity sha512-JNvd8XER9GQX0v2qJgsaN/mzFCNA5BRe/j8JN9d+tWyGLSodKQHKFicdwNYzWwI3wjRnaKPsGj1XkBjx/F96DQ==
 
 minimatch@^3.0.4:
   version "3.0.4"
