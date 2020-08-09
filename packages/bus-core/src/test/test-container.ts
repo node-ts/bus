@@ -1,17 +1,13 @@
 // tslint:disable:no-unsafe-any - Any used for mock assertions
 
-import { Container } from 'inversify'
-import { LoggerModule, LOGGER_SYMBOLS, LoggerFactory, Logger } from '@node-ts/logger-core'
-import { BusModule } from '../bus-module'
+import { LOGGER_SYMBOLS, LoggerFactory, Logger } from '@node-ts/logger-core'
 import { Mock, It } from 'typemoq'
-import { assertUnreachable } from '../util'
+import { BusContainer } from '../bus-container'
 
-export class TestContainer extends Container {
+export class TestContainer extends BusContainer {
 
   constructor () {
     super()
-    this.load(new LoggerModule())
-    this.load(new BusModule())
   }
 
   /**
