@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.3.0",
-    "@types/node": "^12.12.37",
     "autobind-decorator": "^2.4.0",
     "class-transformer": "^0.2.3",
     "inversify": "^5.0.1",
@@ -26,6 +25,7 @@
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.17",
     "@types/faker": "^4.1.5",
+    "@types/node": "^12.18.3",
     "faker": "^4.1.0",
     "inversify": "^5.0.1",
     "tslint": "^5.12.1",
@@ -34,7 +34,7 @@
   },
   "peerDependencies": {
     "@node-ts/logger-core": "^0.0.17",
-    "inversify": ">= 5.0.1"
+    "reflect-metadata": "^0.1.13"
   },
   "keywords": [
     "esb",

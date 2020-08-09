@@ -46,7 +46,6 @@
     "@node-ts/code-standards": "^0.0.10",
     "@types/jest": "^26.0.4",
     "dotenv-cli": "^3.2.0",
-    "inversify": "^5.0.1",
     "jest": "^26.1.0",
     "lerna": "^3.18.4",
     "reflect-metadata": "^0.1.13",
