@@ -80,7 +80,7 @@ export class ServiceBus implements Bus {
     this.logger.info('ServiceBus stopping...')
 
     while (this.runningWorkerCount > 0) {
-      await sleep(1000)
+      await sleep(100)
     }
 
     this.internalState = BusState.Stopped
