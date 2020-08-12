@@ -1,3 +1,4 @@
+// tslint:disable:max-classes-per-file
 import { ServiceBus } from './service-bus'
 import { MemoryQueue } from '../transport'
 import { BusState } from './bus'
@@ -13,10 +14,12 @@ import { Mock, IMock, Times } from 'typemoq'
 import { HandlesMessage } from '../handler'
 import { ApplicationBootstrap } from '../application-bootstrap'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { BusConfiguration } from './bus-configuration'
 
 const event = new TestEvent()
 type Callback = () => void
 const CALLBACK = Symbol.for('Callback')
+const LONG_PERIOD_MS = 3000
 
 @HandlesMessage(TestEvent)
 class TestEventHandler {
@@ -30,120 +33,197 @@ class TestEventHandler {
   }
 }
 
+@HandlesMessage(TestEvent2)
+class TestEvent2Handler {
+  constructor (
+    @inject(CALLBACK) private readonly callback: Callback
+  ) {
+  }
+
+  async handle (_: TestEvent2): Promise<void> {
+    await sleep(LONG_PERIOD_MS)
+    this.callback()
+  }
+}
+
 describe('ServiceBus', () => {
-  let container: Container
+  describe('for a single concurrency bus', () => {
+    let container: Container
 
-  let sut: ServiceBus
-  let bootstrapper: ApplicationBootstrap
-  let queue: MemoryQueue
+    let sut: ServiceBus
+    let bootstrapper: ApplicationBootstrap
+    let queue: MemoryQueue
 
-  let callback: IMock<Callback>
-
-  beforeAll(async () => {
-    container = new TestContainer().silenceLogs()
-    queue = new MemoryQueue(
-      Mock.ofType<Logger>().object,
-      container.get(BUS_SYMBOLS.HandlerRegistry)
-    )
-
-    bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    bootstrapper.registerHandler(TestEventHandler)
-
-    callback = Mock.ofType<Callback>()
-    container.bind(CALLBACK).toConstantValue(callback.object)
-    await bootstrapper.initialize(container)
-    sut = container.get(BUS_SYMBOLS.Bus)
-  })
-
-  afterAll(async () => {
-    await bootstrapper.dispose()
-  })
-
-  describe('when registering a send hook', () => {
-    const sendCallback = jest.fn()
-    const command = new TestCommand()
+    let callback: IMock<Callback>
 
     beforeAll(async () => {
-      sut.on('send', sendCallback)
-      await sut.send(command)
-      sut.off('send', sendCallback)
-      await sut.send(command)
+      container = new TestContainer().silenceLogs()
+      queue = new MemoryQueue(
+        Mock.ofType<Logger>().object,
+        container.get(BUS_SYMBOLS.HandlerRegistry)
+      )
+
+      bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
+      bootstrapper.registerHandler(TestEventHandler)
+
+      callback = Mock.ofType<Callback>()
+      container.bind(CALLBACK).toConstantValue(callback.object)
+      await bootstrapper.initialize(container)
+      sut = container.get(BUS_SYMBOLS.Bus)
     })
 
-    it('should trigger the hook once when send() is called', async () => {
-      expect(sendCallback).toHaveBeenCalledWith(command, expect.any(MessageAttributes))
+    afterAll(async () => {
+      await bootstrapper.dispose()
     })
 
-    it('should only trigger the callback once before its removed', () => {
-      expect(sendCallback).toHaveBeenCalledTimes(1)
-    })
-  })
+    describe('when registering a send hook', () => {
+      const sendCallback = jest.fn()
+      const command = new TestCommand()
 
-  describe('when registering a publish hook', () => {
-    const publishCallback = jest.fn()
-    const evt = new TestEvent2()
+      beforeAll(async () => {
+        sut.on('send', sendCallback)
+        await sut.send(command)
+        sut.off('send', sendCallback)
+        await sut.send(command)
+      })
 
-    beforeAll(async () => {
-      sut.on('publish', publishCallback)
-      await sut.publish(evt)
-      sut.off('publish', publishCallback)
-      await sut.publish(evt)
-    })
+      it('should trigger the hook once when send() is called', async () => {
+        expect(sendCallback).toHaveBeenCalledWith(command, expect.any(MessageAttributes))
+      })
 
-    it('should trigger the hook once when publish() is called', async () => {
-      expect(publishCallback).toHaveBeenCalledWith(evt, expect.any(MessageAttributes))
-    })
-
-    it('should only trigger the callback once before its removed', () => {
-      expect(publishCallback).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('when starting the service bus', () => {
-    it('should complete into a started state', () => {
-      expect(sut.state).toEqual(BusState.Started)
+      it('should only trigger the callback once before its removed', () => {
+        expect(sendCallback).toHaveBeenCalledTimes(1)
+      })
     })
 
-    describe('and then the bus is started again', () => {
-      it('should throw an error', async () => {
-        await expect(sut.start()).rejects.toThrowError()
+    describe('when registering a publish hook', () => {
+      const publishCallback = jest.fn()
+      const evt = new TestEvent2()
+
+      beforeAll(async () => {
+        sut.on('publish', publishCallback)
+        await sut.publish(evt)
+        sut.off('publish', publishCallback)
+        await sut.publish(evt)
+      })
+
+      it('should trigger the hook once when publish() is called', async () => {
+        expect(publishCallback).toHaveBeenCalledWith(evt, expect.any(MessageAttributes))
+      })
+
+      it('should only trigger the callback once before its removed', () => {
+        expect(publishCallback).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    describe('when starting the service bus', () => {
+      it('should complete into a started state', () => {
+        expect(sut.state).toEqual(BusState.Started)
+      })
+
+      describe('and then the bus is started again', () => {
+        it('should throw an error', async () => {
+          await expect(sut.start()).rejects.toThrowError()
+        })
+      })
+    })
+
+    describe('when a message is successfully handled from the queue', () => {
+      it('should delete the message from the queue', async () => {
+        callback.reset()
+        callback
+          .setup(c => c())
+          .callback(() => undefined)
+          .verifiable(Times.once())
+        await sut.publish(event)
+        await sleep(10)
+
+        expect(queue.depth).toEqual(0)
+        callback.verifyAll()
+      })
+    })
+
+    describe('and a handled message throw an Error', () => {
+
+      it('should return the message for retry', async () => {
+        callback.reset()
+        let callCount = 0
+        callback
+          .setup(c => c())
+          .callback(() => {
+            if (callCount++ === 0) {
+              throw new Error()
+            }
+          })
+          .verifiable(Times.exactly(2))
+
+        await sut.publish(event)
+        await sleep(2000)
+
+        callback.verifyAll()
       })
     })
   })
 
-  describe('when a message is successfully handled from the queue', () => {
-    it('should delete the message from the queue', async () => {
-      callback.reset()
-      callback
-        .setup(c => c())
-        .callback(() => undefined)
-        .verifiable(Times.once())
-      await sut.publish(event)
-      await sleep(10)
+  describe('when running with concurrency greater than 1', () => {
+    const concurrency = 3
+    const slowEvent = new TestEvent2()
+    let container: Container
 
-      expect(queue.depth).toEqual(0)
-      callback.verifyAll()
+    let sut: ServiceBus
+    let bootstrapper: ApplicationBootstrap
+
+    let callback: IMock<Callback>
+
+    beforeAll(async () => {
+      container = new TestContainer().silenceLogs()
+
+      container
+        .rebind<BusConfiguration>(BUS_SYMBOLS.BusConfiguration)
+        .toConstantValue({ concurrency })
+
+      bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
+      bootstrapper.registerHandler(TestEvent2Handler)
+
+      callback = Mock.ofType<Callback>()
+      container.bind(CALLBACK).toConstantValue(callback.object)
+      await bootstrapper.initialize(container)
+      sut = container.get(BUS_SYMBOLS.Bus)
     })
-  })
 
-  describe('and a handled message throw an Error', () => {
+    afterAll(async () => {
+      await bootstrapper.dispose()
+    })
 
-    it('should return the message for retry', async () => {
-      callback.reset()
-      let callCount = 0
-      callback
-        .setup(c => c())
-        .callback(() => {
-          if (callCount++ === 0) {
-            throw new Error()
-          }
-        })
-        .verifiable(Times.exactly(2))
+    describe('when handling multiple messages', () => {
+      beforeAll(async () => {
+        callback.reset()
+        callback
+          .setup(c => c())
+          .verifiable(Times.exactly(concurrency))
 
-      await sut.publish(event)
-      await sleep(2000)
+        await Promise.all(new Array(concurrency)
+          .fill(slowEvent)
+          .map(e => sut.publish(e))
+        )
 
-      callback.verifyAll()
+        /*
+          Each handle of the message takes 3 seconds to process. With 3 instances
+          this will take 9 seconds+ to complete with a concurrency of 1. Given a
+          concurrency of 3 we expect all messages to finish processing before the
+          test times out.
+        */
+        const TEST_GRACE_PERIOD = 1000
+        await sleep(LONG_PERIOD_MS + TEST_GRACE_PERIOD)
+      })
+
+      it('should handle all messages concurrently', async () => {
+        callback.verifyAll()
+      })
+
+      it('should start the correct number of workers', async () => {
+        expect(sut.runningParallelWorkerCount).toEqual(concurrency)
+      })
     })
   })
 })
