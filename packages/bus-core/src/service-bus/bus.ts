@@ -17,6 +17,11 @@ export interface Bus {
   state: BusState
 
   /**
+   * The number of running parallel workers that are processing the application queue
+   */
+  runningParallelWorkerCount: number
+
+  /**
    * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
    */
   publish<EventType extends Event> (event: EventType, messageOptions?: MessageAttributes): Promise<void>
