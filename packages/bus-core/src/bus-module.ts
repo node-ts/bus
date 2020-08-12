@@ -2,7 +2,7 @@ import { ContainerModule, interfaces } from 'inversify'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from './bus-symbols'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { MemoryQueue } from './transport'
-import { ServiceBus, BusHooks } from './service-bus'
+import { ServiceBus, BusHooks, DefaultBusConfiguration } from './service-bus'
 import { JsonSerializer, MessageSerializer } from './serialization'
 import { ApplicationBootstrap } from './application-bootstrap'
 import { HandlerRegistry } from './handler'
@@ -31,6 +31,7 @@ export class BusModule extends ContainerModule {
       bindService(bind, BUS_INTERNAL_SYMBOLS.BusHooks, BusHooks).inSingletonScope()
 
       bind(BUS_SYMBOLS.MessageHandlingContext).toConstantValue(new MessageAttributes())
+      bind(BUS_SYMBOLS.BusConfiguration).toConstantValue(new DefaultBusConfiguration())
     })
   }
 }
