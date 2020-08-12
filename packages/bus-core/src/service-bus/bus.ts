@@ -7,8 +7,10 @@ export enum BusState {
   Stopping = 'stopping'
 }
 
-export type HookAction = 'send' | 'publish'
-export type HookCallback = (message: Message, messageAttributes?: MessageAttributes) => Promise<void> | void
+export type HookAction = 'send' | 'publish' | 'error'
+export type HookCallback = (
+  message: Message, messageAttributes?: MessageAttributes, error?: unknown
+) => Promise<void> | void
 
 export interface Bus {
   /**

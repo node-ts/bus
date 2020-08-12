@@ -10,7 +10,8 @@ import { HookCallback, HookAction } from './bus'
 export class BusHooks {
   private messageHooks: { [key: string]: HookCallback[] } = {
     send: [],
-    publish: []
+    publish: [],
+    error: []
   }
 
   on (action: HookAction, callback: HookCallback): void {
@@ -30,5 +31,9 @@ export class BusHooks {
 
   get publish (): HookCallback[] {
     return this.messageHooks.publish
+  }
+
+  get error (): HookCallback[] {
+    return this.messageHooks.error
   }
 }

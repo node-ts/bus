@@ -1,4 +1,5 @@
 import { BusHooks } from './bus-hooks'
+import { HookAction } from './bus'
 
 describe('BusHooks', () => {
   let sut: BusHooks
@@ -7,43 +8,25 @@ describe('BusHooks', () => {
     sut = new BusHooks()
   })
 
-  describe('send hooks', () => {
+  describe.each([
+    'error', 'publish', 'send'
+  ])('%s hook', (hook: HookAction) => {
     it('adding should push to the array', () => {
       const callback = () => undefined
-      sut.on('send', callback)
-      expect(sut.send).toHaveLength(1)
+      sut.on(hook, callback)
+      expect(sut[hook]).toHaveLength(1)
     })
 
     it('removing should splice from the array', () => {
       const callback = () => undefined
-      sut.on('send', callback)
-      expect(sut.send).toHaveLength(1)
-      sut.off('send', () => undefined)
-      expect(sut.send).toHaveLength(1)
-      sut.off('send', callback)
-      expect(sut.send).toHaveLength(0)
-      sut.off('send', callback)
-      expect(sut.send).toHaveLength(0)
-    })
-  })
-
-  describe('publish hooks', () => {
-    it('adding should push to the array', () => {
-      const callback = () => undefined
-      sut.on('publish', callback)
-      expect(sut.publish).toHaveLength(1)
-    })
-
-    it('removing should splice from the array', () => {
-      const callback = () => undefined
-      sut.on('publish', callback)
-      expect(sut.publish).toHaveLength(1)
-      sut.off('publish', () => undefined)
-      expect(sut.publish).toHaveLength(1)
-      sut.off('publish', callback)
-      expect(sut.publish).toHaveLength(0)
-      sut.off('publish', callback)
-      expect(sut.publish).toHaveLength(0)
+      sut.on(hook, callback)
+      expect(sut[hook]).toHaveLength(1)
+      sut.off(hook, () => undefined)
+      expect(sut[hook]).toHaveLength(1)
+      sut.off(hook, callback)
+      expect(sut[hook]).toHaveLength(0)
+      sut.off(hook, callback)
+      expect(sut[hook]).toHaveLength(0)
     })
   })
 })

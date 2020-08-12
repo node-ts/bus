@@ -115,10 +115,16 @@ export class ServiceBus implements Bus {
           this.logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
+          const serializedError = serializeError(error)
           this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
-            { message, error: serializeError(error) }
+            { message, error: serializedError }
           )
+          await Promise.all(this.busHooks.error.map(callback => callback(
+            message.domainMessage as Message,
+            message.attributes,
+            serializedError
+          )))
           await this.transport.returnMessage(message)
           return false
         }

@@ -128,7 +128,8 @@ describe('ServiceBus', () => {
 
   describe('and a handled message throw an Error', () => {
 
-    it('should return the message for retry', async () => {
+    // Set up the callback to fail during first call and pass for the subsequent calls
+    const setupErroneousCallback = () => {
       callback.reset()
       let callCount = 0
       callback
@@ -139,11 +140,46 @@ describe('ServiceBus', () => {
           }
         })
         .verifiable(Times.exactly(2))
+    }
+
+    it('should return the message for retry', async () => {
+      setupErroneousCallback()
 
       await sut.publish(event)
       await sleep(2000)
 
       callback.verifyAll()
+    })
+
+    it('should trigger error hook if registered', async () => {
+      const errorCallback = jest.fn()
+      setupErroneousCallback()
+
+      sut.on('error', errorCallback)
+      await sut.publish(event)
+      await sleep(2000)
+
+      callback.verifyAll()
+
+      expect(errorCallback).toHaveBeenCalledTimes(1)
+      expect(errorCallback).toHaveBeenCalledWith(
+        event,
+        /*
+         We can't use expect.any() here because
+          messageAttributes wasn't deserialized during transport.
+         */
+        expect.objectContaining({
+          correlationId: undefined,
+          attributes: expect.anything(),
+          stickyAttributes: expect.anything()
+        }),
+        expect.objectContaining({
+          name: 'Error',
+          message: '',
+          stack: expect.any(String)
+        })
+      )
+      sut.off('error', errorCallback)
     })
   })
 })
