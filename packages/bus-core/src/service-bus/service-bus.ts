@@ -95,9 +95,8 @@ export class ServiceBus implements Bus {
     return this.runningWorkerCount
   }
 
-  on (action: HookAction, callback: HookCallback): void {
-    this.busHooks.on(action, callback)
-  }
+  // tslint:disable-next-line:member-ordering
+  on = this.busHooks.on.bind(this.busHooks)
 
   off (action: HookAction, callback: HookCallback): void {
     this.busHooks.off(action, callback)
@@ -129,6 +128,11 @@ export class ServiceBus implements Bus {
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
+          await Promise.all(this.busHooks.error.map(callback => callback(
+            message.domainMessage as Message,
+            (error as Error),
+            message.attributes
+          )))
           await this.transport.returnMessage(message)
           return false
         }
