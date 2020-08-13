@@ -9,7 +9,7 @@ export enum BusState {
 
 export type HookAction = 'send' | 'publish' | 'error'
 export type HookCallback = (
-  message: Message, messageAttributes?: MessageAttributes, error?: unknown
+  message: Message, messageAttributes?: MessageAttributes, error?: Error
 ) => Promise<void> | void
 
 export interface Bus {

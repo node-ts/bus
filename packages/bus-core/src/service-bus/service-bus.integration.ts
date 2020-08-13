@@ -189,11 +189,7 @@ describe('ServiceBus', () => {
             attributes: expect.anything(),
             stickyAttributes: expect.anything()
           }),
-          expect.objectContaining({
-            name: 'Error',
-            message: '',
-            stack: expect.any(String)
-          })
+          expect.any(Error)
         )
         sut.off('error', errorCallback)
       })
