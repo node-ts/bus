@@ -95,9 +95,8 @@ export class ServiceBus implements Bus {
     return this.runningWorkerCount
   }
 
-  on (action: HookAction, callback: HookCallback): void {
-    this.busHooks.on(action, callback)
-  }
+  // tslint:disable-next-line:member-ordering
+  on = this.busHooks.on.bind(this.busHooks)
 
   off (action: HookAction, callback: HookCallback): void {
     this.busHooks.off(action, callback)
@@ -131,8 +130,8 @@ export class ServiceBus implements Bus {
           )
           await Promise.all(this.busHooks.error.map(callback => callback(
             message.domainMessage as Message,
-            message.attributes,
-            (error as Error)
+            (error as Error),
+            message.attributes
           )))
           await this.transport.returnMessage(message)
           return false

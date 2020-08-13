@@ -180,6 +180,7 @@ describe('ServiceBus', () => {
         expect(errorCallback).toHaveBeenCalledTimes(1)
         expect(errorCallback).toHaveBeenCalledWith(
           event,
+          expect.any(Error),
           /*
            We can't use expect.any() here because
             messageAttributes wasn't deserialized during transport.
@@ -188,8 +189,7 @@ describe('ServiceBus', () => {
             correlationId: undefined,
             attributes: expect.anything(),
             stickyAttributes: expect.anything()
-          }),
-          expect.any(Error)
+          })
         )
         sut.off('error', errorCallback)
       })

@@ -8,9 +8,17 @@ export enum BusState {
 }
 
 export type HookAction = 'send' | 'publish' | 'error'
-export type HookCallback = (
-  message: Message, messageAttributes?: MessageAttributes, error?: Error
+
+export type StandardHookCallback = (
+  message: Message, messageAttributes?: MessageAttributes
 ) => Promise<void> | void
+
+export type ErrorHookCallback = (
+  message: Message, error: Error, messageAttributes?: MessageAttributes
+) => Promise<void> | void
+
+export type HookCallback = StandardHookCallback | ErrorHookCallback
+
 
 export interface Bus {
   /**

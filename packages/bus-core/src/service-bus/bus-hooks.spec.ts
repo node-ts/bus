@@ -13,13 +13,23 @@ describe('BusHooks', () => {
   ])('%s hook', (hook: HookAction) => {
     it('adding should push to the array', () => {
       const callback = () => undefined
-      sut.on(hook, callback)
+      // Curb the TS compiler flaw
+      if (hook === 'error') {
+        sut.on(hook, callback)
+      } else {
+        sut.on(hook, callback)
+      }
       expect(sut[hook]).toHaveLength(1)
     })
 
     it('removing should splice from the array', () => {
       const callback = () => undefined
-      sut.on(hook, callback)
+      // Curb the TS compiler flaw
+      if (hook === 'error') {
+        sut.on(hook, callback)
+      } else {
+        sut.on(hook, callback)
+      }
       expect(sut[hook]).toHaveLength(1)
       sut.off(hook, () => undefined)
       expect(sut[hook]).toHaveLength(1)

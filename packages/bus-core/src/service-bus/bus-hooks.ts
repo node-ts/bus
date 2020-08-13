@@ -1,5 +1,5 @@
 import { injectable } from 'inversify'
-import { HookCallback, HookAction } from './bus'
+import { HookCallback, HookAction, ErrorHookCallback, StandardHookCallback } from './bus'
 
 /**
  * A singleton repository for all hook events registered with the Bus. This persists across scope boundaries
@@ -14,6 +14,8 @@ export class BusHooks {
     error: []
   }
 
+  on (action: Extract<HookAction, 'error'>, callback: ErrorHookCallback): void
+  on (action: Exclude<HookAction, 'error'>, callback: StandardHookCallback): void
   on (action: HookAction, callback: HookCallback): void {
     this.messageHooks[action].push(callback)
   }
@@ -25,15 +27,15 @@ export class BusHooks {
     }
   }
 
-  get send (): HookCallback[] {
-    return this.messageHooks.send
+  get send (): StandardHookCallback[] {
+    return this.messageHooks.send as StandardHookCallback[]
   }
 
-  get publish (): HookCallback[] {
-    return this.messageHooks.publish
+  get publish (): StandardHookCallback[] {
+    return this.messageHooks.publish as StandardHookCallback[]
   }
 
-  get error (): HookCallback[] {
-    return this.messageHooks.error
+  get error (): ErrorHookCallback[] {
+    return this.messageHooks.error as ErrorHookCallback[]
   }
 }
