@@ -13,7 +13,7 @@ export const RETRY_LIMIT = 10
 /**
  * How long to wait for the next message
  */
-export const RECEIVE_TIMEOUT_MS = 10000
+export const RECEIVE_TIMEOUT_MS = 1000
 
 export interface InMemoryMessage {
   /**
@@ -82,7 +82,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
-    this.logger.debug('Reading next message', { queueSize: this.queue.length })
+    this.logger.debug('Reading next message', { depth: this.depth, numberMessagesVisible: this.numberMessagesVisible })
     return new Promise<TransportMessage<InMemoryMessage> | undefined>(resolve => {
       const onMessageEmitted = () => {
         unsubscribeEmitter()
@@ -151,8 +151,18 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
+  /**
+   * Gets the queue depth, which is the number of messages both queued and in flight
+   */
   get depth (): number {
     return this.queue.length
+  }
+
+  /**
+   * Gets the number of messages in the queue, excluding those in flight
+   */
+  get numberMessagesVisible (): number {
+    return this.queue.filter(m => !m.raw.inFlight).length
   }
 
   get deadLetterQueueDepth (): number {

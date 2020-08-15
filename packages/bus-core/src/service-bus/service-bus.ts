@@ -12,6 +12,7 @@ import { SessionScopeBinder } from '../bus-module'
 import { MessageType } from '../handler/handler'
 import { BusHooks } from './bus-hooks'
 import { FailMessageOutsideHandlingContext } from '../error'
+import { BusConfiguration } from './bus-configuration'
 
 @injectable()
 @autobind
@@ -26,6 +27,7 @@ export class ServiceBus implements Bus {
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
     @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes,
     @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks,
+    @inject(BUS_SYMBOLS.BusConfiguration) private readonly busConfiguration: BusConfiguration,
     @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
   ) {
   }
@@ -66,9 +68,11 @@ export class ServiceBus implements Bus {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
     this.internalState = BusState.Starting
-    this.logger.info('ServiceBus starting...')
+    this.logger.info('ServiceBus starting...', { concurrency: this.busConfiguration.concurrency })
+    new Array(this.busConfiguration.concurrency)
+      .fill(undefined)
+      .forEach(() => setTimeout(async () => this.applicationLoop(), 0))
     this.internalState = BusState.Started
-    setTimeout(async () => this.applicationLoop(), 0)
   }
 
   async stop (): Promise<void> {
@@ -87,9 +91,12 @@ export class ServiceBus implements Bus {
     return this.internalState
   }
 
-  on (action: HookAction, callback: HookCallback): void {
-    this.busHooks.on(action, callback)
+  get runningParallelWorkerCount (): number {
+    return this.runningWorkerCount
   }
+
+  // tslint:disable-next-line:member-ordering
+  on = this.busHooks.on.bind(this.busHooks)
 
   off (action: HookAction, callback: HookCallback): void {
     this.busHooks.off(action, callback)
@@ -97,10 +104,12 @@ export class ServiceBus implements Bus {
 
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
+    this.logger.debug('Worker started', { runningParallelWorkerCount: this.runningParallelWorkerCount })
     while (this.internalState === BusState.Started) {
       await this.handleNextMessage()
     }
     this.runningWorkerCount--
+    this.logger.debug('Worker stopped', { runningParallelWorkerCount: this.runningParallelWorkerCount })
   }
 
   private async handleNextMessage (): Promise<boolean> {
@@ -119,6 +128,11 @@ export class ServiceBus implements Bus {
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
+          await Promise.all(this.busHooks.error.map(callback => callback(
+            message.domainMessage as Message,
+            (error as Error),
+            message.attributes
+          )))
           await this.transport.returnMessage(message)
           return false
         }

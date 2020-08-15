@@ -113,3 +113,25 @@ When an error is thrown whilst handling an error, the message is typically sent 
 There are times when we know that a message will never succeed even if it were to be retried. In these situations we may not want to wait for our message to be retried before sending it to the dead letter queue, but instead bypass the retries and send it to the dead letter queue immediately.
 
 This can be done by calling `bus.fail()` from within the scope of a message handling context. This will instruct `@node-ts/bus` to forward the currently handled message to the dead letter queue and remove it from the service queue.
+
+## Message handling concurrency
+
+By default, `@node-ts/bus` will run with a message handling concurrency of 1. This means that only a single message will be read off the queue and processed at a time.
+
+To increase the message handling concurrency, provide your configuration like so:
+
+```typescript
+import { Container } from 'inversify'
+import { BusModule, BUS_SYMBOLS, BusConfiguration } from '@node-ts/bus-core'
+
+const concurrency = 3 // Handle up to 3 messages in parallel
+export class ApplicationContainer extends Container {
+  constructor () {
+    this.load(new BusModule())
+
+    this
+      .rebind<BusConfiguration>(BUS_SYMBOLS.BusConfiguration)
+      .toConstantValue({ concurrency })
+  }
+}
+```
