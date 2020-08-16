@@ -1,11 +1,10 @@
-import { ContainerModule } from 'inversify'
 import { BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
 import { bindLogger } from '@node-ts/logger-core'
-import { BUS_SYMBOLS, Transport } from '@node-ts/bus-core'
+import { BUS_SYMBOLS, Transport, TransportModule } from '@node-ts/bus-core'
 import { SqsTransport } from './sqs-transport'
 import { SQS, SNS } from 'aws-sdk'
 
-export class BusSqsModule extends ContainerModule {
+export class BusSqsModule extends TransportModule {
   constructor () {
     super (async (bind, _, __, rebind) => {
       bind(BUS_SQS_INTERNAL_SYMBOLS.SqsTransport)

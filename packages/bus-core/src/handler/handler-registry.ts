@@ -4,6 +4,8 @@ import { ClassConstructor, isClassConstructor } from '../util/class-constructor'
 import { Handler, HandlerPrototype, MessageType } from './handler'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import * as serializeError from 'serialize-error'
+import { BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
+import { ContainerProvider } from '../ioc'
 
 type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
 
@@ -102,7 +104,11 @@ export class HandlerRegistry {
       resolveHandler: (container: Container) => {
         this.logger.debug(`Resolving handlers for message.`, { receivedMessage: message })
         try {
-          return container.get<Handler<TMessage>>(h.symbol)
+          // Use application's container provider if registered
+          const containerProvider = container.get<ContainerProvider>(BUS_INTERNAL_SYMBOLS.ContainerProvider)
+          return containerProvider
+            ? containerProvider.get<Handler<TMessage>>(h.handler as ClassConstructor<Handler<TMessage>>)
+            : container.get<Handler<TMessage>>(h.symbol)
         } catch (error) {
           this.logger.error(
             'Could not resolve handler from the IoC container.',

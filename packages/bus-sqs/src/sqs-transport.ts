@@ -54,7 +54,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     @inject(BUS_SQS_INTERNAL_SYMBOLS.Sqs) private readonly sqs: SQS,
     @inject(BUS_SQS_INTERNAL_SYMBOLS.Sns) private readonly sns: SNS,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SQS_SYMBOLS.SqsConfiguration) private readonly sqsConfiguration: SqsTransportConfiguration,
+    @inject(BUS_SYMBOLS.TransportConfiguration) private readonly sqsConfiguration: SqsTransportConfiguration,
     @inject(BUS_SYMBOLS.HandlerRegistry)
       private readonly handlerRegistry: HandlerRegistry,
     @inject(BUS_SYMBOLS.MessageSerializer)

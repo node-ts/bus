@@ -32,9 +32,19 @@ export class BusModule extends ContainerModule {
 
       bind(BUS_SYMBOLS.MessageHandlingContext).toConstantValue(new MessageAttributes())
       bind(BUS_SYMBOLS.BusConfiguration).toConstantValue(new DefaultBusConfiguration())
+
+      bindInstance(bind, BUS_SYMBOLS.Bus, ServiceBus)
+      bindInstance(bind, BUS_SYMBOLS.Transport, MemoryQueue)
     })
   }
 }
+
+const bindInstance = <T>(
+  bind: interfaces.Bind,
+  symbol: symbol,
+  instance: ClassConstructor<T>
+): interfaces.BindingInWhenOnSyntax<unknown> =>
+  bind(instance).toDynamicValue(c => c.container.get(symbol))
 
 function bindService<T> (
   bind: interfaces.Bind,

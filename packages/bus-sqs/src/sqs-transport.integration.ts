@@ -87,7 +87,7 @@ describe('SqsTransport', () => {
   beforeAll(async () => {
     jest.setTimeout(10000)
     container = new TestContainer()
-    container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
+    container.bind(BUS_SYMBOLS.TransportConfiguration).toConstantValue(sqsConfiguration)
     container
       .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sns)
       .toConstantValue(new SNS({

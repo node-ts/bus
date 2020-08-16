@@ -70,7 +70,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
   }
 `
 }
-container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
+container.rebind(BUS_SYMBOLS.TransportConfiguration).toConstantValue(sqsConfiguration)
 ```
 
 ## Development

@@ -1,7 +1,7 @@
 export { BUS_SYMBOLS } from './bus-symbols'
 export * from './bus-module'
 export * from './service-bus'
-export { Transport, TransportMessage } from './transport'
+export { Transport, TransportMessage, TransportConfiguration } from './transport'
 export * from './application-bootstrap'
 export * from './handler'
 export * from './serialization'

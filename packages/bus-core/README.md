@@ -10,21 +10,7 @@ The core messaging framework. This package provides an in-memory queue and persi
 Download and install the packages:
 
 ```bash
-npm i inversify @node-ts/bus-core --save
-```
-
-Load `BusModule` into your application's inversify container:
-```typescript
-// application-container.ts
-
-import { Container } from 'inversify'
-import { BusModule } from '@node-ts/bus-core'
-
-export class ApplicationContainer extends Container {
-  constructor () {
-    this.load(new BusModule())
-  }
-}
+npm i @node-ts/bus-core --save
 ```
 
 ## Register a message handler
@@ -36,16 +22,15 @@ Define the handler:
 ```typescript
 // send-email-handler.ts
 
-import { injectable } from 'inversify'
 import { HandlesMessage, Handler } from '@node-ts/bus-core'
 import { SendEmail } from 'my-corporation/commands'
-import { SERVICE_SYMBOLS, EmailService } from '../services'
+import { EmailService } from '../services'
 
 @HandlesMessage(SendEmail)
 export class SendEmailHandler implements Handler<SendEmail> {
   
   constructor (
-    @inject(SERVICE_SYMBOLS.EmailService) private readonly emailService: EmailService
+    private readonly emailService: EmailService
   ) {
   }
 
@@ -62,31 +47,12 @@ export class SendEmailHandler implements Handler<SendEmail> {
 Register the handler:
 ```typescript
 // application.ts
+import { registerHandler, BusBootstrap } from '@node-ts/bus-core'
 
-import { inject, injectable } from 'inversify'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
-
-@injectable()
-export class Application {
-
-  constructor (
-    @inject(BUS_SYMBOLS.ApplicationBootstrap) private readonly applicationBootstrap: ApplicationBootstrap,
-    @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
-  ) {
-  }
-
-  async initialize (): Promise<void> {
-    this.applicationBootstrap.registerHandler(SendEmailHandler)
-
-    // Starts the receive loop on the bus to pull messages from the queue and dispatch to handlers
-    await this.applicationBootstrap.initialize()
-  }
-
-  async stop (): Promise<void> {
-    // Stops the queue polling mechanism so the app shuts down cleanly
-    await this.bus.stop()
-  }
-}
+BusBootstrap
+  .registerHandler(SendEmailHandler)
+  .initialize()
+  .catch(console.error)
 ```
 
 ## Hooks
@@ -97,7 +63,7 @@ Hooks can be added by calling `.on()` on the bus. For example, to trigger a call
 
 ```typescript
 addHook (): void {
-  const bus = this.container.get<Bus>(BUS_SYMBOLS.Bus)
+  const bus = getInstance(Bus)
   const callback = message => console.log('Sending', JSON.stringify(message))
   bus.on('send', callback)
 
@@ -121,17 +87,9 @@ By default, `@node-ts/bus` will run with a message handling concurrency of 1. Th
 To increase the message handling concurrency, provide your configuration like so:
 
 ```typescript
-import { Container } from 'inversify'
-import { BusModule, BUS_SYMBOLS, BusConfiguration } from '@node-ts/bus-core'
+import { BusBootstrap, BusConfiguration } from '@node-ts/bus-core'
 
-const concurrency = 3 // Handle up to 3 messages in parallel
-export class ApplicationContainer extends Container {
-  constructor () {
-    this.load(new BusModule())
-
-    this
-      .rebind<BusConfiguration>(BUS_SYMBOLS.BusConfiguration)
-      .toConstantValue({ concurrency })
-  }
-}
+BusBootstrap
+  .withConfiguration({ concurrency: 3 })
+  .initialize()
 ```

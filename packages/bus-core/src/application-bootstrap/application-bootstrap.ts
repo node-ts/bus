@@ -20,6 +20,12 @@ export class ApplicationBootstrap {
   ) {
   }
 
+  /**
+   * Initialize the bus in send/receive mode. This will create an application queue,
+   * subscribe topics for any message handlers and starts the application loop to
+   * start receiving messages.
+   * @throws When @see initialize or @see initializeSendOnly has already been called
+   */
   async initialize (container: Container): Promise<void> {
     if (this.isInitialized) {
       throw new Error('Application already initialized')
@@ -32,6 +38,12 @@ export class ApplicationBootstrap {
     this.logger.info('Bus application initialized')
   }
 
+  /**
+   * Initialize the bus in send only mode. This will not cause the creation of an
+   * application queue as the bus will only be able to send messages
+   * @throws When @see initialize or @see initializeSendOnly has already been called
+   * @throws When one or more message handlers have been registered
+   */
   async initializeSendOnly (): Promise<void> {
     if (this.isInitialized) {
       throw new Error('Application already initialized')
@@ -45,6 +57,10 @@ export class ApplicationBootstrap {
     this.logger.info('Send only bus application initialized')
   }
 
+  /**
+   * Stops the bus and releases all connections to the transport.
+   * @throws When @see initialize or @see initializeSendOnly has not been called
+   */
   async dispose (): Promise<void> {
     if (!this.isInitialized) {
       throw new Error('Application has not been initialized')
@@ -67,10 +83,9 @@ export class ApplicationBootstrap {
     }
 
     const prototype = handler.prototype as HandlerPrototype<MessageType>
-    if (!prototype.$symbol) {
+    if (!prototype.$message) {
       throw new Error(
-        `Missing symbol on ${prototype.constructor}.`
-        + 'This could mean the handler class is missing the @Handles() decorator.'
+        `Missing @Handles() decorator on ${prototype.constructor}.`
       )
     }
 

@@ -1,4 +1,6 @@
-export interface SqsTransportConfiguration {
+import { TransportConfiguration } from '@node-ts/bus-core'
+
+export interface SqsTransportConfiguration extends TransportConfiguration {
   /**
    * The name of the queue that receives incomming messages
    * @example production-application-server

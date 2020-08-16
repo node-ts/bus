@@ -27,4 +27,8 @@ export class BusContainer extends Container {
 
     return this.containerInstance
   }
+
+  static dispose (): void {
+    this.containerInstance = undefined
+  }
 }

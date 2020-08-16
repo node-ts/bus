@@ -151,6 +151,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
+
   /**
    * Gets the queue depth, which is the number of messages both queued and in flight
    */

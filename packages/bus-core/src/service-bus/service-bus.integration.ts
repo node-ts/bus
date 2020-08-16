@@ -8,13 +8,10 @@ import { TestCommand } from '../test/test-command'
 import { sleep } from '../util'
 import { Container, inject } from 'inversify'
 import { TestContainer } from '../test/test-container'
-import { BUS_SYMBOLS } from '../bus-symbols'
-import { Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times } from 'typemoq'
 import { HandlesMessage } from '../handler'
-import { ApplicationBootstrap } from '../application-bootstrap'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { BusConfiguration } from './bus-configuration'
+import { getInstance, BusBootstrap } from '../ioc'
 
 const event = new TestEvent()
 type Callback = () => void
@@ -51,29 +48,30 @@ describe('ServiceBus', () => {
     let container: Container
 
     let sut: ServiceBus
-    let bootstrapper: ApplicationBootstrap
     let queue: MemoryQueue
 
     let callback: IMock<Callback>
 
     beforeAll(async () => {
-      container = new TestContainer().silenceLogs()
-      queue = new MemoryQueue(
-        Mock.ofType<Logger>().object,
-        container.get(BUS_SYMBOLS.HandlerRegistry)
-      )
-
-      bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-      bootstrapper.registerHandler(TestEventHandler)
+      container = new TestContainer()
+      container.bind(TestEventHandler).toSelf()
 
       callback = Mock.ofType<Callback>()
       container.bind(CALLBACK).toConstantValue(callback.object)
-      await bootstrapper.initialize(container)
-      sut = container.get(BUS_SYMBOLS.Bus)
+
+      await BusBootstrap
+        .withHandler(TestEventHandler)
+        .withContainer({
+          get: handler => container.get(handler)
+        })
+        .initialize()
+
+      sut = getInstance(ServiceBus)
+      queue = getInstance(MemoryQueue)
     })
 
     afterAll(async () => {
-      await bootstrapper.dispose()
+      await BusBootstrap.dispose()
     })
 
     describe('when registering a send hook', () => {
@@ -202,28 +200,29 @@ describe('ServiceBus', () => {
     let container: Container
 
     let sut: ServiceBus
-    let bootstrapper: ApplicationBootstrap
 
     let callback: IMock<Callback>
 
     beforeAll(async () => {
-      container = new TestContainer().silenceLogs()
-
-      container
-        .rebind<BusConfiguration>(BUS_SYMBOLS.BusConfiguration)
-        .toConstantValue({ concurrency })
-
-      bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-      bootstrapper.registerHandler(TestEvent2Handler)
+      container = new TestContainer()
+      container.bind(TestEvent2Handler).toSelf()
 
       callback = Mock.ofType<Callback>()
       container.bind(CALLBACK).toConstantValue(callback.object)
-      await bootstrapper.initialize(container)
-      sut = container.get(BUS_SYMBOLS.Bus)
+
+      await BusBootstrap
+        .withConfiguration({ concurrency })
+        .withHandler(TestEvent2Handler)
+        .withContainer({
+          get: handler => container.get(handler)
+        })
+        .initialize()
+
+      sut = getInstance(ServiceBus)
     })
 
     afterAll(async () => {
-      await bootstrapper.dispose()
+      await BusBootstrap.dispose()
     })
 
     describe('when handling multiple messages', () => {

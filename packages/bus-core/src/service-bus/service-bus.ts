@@ -4,7 +4,7 @@ import { Bus, BusState, HookAction, HookCallback } from './bus'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
-import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
+import { Logger, LOGGER_SYMBOLS, ConsoleLogger } from '@node-ts/logger-core'
 import { sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
@@ -13,6 +13,13 @@ import { MessageType } from '../handler/handler'
 import { BusHooks } from './bus-hooks'
 import { FailMessageOutsideHandlingContext } from '../error'
 import { BusConfiguration } from './bus-configuration'
+import { EventEmitter } from 'events'
+import { Worker } from 'cluster'
+
+enum WorkerEvents {
+  Started = 'started',
+  Stopped = 'stopped'
+}
 
 @injectable()
 @autobind
@@ -20,6 +27,7 @@ export class ServiceBus implements Bus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+  private workerEvents = new EventEmitter()
 
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
@@ -72,16 +80,16 @@ export class ServiceBus implements Bus {
     new Array(this.busConfiguration.concurrency)
       .fill(undefined)
       .forEach(() => setTimeout(async () => this.applicationLoop(), 0))
+
     this.internalState = BusState.Started
+    await this.allWorkersEmitted(WorkerEvents.Started)
   }
 
   async stop (): Promise<void> {
     this.internalState = BusState.Stopping
     this.logger.info('ServiceBus stopping...')
 
-    while (this.runningWorkerCount > 0) {
-      await sleep(100)
-    }
+    await this.allWorkersEmitted(WorkerEvents.Stopped)
 
     this.internalState = BusState.Stopped
     this.logger.info('ServiceBus stopped')
@@ -102,14 +110,46 @@ export class ServiceBus implements Bus {
     this.busHooks.off(action, callback)
   }
 
+  private async allWorkersEmitted (event: WorkerEvents): Promise<void> {
+    const workerCount = this.busConfiguration.concurrency
+    let eventCount = 0
+
+    /*
+      Sets up callback first to avoid race conditions where the event is
+      fired before the promise internals set up the subscription
+    */
+    let resolver: () => void | undefined
+    const callback = () => {
+      eventCount++
+      if (eventCount === workerCount) {
+        this.workerEvents.off(event, callback)
+        if (resolver) {
+          resolver()
+        }
+      }
+    }
+
+    this.workerEvents.on(event, callback)
+    return new Promise(resolve => {
+      if (eventCount === workerCount) {
+        resolve()
+      } else {
+        resolver = resolve
+      }
+    })
+  }
+
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
     this.logger.debug('Worker started', { runningParallelWorkerCount: this.runningParallelWorkerCount })
+
+    this.workerEvents.emit(WorkerEvents.Started)
     while (this.internalState === BusState.Started) {
       await this.handleNextMessage()
     }
     this.runningWorkerCount--
     this.logger.debug('Worker stopped', { runningParallelWorkerCount: this.runningParallelWorkerCount })
+    this.workerEvents.emit(WorkerEvents.Stopped)
   }
 
   private async handleNextMessage (): Promise<boolean> {
