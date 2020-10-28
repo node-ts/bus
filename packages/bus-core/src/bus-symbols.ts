@@ -6,7 +6,8 @@ export const BUS_SYMBOLS = {
   ApplicationBootstrap: Symbol.for('@node-ts/bus-core/application-bootstrap'),
   JsonSerializer: Symbol.for('@node-ts/bus-core/json-serializer'),
   MessageSerializer: Symbol.for('@node-ts/bus-core/message-serializer'),
-  MessageHandlingContext: Symbol.for('@node-ts/bus-core/message-handling-context')
+  MessageHandlingContext: Symbol.for('@node-ts/bus-core/message-handling-context'),
+  BusConfiguration: Symbol.for('@node-ts/bus-core/bus-configuration')
 }
 
 export const BUS_INTERNAL_SYMBOLS = {

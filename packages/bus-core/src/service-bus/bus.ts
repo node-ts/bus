@@ -7,14 +7,29 @@ export enum BusState {
   Stopping = 'stopping'
 }
 
-export type HookAction = 'send' | 'publish'
-export type HookCallback = (message: Message, messageAttributes?: MessageAttributes) => Promise<void> | void
+export type HookAction = 'send' | 'publish' | 'error'
+
+export type StandardHookCallback = (
+  message: Message, messageAttributes?: MessageAttributes
+) => Promise<void> | void
+
+export type ErrorHookCallback = (
+  message: Message, error: Error, messageAttributes?: MessageAttributes
+) => Promise<void> | void
+
+export type HookCallback = StandardHookCallback | ErrorHookCallback
+
 
 export interface Bus {
   /**
    * Fetches the state of the message read and processing loop
    */
   state: BusState
+
+  /**
+   * The number of running parallel workers that are processing the application queue
+   */
+  runningParallelWorkerCount: number
 
   /**
    * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
