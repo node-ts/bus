@@ -172,7 +172,10 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async assertServiceQueue (): Promise<void> {
     await this.assertSqsQueue(
-      this.sqsConfiguration.deadLetterQueueName
+      this.sqsConfiguration.deadLetterQueueName,
+      {
+        MessageRetentionPeriod: '1209600' // 14 Days
+      }
     )
 
     const serviceQueueAttributes: QueueAttributeMap = {
