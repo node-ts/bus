@@ -192,6 +192,7 @@ export class SqsTransport implements Transport<SQS.Message> {
 
     await this.subscribeQueueToMessages()
     await this.attachPolicyToQueue(this.sqsConfiguration.queueUrl)
+    await this.syncQueueAttributes(this.sqsConfiguration.queueUrl, serviceQueueAttributes)
   }
 
   /**
@@ -336,6 +337,14 @@ export class SqsTransport implements Transport<SQS.Message> {
 
     this.logger.info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
     await this.sqs.setQueueAttributes(setQueuePolicyRequest).promise()
+  }
+
+  private async syncQueueAttributes (queueUrl: string, attributes: QueueAttributeMap): Promise<void> {
+    // TODO: check equality before making this call to avoid potential API rate limit
+    await this.sqs.setQueueAttributes({
+      QueueUrl: queueUrl,
+      Attributes: attributes
+    }).promise()
   }
 }
 
