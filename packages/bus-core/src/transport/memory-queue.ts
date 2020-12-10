@@ -1,9 +1,8 @@
-import { injectable, inject } from 'inversify'
 import { Transport } from './transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
-import { HandlerRegistry } from '../handler'
+import { handlerRegistry } from '../handler'
+import { getLogger } from '../service-bus/logger'
 
 export const RETRY_LIMIT = 10
 
@@ -31,19 +30,13 @@ export interface InMemoryMessage {
  * There are however legitimate uses for in-memory queues such as decoupling of non-mission
  * critical code inside of larger applications; so use at your own discresion.
  */
-@injectable()
 export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
   private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
 
-  constructor (
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
-  ) {
-  }
-
-  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
+  async initialize (): Promise<void> {
     this.messagesWithHandlers = {}
     handlerRegistry.getMessageNames()
       .forEach(messageName => this.messagesWithHandlers[messageName] = {})
@@ -51,7 +44,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async dispose (): Promise<void> {
     if (this.queue.length > 0) {
-      this.logger.warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
+      getLogger().warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
     }
   }
 
@@ -64,11 +57,11 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
-    this.logger.debug('Reading next message', { queueSize: this.queue.length })
+    getLogger().debug('Reading next message', { queueSize: this.queue.length })
     const availableMessages = this.queue.filter(m => !m.raw.inFlight)
 
     if (availableMessages.length === 0) {
-      this.logger.debug('No messages available in queue')
+      getLogger().debug('No messages available in queue')
       return undefined
     }
 
@@ -79,9 +72,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async deleteMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
     const messageIndex = this.queue.indexOf(message)
-    this.logger.debug('Deleting message', { queueDepth: this.depth, messageIndex })
+    getLogger().debug('Deleting message', { queueDepth: this.depth, messageIndex })
     this.queue.splice(messageIndex, 1)
-    this.logger.debug('Message Deleted', { queueDepth: this.depth })
+    getLogger().debug('Message Deleted', { queueDepth: this.depth })
   }
 
   async returnMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
@@ -89,7 +82,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
     if (message.raw.seenCount >= RETRY_LIMIT) {
       // Message retries exhausted, send to DLQ
-      this.logger.info('Message retry limit exceeded, sending to dead letter queue', { message })
+      getLogger().info('Message retry limit exceeded, sending to dead letter queue', { message })
       await this.sendToDeadLetterQueue(message)
     } else {
       message.raw.inFlight = false
@@ -113,9 +106,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     if (this.messagesWithHandlers[message.$name]) {
       const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)
-      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+      getLogger().debug('Added message to queue', { message, queueSize: this.queue.length })
     } else {
-      this.logger.warn('Message was not sent as it has no registered handlers', { message })
+      getLogger().warn('Message was not sent as it has no registered handlers', { message })
     }
   }
 }

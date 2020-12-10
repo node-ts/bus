@@ -262,7 +262,7 @@ export class WorkflowRegistry {
           AssignmentWorkflowData as ClassConstructor<WorkflowState>,
           new MessageWorkflowMapping<Message, WorkflowState>(
             handler.options.lookup,
-            handler.options.mapping
+            handler.options.mapsTo
           )
         )
       }

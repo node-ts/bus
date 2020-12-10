@@ -1,4 +1,3 @@
-import { injectable } from 'inversify'
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
 import { classToPlain, plainToClass, serialize, deserialize } from 'class-transformer'
@@ -8,7 +7,6 @@ import { classToPlain, plainToClass, serialize, deserialize } from 'class-transf
  * deserialize strings into plain objects. These will NOT contain methods or special types,
  * so the usage of this serializer is limited.
  */
-@injectable()
 export class JsonSerializer implements Serializer {
   serialize<T extends object> (obj: T): string {
     return serialize(obj)

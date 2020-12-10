@@ -94,7 +94,7 @@ class AssignmentCompleted extends Event {
   }
 }
 
-interface AssignmentWorkflowState {
+interface AssignmentWorkflowState extends WorkflowState {
   assignmentId: string
   bundleId: string
   assigneeId: string
@@ -115,12 +115,15 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, Assign
   .startedBy(
     AssignmentCreated,
     ({ message }) => {
-      console.log('Assignment workflow started', message)
       return { assignmentId: message.assignmentId }
     }
   )
     .when(
       AssignmentAssigned,
+      {
+        lookup: e => e.assignmentId,
+        mapsTo: 'assignmentId'
+      },
       async ({ message, dependencies: { bus } }) => {
         const bundleId = uuid.v4()
         const createAssignmentBundle = new CreateAssignmentBundle(
@@ -128,18 +131,16 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, Assign
           bundleId
         )
         await bus.send(createAssignmentBundle)
-        console.log('Handled AssignmentAssigned')
         return { bundleId, assigneeId: message.assigneeId }
-      },
-      {
-        lookup: e => e.assignmentId,
-        mapping: 'assignmentId'
       }
     )
     .when(
       AssignmentReassigned,
+      {
+        lookup: (_, messageAttributes) => messageAttributes.correlationId,
+        mapsTo: '$workflowId'
+      },
       async ({ message, state, messageAttributes, dependencies: { bus } }) => {
-        console.log('correlationid', messageAttributes.correlationId)
         const notifyAssignmentAssigned = new NotifyAssignmentAssigned(state.assignmentId)
         await bus.send(notifyAssignmentAssigned)
 
@@ -149,22 +150,15 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, Assign
         )
         await bus.send(notifyAssignmentReassigned)
         return {}
-      },
-      {
-        lookup: (_, messageAttributes) => messageAttributes.correlationId,
-        mapping: '$workflowId'
       }
     )
     .when(
       AssignmentCompleted,
-      async ({ dependencies: { logger }}) => {
-
-        return completeWorkflow()
-      },
       {
         lookup: e => e.assignmentId,
-        mapping: 'assignmentId'
-      }
+        mapsTo: 'assignmentId'
+      },
+      async ({ dependencies: { logger }}) => completeWorkflow()
     )
 
 describe('Workflow', () => {
@@ -200,7 +194,6 @@ describe('Workflow', () => {
   afterAll(async () => {
     await bootstrap.dispose()
   })
-
 
   describe('when a message that starts a workflow is received', () => {
     const propertyMapping = new MessageWorkflowMapping<AssignmentCreated, AssignmentWorkflowState & WorkflowState> (
@@ -254,61 +247,61 @@ describe('Workflow', () => {
 
       it('should handle that message', () => {
         expect(startedWorkflowData).toHaveLength(1)
-        expect(startedWorkflowData[0].$version).toEqual(1)
+        const [data] = startedWorkflowData
+        expect(data.assigneeId).toEqual(assignmentAssigned.assigneeId)
       })
 
-      // describe('and then a message for the next step is received', () => {
-      //   const assignmentReassigned = new AssignmentReassigned('foo', 'bar')
-      //   let nextWorkflowData: AssignmentWorkflowData[]
+      describe('and then a message for the next step is received', () => {
+        const assignmentReassigned = new AssignmentReassigned('foo', 'bar')
+        let nextWorkflowData: AssignmentWorkflowData[]
 
-      //   beforeAll(async () => {
-      //     await bus.publish(
-      //       assignmentReassigned,
-      //       { correlationId: startedWorkflowData[0].$workflowId, attributes: {}, stickyAttributes: {} }
-      //     )
-      //     await sleep(CONSUME_TIMEOUT)
+        beforeAll(async () => {
+          await bus.publish(
+            assignmentReassigned,
+            { correlationId: startedWorkflowData[0].$workflowId }
+          )
+          await sleep(CONSUME_TIMEOUT)
 
-      //     nextWorkflowData = await persistence.getWorkflowData(
-      //       AssignmentWorkflowData,
-      //       propertyMapping,
-      //       assignmentAssigned,
-      //       messageOptions,
-      //       true
-      //     )
-      //   })
+          nextWorkflowData = await persistence.getWorkflowData(
+            AssignmentWorkflowData,
+            propertyMapping,
+            assignmentAssigned,
+            messageOptions,
+            true
+          )
+        })
 
-      //   it('should handle that message', () => {
-      //     expect(nextWorkflowData).toHaveLength(1)
-      //     expect(nextWorkflowData[0].$version).toEqual(2)
-      //   })
+        it('should handle that message', () => {
+          expect(nextWorkflowData).toHaveLength(1)
+        })
 
-      //   describe('and then a final message arrives', () => {
-      //     const finalTask = new AssignmentCompleted(event.assignmentId)
-      //     let finalWorkflowData: AssignmentWorkflowData[]
+        describe('and then a final message arrives', () => {
+          const finalTask = new AssignmentCompleted(event.assignmentId)
+          let finalWorkflowData: AssignmentWorkflowData[]
 
-      //     beforeAll(async () => {
-      //       await bus.publish(
-      //         finalTask,
-      //         new MessageAttributes({ correlationId: nextWorkflowData[0].$workflowId })
-      //       )
-      //       await sleep(CONSUME_TIMEOUT)
+          beforeAll(async () => {
+            await bus.publish(
+              finalTask,
+              new MessageAttributes({ correlationId: nextWorkflowData[0].$workflowId })
+            )
+            await sleep(CONSUME_TIMEOUT)
 
-      //       finalWorkflowData = await persistence.getWorkflowData(
-      //         AssignmentWorkflowData,
-      //         propertyMapping,
-      //         finalTask,
-      //         messageOptions,
-      //         true
-      //       )
-      //     })
+            finalWorkflowData = await persistence.getWorkflowData(
+              AssignmentWorkflowData,
+              propertyMapping,
+              finalTask,
+              messageOptions,
+              true
+            )
+          })
 
-      //     it('should mark the workflow as complete', () => {
-      //       expect(finalWorkflowData).toHaveLength(1)
-      //       const data = finalWorkflowData[0]
-      //       expect(data.$status).toEqual(WorkflowStatus.Complete)
-      //     })
-      //   })
-      // })
+          it('should mark the workflow as complete', () => {
+            expect(finalWorkflowData).toHaveLength(1)
+            const data = finalWorkflowData[0]
+            expect(data.$status).toEqual(WorkflowStatus.Complete)
+          })
+        })
+      })
     })
   })
 })

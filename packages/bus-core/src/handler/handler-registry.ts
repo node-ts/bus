@@ -2,8 +2,8 @@ import { Message } from '@node-ts/bus-messages'
 import { Container, decorate, inject, injectable, interfaces } from 'inversify'
 import { ClassConstructor, isClassConstructor } from '../util/class-constructor'
 import { Handler, HandlerPrototype } from './handler'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import * as serializeError from 'serialize-error'
+import { getLogger } from '../service-bus/logger'
 
 type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
 
@@ -32,18 +32,7 @@ type MessageName = string
  * An internal singleton that contains all registrations of messages to functions that handle
  * those messages.
  */
-@injectable()
-export class HandlerRegistry {
-
-  private registry: HandlerRegistrations = {}
-  private container: Container
-  private unhandledMessages: MessageName[] = []
-
-  constructor (
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
-  ) {
-  }
-
+export interface HandlerRegistry {
   /**
    * Registers that a function handles a particular message type
    * @param messageName Name of the message to register, from the `$name` property of the message.
@@ -51,6 +40,48 @@ export class HandlerRegistry {
    * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
    */
+  register<TMessage extends Message> (
+    messageName: string,
+    symbol: symbol,
+    handler: HandlerType,
+    messageType: ClassConstructor<TMessage>
+  ): void
+
+  /**
+   * Gets all registered message handlers for a given message name
+   * @param messageName Name of the message to get handlers for, found in the `$name` property of the message
+   */
+  get<MessageType extends Message> (messageName: string): HandlerRegistration<MessageType>[]
+
+  /**
+   * Retrieves a list of all messages that have handler registrations
+   */
+  getMessageNames (): string[]
+
+  /**
+   * Returns the class constructor for a message that has a handler registration
+   * @param messageName Message to get a class constructor for
+   */
+  getMessageConstructor<T extends Message> (messageName: string): ClassConstructor<T> | undefined
+
+  /**
+   * Binds message handlers into the IoC container. All handlers should be stateless and are
+   * bound in a transient scope.
+   */
+  bindHandlersToContainer (container: Container): void
+
+  /**
+   * Retrieves the identity of a handler. This is synonymous with a the handler's class name.
+   */
+  getHandlerId (handler: Handler<Message>): string
+}
+
+class DefaultHandlerRegistry implements HandlerRegistry {
+
+  private registry: HandlerRegistrations = {}
+  private container: Container
+  private unhandledMessages: MessageName[] = []
+
   register<TMessage extends Message> (
     messageName: string,
     symbol: symbol,
@@ -70,7 +101,7 @@ export class HandlerRegistry {
     const handlerAlreadyRegistered = this.registry[messageName].handlers.some(f => f.symbol === symbol)
 
     if (handlerAlreadyRegistered) {
-      this.logger.warn(`Attempted to re-register a handler that's already registered`, { handlerName })
+      getLogger().warn(`Attempted to re-register a handler that's already registered`, { handlerName })
     } else {
       if (isClassConstructor(handler)) {
         const allRegisteredHandlers = [].concat.apply(
@@ -91,7 +122,7 @@ export class HandlerRegistry {
         try {
           // Ensure the handler is available for injection
           decorate(injectable(), handler)
-          this.logger.trace(`Handler "${handler.name}" was missing the "injectable()" decorator. `
+          getLogger().trace(`Handler "${handler.name}" was missing the "injectable()" decorator. `
             + `This has been added automatically`)
         } catch {
           // An error is expected here if the injectable() decorator was attached to the handler
@@ -102,20 +133,16 @@ export class HandlerRegistry {
         handler
       }
       this.registry[messageName].handlers.push(handlerDetails)
-      this.logger.info('Handler registered', { messageType: messageName, handler: handlerName })
+      getLogger().info('Handler registered', { messageType: messageName, handler: handlerName })
     }
   }
 
-  /**
-   * Gets all registered message handlers for a given message name
-   * @param messageName Name of the message to get handlers for, found in the `$name` property of the message
-   */
   get<MessageType extends Message> (messageName: string): HandlerRegistration<MessageType>[] {
     if (!(messageName in this.registry)) {
       // No handlers for the given message
       if (!this.unhandledMessages.some(m => m === messageName)) {
         this.unhandledMessages.push(messageName)
-        this.logger.warn(`No handlers were registered for message "${messageName}". ` +
+        getLogger().warn(`No handlers were registered for message "${messageName}". ` +
           `This could mean that either the handlers haven't been registered with bootstrap.registerHandler(), ` +
           `or that the underlying transport is subscribed to messages that aren't handled and should be removed.`)
       }
@@ -124,11 +151,11 @@ export class HandlerRegistry {
     return this.registry[messageName].handlers.map(h => ({
       defaultContainer: this.container,
       resolveHandler: (container: Container) => {
-        this.logger.debug(`Resolving handlers for ${messageName}`)
+        getLogger().debug(`Resolving handlers for ${messageName}`)
         try {
           return container.get<Handler<MessageType>>(h.symbol)
         } catch (error) {
-          this.logger.error(
+          getLogger().error(
             'Could not resolve handler from the IoC container.',
             {
               messageName,
@@ -141,17 +168,10 @@ export class HandlerRegistry {
     }))
   }
 
-  /**
-   * Retrieves a list of all messages that have handler registrations
-   */
   getMessageNames (): string[] {
     return Object.keys(this.registry)
   }
 
-  /**
-   * Returns the class constuctor for a message that has a handler registration
-   * @param messageName Message to get a class constructor for
-   */
   getMessageConstructor<T extends Message> (messageName: string): ClassConstructor<T> | undefined {
     if (!(messageName in this.registry)) {
       return undefined
@@ -159,18 +179,11 @@ export class HandlerRegistry {
     return this.registry[messageName].messageType as ClassConstructor<T>
   }
 
-  /**
-   * Binds message handlers into the IoC container. All handlers should be stateless and are
-   * bound in a transient scope.
-   */
   bindHandlersToContainer (container: Container): void {
     this.container = container
     this.bindHandlers()
   }
 
-  /**
-   * Retrieves the identity of a handler. This is synonymous with a the handler's class name.
-   */
   getHandlerId (handler: Handler<Message>): string {
     return handler.constructor.name
   }
@@ -181,7 +194,7 @@ export class HandlerRegistry {
 
       messageHandler.handlers.forEach(handlerRegistration => {
         const handlerName = getHandlerName(handlerRegistration.handler)
-        this.logger.debug('Binding handler to message', { messageName, handlerName })
+        getLogger().debug('Binding handler to message', { messageName, handlerName })
 
         if (isClassConstructor(handlerRegistration.handler)) {
           this.container
@@ -204,3 +217,5 @@ function getHandlerName (handler: HandlerType): string {
     ? (handler.prototype as HandlerPrototype).constructor.name
     : handler.constructor.name
 }
+
+export const handlerRegistry: HandlerRegistry = new DefaultHandlerRegistry()

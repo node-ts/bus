@@ -1,6 +1,5 @@
 import { ClassConstructor } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { interfaces } from 'inversify'
 import { WorkflowStatus } from '../workflow-data'
 
 export interface WorkflowState {
@@ -15,17 +14,16 @@ export type HandlerReturnType<State> = Promise<Partial<State>>
   | Promise<void>
   | void
 
-export type WhenHandler<MessageType extends Message, State extends WorkflowState, Dependenices> = (
+export type WhenHandler<MessageType extends Message, State extends WorkflowState> = (
   parameters: {
     message: MessageType,
     messageAttributes: MessageAttributes,
     state: Readonly<State>
-    dependencies: Dependenices
   }
 ) => HandlerReturnType<State>
 
 interface WhenOptions<MessageType extends Message, State extends WorkflowState> {
-  mapping: keyof State & string
+  mapsTo: keyof State & string
   // tslint:disable-next-line:prefer-method-signature Avoid unbound this
   lookup: (message: MessageType, attributes: MessageAttributes) => string | undefined
 }
@@ -38,28 +36,27 @@ export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> 
 }
 
 export interface OnWhenHandler {
-  handler: WhenHandler<Message, WorkflowState, {}>
+  handler: WhenHandler<Message, WorkflowState>
   options: WhenOptions<Message, WorkflowState>
 }
 
-export class FnWorkflow <State, Dependencies extends object = {}> {
+export class FnWorkflow <State> {
 
   readonly state: State & WorkflowState
   readonly onStartedBy = new Map<
     ClassConstructor<Message>,
-    WhenHandler<Message, State & WorkflowState, Dependencies> | undefined
+    WhenHandler<Message, State & WorkflowState> | undefined
   >()
   readonly onWhen = new Map<ClassConstructor<Message>, OnWhenHandler>()
 
   constructor (
-    readonly workflowName: string,
-    readonly dependencyResolver?: (container: interfaces.Container) => Dependencies
+    readonly workflowName: string
   ) {
   }
 
   startedBy<MessageType extends Message>  (
     message: ClassConstructor<MessageType>,
-    handler?: WhenHandler<MessageType, State & WorkflowState, Dependencies>
+    handler?: WhenHandler<MessageType, State & WorkflowState>
   ): this {
     // TODO warn when already handled
     this.onStartedBy.set(message, handler)
@@ -68,8 +65,8 @@ export class FnWorkflow <State, Dependencies extends object = {}> {
 
   when<MessageType extends Message> (
     message: ClassConstructor<MessageType>,
-    handler: WhenHandler<MessageType, State & WorkflowState, Dependencies>,
-    options: WhenOptions<MessageType, State & WorkflowState>
+    options: WhenOptions<MessageType, State & WorkflowState>,
+    handler: WhenHandler<MessageType, State & WorkflowState>
   ): this {
     // TODO warn when already handled
     this.onWhen.set(
