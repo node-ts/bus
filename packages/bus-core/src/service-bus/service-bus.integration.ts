@@ -1,83 +1,73 @@
-import { ServiceBus } from './service-bus'
 import { MemoryQueue } from '../transport'
-import { BusState } from './bus'
+import { Bus, BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
-import { Container, inject } from 'inversify'
-import { TestContainer } from '../test/test-container'
-import { BUS_SYMBOLS } from '../bus-symbols'
 import { Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times } from 'typemoq'
-import { HandlerRegistry, HandlesMessage } from '../handler'
-import { ApplicationBootstrap } from '../application-bootstrap'
 
 const event = new TestEvent()
 type Callback = () => void
-const CALLBACK = Symbol.for('Callback')
-
-@HandlesMessage(TestEvent)
-class TestEventHandler {
-  constructor (
-    @inject(CALLBACK) private readonly callback: Callback
-  ) {
-  }
-
-  async handle (_: TestEvent): Promise<void> {
-    this.callback()
-  }
-}
 
 describe('ServiceBus', () => {
-  let container: Container
-
-  let sut: ServiceBus
-  let bootstrapper: ApplicationBootstrap
   let queue: MemoryQueue
-
   let callback: IMock<Callback>
+  const handler = async (_: TestEvent) => callback.object()
 
   beforeAll(async () => {
-    container = new TestContainer().silenceLogs()
-    queue = new MemoryQueue(Mock.ofType<Logger>().object)
-
-    const transport = container.get<MemoryQueue>(BUS_SYMBOLS.Transport)
-    const registry = container.get<HandlerRegistry>(BUS_SYMBOLS.HandlerRegistry)
-
-    bootstrapper = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    bootstrapper.registerHandler(TestEventHandler)
-
+    queue = new MemoryQueue()
     callback = Mock.ofType<Callback>()
-    container.bind(CALLBACK).toConstantValue(callback.object)
-    await transport.initialize(registry)
-    await bootstrapper.initialize(container)
-    sut = container.get(BUS_SYMBOLS.Bus)
-  })
 
-  afterAll(async () => {
-    await bootstrapper.dispose()
+    await Bus.configure()
+      .withTransport(queue)
+      .withLogger(Mock.ofType<Logger>().object)
+      .withHandler(TestEvent, handler)
+      .initialize()
   })
 
   describe('when starting the service bus', () => {
-    it('should complete into a started state', () => {
-      expect(sut.state).toEqual(BusState.Started)
+    it('should complete into a started state', async () => {
+      await Bus.start()
+      expect(Bus.state).toEqual(BusState.Started)
+      await Bus.stop()
     })
 
     describe('and then the bus is started again', () => {
       it('should throw an error', async () => {
-        await expect(sut.start()).rejects.toThrowError()
+        await Bus.start()
+        await expect(Bus.start()).rejects.toThrowError()
+        await Bus.stop()
+      })
+    })
+  })
+
+  describe('when stopping the service bus', () => {
+    describe('when its started', () => {
+      it('should stop the bus', async () => {
+        await Bus.start()
+        await Bus.stop()
+        expect(Bus.state).toEqual(BusState.Stopped)
+      })
+    })
+
+    describe('when its not started', () => {
+      it('should throw an error', async () => {
+        await expect(Bus.stop()).rejects.toThrowError()
       })
     })
   })
 
 
   describe('when a message is successfully handled from the queue', () => {
+    beforeEach(async () => Bus.start())
+    afterEach(async () => Bus.stop())
+
     it('should delete the message from the queue', async () => {
       callback.reset()
       callback
         .setup(c => c())
         .callback(() => undefined)
         .verifiable(Times.once())
-      await sut.publish(event)
+      await Bus.publish(event)
       await sleep(10)
 
       expect(queue.depth).toEqual(0)
@@ -85,7 +75,9 @@ describe('ServiceBus', () => {
     })
   })
 
-  describe('and a handled message throw an Error', () => {
+  describe('and a handled message throws an Error', () => {
+    beforeEach(async () => Bus.start())
+    afterEach(async () => Bus.stop())
 
     it('should return the message for retry', async () => {
       callback.reset()
@@ -99,7 +91,7 @@ describe('ServiceBus', () => {
         })
         .verifiable(Times.exactly(2))
 
-      await sut.publish(event)
+      await Bus.publish(event)
       await sleep(2000)
 
       callback.verifyAll()

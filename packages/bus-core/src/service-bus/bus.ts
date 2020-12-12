@@ -1,7 +1,7 @@
 import { Command, Event, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger } from '@node-ts/logger-core'
 import { handlerRegistry } from '../handler'
-import { Handler, HandlerPrototype } from '../handler/handler'
+import { Handler } from '../handler/handler'
 import { Serializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor } from '../util'
@@ -15,6 +15,13 @@ const getServiceBus = () => {
   }
 
   return serviceBus
+}
+
+export enum BusState {
+  Starting = 'starting',
+  Started = 'started',
+  Stopping = 'stopping',
+  Stopped = 'stopped'
 }
 
 class BusConfiguration {
@@ -88,5 +95,9 @@ export class Bus {
 
   static async dispose (): Promise<void> {
     return getServiceBus().dispose()
+  }
+
+  static get state(): BusState {
+    return getServiceBus().state
   }
 }

@@ -3,17 +3,10 @@ import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-message
 import { sleep } from '../util'
 import { Handler, handlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
-// import { SessionScopeBinder } from '../bus-module'
 import { getLogger } from './logger'
+import { BusState } from './bus'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
-
-export enum BusState {
-  Starting = 'starting',
-  Started = 'started',
-  Stopping = 'stopping',
-  Stopped = 'stopped'
-}
 
 export class ServiceBus {
 
@@ -44,7 +37,8 @@ export class ServiceBus {
   }
 
   async start (): Promise<void> {
-    if (this.internalState !== BusState.Stopped) {
+    const startedStates = [BusState.Started, BusState.Starting]
+    if (startedStates.includes(this.state)) {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
     this.internalState = BusState.Starting
@@ -54,6 +48,10 @@ export class ServiceBus {
   }
 
   async stop (): Promise<void> {
+    const stoppedStates = [BusState.Stopped, BusState.Stopping]
+    if (stoppedStates.includes(this.state)) {
+      throw new Error('Bus must be started before it can be stopped')
+    }
     this.internalState = BusState.Stopping
     getLogger().info('ServiceBus stopping...')
 
