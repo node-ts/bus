@@ -31,32 +31,15 @@ class BusConfiguration {
 
   withHandler<MessageType extends Message> (
     messageType: ClassConstructor<MessageType>,
-    messageHandler: ClassConstructor<Handler<Message>>
+    messageHandler: Handler<MessageType>
   ): this {
     if (!!serviceBus) {
       throw new Error('Cannot call registerHandler() after initialize() has been called')
     }
 
-    const prototype = messageHandler.prototype as HandlerPrototype
-    if (!prototype.$symbol) {
-      throw new Error(
-        `Missing symbol on ${prototype.constructor}.`
-        + 'This could mean the handler class is missing the @Handles() decorator.'
-      )
-    }
-
-    if (!prototype.$messageName) {
-      throw new Error(
-        `Missing message type on ${prototype.constructor}.`
-        + 'This could mean the handler class is missing the @Handles() decorator.'
-      )
-    }
-
     handlerRegistry.register(
-      prototype.$messageName,
-      prototype.$symbol,
-      messageHandler,
-      prototype.$message
+      messageType,
+      messageHandler
     )
     return this
   }

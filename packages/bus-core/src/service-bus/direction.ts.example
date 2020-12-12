@@ -33,7 +33,6 @@ const run = async () => {
   //   .withWorkflow(assignmentWorkflow)
   //   .initialize(bus)
 
-
   await Bus.stop()
 }
 

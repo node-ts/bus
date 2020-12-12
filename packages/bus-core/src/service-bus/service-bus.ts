@@ -1,7 +1,7 @@
 import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { sleep } from '../util'
-import { handlerRegistry, HandlerRegistration } from '../handler'
+import { Handler, handlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
 // import { SessionScopeBinder } from '../bus-module'
 import { getLogger } from './logger'
@@ -22,7 +22,6 @@ export class ServiceBus {
 
   constructor (
     private readonly transport: Transport<{}>
-    // @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes
   ) {
   }
 
@@ -120,7 +119,7 @@ export class ServiceBus {
   private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
     const handlers = handlerRegistry.get(message.$name)
     if (handlers.length === 0) {
-      getLogger().warn(`No handlers registered for message ${message.$name}. Message will be discarded`)
+      getLogger().error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
       return
     }
 
@@ -135,11 +134,10 @@ export class ServiceBus {
 
   private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
     const result: MessageAttributes = {
-      correlationId: clientOptions.correlationId || this.messageHandlingContext.correlationId,
+      correlationId: clientOptions.correlationId,
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
-        ...clientOptions.stickyAttributes,
-        ...this.messageHandlingContext.stickyAttributes
+        ...clientOptions.stickyAttributes
       }
     }
 
@@ -150,19 +148,7 @@ export class ServiceBus {
 async function dispatchMessageToHandler (
   message: Message,
   context: MessageAttributes,
-  handlerRegistration: HandlerRegistration<Message>
+  handler: Handler<Message>
 ): Promise<void> {
-  const container = handlerRegistration.defaultContainer
-  const childContainer = container.createChild()
-
-  childContainer
-    .bind<MessageAttributes>(BUS_SYMBOLS.MessageHandlingContext)
-    .toConstantValue(context)
-
-  const sessionScopeBinder = container.get<SessionScopeBinder>(BUS_INTERNAL_SYMBOLS.SessionScopeBinder)
-  // tslint:disable-next-line:no-unsafe-any
-  sessionScopeBinder(childContainer.bind.bind(childContainer))
-
-  const handler = handlerRegistration.resolveHandler(childContainer)
-  return handler.handle(message, context)
+  return handler(message, context)
 }
