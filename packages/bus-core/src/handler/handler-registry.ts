@@ -53,6 +53,11 @@ export interface HandlerRegistry {
    * Retrieves the identity of a handler. This is synonymous with a the handler's class name.
    */
   getHandlerId (handler: Handler<Message>): string
+
+  /**
+   * Removes all handlers from the registry
+   */
+  reset (): void
 }
 
 class DefaultHandlerRegistry implements HandlerRegistry {
@@ -117,6 +122,10 @@ class DefaultHandlerRegistry implements HandlerRegistry {
 
   getHandlerId (handler: Handler): string {
     return handler.constructor.name
+  }
+
+  reset (): void {
+    this.registry = {}
   }
 }
 
