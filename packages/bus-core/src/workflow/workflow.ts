@@ -45,27 +45,28 @@ export class Workflow <State extends WorkflowData = WorkflowData> {
   readonly state: State & WorkflowData
   readonly onStartedBy = new Map<
     ClassConstructor<Message>,
-    WhenHandler<Message, State & WorkflowData> | undefined
+    WhenHandler<Message, State & WorkflowData>
   >()
   readonly onWhen = new Map<ClassConstructor<Message>, OnWhenHandler>()
 
   private constructor (
-    readonly workflowName: string
+    readonly workflowName: string,
+    readonly stateType: ClassConstructor<State>
   ) {
   }
 
-  static configure<TWorkflowData extends WorkflowData> (name: string, _: ClassConstructor<TWorkflowData>) {
-    return new Workflow<TWorkflowData>(name)
+  static configure<TWorkflowData extends WorkflowData> (name: string, workflowStateType: ClassConstructor<TWorkflowData>) {
+    return new Workflow<TWorkflowData>(name, workflowStateType)
   }
 
   /**
    * Declare which message will start a new instance of the workflow running.
    * @param message The message type that will start a new workflow instance
-   * @param handler An optional message handler that will be passed the message after the workflow starts
+   * @param handler A message handler that will be passed the message after the workflow starts
    */
   startedBy<MessageType extends Message>  (
     message: ClassConstructor<MessageType>,
-    handler?: WhenHandler<MessageType, State & WorkflowData>
+    handler: WhenHandler<MessageType, State & WorkflowData>
   ): this {
     if (this.onStartedBy.has(message)) {
       throw new WorkflowAlreadyStartedByMessage(this.workflowName, message)

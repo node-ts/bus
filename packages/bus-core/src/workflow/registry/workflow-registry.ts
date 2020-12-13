@@ -1,6 +1,6 @@
 import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { handlerRegistry, ClassConstructor, getLogger } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
@@ -10,10 +10,69 @@ import { WorkflowStartedByMetadata } from '../decorators/started-by'
 import { WorkflowHandlesMetadata } from '../decorators/handles'
 import * as uuid from 'uuid'
 import { Workflow, WhenHandler, OnWhenHandler, WorkflowConstructor } from '../workflow'
+import { Handler } from 'src/handler'
 
-interface WorkflowRegistration {
-  workflowConstructor: WorkflowConstructor<WorkflowData>,
-  workflowDataConstructor: WorkflowDataConstructor
+const createWorkflowState = <TWorkflowData extends WorkflowData> (workflowStateType: ClassConstructor<TWorkflowData>) => {
+  const data = new workflowStateType()
+  data.$status = WorkflowStatus.Running
+  data.$workflowId = uuid.v4()
+  return data
+}
+
+const dispatchMessageToWorkflow = async (
+  message: Message,
+  messageAttributes: MessageAttributes,
+  workflowName: string,
+  workflowData: WorkflowData,
+  workflowDataConstructor: ClassConstructor<WorkflowData>,
+  handler: WorkflowHandlerFn<Message, WorkflowData>
+) => {
+  const immutableWorkflowData = Object.freeze({...workflowData})
+  const workflowDataOutput = await handler(message, immutableWorkflowData, messageAttributes)
+
+  if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
+    getLogger().debug(
+      'Workflow step is discarding state changes. State changes will not be persisted',
+      { workflowId: immutableWorkflowData.$workflowId, workflowName }
+    )
+  } else if (workflowDataOutput) {
+    getLogger().debug(
+      'Changes detected in workflow data and will be persisted.',
+      {
+        workflowId: immutableWorkflowData.$workflowId,
+        workflowName,
+        changes: workflowDataOutput
+      }
+    )
+
+    const updatedWorkflowData = Object.assign(
+      new workflowDataConstructor(),
+      workflowData,
+      workflowDataOutput
+    )
+
+    try {
+      await persist(updatedWorkflowData)
+    } catch (error) {
+      getLogger().warn(
+        'Error persisting workflow data',
+        { err: error, workflow: workflowName }
+      )
+      throw error
+    }
+  } else {
+    getLogger().trace('No changes detected in workflow data.', { workflowId: immutableWorkflowData.$workflowId })
+  }
+}
+
+const persist = async (data: WorkflowData) => {
+  try {
+    await this.persistence.saveWorkflowData(data)
+    getLogger().info('Saving workflow data', { data })
+  } catch (err) {
+    getLogger().error('Error persisting workflow data', { err })
+    throw err
+  }
 }
 
 /**
@@ -24,22 +83,9 @@ interface WorkflowRegistration {
  */
 class WorkflowRegistry {
 
-  private workflowRegistry: WorkflowRegistration[] = []
+  private workflowRegistry: Workflow[] = []
   private isInitialized = false
   private isInitializing = false
-
-  constructor (
-    @inject(BUS_WORKFLOW_INTERNAL_SYMBOLS.StartedByProxy) private readonly startedByFactory: (
-        workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
-        handler: WorkflowHandlerFn<Message, WorkflowData>
-      ) => StartedByProxy<Message, WorkflowData>,
-    @inject(BUS_WORKFLOW_INTERNAL_SYMBOLS.HandlesProxy) private readonly handlesFactory: (
-      handler: WorkflowHandlerFn<Message, WorkflowData>,
-      workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
-      messageMapping: MessageWorkflowMapping<Message, WorkflowData>
-    ) => HandlesProxy<Message, WorkflowData>,
-  ) {
-  }
 
   async register (workflow: Workflow): Promise<void> {
     if (this.isInitialized) {
@@ -49,25 +95,13 @@ class WorkflowRegistry {
     }
 
     const duplicateWorkflowName = this.workflowRegistry
-      .some(r => r.workflowConstructor.name === workflow.workflowName)
+      .some(r => r.workflowName === workflow.workflowName)
 
     if (duplicateWorkflowName) {
       throw new Error(`Attempted to register two workflows with the same name (${workflow.workflowName})`)
     }
 
-
-    // tslint:disable:max-classes-per-file
-    class AssignmentWorkflowData {
-      $workflowId: string
-      $name = 'assignment'
-      $status: WorkflowStatus
-      $version: number
-    }
-
-    await this.persistence.initializeWorkflow(
-      AssignmentWorkflowData,
-      []
-    )
+    this.workflowRegistry.push(workflow)
   }
 
   /**
@@ -94,18 +128,13 @@ class WorkflowRegistry {
       await this.persistence.initialize()
     }
 
-    for (const registration of this.workflowRegistry) {
+    for (const workflow of this.workflowRegistry) {
 
-      this.registerFnStartedBy(workflow.onStartedBy, workflow)
-      this.registerFnHandles(workflow.onWhen, workflow)
-      const startedByHandlers = WorkflowStartedByMetadata.getSteps(registration.workflowConstructor)
-      this.registerStartedBy(startedByHandlers, registration)
-
-      const messageHandlers = WorkflowHandlesMetadata.getSteps(registration.workflowConstructor)
-      this.registerHandles(messageHandlers, registration)
+      this.registerFnStartedBy(workflow)
+      this.registerFnHandles(workflow)
 
       const messageWorkflowMappings = messageHandlers.map(s => s.messageWorkflowMapping)
-      await this.persistence.initializeWorkflow(registration.workflowDataConstructor, messageWorkflowMappings)
+      await persistence.initializeWorkflow(registration.workflowDataConstructor, messageWorkflowMappings)
       getLogger().debug('Workflow initialized', { workflowName: registration.workflowConstructor.name })
     }
 
@@ -122,154 +151,55 @@ class WorkflowRegistry {
   }
 
   private registerFnStartedBy (
-    startedByHandlers: Map<
-      ClassConstructor<Message>,
-      WhenHandler<Message, WorkflowData, {}> | undefined
-    >,
-    workflow: Workflow<WorkflowData, {}>
+    workflow: Workflow
   ): void {
-    startedByHandlers.forEach((handler, messageConstructor) => {
-      const messageName = new messageConstructor().$name
-      const handlerFactory = (context: interfaces.Context) => {
-        const initialWorkflowData: WorkflowData = {
-          $workflowId: uuid.v4(),
-          $name: workflow.workflowName,
-          $status: WorkflowStatus.Running,
-          $version: 0
-        }
-
-        const dependencies = workflow.dependencyResolver
-          ? workflow.dependencyResolver(context.container)
-          : {}
-
-        // TODO
-        class AssignmentWorkflowData {
-          $name: 'assignment'
-        }
-        return this.startedByFactory(
-          AssignmentWorkflowData as ClassConstructor<WorkflowData>,
-          (message, _, messageAttributes) => {
-            const result = handler!({
-              message,
-              messageAttributes,
-              state: initialWorkflowData,
-              dependencies
-            })
-            return {
-              ...result,
-              ...initialWorkflowData
-            }
-          }
-        )
-      }
-
+    workflow.onStartedBy.forEach((handler, messageConstructor) =>
       handlerRegistry.register(
-        messageName,
-        Symbol.for(`node-ts/bus/workflow/${workflow.workflowName}-${messageName}-started-by-proxy`),
-        handlerFactory,
-        messageConstructor
-      )
-    })
-  }
-
-  private registerStartedBy (
-    startedByHandlers: WorkflowStartedByMetadata[],
-    registration: WorkflowRegistration
-  ): void {
-    if (!startedByHandlers.length) {
-      throw new Error(`Workflow ${registration.workflowConstructor.name} does not have a started by step`)
-    }
-
-    startedByHandlers.forEach(step => {
-      const messageName = new step.messageConstructor().$name
-      const handlerFactory = (context: interfaces.Context) => {
-        const workflow = context.container.resolve(registration.workflowConstructor) as PropertyObject
-        type HandlerFn = WorkflowHandlerFn<Message, WorkflowData>
-        return this.startedByFactory(
-          registration.workflowDataConstructor,
-          (workflow[step.propertyKey] as HandlerFn).bind(workflow) as HandlerFn
-        )
-      }
-
-      handlerRegistry.register(
-        messageName,
-        Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-started-by-proxy`),
-        handlerFactory,
-        step.messageConstructor
-      )
-    })
+        messageConstructor,
+        async (message, messageAttributes) => {
+          const workflowState = createWorkflowState(workflow.stateType)
+          const immutableWorkflowState = Object.freeze({...workflowState})
+          const result = await handler({ message, messageAttributes, workflowState: immutableWorkflowState })
+          await persistence.saveWorkflowData(result)
+        }
+    ))
   }
 
   private registerFnHandles (
-    whenHandlers: Map<
-      ClassConstructor<Message>,
-      OnWhenHandler
-    >,
-    workflow: Workflow<WorkflowData, {}>
+    workflow: Workflow
   ): void {
-    whenHandlers.forEach((handler, messageConstructor) => {
-      const messageName = new messageConstructor().$name
-      const handlerFactory = (context: interfaces.Context) => {
-        const state: WorkflowData = {
-          $workflowId: uuid.v4(),
-          $name: workflow.workflowName,
-          $status: WorkflowStatus.Running,
-          $version: 1
-        }
-
-        const dependencies = workflow.dependencyResolver
-          ? workflow.dependencyResolver(context.container)
-          : {}
-
-        // TODO
-        class AssignmentWorkflowData {
-          $name = 'assignment'
-        }
-        return this.handlesFactory(
-          (message, _, messageAttributes) => handler.handler({
-              message,
-              messageAttributes,
-              workflowState: state,
-              dependencies
-            }),
-          AssignmentWorkflowData as ClassConstructor<WorkflowData>,
-          new MessageWorkflowMapping<Message, WorkflowData>(
-            handler.options.lookup,
-            handler.options.mapsTo
+    workflow.onWhen.forEach((handler, messageConstructor) => {
+      const messageMapping: MessageWorkflowMapping<Message, WorkflowData> = {
+        lookupMessage: handler.options.lookup,
+        workflowDataProperty: handler.options.mapsTo
+      }
+      handlerRegistry.register(
+        messageConstructor,
+        async (message, messageAttributes) => {
+          const workflowState = await persistence.getWorkflowData(
+            workflow.stateType,
+            messageMapping,
+            messageConstructor,
+            messageAttributes,
+            false
           )
-        )
-      }
 
-      handlerRegistry.register(
-        messageName,
-        Symbol.for(`node-ts/bus/workflow/${workflow.workflowName}-${messageName}-when-handler-proxy`),
-        handlerFactory,
-        messageConstructor
-      )
-    })
-  }
+          if (!workflowState.length) {
+            getLogger().info('No existing workflow data found for message. Ignoring.', { message })
+            return
+          }
 
-  private registerHandles (
-    messageHandlers: WorkflowHandlesMetadata[],
-    registration: WorkflowRegistration
-  ): void {
-    messageHandlers.forEach(step => {
-      const messageName = new step.messageConstructor().$name
+          const workflowHandlers = workflowState.map(state => dispatchMessageToWorkflow(
+            message,
+            messageAttributes,
+            workflow.workflowName,
+            state,
+            workflow.stateType,
+            handler.handler
+          ))
 
-      const handler = (context: interfaces.Context) => {
-        const workflow = context.container.resolve(registration.workflowConstructor) as PropertyObject
-        type HandlerFn = WorkflowHandlerFn<Message, WorkflowData>
-        return this.handlesFactory(
-          (workflow[step.propertyKey] as HandlerFn).bind(workflow) as HandlerFn,
-          registration.workflowDataConstructor,
-          step.messageWorkflowMapping
-        )
-      }
-      handlerRegistry.register(
-        messageName,
-        Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-handles-proxy`),
-        handler,
-        step.messageConstructor
+          await Promise.all(workflowHandlers)
+        }
       )
     })
   }
