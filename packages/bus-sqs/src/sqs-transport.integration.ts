@@ -143,11 +143,19 @@ describe('SqsTransport', () => {
       })
 
       it('should receive and dispatch to the handler', async () => {
-        await sleep(1000 * 2)
-        handleChecker.verify(
-          h => h.check(It.isObjectWith(messageOptions)),
-          Times.once()
-        )
+        jest.setTimeout(15000)
+        while (true) {
+          await sleep(1000 * 2)
+          try {
+            handleChecker.verify(
+              h => h.check(It.isObjectWith(messageOptions)),
+              Times.once()
+            )
+            break
+          } catch {
+            // Loop and wait for message to be received
+          }
+        }
       })
     })
   })

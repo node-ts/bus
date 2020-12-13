@@ -1,8 +1,7 @@
 import { RabbitMqTransport } from './rabbitmq-transport'
-import { TestContainer, TestEvent, TestCommand, TestCommandHandler } from '../test'
-import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
-import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
-import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
+import { TestEvent, TestCommand, testCommandHandler } from '../test'
+import { Connection, Channel, Message as RabbitMqMessage, connect } from 'amqplib'
+import { TransportMessage, Bus } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -17,33 +16,24 @@ const configuration: RabbitMqTransportConfiguration = {
 }
 
 describe('RabbitMqTransport', () => {
-  let bus: Bus
-  let sut: RabbitMqTransport
+  let rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: Connection
   let channel: Channel
-  let container: TestContainer
-  let bootstrap: ApplicationBootstrap
 
   beforeAll(async () => {
-    container = new TestContainer()
-    container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(configuration)
-    bus = container.get(BUS_SYMBOLS.Bus)
-    sut = container.get(BUS_SYMBOLS.Transport)
+    await Bus.configure()
+      .withTransport(rabbitMqTransport)
+      .withHandler(TestCommand, testCommandHandler)
+      .initialize()
 
-    bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    bootstrap.registerHandler(TestCommandHandler)
-
-    const connectionFactory = container.get<() => Promise<Connection>>(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
-    connection = await connectionFactory()
+    connection = await connect(configuration.connectionString)
     channel = await connection.createChannel()
-
-    await bootstrap.initialize(container)
   })
 
   afterAll(async () => {
     await channel.close()
     await connection.close()
-    await bootstrap.dispose()
+    await Bus.dispose()
   })
 
   describe('when initializing the transport', () => {
@@ -57,7 +47,7 @@ describe('RabbitMqTransport', () => {
       const event = new TestEvent()
 
       beforeEach(async () => {
-        await bus.publish(event)
+        await Bus.publish(event)
       })
 
       it('should create a fanout exchange with the name of the event', async () => {
@@ -69,7 +59,7 @@ describe('RabbitMqTransport', () => {
     describe('when sending a command', () => {
       const command = new TestCommand()
       beforeEach(async () => {
-        await bus.send(command)
+        await Bus.send(command)
       })
 
       afterEach(async () => {
@@ -99,13 +89,13 @@ describe('RabbitMqTransport', () => {
         })
 
         beforeEach(async () => {
-          await bus.send(command, messageOptions)
-          message = await sut.readNextMessage()
+          await Bus.send(command, messageOptions)
+          message = await rabbitMqTransport.readNextMessage()
         })
 
         afterEach(async () => {
           if (message) {
-            await sut.deleteMessage(message)
+            await rabbitMqTransport.deleteMessage(message)
           }
         })
 

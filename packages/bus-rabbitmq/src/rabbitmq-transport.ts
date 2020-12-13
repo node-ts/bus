@@ -1,9 +1,6 @@
 import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, HandlerRegistry } from '@node-ts/bus-core'
-import { Connection, Channel, Message as RabbitMqMessage } from 'amqplib'
-import { inject, injectable } from 'inversify'
-import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import { Transport, TransportMessage, handlerRegistry, getLogger } from '@node-ts/bus-core'
+import { Connection, Channel, Message as RabbitMqMessage, connect } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
@@ -12,7 +9,6 @@ const deadLetterQueue = 'dead-letter'
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
  */
-@injectable()
 export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private connection: Connection
@@ -20,20 +16,16 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private assertedExchanges: { [key: string]: boolean } = {}
 
   constructor (
-    @inject(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
-      private readonly connectionFactory: () => Promise<Connection>,
-    @inject(BUS_RABBITMQ_SYMBOLS.TransportConfiguration)
       private readonly configuration: RabbitMqTransportConfiguration,
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
   ) {
   }
 
-  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
-    this.logger.info('Initializing RabbitMQ transport')
-    this.connection = await this.connectionFactory()
+  async initialize (): Promise<void> {
+    getLogger().info('Initializing RabbitMQ transport')
+    this.connection = await connect(this.configuration.connectionString)
     this.channel = await this.connection.createChannel()
-    await this.bindExchangesToQueue(handlerRegistry)
-    this.logger.info('RabbitMQ transport initialized')
+    await this.bindExchangesToQueue()
+    getLogger().info('RabbitMQ transport initialized')
   }
 
   async dispose (): Promise<void> {
@@ -76,7 +68,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    this.logger.debug(
+    getLogger().debug(
       'Deleting message',
       {
         rawMessage: {
@@ -89,19 +81,19 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    this.logger.debug('Returning message', { rawMessage: message.raw })
+    getLogger().debug('Returning message', { rawMessage: message.raw })
     this.channel.nack(message.raw)
   }
 
   private async assertExchange (messageName: string): Promise<void> {
     if (!this.assertedExchanges[messageName]) {
-      this.logger.debug('Asserting exchange', { messageName })
+      getLogger().debug('Asserting exchange', { messageName })
       await this.channel.assertExchange(messageName, 'fanout', { durable: true })
       this.assertedExchanges[messageName] = true
     }
   }
 
-  private async bindExchangesToQueue (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async bindExchangesToQueue (): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
     const subscriptionPromises = handlerRegistry.getMessageNames()
@@ -109,7 +101,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         const exchangeName = messageName
         await this.assertExchange(messageName)
 
-        this.logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
+        getLogger().debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
       })
 
