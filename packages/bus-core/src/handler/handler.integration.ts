@@ -2,14 +2,11 @@ import { TestEvent } from '../test/test-event'
 import { Bus } from '../service-bus'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestCommand } from '../test/test-command'
-import { Container } from 'inversify'
-import { BUS_SYMBOLS } from '../bus-symbols'
-import { ApplicationBootstrap } from '../application-bootstrap'
 import { IMock, Mock, Times, It } from 'typemoq'
 import { sleep } from '../util'
-import { TestContainer } from '../test/test-container'
-import { MessageLogger, MESSAGE_LOGGER, TestEventHandler } from '../test'
+import { MessageLogger, testEventHandler } from '../test'
 import * as faker from 'faker'
+import { Logger } from '@node-ts/logger-core'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -25,32 +22,25 @@ const attributes: MessageAttributes = {
 }
 
 describe('Handler', () => {
-  let serviceBus: Bus
-  let container: Container
-  let bootstrapper: ApplicationBootstrap
   let messageLogger: IMock<MessageLogger>
 
   beforeAll(async () => {
-    container = new TestContainer().silenceLogs()
-
     messageLogger = Mock.ofType<MessageLogger>()
-    container.bind(MESSAGE_LOGGER).toConstantValue(messageLogger.object)
 
-    serviceBus = container.get(BUS_SYMBOLS.Bus)
-    bootstrapper = container.get(BUS_SYMBOLS.ApplicationBootstrap)
+    await Bus.configure()
+      .withLogger(Mock.ofType<Logger>().object)
+      .withHandler(TestEvent, testEventHandler(messageLogger.object))
+      .initialize()
 
-    bootstrapper.registerHandler(TestEventHandler)
-    await bootstrapper.initialize(container)
+    await Bus.start()
+    await Bus.publish(event)
+    await Bus.publish(event, attributes)
+    await Bus.send(command)
 
-    await serviceBus.publish(event)
-    await serviceBus.publish(event, attributes)
-    await serviceBus.send(command)
     await sleep(1)
   })
 
-  afterAll(async () => {
-    await serviceBus.stop()
-  })
+  afterAll(async () => Bus.stop())
 
   describe('when a handled message is received', () => {
     it('should dispatch to the registered handler', () => {
