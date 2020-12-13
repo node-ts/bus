@@ -1,21 +1,15 @@
 import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
-import { WorkflowConstructor } from '../workflow'
-import { PropertyObject } from '../../utility'
-import { injectable, inject, interfaces } from 'inversify'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { Message } from '@node-ts/bus-messages'
-import { HandlerRegistry, BUS_SYMBOLS, ClassConstructor } from '@node-ts/bus-core'
+import { handlerRegistry, ClassConstructor, getLogger } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { BUS_WORKFLOW_SYMBOLS, BUS_WORKFLOW_INTERNAL_SYMBOLS } from '../../bus-workflow-symbols'
 import { Persistence } from '../persistence'
 import { StartedByProxy } from './started-by-proxy'
 import { HandlesProxy } from './handles-proxy'
 import { WorkflowStartedByMetadata } from '../decorators/started-by'
 import { WorkflowHandlesMetadata } from '../decorators/handles'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import * as uuid from 'uuid'
-import { FnWorkflow, WorkflowState, WhenHandler, OnWhenHandler } from '../decorators/fn-workflow'
-import { TestWorkflowData } from '../../test'
+import { Workflow, WhenHandler, OnWhenHandler, WorkflowConstructor } from '../workflow'
 
 interface WorkflowRegistration {
   workflowConstructor: WorkflowConstructor<WorkflowData>,
@@ -28,53 +22,26 @@ interface WorkflowRegistration {
  *   - what messages start the workflow
  *   - what messages are handled by each workflow
  */
-@injectable()
-export class WorkflowRegistry {
+class WorkflowRegistry {
 
   private workflowRegistry: WorkflowRegistration[] = []
   private isInitialized = false
   private isInitializing = false
 
   constructor (
-    @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
-    @inject(BUS_WORKFLOW_SYMBOLS.Persistence) private readonly persistence: Persistence,
     @inject(BUS_WORKFLOW_INTERNAL_SYMBOLS.StartedByProxy) private readonly startedByFactory: (
         workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
         handler: WorkflowHandlerFn<Message, WorkflowData>
-      ) => StartedByProxy<Message, WorkflowState>,
+      ) => StartedByProxy<Message, WorkflowData>,
     @inject(BUS_WORKFLOW_INTERNAL_SYMBOLS.HandlesProxy) private readonly handlesFactory: (
       handler: WorkflowHandlerFn<Message, WorkflowData>,
       workflowDataConstructor: WorkflowDataConstructor<WorkflowData>,
       messageMapping: MessageWorkflowMapping<Message, WorkflowData>
     ) => HandlesProxy<Message, WorkflowData>,
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
   ) {
   }
 
-  register<TWorkflowData extends WorkflowData> (
-    workflowConstructor: WorkflowConstructor<TWorkflowData>,
-    workflowDataConstructor: ClassConstructor<TWorkflowData>
-  ): void {
-    if (this.isInitialized) {
-      throw new Error(
-        `Attempted to register workflow (${workflowConstructor.name}) after workflows have been initialized`
-      )
-    }
-
-    const duplicateWorkflowName = this.workflowRegistry
-      .some(r => r.workflowConstructor.name === workflowConstructor.name)
-
-    if (duplicateWorkflowName) {
-      throw new Error(`Attempted to register two workflows with the same name (${workflowConstructor.name})`)
-    }
-
-    this.workflowRegistry.push({
-      workflowConstructor,
-      workflowDataConstructor
-    })
-  }
-
-  async registerFunctional (workflow: FnWorkflow<WorkflowState, {}>): Promise<void> {
+  async register (workflow: Workflow): Promise<void> {
     if (this.isInitialized) {
       throw new Error(
         `Attempted to register workflow (${workflow.workflowName}) after workflows have been initialized`
@@ -88,8 +55,6 @@ export class WorkflowRegistry {
       throw new Error(`Attempted to register two workflows with the same name (${workflow.workflowName})`)
     }
 
-    this.registerFnStartedBy(workflow.onStartedBy, workflow)
-    this.registerFnHandles(workflow.onWhen, workflow)
 
     // tslint:disable:max-classes-per-file
     class AssignmentWorkflowData {
@@ -112,19 +77,27 @@ export class WorkflowRegistry {
    *
    * This should be called once as the application is starting.
    */
-  async initializeWorkflows (): Promise<void> {
+  async initialize (): Promise<void> {
+    if (this.workflowRegistry.length === 0) {
+      getLogger().info('No workflows registered, skipping this step.')
+      return
+    }
+
     if (this.isInitialized || this.isInitializing) {
       throw new Error('Attempted to initialize workflow registry after it has already been initialized.')
     }
 
     this.isInitializing = true
-    this.logger.info('Initializing workflows...')
+    getLogger().info('Initializing workflows...')
 
     if (this.persistence.initialize) {
       await this.persistence.initialize()
     }
 
     for (const registration of this.workflowRegistry) {
+
+      this.registerFnStartedBy(workflow.onStartedBy, workflow)
+      this.registerFnHandles(workflow.onWhen, workflow)
       const startedByHandlers = WorkflowStartedByMetadata.getSteps(registration.workflowConstructor)
       this.registerStartedBy(startedByHandlers, registration)
 
@@ -133,13 +106,13 @@ export class WorkflowRegistry {
 
       const messageWorkflowMappings = messageHandlers.map(s => s.messageWorkflowMapping)
       await this.persistence.initializeWorkflow(registration.workflowDataConstructor, messageWorkflowMappings)
-      this.logger.debug('Workflow initialized', { workflowName: registration.workflowConstructor.name })
+      getLogger().debug('Workflow initialized', { workflowName: registration.workflowConstructor.name })
     }
 
     this.workflowRegistry = []
     this.isInitialized = true
     this.isInitializing = false
-    this.logger.info('Workflows initialized')
+    getLogger().info('Workflows initialized')
   }
 
   async dispose (): Promise<void> {
@@ -151,14 +124,14 @@ export class WorkflowRegistry {
   private registerFnStartedBy (
     startedByHandlers: Map<
       ClassConstructor<Message>,
-      WhenHandler<Message, WorkflowState, {}> | undefined
+      WhenHandler<Message, WorkflowData, {}> | undefined
     >,
-    workflow: FnWorkflow<WorkflowState, {}>
+    workflow: Workflow<WorkflowData, {}>
   ): void {
     startedByHandlers.forEach((handler, messageConstructor) => {
       const messageName = new messageConstructor().$name
       const handlerFactory = (context: interfaces.Context) => {
-        const initialWorkflowState: WorkflowState = {
+        const initialWorkflowData: WorkflowData = {
           $workflowId: uuid.v4(),
           $name: workflow.workflowName,
           $status: WorkflowStatus.Running,
@@ -174,23 +147,23 @@ export class WorkflowRegistry {
           $name: 'assignment'
         }
         return this.startedByFactory(
-          AssignmentWorkflowData as ClassConstructor<WorkflowState>,
+          AssignmentWorkflowData as ClassConstructor<WorkflowData>,
           (message, _, messageAttributes) => {
             const result = handler!({
               message,
               messageAttributes,
-              state: initialWorkflowState,
+              state: initialWorkflowData,
               dependencies
             })
             return {
               ...result,
-              ...initialWorkflowState
+              ...initialWorkflowData
             }
           }
         )
       }
 
-      this.handlerRegistry.register(
+      handlerRegistry.register(
         messageName,
         Symbol.for(`node-ts/bus/workflow/${workflow.workflowName}-${messageName}-started-by-proxy`),
         handlerFactory,
@@ -218,7 +191,7 @@ export class WorkflowRegistry {
         )
       }
 
-      this.handlerRegistry.register(
+      handlerRegistry.register(
         messageName,
         Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-started-by-proxy`),
         handlerFactory,
@@ -232,12 +205,12 @@ export class WorkflowRegistry {
       ClassConstructor<Message>,
       OnWhenHandler
     >,
-    workflow: FnWorkflow<WorkflowState, {}>
+    workflow: Workflow<WorkflowData, {}>
   ): void {
     whenHandlers.forEach((handler, messageConstructor) => {
       const messageName = new messageConstructor().$name
       const handlerFactory = (context: interfaces.Context) => {
-        const state: WorkflowState = {
+        const state: WorkflowData = {
           $workflowId: uuid.v4(),
           $name: workflow.workflowName,
           $status: WorkflowStatus.Running,
@@ -256,18 +229,18 @@ export class WorkflowRegistry {
           (message, _, messageAttributes) => handler.handler({
               message,
               messageAttributes,
-              state,
+              workflowState: state,
               dependencies
             }),
-          AssignmentWorkflowData as ClassConstructor<WorkflowState>,
-          new MessageWorkflowMapping<Message, WorkflowState>(
+          AssignmentWorkflowData as ClassConstructor<WorkflowData>,
+          new MessageWorkflowMapping<Message, WorkflowData>(
             handler.options.lookup,
             handler.options.mapsTo
           )
         )
       }
 
-      this.handlerRegistry.register(
+      handlerRegistry.register(
         messageName,
         Symbol.for(`node-ts/bus/workflow/${workflow.workflowName}-${messageName}-when-handler-proxy`),
         handlerFactory,
@@ -292,7 +265,7 @@ export class WorkflowRegistry {
           step.messageWorkflowMapping
         )
       }
-      this.handlerRegistry.register(
+      handlerRegistry.register(
         messageName,
         Symbol.for(`node-ts/bus/workflow/${registration.workflowConstructor.name}-${messageName}-handles-proxy`),
         handler,
@@ -301,3 +274,5 @@ export class WorkflowRegistry {
     })
   }
 }
+
+export const workflowRegistry = new WorkflowRegistry()

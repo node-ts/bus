@@ -1,5 +1,5 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
+import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow/workflow-data'
 import { Logger } from '@node-ts/logger-core'
 import { Handler } from '@node-ts/bus-core'
 import { WorkflowHandlerFn } from './workflow-handler-fn'

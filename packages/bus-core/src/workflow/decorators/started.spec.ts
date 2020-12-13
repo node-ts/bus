@@ -1,17 +1,17 @@
 // tslint:disable:max-classes-per-file variable-name no-console
 import * as uuid from 'uuid'
-import { FnWorkflow, WorkflowState, completeWorkflow } from './fn-workflow'
-import { ApplicationBootstrap, Bus, BusModule, BUS_SYMBOLS, sleep } from '@node-ts/bus-core'
+import { completeWorkflow, Workflow } from '../workflow'
+import { Bus } from '../../service-bus'
 import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 import { Container, inject } from 'inversify'
 import { Persistence } from '../persistence'
-import { BusWorkflowModule } from '../../bus-workflow-module'
+import { BusWorkflowModule } from '../bus-workflow-module'
 import { LoggerModule, LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { Mock } from 'typemoq'
-import { BUS_WORKFLOW_SYMBOLS } from '../../bus-workflow-symbols'
 import { WorkflowRegistry } from '../registry/workflow-registry'
 import { WorkflowStatus } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { WorkflowData } from '../workflow-data'
 
 class AssignmentCreated extends Event {
   $name = 'my-app/accounts/assignment-created'
@@ -94,7 +94,8 @@ class AssignmentCompleted extends Event {
   }
 }
 
-interface AssignmentWorkflowState extends WorkflowState {
+export class AssignmentWorkflowState extends WorkflowData {
+  $name = 'assignment-workflow-state'
   assignmentId: string
   bundleId: string
   assigneeId: string
@@ -105,18 +106,11 @@ interface AssignmentWorkflowDependencies {
   logger: Logger
 }
 
-export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, AssignmentWorkflowDependencies>(
-  'assignment',
-  c => ({
-    bus: c.get<Bus>(BUS_SYMBOLS.Bus),
-    logger: c.get<Logger>(LOGGER_SYMBOLS.Logger)
-  })
-)
+export const assignmentWorkflow = Workflow
+  .configure('assignment', AssignmentWorkflowState)
   .startedBy(
     AssignmentCreated,
-    ({ message }) => {
-      return { assignmentId: message.assignmentId }
-    }
+    ({ message }) => ({ assignmentId: message.assignmentId })
   )
     .when(
       AssignmentAssigned,
@@ -124,13 +118,13 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, Assign
         lookup: e => e.assignmentId,
         mapsTo: 'assignmentId'
       },
-      async ({ message, dependencies: { bus } }) => {
+      async ({ message }) => {
         const bundleId = uuid.v4()
         const createAssignmentBundle = new CreateAssignmentBundle(
           message.assignmentId,
           bundleId
         )
-        await bus.send(createAssignmentBundle)
+        await Bus.send(createAssignmentBundle)
         return { bundleId, assigneeId: message.assigneeId }
       }
     )
@@ -140,16 +134,15 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, Assign
         lookup: (_, messageAttributes) => messageAttributes.correlationId,
         mapsTo: '$workflowId'
       },
-      async ({ message, state, messageAttributes, dependencies: { bus } }) => {
-        const notifyAssignmentAssigned = new NotifyAssignmentAssigned(state.assignmentId)
-        await bus.send(notifyAssignmentAssigned)
+      async ({ message, workflowState }) => {
+        const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
+        await Bus.send(notifyAssignmentAssigned)
 
         const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
-          state.assignmentId,
+          workflowState.assignmentId,
           message.unassignedUserId
         )
-        await bus.send(notifyAssignmentReassigned)
-        return {}
+        await Bus.send(notifyAssignmentReassigned)
       }
     )
     .when(
@@ -158,13 +151,11 @@ export const assignmentWorkflow = new FnWorkflow<AssignmentWorkflowState, Assign
         lookup: e => e.assignmentId,
         mapsTo: 'assignmentId'
       },
-      async ({ dependencies: { logger }}) => completeWorkflow()
+      async () => completeWorkflow()
     )
 
 describe('Workflow', () => {
-  let container: Container
   let persistence: Persistence
-  let bootstrap: ApplicationBootstrap
   const event = new AssignmentCreated('abc')
 
   let bus: Bus
@@ -177,11 +168,11 @@ describe('Workflow', () => {
     container.load(new BusWorkflowModule())
     container.rebind(LOGGER_SYMBOLS.Logger).toConstantValue(Mock.ofType<Logger>().object)
 
-    persistence = container.get<Persistence>(BUS_WORKFLOW_SYMBOLS.Persistence)
-
-    const workflowRegistry = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
-    await workflowRegistry.registerFunctional(assignmentWorkflow)
-    await workflowRegistry.initializeWorkflows()
+    await Bus
+      .configure()
+      .withLogger(Mock.ofType<Logger>().object)
+      .withWorkflow(assignmentWorkflow)
+      .initialize()
 
     bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     await bootstrap.initialize(container)

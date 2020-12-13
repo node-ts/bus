@@ -1,8 +1,8 @@
 import { Message } from '@node-ts/bus-messages'
 import { ClassConstructor } from '@node-ts/bus-core'
-import { WorkflowData } from '../workflow-data'
+import { WorkflowData } from '../workflow/workflow-data'
 import { ReflectExtensions } from '../../utility/reflect-extensions'
-import { Workflow, WorkflowConstructor } from '../workflow'
+import { Workflow, WorkflowConstructor } from '../workflow/workflow.old'
 import { WorkflowWithHandler } from './handler-workflow'
 
 export const WORKFLOW_STARTED_BY_METADATA_KEY = Symbol.for('node-ts/bus/workflow-started-by-metadata')

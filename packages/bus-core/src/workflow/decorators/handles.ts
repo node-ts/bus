@@ -1,8 +1,8 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowData } from '../workflow-data'
-import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { WorkflowData } from '../workflow/workflow-data'
+import { MessageWorkflowMapping } from '../workflow/message-workflow-mapping'
 import { ReflectExtensions } from '../../utility/reflect-extensions'
-import { Workflow, WorkflowConstructor } from '../workflow'
+import { Workflow, WorkflowConstructor } from '../workflow/workflow.old'
 import { WorkflowWithHandler } from './handler-workflow'
 import { ClassConstructor } from '@node-ts/bus-core'
 

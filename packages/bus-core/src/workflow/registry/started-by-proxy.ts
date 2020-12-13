@@ -1,6 +1,6 @@
 import { Message } from '@node-ts/bus-messages'
 import { Logger } from '@node-ts/logger-core'
-import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
+import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow/workflow-data'
 import { Persistence } from '../persistence'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 import { WorkflowHandlerProxy } from './workflow-handler-proxy'

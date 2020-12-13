@@ -1,5 +1,3 @@
-import { injectable } from 'inversify'
-
 export enum WorkflowStatus {
   /**
    * The workflow is still active and has not yet finished
@@ -21,10 +19,9 @@ export enum WorkflowStatus {
  * A base workflow data definition to model and persist the state of a workflow throughout
  * its lifespan.
  */
-@injectable()
 export abstract class WorkflowData {
   /**
-   * Unique identifer of the workflow data
+   * Unique identifier of the workflow data
    */
   $workflowId: string
 

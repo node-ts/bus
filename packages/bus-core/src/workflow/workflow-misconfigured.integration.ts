@@ -2,16 +2,16 @@ import { Container } from 'inversify'
 import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
 import { Persistence } from './persistence'
 import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
-import { TestCommand } from '../test'
+import { TestCommand } from './test'
 import { sleep } from '../utility'
 import { WorkflowRegistry } from './registry/workflow-registry'
-import { BusWorkflowModule } from '../bus-workflow-module'
+import { BusWorkflowModule } from './bus-workflow-module'
 import { LoggerModule, LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times, It } from 'typemoq'
 import {
   TestWorkflowMisconfigured,
   TestWorkflowMisconfiguredData
-} from '../test/test-workflow-misconfigured'
+} from './test/test-workflow-misconfigured'
 
 describe('WorkflowMisconfigured', () => {
   let container: Container

@@ -3,8 +3,7 @@ import { WorkflowData, WorkflowStatus } from '../workflow-data'
 import { ClassConstructor } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { injectable, inject } from 'inversify'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import { getLogger } from '../../util'
 
 interface WorkflowStorage {
   [workflowDataName: string]: WorkflowData[]
@@ -15,15 +14,9 @@ interface WorkflowStorage {
  * be warned that all workflow data will not survive a process restart or application shut down. As
  * such this should only be used for testing, prototyping or handling unimportant workflows.
  */
-@injectable()
 export class InMemoryPersistence implements Persistence {
 
   private workflowData: WorkflowStorage = {}
-
-  constructor (
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
-  ) {
-  }
 
   async initializeWorkflow<TWorkflowData extends WorkflowData> (
     workflowDataConstructor: ClassConstructor<TWorkflowData>,
@@ -48,7 +41,7 @@ export class InMemoryPersistence implements Persistence {
     const workflowDataName = new workflowDataConstructor().$name
     const workflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
     if (!workflowData) {
-      this.logger.error('Workflow data not initialized', { workflowDataName })
+      getLogger().error('Workflow data not initialized', { workflowDataName })
     }
     return workflowData
       .filter(data =>
@@ -70,7 +63,7 @@ export class InMemoryPersistence implements Persistence {
           workflowData
         )
       } catch (err) {
-        this.logger.error('Unable to update data', { err })
+        getLogger().error('Unable to update data', { err })
         throw err
       }
     } else {

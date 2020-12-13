@@ -5,6 +5,8 @@ import { Serializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor, setLogger, Logger } from '../util'
 import { ServiceBus } from './service-bus'
+import { Workflow } from '../workflow'
+import { workflowRegistry } from '../workflow/registry/workflow-registry'
 
 let serviceBus: ServiceBus | undefined
 const getServiceBus = () => {
@@ -32,6 +34,7 @@ class BusConfiguration {
       await transport.initialize(handlerRegistry)
     }
     serviceBus = new ServiceBus(transport)
+    await workflowRegistry.initialize()
   }
 
   withHandler<MessageType extends Message> (
@@ -45,6 +48,13 @@ class BusConfiguration {
     handlerRegistry.register(
       messageType,
       messageHandler
+    )
+    return this
+  }
+
+  withWorkflow (workflow: Workflow): this {
+    workflowRegistry.register(
+      workflow
     )
     return this
   }
