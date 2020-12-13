@@ -1,11 +1,11 @@
 import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
 import { TestCommand, TestEvent, TestCommand2 } from '../test'
 import { TransportMessage } from '../transport'
-import { Mock } from 'typemoq'
-import { Logger } from '@node-ts/logger-core'
-import { HandlerRegistry } from '../handler'
+import { handlerRegistry } from '../handler'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
+import { Logger, setLogger } from '../service-bus/logger'
+import { Mock } from 'typemoq'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -13,22 +13,18 @@ const command2 = new TestCommand2()
 
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
-  const handledMessageNames = [TestCommand.NAME, TestEvent.NAME]
   const messageOptions = new MessageAttributes({
     correlationId: faker.random.uuid()
    })
 
   beforeEach(async () => {
-    sut = new MemoryQueue(
-      Mock.ofType<Logger>().object
-    )
+    sut = new MemoryQueue()
 
-    const handlerRegistry = Mock.ofType<HandlerRegistry>()
-    handlerRegistry
-      .setup(h => h.getMessageNames())
-      .returns(() => handledMessageNames)
+    setLogger(Mock.ofType<Logger>().object)
+    handlerRegistry.register(TestEvent, () => undefined)
+    handlerRegistry.register(TestCommand, () => undefined)
 
-    await sut.initialize(handlerRegistry.object)
+    await sut.initialize()
   })
 
   describe('when publishing an event', () => {
