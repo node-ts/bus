@@ -1,11 +1,9 @@
 import { Command, Event, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Logger } from '@node-ts/logger-core'
 import { handlerRegistry } from '../handler'
 import { Handler } from '../handler/handler'
 import { Serializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
-import { ClassConstructor } from '../util'
-import { setLogger } from './logger'
+import { ClassConstructor, setLogger, Logger } from '../util'
 import { ServiceBus } from './service-bus'
 
 let serviceBus: ServiceBus | undefined

@@ -1487,6 +1487,20 @@
     call-me-maybe "^1.0.1"
     glob-to-regexp "^0.3.0"
 
+"@node-ts/bus-core@^0.4.9":
+  version "0.4.9"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-core/-/bus-core-0.4.9.tgz#222a4b158c6ac53955ba980ec0a53d893c5d06d6"
+  integrity sha512-vUKJIXVkltpoiLcVmAU4fcYnJX7AR1z/oxRYBNnEcPf9MMBKYnr/SdWLADz+gDVo6CLMjqD/sJTQUJKjTPGukg==
+  dependencies:
+    "@node-ts/bus-messages" "^0.1.4"
+    "@types/node" "^12.0.0"
+    autobind-decorator "^2.4.0"
+    class-transformer "^0.2.0"
+    inversify "^5.0.1"
+    reflect-metadata "^0.1.13"
+    serialize-error "^4.1.0"
+    tslib "^1.9.3"
+
 "@node-ts/code-standards@^0.0.10":
   version "0.0.10"
   resolved "https://registry.yarnpkg.com/@node-ts/code-standards/-/code-standards-0.0.10.tgz#0393a085f0ca0a6d7470d8f7e733b091b2671e0e"

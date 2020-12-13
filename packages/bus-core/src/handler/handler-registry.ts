@@ -1,6 +1,5 @@
 import { Message } from '@node-ts/bus-messages'
-import { ClassConstructor } from '../util/class-constructor'
-import { getLogger } from '../service-bus/logger'
+import { ClassConstructor, getLogger } from '../util'
 import { HandlerAlreadyRegistered } from './errors'
 import { Handler } from './handler'
 

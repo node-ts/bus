@@ -2,7 +2,7 @@ import { Transport } from './transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { handlerRegistry } from '../handler'
-import { getLogger } from '../service-bus/logger'
+import { getLogger } from '../util'
 
 export const RETRY_LIMIT = 10
 

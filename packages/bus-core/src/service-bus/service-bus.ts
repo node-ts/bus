@@ -1,9 +1,8 @@
 import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep } from '../util'
+import { sleep, getLogger} from '../util'
 import { Handler, handlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
-import { getLogger } from './logger'
 import { BusState } from './bus'
 
 const EMPTY_QUEUE_SLEEP_MS = 500

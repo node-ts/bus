@@ -1,16 +1,13 @@
 import { SqsTransport } from './sqs-transport'
 import {
-  TestContainer,
-  TestCommandHandler,
+  testCommandHandler,
   TestCommand,
-  HandleChecker,
-  HANDLE_CHECKER
+  HandleChecker
 } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
+import { Bus, sleep } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
-import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { IMock, Mock, Times, It } from 'typemoq'
+import { Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -68,34 +65,20 @@ const sqsConfiguration: SqsTransportConfiguration = {
 }
 
 describe('SqsTransport', () => {
-  let container: TestContainer
-  let sut: SqsTransport
-  let bootstrap: ApplicationBootstrap
   let sqs: SQS
   let sns: SNS
-  let bus: Bus
 
-  let handleChecker: IMock<HandleChecker>
+  let handleChecker = Mock.ofType<HandleChecker>()
 
   beforeAll(async () => {
-    container = new TestContainer()
-    container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
-    sut = container.get(BUS_SYMBOLS.Transport)
-    sqs = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
-    sns = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sns)
-    bus = container.get(BUS_SYMBOLS.Bus)
-    bootstrap = container.get(BUS_SYMBOLS.ApplicationBootstrap)
-
-    handleChecker = Mock.ofType<HandleChecker>()
-    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
-
-    bootstrap.registerHandler(TestCommandHandler)
+    sqs = new SQS()
+    sns = new SNS()
   })
 
   afterAll(async () => {
     // tslint:disable-next-line:no-magic-numbers A timeout > 10s which is the default sqs receive timeout
     jest.setTimeout(15000)
-    await bootstrap.dispose()
+    await Bus.dispose()
     await sqs.deleteQueue({
       QueueUrl: sqsConfiguration.queueUrl
     }).promise()
@@ -108,9 +91,13 @@ describe('SqsTransport', () => {
   })
 
   describe('when the transport has been initialized', () => {
-
     beforeAll(async () => {
-      await bootstrap.initialize(container)
+      const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
+      await Bus.configure()
+        .withTransport(sqsTransport)
+        .withHandler(TestCommand, testCommandHandler(handleChecker.object))
+        .initialize()
+      await Bus.start()
     })
 
     it('should create the service queue', async () => {
@@ -152,7 +139,7 @@ describe('SqsTransport', () => {
       }
 
       beforeAll(async () => {
-        await bus.send(testCommand, messageOptions)
+        await Bus.send(testCommand, messageOptions)
       })
 
       it('should receive and dispatch to the handler', async () => {
