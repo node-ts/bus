@@ -1,9 +1,6 @@
-// tslint:disable:max-classes-per-file
-
-import { Workflow, WorkflowData } from '../workflow'
-import { injectable } from 'inversify'
+import { Workflow } from '../workflow'
+import { WorkflowData } from '../workflow-data'
 import { TestCommand } from './test-command'
-import { StartedBy } from '../workflow/decorators'
 
 export class TestWorkflowStartedByDiscardData extends WorkflowData {
   $name = 'node-ts/bus/workflow/test-workflow-started-by-discard'
@@ -11,13 +8,8 @@ export class TestWorkflowStartedByDiscardData extends WorkflowData {
 }
 
 /**
- * A test case where the workflow is completed in the StartedBy handler
+ * A test case where the workflow is completes during startup without persisting state
  */
-@injectable()
-export class TestWorkflowStartedByDiscard extends Workflow<TestWorkflowStartedByDiscardData> {
-
-  @StartedBy<TestCommand, TestWorkflowStartedByDiscardData, 'handleTestCommand'>(TestCommand)
-  handleTestCommand (_: TestCommand): Partial<TestWorkflowStartedByDiscardData> {
-    return this.discard()
-  }
-}
+export const testWorkflowStartedByDiscard = Workflow
+  .configure('testWorkflowStartedByDiscard', TestWorkflowStartedByDiscardData)
+  .startedBy(TestCommand, () => undefined)

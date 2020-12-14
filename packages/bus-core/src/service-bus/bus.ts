@@ -30,12 +30,13 @@ class BusConfiguration {
   private configuredTransport: Transport | undefined
 
   async initialize (): Promise<void> {
+    await workflowRegistry.initialize()
+
     const transport = this.configuredTransport || new MemoryQueue()
     if (transport.initialize) {
       await transport.initialize(handlerRegistry)
     }
     serviceBus = new ServiceBus(transport)
-    await workflowRegistry.initialize()
   }
 
   withHandler<MessageType extends Message> (

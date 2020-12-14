@@ -1,10 +1,10 @@
 import { completeWorkflow, Workflow } from '../workflow'
 import { TestWorkflowData } from './test-workflow-data'
-import { Bus } from '@node-ts/bus-core'
 import { TestCommand } from './test-command'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
 import { FinalTask } from './final-task'
+import { Bus } from '../../service-bus'
 
 export const testWorkflow = Workflow
   .configure('testWorkflow', TestWorkflowData)

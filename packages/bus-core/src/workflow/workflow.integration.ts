@@ -1,71 +1,57 @@
-import { Container } from 'inversify'
-import { BusModule, Bus, BUS_SYMBOLS, ApplicationBootstrap } from '@node-ts/bus-core'
-import { Persistence } from './persistence'
-import { BUS_WORKFLOW_SYMBOLS } from '../bus-workflow-symbols'
-import { TestCommand, TestWorkflowData, TestWorkflow, TaskRan, FinalTask } from './test'
-import { MessageWorkflowMapping } from './message-workflow-mapping'
-import { sleep } from '../utility'
+import { InMemoryPersistence, Persistence } from './persistence'
+import { TestCommand, TestWorkflowData, testWorkflow, TaskRan, FinalTask } from './test'
 import { WorkflowStatus } from './workflow-data'
-import { WorkflowRegistry } from './registry/workflow-registry'
-import { BusWorkflowModule } from './bus-workflow-module'
-import { LoggerModule, LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import { Logger } from '@node-ts/logger-core'
 import {
-  TestWorkflowStartedByCompletes,
+  testWorkflowStartedByCompletes,
   TestWorkflowStartedByCompletesData
 } from './test/test-workflow-startedby-completes'
 import {
-  TestWorkflowStartedByDiscard,
+  testWorkflowStartedByDiscard,
   TestWorkflowStartedByDiscardData
 } from './test/test-workflow-startedby-discard'
 import { Mock } from 'typemoq'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { Bus } from '../service-bus'
+import { sleep } from '../util'
+import { MessageWorkflowMapping } from './message-workflow-mapping'
+import { getPersistence } from './persistence/persistence'
 
 describe('Workflow', () => {
-  let container: Container
-  let persistence: Persistence
-  let bootstrap: ApplicationBootstrap
-
   const command = new TestCommand('abc')
-  let bus: Bus
   const CONSUME_TIMEOUT = 500
 
   beforeAll(async () => {
-    container = new Container()
-    container.load(new LoggerModule())
-    container.load(new BusModule())
-    container.load(new BusWorkflowModule())
-    container.rebind(LOGGER_SYMBOLS.Logger).toConstantValue(Mock.ofType<Logger>().object)
 
-    persistence = container.get<Persistence>(BUS_WORKFLOW_SYMBOLS.Persistence)
+    const inMemoryPersistence = new InMemoryPersistence()
 
-    const workflowRegistry = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
-    workflowRegistry.register(TestWorkflow, TestWorkflowData)
-    workflowRegistry.register(TestWorkflowStartedByCompletes, TestWorkflowStartedByCompletesData)
-    workflowRegistry.register(TestWorkflowStartedByDiscard, TestWorkflowStartedByDiscardData)
-    await workflowRegistry.initializeWorkflows()
+    await Bus.configure()
+      .withPersistence(inMemoryPersistence)
+      .withLogger(Mock.ofType<Logger>().object)
+      .withWorkflow(testWorkflow)
+      .withWorkflow(testWorkflowStartedByCompletes)
+      .withWorkflow(testWorkflowStartedByDiscard)
+      .initialize()
 
-    bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    await bootstrap.initialize(container)
-
-    bus = container.get(BUS_SYMBOLS.Bus)
-    await bus.send(command)
+    await Bus.start()
+    await Bus.send(command)
     await sleep(CONSUME_TIMEOUT)
   })
 
   afterAll(async () => {
-    await bootstrap.dispose()
+    await Bus.dispose()
   })
 
   describe('when a message that starts a workflow is received', () => {
-    const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData> (
-      cmd => cmd.property1,
-      'property1'
-    )
+    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+      lookupMessage: cmd => cmd.property1,
+      workflowDataProperty: 'property1'
+    }
     let workflowData: TestWorkflowData[]
     const messageOptions = new MessageAttributes()
 
     beforeAll(async () => {
-      workflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
+      workflowData = await getPersistence().getWorkflowData<TestWorkflowData, TestCommand>(
         TestWorkflowData,
         propertyMapping,
         command,
@@ -86,10 +72,10 @@ describe('Workflow', () => {
       let nextWorkflowData: TestWorkflowData[]
 
       beforeAll(async () => {
-        await bus.publish(event)
+        await Bus.publish(event)
         await sleep(CONSUME_TIMEOUT)
 
-        nextWorkflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
+        nextWorkflowData = await getPersistence().getWorkflowData<TestWorkflowData, TestCommand>(
           TestWorkflowData,
           propertyMapping,
           command,
@@ -107,13 +93,13 @@ describe('Workflow', () => {
         let finalWorkflowData: TestWorkflowData[]
 
         beforeAll(async () => {
-          await bus.publish(
+          await Bus.publish(
             finalTask,
             new MessageAttributes({ correlationId: nextWorkflowData[0].$workflowId })
           )
           await sleep(CONSUME_TIMEOUT)
 
-          finalWorkflowData = await persistence.getWorkflowData<TestWorkflowData, TestCommand>(
+          finalWorkflowData = await getPersistence().getWorkflowData<TestWorkflowData, TestCommand>(
             TestWorkflowData,
             propertyMapping,
             command,
@@ -133,13 +119,13 @@ describe('Workflow', () => {
 
   describe('when a workflow is completed in a StartedBy handler', () => {
     const messageOptions = new MessageAttributes()
-    const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> (
-      cmd => cmd.property1,
-      'property1'
-    )
+    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> = {
+      lookupMessage: cmd => cmd.property1,
+      workflowDataProperty: 'property1'
+    }
 
     it('should persist the workflow as completed', async () => {
-      const workflowData = await persistence.getWorkflowData<TestWorkflowStartedByCompletesData, TestCommand>(
+      const workflowData = await getPersistence().getWorkflowData<TestWorkflowStartedByCompletesData, TestCommand>(
         TestWorkflowStartedByCompletesData,
         propertyMapping,
         command,
@@ -153,15 +139,15 @@ describe('Workflow', () => {
     })
   })
 
-  describe('when a StartedBy handler returns a discardStep', () => {
+  describe('when a StartedBy handler returns undefined', () => {
     const messageOptions = new MessageAttributes()
-    const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> (
-      cmd => cmd.property1,
-      'property1'
-    )
+    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> = {
+      lookupMessage: cmd => cmd.property1,
+      workflowDataProperty: 'property1'
+    }
 
     it('should not persist the workflow', async () => {
-      const workflowData = await persistence.getWorkflowData<TestWorkflowStartedByDiscardData, TestCommand>(
+      const workflowData = await getPersistence().getWorkflowData<TestWorkflowStartedByDiscardData, TestCommand>(
         TestWorkflowStartedByDiscardData,
         propertyMapping,
         command,

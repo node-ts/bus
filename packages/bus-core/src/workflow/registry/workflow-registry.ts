@@ -123,10 +123,6 @@ class WorkflowRegistry {
     this.isInitializing = true
     getLogger().info('Initializing workflows...')
 
-    if (getPersistence().initialize) {
-      await getPersistence().initialize!()
-    }
-
     for (const workflow of this.workflowRegistry) {
 
       this.registerFnStartedBy(workflow)
@@ -144,6 +140,11 @@ class WorkflowRegistry {
     }
 
     this.workflowRegistry = []
+
+    if (getPersistence().initialize) {
+      await getPersistence().initialize!()
+    }
+
     this.isInitialized = true
     this.isInitializing = false
     getLogger().info('Workflows initialized')
