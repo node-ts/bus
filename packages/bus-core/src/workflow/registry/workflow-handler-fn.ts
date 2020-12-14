@@ -1,5 +1,5 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowData } from '../workflow/workflow-data'
+import { WorkflowData } from '../workflow-data'
 
 export type WorkflowHandlerFn<TMessage extends Message, TWorkflowData extends WorkflowData> = (
   message: TMessage,

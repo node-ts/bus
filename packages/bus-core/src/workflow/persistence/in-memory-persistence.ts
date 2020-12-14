@@ -1,9 +1,8 @@
 import { Persistence } from './persistence'
 import { WorkflowData, WorkflowStatus } from '../workflow-data'
-import { ClassConstructor } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { getLogger } from '../../util'
+import { ClassConstructor, getLogger } from '../../util'
 
 interface WorkflowStorage {
   [workflowDataName: string]: WorkflowData[]

@@ -14,6 +14,9 @@ export type WorkflowConstructor<
 > = ClassConstructor<TWorkflow>
 
 
+/**
+ * A handler that accepts a message as part of a running workflow
+ */
 export type WhenHandler<MessageType extends Message, State extends WorkflowData> = (
   parameters: {
     message: MessageType,

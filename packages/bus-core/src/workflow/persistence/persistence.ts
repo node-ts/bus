@@ -1,7 +1,18 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { ClassConstructor } from '@node-ts/bus-core'
 import { WorkflowData } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { ClassConstructor } from '../../util'
+
+let configuredPersistence: Persistence | undefined
+export const setPersistence = (persistence: Persistence) =>
+  configuredPersistence = persistence
+
+export const getPersistence = (): Persistence => {
+  if (!configuredPersistence) {
+    throw new Error('Persistence not configured')
+  }
+  return configuredPersistence
+}
 
 /**
  * Infrastructure that provides the ability to persist workflow state for long running processes

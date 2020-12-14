@@ -1,16 +1,11 @@
-import { WorkflowData, WorkflowDataConstructor, WorkflowStatus } from '../workflow-data'
-import { WorkflowHandlerFn } from './workflow-handler-fn'
+import { WorkflowData, WorkflowStatus } from '../workflow-data'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { handlerRegistry, ClassConstructor, getLogger } from '@node-ts/bus-core'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { Persistence } from '../persistence'
-import { StartedByProxy } from './started-by-proxy'
-import { HandlesProxy } from './handles-proxy'
-import { WorkflowStartedByMetadata } from '../decorators/started-by'
-import { WorkflowHandlesMetadata } from '../decorators/handles'
 import * as uuid from 'uuid'
-import { Workflow, WhenHandler, OnWhenHandler, WorkflowConstructor } from '../workflow'
-import { Handler } from 'src/handler'
+import { Workflow, WhenHandler, OnWhenHandler } from '../workflow'
+import { getPersistence } from '../persistence/persistence'
+import { ClassConstructor, getLogger } from '../../util'
+import { handlerRegistry } from '../../handler/handler-registry'
 
 const createWorkflowState = <TWorkflowData extends WorkflowData> (workflowStateType: ClassConstructor<TWorkflowData>) => {
   const data = new workflowStateType()
@@ -25,10 +20,14 @@ const dispatchMessageToWorkflow = async (
   workflowName: string,
   workflowData: WorkflowData,
   workflowDataConstructor: ClassConstructor<WorkflowData>,
-  handler: WorkflowHandlerFn<Message, WorkflowData>
+  handler: WhenHandler<Message, WorkflowData>
 ) => {
   const immutableWorkflowData = Object.freeze({...workflowData})
-  const workflowDataOutput = await handler(message, immutableWorkflowData, messageAttributes)
+  const workflowDataOutput = await handler({
+    message,
+    messageAttributes,
+    workflowState: immutableWorkflowData
+  })
 
   if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
     getLogger().debug(
@@ -67,7 +66,7 @@ const dispatchMessageToWorkflow = async (
 
 const persist = async (data: WorkflowData) => {
   try {
-    await this.persistence.saveWorkflowData(data)
+    await getPersistence().saveWorkflowData(data)
     getLogger().info('Saving workflow data', { data })
   } catch (err) {
     getLogger().error('Error persisting workflow data', { err })
@@ -124,8 +123,8 @@ class WorkflowRegistry {
     this.isInitializing = true
     getLogger().info('Initializing workflows...')
 
-    if (this.persistence.initialize) {
-      await this.persistence.initialize()
+    if (getPersistence().initialize) {
+      await getPersistence().initialize!()
     }
 
     for (const workflow of this.workflowRegistry) {
@@ -133,9 +132,15 @@ class WorkflowRegistry {
       this.registerFnStartedBy(workflow)
       this.registerFnHandles(workflow)
 
-      const messageWorkflowMappings = messageHandlers.map(s => s.messageWorkflowMapping)
-      await persistence.initializeWorkflow(registration.workflowDataConstructor, messageWorkflowMappings)
-      getLogger().debug('Workflow initialized', { workflowName: registration.workflowConstructor.name })
+      const messageWorkflowMappings: MessageWorkflowMapping[] = Array.from<[ClassConstructor<Message>, OnWhenHandler], MessageWorkflowMapping>(
+        workflow.onWhen,
+        ([_, onWhenHandler]) => ({
+          lookupMessage: onWhenHandler.options.lookup,
+          workflowDataProperty: onWhenHandler.options.mapsTo
+        })
+      )
+      await getPersistence().initializeWorkflow(workflow.stateType, messageWorkflowMappings)
+      getLogger().debug('Workflow initialized', { workflowName: workflow.workflowName })
     }
 
     this.workflowRegistry = []
@@ -145,8 +150,8 @@ class WorkflowRegistry {
   }
 
   async dispose (): Promise<void> {
-    if (this.persistence.dispose) {
-      await this.persistence.dispose()
+    if (getPersistence().dispose) {
+      await getPersistence().dispose!()
     }
   }
 
@@ -160,7 +165,12 @@ class WorkflowRegistry {
           const workflowState = createWorkflowState(workflow.stateType)
           const immutableWorkflowState = Object.freeze({...workflowState})
           const result = await handler({ message, messageAttributes, workflowState: immutableWorkflowState })
-          await persistence.saveWorkflowData(result)
+          if (result) {
+            await getPersistence().saveWorkflowData({
+              ...workflowState,
+              ...result
+            })
+          }
         }
     ))
   }
@@ -176,10 +186,10 @@ class WorkflowRegistry {
       handlerRegistry.register(
         messageConstructor,
         async (message, messageAttributes) => {
-          const workflowState = await persistence.getWorkflowData(
+          const workflowState = await getPersistence().getWorkflowData(
             workflow.stateType,
             messageMapping,
-            messageConstructor,
+            message,
             messageAttributes,
             false
           )

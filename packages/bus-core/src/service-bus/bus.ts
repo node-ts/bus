@@ -5,8 +5,9 @@ import { Serializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor, setLogger, Logger } from '../util'
 import { ServiceBus } from './service-bus'
-import { Workflow } from '../workflow'
+import { Persistence, Workflow } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
+import { setPersistence } from 'src/workflow/persistence/persistence'
 
 let serviceBus: ServiceBus | undefined
 const getServiceBus = () => {
@@ -70,6 +71,11 @@ class BusConfiguration {
   }
 
   withSerializer (serializerConfiguration: Serializer): this {
+    return this
+  }
+
+  withPersistence (persistence: Persistence): this {
+    setPersistence(persistence)
     return this
   }
 }
