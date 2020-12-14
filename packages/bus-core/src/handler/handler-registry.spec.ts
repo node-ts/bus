@@ -3,7 +3,7 @@ import { Mock, IMock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
 import { TestEvent, testEventHandler, MessageLogger } from '../test'
 import { HandlerAlreadyRegistered } from './errors'
-import { setLogger } from '../service-bus/logger'
+import { setLogger } from '../util'
 
 describe('HandlerRegistry', () => {
 

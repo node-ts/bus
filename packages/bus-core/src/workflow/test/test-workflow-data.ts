@@ -1,4 +1,4 @@
-import { WorkflowData } from '../workflow'
+import { WorkflowData } from '../workflow-data'
 
 export class TestWorkflowData extends WorkflowData {
   static NAME = 'TestWorkflowData'

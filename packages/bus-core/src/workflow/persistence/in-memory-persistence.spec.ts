@@ -1,35 +1,31 @@
 import { InMemoryPersistence } from './in-memory-persistence'
 import { TestWorkflowData, TestCommand } from '../test'
-import { MessageWorkflowMapping } from '../workflow/message-workflow-mapping'
-import { WorkflowStatus } from '../workflow/workflow-data'
-import { Mock } from 'typemoq'
-import { Logger } from '@node-ts/logger-core'
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { WorkflowData, WorkflowStatus } from '../workflow-data'
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
-  const propertyMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData> (
-    message => message.property1,
-    'property1'
-  )
+  const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+    lookupMessage: message => message.property1,
+    workflowDataProperty: 'property1'
+  }
 
   beforeEach(() => {
-    sut = new InMemoryPersistence(
-      Mock.ofType<Logger>().object
-    )
+    sut = new InMemoryPersistence()
   })
 
   describe('when getting workflow data', () => {
     const messageOptions = new MessageAttributes()
 
     beforeEach(async () => {
-      const mapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData>(
-        command => command.property1,
-        'property1'
-      )
+      const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+        lookupMessage: command => command.property1,
+        workflowDataProperty: 'property1'
+      }
       await sut.initializeWorkflow(
         TestWorkflowData,
-        [mapping]
+        [mapping as MessageWorkflowMapping<Message, WorkflowData>]
       )
     })
 
@@ -53,10 +49,10 @@ describe('InMemoryPersistence', () => {
 
     describe('that doesn\'t exist', () => {
       let result: TestWorkflowData[]
-      const unmatchedMapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData> (
-        testMessage => testMessage.$name,
-        '$workflowId'
-      )
+      const unmatchedMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+        lookupMessage: testMessage => testMessage.$name,
+        workflowDataProperty: '$workflowId'
+      }
 
       beforeEach(async () => {
         result = await sut.getWorkflowData(
@@ -77,7 +73,7 @@ describe('InMemoryPersistence', () => {
     beforeEach(async () => {
       await sut.initializeWorkflow(
         TestWorkflowData,
-        [propertyMapping]
+        [propertyMapping as MessageWorkflowMapping<Message, WorkflowData>]
       )
     })
 
