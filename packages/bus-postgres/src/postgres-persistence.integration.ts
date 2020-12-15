@@ -1,47 +1,41 @@
-import { Bus, ApplicationBootstrap, BUS_SYMBOLS } from '@node-ts/bus-core'
+import { Bus, WorkflowStatus, MessageWorkflowMapping } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { PostgresPersistence } from './postgres-persistence'
-import { TestContainer, TestWorkflow, TestWorkflowData, TestCommand } from '../test'
-import { BUS_WORKFLOW_SYMBOLS, WorkflowRegistry, MessageWorkflowMapping, WorkflowStatus } from '@node-ts/bus-workflow'
 import { PostgresConfiguration } from './postgres-configuration'
-import { BUS_POSTGRES_SYMBOLS, BUS_POSTGRES_INTERNAL_SYMBOLS } from './bus-postgres-symbols'
+import { TestWorkflowData, TestCommand, testWorkflow } from '../test'
 import { Pool } from 'pg'
 import * as uuid from 'uuid'
 
 const configuration: PostgresConfiguration = {
   connection: {
-    connectionString: 'postgres://postgres:password@localhost:5432/postgres'
+    connectionString: 'postgres://postgres:password@localhost:6432/postgres'
   },
   schemaName: 'workflows'
 }
 
 describe('PostgresPersistence', () => {
-  let bus: Bus
   let sut: PostgresPersistence
-  let container: TestContainer
-  let bootstrap: ApplicationBootstrap
   let postgres: Pool
-  let workflows: WorkflowRegistry
 
   beforeAll(async () => {
-    container = new TestContainer()
-    container.bind(BUS_POSTGRES_SYMBOLS.PostgresConfiguration).toConstantValue(configuration)
-    bus = container.get(BUS_SYMBOLS.Bus)
-    sut = container.get(BUS_WORKFLOW_SYMBOLS.Persistence)
-    postgres = container.get(BUS_POSTGRES_INTERNAL_SYMBOLS.PostgresPool)
+    postgres = new Pool(configuration.connection)
+    await postgres.connect()
+    await postgres.query('create schema if not exists ' + configuration.schemaName)
 
-    workflows = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
-    workflows.register(TestWorkflow, TestWorkflowData)
-    await workflows.initializeWorkflows()
+    sut = PostgresPersistence.configure(configuration)
+    await Bus
+      .configure()
+      .withPersistence(sut)
+      .withWorkflow(testWorkflow)
+      .initialize()
 
-    bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    await bootstrap.initialize(container)
+    await Bus.start()
   })
 
   afterAll(async () => {
+    await Bus.dispose()
     await postgres.query('drop table if exists "workflows"."testworkflowdata"')
-    await bootstrap.dispose()
-    await workflows.dispose() // TODO hook to bootstrap lifecycle
+    await postgres.query('drop schema if exists ' + configuration.schemaName)
   })
 
   describe('when initializing the transport', () => {
@@ -77,10 +71,10 @@ describe('PostgresPersistence', () => {
       let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowData>
 
       it('should retrieve the item', async () => {
-        mapping = new MessageWorkflowMapping<TestCommand, TestWorkflowData> (
-          cmd => cmd.property1,
-          'property1'
-        )
+        mapping = {
+          lookupMessage: cmd => cmd.property1,
+          workflowDataProperty: 'property1'
+        }
         const results = await sut.getWorkflowData(
           TestWorkflowData,
           mapping,

@@ -35,6 +35,11 @@
     "transformIgnorePatterns": [
       "[/\\\\]node_modules[/\\\\](?!node-ts.+).+\\.ts$"
     ],
+    "coveragePathIgnorePatterns": [
+      ".js",
+      "\/error\/.*",
+      "\/test\/.*"
+    ],
     "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "testEnvironment": "node",
     "bail": true
@@ -45,7 +50,6 @@
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
     "@types/jest": "^24.0.12",
-    "inversify": "^5.0.1",
     "jest": "^24.7.1",
     "lerna": "^3.11.0",
     "reflect-metadata": "^0.1.13",

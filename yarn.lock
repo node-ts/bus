@@ -1487,6 +1487,15 @@
     call-me-maybe "^1.0.1"
     glob-to-regexp "^0.3.0"
 
+"@node-ts/bus-workflow@^0.4.9":
+  version "0.4.9"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-workflow/-/bus-workflow-0.4.9.tgz#dfceb971d077157da057a636be3af15aea122141"
+  integrity sha512-LzzM4EEMRtzCKSIV/bSAxTsVyO7maoQD6hvY5MKmZMF72YulpWNE2uee7ou0Qur749brFwbod06ikxmj0V3gzg==
+  dependencies:
+    "@node-ts/bus-messages" "^0.1.10"
+    tslib "^1.9.3"
+    uuid "^3.3.2"
+
 "@node-ts/code-standards@^0.0.10":
   version "0.0.10"
   resolved "https://registry.yarnpkg.com/@node-ts/code-standards/-/code-standards-0.0.10.tgz#0393a085f0ca0a6d7470d8f7e733b091b2671e0e"

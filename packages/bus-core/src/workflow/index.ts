@@ -1,4 +1,5 @@
 export * from './error'
 export * from './workflow'
 export * from './workflow-data'
+export * from './message-workflow-mapping'
 export { Persistence } from './persistence'

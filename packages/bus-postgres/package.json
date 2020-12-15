@@ -29,16 +29,12 @@
     "@types/amqplib": "^0.5.11",
     "@types/pg": "^7.4.14",
     "@types/uuid": "^3.4.4",
-    "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
     "typemoq": "^2.1.0",
     "typescript": "^3.3.3"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^1.0.0-alpha.0",
-    "@node-ts/bus-workflow": "^0.1.10",
-    "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.13"
+    "@node-ts/bus-core": "^1.0.0-alpha.0"
   },
   "keywords": [
     "esb",

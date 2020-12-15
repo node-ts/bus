@@ -1,7 +1,7 @@
 import { Command, Event, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { handlerRegistry } from '../handler'
 import { Handler } from '../handler/handler'
-import { Serializer } from '../serialization'
+import { Serializer, setSerializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor, setLogger, Logger } from '../util'
 import { ServiceBus } from './service-bus'
@@ -72,6 +72,7 @@ class BusConfiguration {
   }
 
   withSerializer (serializerConfiguration: Serializer): this {
+    setSerializer(serializerConfiguration)
     return this
   }
 
