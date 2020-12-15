@@ -49,11 +49,6 @@ export interface HandlerRegistry {
   getMessageConstructor<TMessage extends Message> (messageName: string): ClassConstructor<TMessage> | undefined
 
   /**
-   * Retrieves the identity of a handler. This is synonymous with a the handler's class name.
-   */
-  getHandlerId (handler: Handler<Message>): string
-
-  /**
    * Removes all handlers from the registry
    */
   reset (): void
@@ -117,10 +112,6 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       return undefined
     }
     return this.registry[messageName].messageType as ClassConstructor<T>
-  }
-
-  getHandlerId (handler: Handler): string {
-    return handler.constructor.name
   }
 
   reset (): void {
