@@ -111,52 +111,51 @@ export const assignmentWorkflow = Workflow
     AssignmentCreated,
     ({ message }) => ({ assignmentId: message.assignmentId })
   )
-    .when(
-      AssignmentAssigned,
-      {
-        lookup: e => e.assignmentId,
-        mapsTo: 'assignmentId'
-      },
-      async ({ message }) => {
-        const bundleId = uuid.v4()
-        const createAssignmentBundle = new CreateAssignmentBundle(
-          message.assignmentId,
-          bundleId
-        )
-        await Bus.send(createAssignmentBundle)
-        return { bundleId, assigneeId: message.assigneeId }
-      }
-    )
-    .when(
-      AssignmentReassigned,
-      {
-        lookup: (_, messageAttributes) => messageAttributes.correlationId,
-        mapsTo: '$workflowId'
-      },
-      async ({ message, workflowState }) => {
-        const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
-        await Bus.send(notifyAssignmentAssigned)
+  .when(
+    AssignmentAssigned,
+    {
+      lookup: e => e.assignmentId,
+      mapsTo: 'assignmentId'
+    },
+    async ({ message }) => {
+      const bundleId = uuid.v4()
+      const createAssignmentBundle = new CreateAssignmentBundle(
+        message.assignmentId,
+        bundleId
+      )
+      await Bus.send(createAssignmentBundle)
+      return { bundleId, assigneeId: message.assigneeId }
+    }
+  )
+  .when(
+    AssignmentReassigned,
+    {
+      lookup: (_, messageAttributes) => messageAttributes.correlationId,
+      mapsTo: '$workflowId'
+    },
+    async ({ message, workflowState }) => {
+      const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
+      await Bus.send(notifyAssignmentAssigned)
 
-        const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
-          workflowState.assignmentId,
-          message.unassignedUserId
-        )
-        await Bus.send(notifyAssignmentReassigned)
-      }
-    )
-    .when(
-      AssignmentCompleted,
-      {
-        lookup: e => e.assignmentId,
-        mapsTo: 'assignmentId'
-      },
-      async () => completeWorkflow()
-    )
+      const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
+        workflowState.assignmentId,
+        message.unassignedUserId
+      )
+      await Bus.send(notifyAssignmentReassigned)
+    }
+  )
+  .when(
+    AssignmentCompleted,
+    {
+      lookup: e => e.assignmentId,
+      mapsTo: 'assignmentId'
+    },
+    async () => completeWorkflow()
+  )
 
 describe('Workflow', () => {
   const event = new AssignmentCreated('abc')
 
-  let bus: Bus
   const CONSUME_TIMEOUT = 500
 
   beforeAll(async () => {
@@ -169,6 +168,7 @@ describe('Workflow', () => {
       .initialize()
 
     await Bus.send(event)
+    await Bus.start()
     await sleep(CONSUME_TIMEOUT)
   })
 
@@ -182,43 +182,34 @@ describe('Workflow', () => {
       workflowDataProperty: 'assignmentId'
     }
     const messageOptions = new MessageAttributes()
-    class AssignmentWorkflowData implements AssignmentWorkflowState {
-      $workflowId: string
-      $name = 'assignment'
-      $status: WorkflowStatus
-      $version: number
-
-      assignmentId: string
-      assigneeId: string
-      bundleId: string
-    }
-    let workflowData: AssignmentWorkflowData[]
+    let workflowData: AssignmentWorkflowState[]
 
     beforeAll(async () => {
-      workflowData = await getPersistence().getWorkflowData<AssignmentWorkflowData, AssignmentCreated>(
-        AssignmentWorkflowData,
-        propertyMapping,
-        event,
-        messageOptions
-      )
+      workflowData = await getPersistence()
+        .getWorkflowData<AssignmentWorkflowState, AssignmentCreated>(
+          AssignmentWorkflowState,
+          propertyMapping,
+          event,
+          messageOptions
+        )
     })
 
-    fit('should start a new workflow', () => {
+    it('should start a new workflow', () => {
       expect(workflowData).toHaveLength(1)
       const data = workflowData[0]
       expect(data).toMatchObject({ assignmentId: event.assignmentId, $version: 0 })
     })
 
-    xdescribe('and then a message for the next step is received', () => {
+    describe('and then a message for the next step is received', () => {
       const assignmentAssigned = new AssignmentAssigned(event.assignmentId, uuid.v4())
-      let startedWorkflowData: AssignmentWorkflowData[]
+      let startedWorkflowData: AssignmentWorkflowState[]
 
       beforeAll(async () => {
         await Bus.publish(assignmentAssigned)
         await sleep(CONSUME_TIMEOUT)
 
         startedWorkflowData = await getPersistence().getWorkflowData(
-          AssignmentWorkflowData,
+          AssignmentWorkflowState,
           propertyMapping,
           assignmentAssigned,
           messageOptions,
@@ -234,7 +225,7 @@ describe('Workflow', () => {
 
       describe('and then a message for the next step is received', () => {
         const assignmentReassigned = new AssignmentReassigned('foo', 'bar')
-        let nextWorkflowData: AssignmentWorkflowData[]
+        let nextWorkflowData: AssignmentWorkflowState[]
 
         beforeAll(async () => {
           await Bus.publish(
@@ -246,7 +237,7 @@ describe('Workflow', () => {
           await sleep(CONSUME_TIMEOUT)
 
           nextWorkflowData = await getPersistence().getWorkflowData(
-            AssignmentWorkflowData,
+            AssignmentWorkflowState,
             propertyMapping,
             assignmentAssigned,
             messageOptions,
@@ -260,7 +251,7 @@ describe('Workflow', () => {
 
         describe('and then a final message arrives', () => {
           const finalTask = new AssignmentCompleted(event.assignmentId)
-          let finalWorkflowData: AssignmentWorkflowData[]
+          let finalWorkflowData: AssignmentWorkflowState[]
 
           beforeAll(async () => {
             await Bus.publish(
@@ -270,7 +261,7 @@ describe('Workflow', () => {
             await sleep(CONSUME_TIMEOUT)
 
             finalWorkflowData = await getPersistence().getWorkflowData(
-              AssignmentWorkflowData,
+              AssignmentWorkflowState,
               propertyMapping,
               finalTask,
               messageOptions,

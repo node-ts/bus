@@ -3,6 +3,7 @@ import { WorkflowData, WorkflowStatus } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor, getLogger } from '../../util'
+import { WorkflowDataNotInitialized } from './error'
 
 interface WorkflowStorage {
   [workflowDataName: string]: WorkflowData[]
@@ -40,7 +41,7 @@ export class InMemoryPersistence implements Persistence {
     const workflowDataName = new workflowDataConstructor().$name
     const workflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
     if (!workflowData) {
-      getLogger().error('Workflow data not initialized', { workflowDataName })
+      throw new WorkflowDataNotInitialized('Workflow data not initialized')
     }
     return workflowData
       .filter(data =>
