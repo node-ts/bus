@@ -36,13 +36,13 @@ describe('PostgresPersistence', () => {
 
   afterAll(async () => {
     await Bus.dispose()
-    await postgres.query('drop table if exists "workflows"."testworkflowdata"')
+    await postgres.query('drop table if exists "workflows"."testworkflowstate"')
     await postgres.query('drop schema if exists ' + configuration.schemaName)
   })
 
   describe('when initializing the transport', () => {
     it('should create a workflow table', async () => {
-      const result = await postgres.query('select count(*) from "workflows"."testworkflowdata"')
+      const result = await postgres.query('select count(*) from "workflows"."testworkflowstate"')
       const { count } = result.rows[0] as { count: string }
       expect(count).toEqual('0')
     })
@@ -61,7 +61,7 @@ describe('PostgresPersistence', () => {
     })
 
     it('should add the row into the table', async () => {
-      const result = await postgres.query('select count(*) from "workflows"."testworkflowdata"')
+      const result = await postgres.query('select count(*) from "workflows"."testworkflowstate"')
       const { count } = result.rows[0] as { count: string }
       expect(count).toEqual('1')
     })
