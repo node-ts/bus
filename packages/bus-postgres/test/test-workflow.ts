@@ -14,6 +14,6 @@ export const testWorkflow = Workflow
   })
   .when(
     TaskRan,
-    { lookup: e => e.value, mapsTo: 'property1' },
+    { lookup: ({ message }) => message.value, mapsTo: 'property1' },
     ({ message: { value }}) => completeWorkflow({ eventValue: value })
   )
