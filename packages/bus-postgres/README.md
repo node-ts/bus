@@ -1,9 +1,9 @@
 # @node-ts/bus-postgres
 
-[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+[![Greenkeeper badge](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
 [![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-A Postgres based persistence for workflow storage.
+A Postgres based persistence for workflow storage in `@node-ts/bus`
 
 ## Installation
 
@@ -13,15 +13,11 @@ Install all packages and their dependencies
 npm i reflect-metadata @node-ts/bus-postgres @node-ts/bus-core
 ```
 
-Once installed, load the `BusPostgresModiule` to your inversify container alongside the other modules it depends on:
+Once installed, configure a new Postgres persistence and register it with `Bus`:
 
 ```typescript
 import { Bus } from '@node-ts/bus-core'
-
-const container = new Container()
-container.load(new LoggerModule())
-container.load(new BusModule())
-container.load(new BusPostgresModule())
+import { PostgresPersistence, PostgresConfiguration } from '@node-ts/bus-postgres'
 
 const configuration: PostgresConfiguration = {
   connection: {
@@ -29,19 +25,17 @@ const configuration: PostgresConfiguration = {
   },
   schemaName: 'workflows'
 }
-container.bind(BUS_POSTGRES_SYMBOLS.PostgresConfiguration).toConstantValue(configuration)
+
+const postgresPersistence = PostgresPersistence.configure(configuration)
 
 // Run the application
 const application = async () => {
-    workflows = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
-    workflows.register(TestWorkflow, TestWorkflowData) // Register all workflows here
-    await workflows.initializeWorkflows()
-
-    bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    await bootstrap.initialize(container)
+  await Bus
+    .configure()
+    .withPersistence(postgresPersistence)
+    .initialize()
 }
-application
-  .then(() => void)
+application.then(() => void)
 ```
 
 ## Development

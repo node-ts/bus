@@ -1,6 +1,6 @@
 # @node-ts/bus-sqs
 
-[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+[![Greenkeeper badge](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
 [![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 An AWS SQS transport adapter for `@node-ts/bus-core`.
@@ -10,22 +10,16 @@ An AWS SQS transport adapter for `@node-ts/bus-core`.
 Install all packages and their dependencies
 
 ```bash
-npm i reflect-metadata inversify @node-ts/bus-sqs @node-ts/bus-core
+npm i reflect-metadata @node-ts/bus-sqs @node-ts/bus-core
 ```
 
-Once installed, load the `BusSqsModule` to your inversify container alongside the other modules it depends on:
+Once installed, configure `Bus` to use this transport during initialization:
 
 ```typescript
-import { Container } from 'inversify'
-import { LoggerModule } from '@node-ts/logger-core'
-import { BusModule } from '@node-ts/bus-core'
-import { BUS_SQS_SYMBOLS, BusSqsModule, SqsConfiguration } from '@node-ts/bus-sqs'
+import { Bus } from '@node-ts/bus-core'
+import { SqsTransport, SqsConfiguration } from '@node-ts/bus-sqs'
 
-const container = new Container()
-container.load(new LoggerModule())
-container.load(new BusModule())
-container.load(new BusSqsModule())
-
+// Configure how `@node-ts/bus` will create resources in AWS
 const resourcePrefix = 'integration'
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
@@ -70,13 +64,11 @@ const sqsConfiguration: SqsTransportConfiguration = {
   }
 `
 }
-container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
-```
 
-## Development
-
-Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
-
-```bash
-docker run localstack/localstack
+// Configure `Bus` to use SQS as a transport
+const sqsTransport = new SqsTransport(sqsConfiguration)
+await Bus
+  .configure()
+  .withTransport(sqsTransport)
+  .initialize()
 ```
