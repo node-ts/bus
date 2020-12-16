@@ -3,7 +3,7 @@ import { MessageAttributes } from '@node-ts/bus-messages'
 import { PostgresPersistence } from './postgres-persistence'
 import { PostgresConfiguration } from './postgres-configuration'
 import { Mock } from 'typemoq'
-import { TestWorkflowData, TestCommand, testWorkflow } from '../test'
+import { TestWorkflowState, TestCommand, testWorkflow } from '../test'
 import { Pool } from 'pg'
 import * as uuid from 'uuid'
 
@@ -49,15 +49,15 @@ describe('PostgresPersistence', () => {
   })
 
   describe('when saving new workflow data', () => {
-    const workflowData = new TestWorkflowData()
-    workflowData.$workflowId = uuid.v4()
-    workflowData.$status = WorkflowStatus.Running
-    workflowData.$version = 0
-    workflowData.eventValue = 'abc'
-    workflowData.property1 = 'something'
+    const workflowState = new TestWorkflowState()
+    workflowState.$workflowId = uuid.v4()
+    workflowState.$status = WorkflowStatus.Running
+    workflowState.$version = 0
+    workflowState.eventValue = 'abc'
+    workflowState.property1 = 'something'
 
     beforeAll(async () => {
-      await sut.saveWorkflowData(workflowData)
+      await sut.saveWorkflowState(workflowState)
     })
 
     it('should add the row into the table', async () => {
@@ -67,40 +67,40 @@ describe('PostgresPersistence', () => {
     })
 
     describe('when getting the workflow data by property', () => {
-      const testCommand = new TestCommand(workflowData.property1)
+      const testCommand = new TestCommand(workflowState.property1)
       const messageOptions = new MessageAttributes()
-      let dataV1: TestWorkflowData
-      let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowData>
+      let dataV1: TestWorkflowState
+      let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState>
 
       it('should retrieve the item', async () => {
         mapping = {
           lookup: ({ message }) => message.property1,
           mapsTo: 'property1'
         }
-        const results = await sut.getWorkflowData(
-          TestWorkflowData,
+        const results = await sut.getWorkflowState(
+          TestWorkflowState,
           mapping,
           testCommand,
           messageOptions
         )
         expect(results).toHaveLength(1)
         dataV1 = results[0]
-        expect(dataV1).toMatchObject({ ...workflowData, $version: 1 })
+        expect(dataV1).toMatchObject({ ...workflowState, $version: 1 })
       })
 
       describe('when updating the workflow data', () => {
-        let updates: TestWorkflowData
-        let dataV2: TestWorkflowData
+        let updates: TestWorkflowState
+        let dataV2: TestWorkflowState
 
         beforeAll(async () => {
           updates = {
             ...dataV1,
             eventValue: 'something else'
           }
-          await sut.saveWorkflowData(updates)
+          await sut.saveWorkflowState(updates)
 
-          const results = await sut.getWorkflowData(
-            TestWorkflowData,
+          const results = await sut.getWorkflowState(
+            TestWorkflowState,
             mapping,
             testCommand,
             messageOptions

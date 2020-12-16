@@ -1,5 +1,5 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowData } from '../workflow-data'
+import { WorkflowState } from '../workflow-state'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { ClassConstructor } from '../../util'
 import { PersistenceNotConfigured } from './error'
@@ -36,32 +36,32 @@ export interface Persistence {
    * that it will be persisting. Typically for a database this could mean setting up the internal table
    * schema to support persisting of each of the workflow data models.
    */
-  initializeWorkflow<TWorkflowData extends WorkflowData> (
-    workflowDataConstructor: ClassConstructor<TWorkflowData>,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowData>[]
+  initializeWorkflow<TWorkflowState extends WorkflowState> (
+    workflowStateConstructor: ClassConstructor<TWorkflowState>,
+    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void>
 
   /**
    * Retrieves all workflow data models that match the given `messageMap` criteria
-   * @param workflowDataConstructor The workflow model type to retrieve
+   * @param workflowStateConstructor The workflow model type to retrieve
    * @param messageMap How the message is mapped to workflow data models
    * @param message The message to map to workflow data
    * @param includeCompleted If completed workflow data items should also be returned. False by default
    */
-  getWorkflowData<WorkflowDataType extends WorkflowData, MessageType extends Message> (
-    workflowDataConstructor: ClassConstructor<WorkflowDataType>,
-    messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
+  getWorkflowState<WorkflowStateType extends WorkflowState, MessageType extends Message> (
+    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
+    messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
     message: MessageType,
     messageOptions: MessageAttributes,
     includeCompleted?: boolean
-  ): Promise<WorkflowDataType[]>
+  ): Promise<WorkflowStateType[]>
 
   /**
    * Saves a new workflow data model or updates an existing one. Persistence implementations should take care
    * to observe the change in `$version` of the workflow data model when persisting to ensure race conditions
    * don't occur.
    */
-  saveWorkflowData<WorkflowDataType extends WorkflowData> (
-    workflowData: WorkflowDataType
+  saveWorkflowState<WorkflowStateType extends WorkflowState> (
+    workflowState: WorkflowStateType
   ): Promise<void>
 }

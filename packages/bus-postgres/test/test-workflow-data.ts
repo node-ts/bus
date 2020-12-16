@@ -1,8 +1,8 @@
-import { WorkflowData } from '@node-ts/bus-core'
+import { WorkflowState } from '@node-ts/bus-core'
 
-export class TestWorkflowData extends WorkflowData {
-  static NAME = 'TestWorkflowData'
-  $name = TestWorkflowData.NAME
+export class TestWorkflowState extends WorkflowState {
+  static NAME = 'TestWorkflowState'
+  $name = TestWorkflowState.NAME
 
   property1: string
   eventValue: string

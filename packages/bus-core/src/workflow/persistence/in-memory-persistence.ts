@@ -1,12 +1,12 @@
 import { Persistence } from './persistence'
-import { WorkflowData, WorkflowStatus } from '../workflow-data'
+import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor, getLogger } from '../../util'
-import { WorkflowDataNotInitialized } from './error'
+import { WorkflowStateNotInitialized } from './error'
 
 interface WorkflowStorage {
-  [workflowDataName: string]: WorkflowData[]
+  [workflowStateName: string]: WorkflowState[]
 }
 
 /**
@@ -16,62 +16,62 @@ interface WorkflowStorage {
  */
 export class InMemoryPersistence implements Persistence {
 
-  private workflowData: WorkflowStorage = {}
+  private workflowState: WorkflowStorage = {}
 
-  async initializeWorkflow<TWorkflowData extends WorkflowData> (
-    workflowDataConstructor: ClassConstructor<TWorkflowData>,
-    _: MessageWorkflowMapping<Message, WorkflowData>[]
+  async initializeWorkflow<TWorkflowState extends WorkflowState> (
+    workflowStateConstructor: ClassConstructor<TWorkflowState>,
+    _: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
-    const name = new workflowDataConstructor().$name
-    this.workflowData[name] = []
+    const name = new workflowStateConstructor().$name
+    this.workflowState[name] = []
   }
 
-  async getWorkflowData<WorkflowDataType extends WorkflowData, MessageType extends Message> (
-    workflowDataConstructor: ClassConstructor<WorkflowDataType>,
-    messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
+  async getWorkflowState<WorkflowStateType extends WorkflowState, MessageType extends Message> (
+    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
+    messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
     message: MessageType,
     context: MessageAttributes,
     includeCompleted?: boolean | undefined
-  ): Promise<WorkflowDataType[]> {
+  ): Promise<WorkflowStateType[]> {
     const filterValue = messageMap.lookup({ message, context })
     if (!filterValue) {
       return []
     }
 
-    const workflowDataName = new workflowDataConstructor().$name
-    const workflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
-    if (!workflowData) {
-      throw new WorkflowDataNotInitialized('Workflow data not initialized')
+    const workflowStateName = new workflowStateConstructor().$name
+    const workflowState = this.workflowState[workflowStateName] as WorkflowStateType[]
+    if (!workflowState) {
+      throw new WorkflowStateNotInitialized('Workflow data not initialized')
     }
-    return workflowData
+    return workflowState
       .filter(data =>
         (includeCompleted || data.$status === WorkflowStatus.Running)
         && data[messageMap.mapsTo] as {} as string  === filterValue
       )
   }
 
-  async saveWorkflowData<WorkflowDataType extends WorkflowData> (
-    workflowData: WorkflowDataType
+  async saveWorkflowState<WorkflowStateType extends WorkflowState> (
+    workflowState: WorkflowStateType
   ): Promise<void> {
-    const workflowDataName = workflowData.$name
-    const existingWorkflowData = this.workflowData[workflowDataName] as WorkflowDataType[]
-    const existingItem = existingWorkflowData.find(d => d.$workflowId === workflowData.$workflowId)
+    const workflowStateName = workflowState.$name
+    const existingWorkflowState = this.workflowState[workflowStateName] as WorkflowStateType[]
+    const existingItem = existingWorkflowState.find(d => d.$workflowId === workflowState.$workflowId)
     if (existingItem) {
       try {
         Object.assign(
           existingItem,
-          workflowData
+          workflowState
         )
       } catch (err) {
         getLogger().error('Unable to update data', { err })
         throw err
       }
     } else {
-      existingWorkflowData.push(workflowData)
+      existingWorkflowState.push(workflowState)
     }
   }
 
-   length (workflowDataConstructor: ClassConstructor<WorkflowData>): number {
-    return this.workflowData[workflowDataConstructor.name].length
+   length (workflowStateConstructor: ClassConstructor<WorkflowState>): number {
+    return this.workflowState[workflowStateConstructor.name].length
   }
 }

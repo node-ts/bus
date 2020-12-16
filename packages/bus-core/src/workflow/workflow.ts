@@ -1,6 +1,6 @@
 import { ClassConstructor } from '../util'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowData, WorkflowStatus } from './workflow-data'
+import { WorkflowState, WorkflowStatus } from './workflow-state'
 import { WorkflowAlreadyHandlesMessage, WorkflowAlreadyStartedByMessage } from './error'
 import { HandlerParameters } from '../handler'
 
@@ -10,15 +10,15 @@ export type HandlerReturnType<State> = Promise<Partial<State>>
   | void
 
 export type WorkflowConstructor<
-  TWorkflowData extends WorkflowData,
-  TWorkflow extends Workflow<TWorkflowData> = Workflow<TWorkflowData>
+  TWorkflowState extends WorkflowState,
+  TWorkflow extends Workflow<TWorkflowState> = Workflow<TWorkflowState>
 > = ClassConstructor<TWorkflow>
 
 
 /**
  * A handler that accepts a message as part of a running workflow
  */
-export type WhenHandler<MessageType extends Message, State extends WorkflowData> = (
+export type WhenHandler<MessageType extends Message, State extends WorkflowState> = (
   parameters: {
     message: MessageType,
     context: MessageAttributes,
@@ -26,7 +26,7 @@ export type WhenHandler<MessageType extends Message, State extends WorkflowData>
   }
 ) => HandlerReturnType<State>
 
-interface WhenOptions<MessageType extends Message, State extends WorkflowData> {
+interface WhenOptions<MessageType extends Message, State extends WorkflowState> {
   mapsTo: keyof State & string
   // tslint:disable-next-line:prefer-method-signature Avoid unbound this
   lookup: (parameters: HandlerParameters<MessageType>) => string | undefined
@@ -40,16 +40,16 @@ export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> 
 }
 
 export interface OnWhenHandler {
-  handler: WhenHandler<Message, WorkflowData>
-  options: WhenOptions<Message, WorkflowData>
+  handler: WhenHandler<Message, WorkflowState>
+  options: WhenOptions<Message, WorkflowState>
 }
 
-export class Workflow <State extends WorkflowData = WorkflowData> {
+export class Workflow <State extends WorkflowState = WorkflowState> {
 
-  readonly state: State & WorkflowData
+  readonly state: State & WorkflowState
   readonly onStartedBy = new Map<
     ClassConstructor<Message>,
-    WhenHandler<Message, State & WorkflowData>
+    WhenHandler<Message, State & WorkflowState>
   >()
   readonly onWhen = new Map<ClassConstructor<Message>, OnWhenHandler>()
 
@@ -59,8 +59,8 @@ export class Workflow <State extends WorkflowData = WorkflowData> {
   ) {
   }
 
-  static configure<TWorkflowData extends WorkflowData> (name: string, workflowStateType: ClassConstructor<TWorkflowData>) {
-    return new Workflow<TWorkflowData>(name, workflowStateType)
+  static configure<TWorkflowState extends WorkflowState> (name: string, workflowStateType: ClassConstructor<TWorkflowState>) {
+    return new Workflow<TWorkflowState>(name, workflowStateType)
   }
 
   /**
@@ -70,7 +70,7 @@ export class Workflow <State extends WorkflowData = WorkflowData> {
    */
   startedBy<MessageType extends Message>  (
     message: ClassConstructor<MessageType>,
-    handler: WhenHandler<MessageType, State & WorkflowData>
+    handler: WhenHandler<MessageType, State & WorkflowState>
   ): this {
     if (this.onStartedBy.has(message)) {
       throw new WorkflowAlreadyStartedByMessage(this.workflowName, message)
@@ -81,8 +81,8 @@ export class Workflow <State extends WorkflowData = WorkflowData> {
 
   when<MessageType extends Message> (
     message: ClassConstructor<MessageType>,
-    options: WhenOptions<MessageType, State & WorkflowData>,
-    handler: WhenHandler<MessageType, State & WorkflowData>
+    options: WhenOptions<MessageType, State & WorkflowState>,
+    handler: WhenHandler<MessageType, State & WorkflowState>
   ): this {
     if (this.onWhen.has(message)) {
       throw new WorkflowAlreadyHandlesMessage(this.workflowName, message)
@@ -92,7 +92,7 @@ export class Workflow <State extends WorkflowData = WorkflowData> {
       message,
       {
         handler,
-        options: options as WhenOptions<MessageType, WorkflowData>
+        options: options as WhenOptions<MessageType, WorkflowState>
       }
     )
     return this

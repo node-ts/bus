@@ -1,4 +1,4 @@
-export class WorkflowDataNotFound extends Error {
+export class WorkflowStateNotFound extends Error {
   constructor (
     readonly workflowId: string,
     readonly tableName: string,

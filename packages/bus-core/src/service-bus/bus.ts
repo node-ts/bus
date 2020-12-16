@@ -5,7 +5,7 @@ import { Serializer, setSerializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor, setLogger, Logger } from '../util'
 import { ServiceBus } from './service-bus'
-import { Persistence, Workflow, WorkflowData } from '../workflow'
+import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
@@ -55,7 +55,7 @@ class BusConfiguration {
     return this
   }
 
-  withWorkflow<TWorkflowData extends WorkflowData> (workflow: Workflow<TWorkflowData>): this {
+  withWorkflow<TWorkflowState extends WorkflowState> (workflow: Workflow<TWorkflowState>): this {
     if (!!serviceBus) {
       throw new BusAlreadyInitialized()
     }

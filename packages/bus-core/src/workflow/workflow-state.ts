@@ -19,7 +19,7 @@ export enum WorkflowStatus {
  * A base workflow data definition to model and persist the state of a workflow throughout
  * its lifespan.
  */
-export abstract class WorkflowData {
+export abstract class WorkflowState {
   /**
    * Unique identifier of the workflow data
    */
@@ -44,4 +44,4 @@ export abstract class WorkflowData {
   abstract readonly $name: string
 }
 
-export type WorkflowDataConstructor<TWorkflowData extends WorkflowData = WorkflowData> = new() => TWorkflowData
+export type WorkflowStateConstructor<TWorkflowState extends WorkflowState = WorkflowState> = new() => TWorkflowState

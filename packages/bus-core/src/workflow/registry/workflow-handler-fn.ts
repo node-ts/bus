@@ -1,8 +1,8 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowData } from '../workflow-data'
+import { WorkflowState } from '../workflow-state'
 
-export type WorkflowHandlerFn<TMessage extends Message, TWorkflowData extends WorkflowData> = (
+export type WorkflowHandlerFn<TMessage extends Message, TWorkflowState extends WorkflowState> = (
   message: TMessage,
-  data: Readonly<TWorkflowData>,
+  data: Readonly<TWorkflowState>,
   messageOptions: MessageAttributes
-) => Promise<Partial<TWorkflowData>> | Promise<void> | Partial<TWorkflowData> | void
+) => Promise<Partial<TWorkflowState>> | Promise<void> | Partial<TWorkflowState> | void

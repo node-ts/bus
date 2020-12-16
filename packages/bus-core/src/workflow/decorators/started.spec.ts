@@ -6,8 +6,8 @@ import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 import { InMemoryPersistence } from '../persistence'
 import { Logger } from '@node-ts/logger-core'
 import { Mock } from 'typemoq'
-import { WorkflowStatus } from '../workflow-data'
-import { WorkflowData } from '../workflow-data'
+import { WorkflowStatus } from '../workflow-state'
+import { WorkflowState } from '../workflow-state'
 import { sleep } from '../../util'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { getPersistence } from '../persistence/persistence'
@@ -93,7 +93,7 @@ class AssignmentCompleted extends Event {
   }
 }
 
-export class AssignmentWorkflowState extends WorkflowData {
+export class AssignmentWorkflowState extends WorkflowState {
   $name = 'assignment-workflow-state'
   assignmentId: string
   bundleId: string
@@ -172,16 +172,16 @@ describe('Workflow', () => {
   })
 
   describe('when a message that starts a workflow is received', () => {
-    const propertyMapping: MessageWorkflowMapping<AssignmentCreated, AssignmentWorkflowState & WorkflowData> = {
+    const propertyMapping: MessageWorkflowMapping<AssignmentCreated, AssignmentWorkflowState & WorkflowState> = {
       lookup: ({ message }) => message.assignmentId,
       mapsTo: 'assignmentId'
     }
     const messageOptions = new MessageAttributes()
-    let workflowData: AssignmentWorkflowState[]
+    let workflowState: AssignmentWorkflowState[]
 
     beforeAll(async () => {
-      workflowData = await getPersistence()
-        .getWorkflowData<AssignmentWorkflowState, AssignmentCreated>(
+      workflowState = await getPersistence()
+        .getWorkflowState<AssignmentWorkflowState, AssignmentCreated>(
           AssignmentWorkflowState,
           propertyMapping,
           event,
@@ -190,20 +190,20 @@ describe('Workflow', () => {
     })
 
     it('should start a new workflow', () => {
-      expect(workflowData).toHaveLength(1)
-      const data = workflowData[0]
+      expect(workflowState).toHaveLength(1)
+      const data = workflowState[0]
       expect(data).toMatchObject({ assignmentId: event.assignmentId, $version: 0 })
     })
 
     describe('and then a message for the next step is received', () => {
       const assignmentAssigned = new AssignmentAssigned(event.assignmentId, uuid.v4())
-      let startedWorkflowData: AssignmentWorkflowState[]
+      let startedWorkflowState: AssignmentWorkflowState[]
 
       beforeAll(async () => {
         await Bus.publish(assignmentAssigned)
         await sleep(CONSUME_TIMEOUT)
 
-        startedWorkflowData = await getPersistence().getWorkflowData(
+        startedWorkflowState = await getPersistence().getWorkflowState(
           AssignmentWorkflowState,
           propertyMapping,
           assignmentAssigned,
@@ -213,25 +213,25 @@ describe('Workflow', () => {
       })
 
       it('should handle that message', () => {
-        expect(startedWorkflowData).toHaveLength(1)
-        const [data] = startedWorkflowData
+        expect(startedWorkflowState).toHaveLength(1)
+        const [data] = startedWorkflowState
         expect(data.assigneeId).toEqual(assignmentAssigned.assigneeId)
       })
 
       describe('and then a message for the next step is received', () => {
         const assignmentReassigned = new AssignmentReassigned('foo', 'bar')
-        let nextWorkflowData: AssignmentWorkflowState[]
+        let nextWorkflowState: AssignmentWorkflowState[]
 
         beforeAll(async () => {
           await Bus.publish(
             assignmentReassigned,
             new MessageAttributes({
-              correlationId: startedWorkflowData[0].$workflowId
+              correlationId: startedWorkflowState[0].$workflowId
             })
           )
           await sleep(CONSUME_TIMEOUT)
 
-          nextWorkflowData = await getPersistence().getWorkflowData(
+          nextWorkflowState = await getPersistence().getWorkflowState(
             AssignmentWorkflowState,
             propertyMapping,
             assignmentAssigned,
@@ -241,21 +241,21 @@ describe('Workflow', () => {
         })
 
         it('should handle that message', () => {
-          expect(nextWorkflowData).toHaveLength(1)
+          expect(nextWorkflowState).toHaveLength(1)
         })
 
         describe('and then a final message arrives', () => {
           const finalTask = new AssignmentCompleted(event.assignmentId)
-          let finalWorkflowData: AssignmentWorkflowState[]
+          let finalWorkflowState: AssignmentWorkflowState[]
 
           beforeAll(async () => {
             await Bus.publish(
               finalTask,
-              new MessageAttributes({ correlationId: nextWorkflowData[0].$workflowId })
+              new MessageAttributes({ correlationId: nextWorkflowState[0].$workflowId })
             )
             await sleep(CONSUME_TIMEOUT)
 
-            finalWorkflowData = await getPersistence().getWorkflowData(
+            finalWorkflowState = await getPersistence().getWorkflowState(
               AssignmentWorkflowState,
               propertyMapping,
               finalTask,
@@ -265,8 +265,8 @@ describe('Workflow', () => {
           })
 
           it('should mark the workflow as complete', () => {
-            expect(finalWorkflowData).toHaveLength(1)
-            const data = finalWorkflowData[0]
+            expect(finalWorkflowState).toHaveLength(1)
+            const data = finalWorkflowState[0]
             expect(data.$status).toEqual(WorkflowStatus.Complete)
           })
         })

@@ -1,6 +1,6 @@
 import { InMemoryPersistence } from './persistence'
-import { TestCommand, TestWorkflowData, testWorkflow, TaskRan, FinalTask } from './test'
-import { WorkflowStatus } from './workflow-data'
+import { TestCommand, TestWorkflowState, testWorkflow, TaskRan, FinalTask } from './test'
+import { WorkflowStatus } from './workflow-state'
 import { Logger } from '@node-ts/logger-core'
 import {
   testWorkflowStartedByCompletes,
@@ -43,16 +43,16 @@ describe('Workflow', () => {
   })
 
   describe('when a message that starts a workflow is received', () => {
-    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
       lookup: ({ message }) => message.property1,
       mapsTo: 'property1'
     }
-    let workflowData: TestWorkflowData[]
+    let workflowState: TestWorkflowState[]
     const messageOptions = new MessageAttributes()
 
     beforeAll(async () => {
-      workflowData = await getPersistence().getWorkflowData<TestWorkflowData, TestCommand>(
-        TestWorkflowData,
+      workflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
+        TestWorkflowState,
         propertyMapping,
         command,
         messageOptions
@@ -60,8 +60,8 @@ describe('Workflow', () => {
     })
 
     it('should start a new workflow', () => {
-      expect(workflowData).toHaveLength(1)
-      const data = workflowData[0]
+      expect(workflowState).toHaveLength(1)
+      const data = workflowState[0]
       expect(data.$status).toEqual(WorkflowStatus.Running)
       expect(data.$version).toEqual(0)
       expect(data).toMatchObject({ property1: command.property1 })
@@ -69,14 +69,14 @@ describe('Workflow', () => {
 
     describe('and then a message for the next step is received', () => {
       const event = new TaskRan('abc')
-      let nextWorkflowData: TestWorkflowData[]
+      let nextWorkflowState: TestWorkflowState[]
 
       beforeAll(async () => {
         await Bus.publish(event)
         await sleep(CONSUME_TIMEOUT)
 
-        nextWorkflowData = await getPersistence().getWorkflowData<TestWorkflowData, TestCommand>(
-          TestWorkflowData,
+        nextWorkflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
+          TestWorkflowState,
           propertyMapping,
           command,
           messageOptions,
@@ -85,22 +85,22 @@ describe('Workflow', () => {
       })
 
       it('should handle that message', () => {
-        expect(nextWorkflowData).toHaveLength(1)
+        expect(nextWorkflowState).toHaveLength(1)
       })
 
       describe('and then a final message arrives', () => {
         const finalTask = new FinalTask()
-        let finalWorkflowData: TestWorkflowData[]
+        let finalWorkflowState: TestWorkflowState[]
 
         beforeAll(async () => {
           await Bus.publish(
             finalTask,
-            new MessageAttributes({ correlationId: nextWorkflowData[0].$workflowId })
+            new MessageAttributes({ correlationId: nextWorkflowState[0].$workflowId })
           )
           await sleep(CONSUME_TIMEOUT)
 
-          finalWorkflowData = await getPersistence().getWorkflowData<TestWorkflowData, TestCommand>(
-            TestWorkflowData,
+          finalWorkflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
+            TestWorkflowState,
             propertyMapping,
             command,
             messageOptions,
@@ -109,8 +109,8 @@ describe('Workflow', () => {
         })
 
         it('should mark the workflow as complete', () => {
-          expect(finalWorkflowData).toHaveLength(1)
-          const data = finalWorkflowData[0]
+          expect(finalWorkflowState).toHaveLength(1)
+          const data = finalWorkflowState[0]
           expect(data.$status).toEqual(WorkflowStatus.Complete)
         })
       })
@@ -125,7 +125,7 @@ describe('Workflow', () => {
     }
 
     it('should persist the workflow as completed', async () => {
-      const workflowData = await getPersistence().getWorkflowData<TestWorkflowStartedByCompletesData, TestCommand>(
+      const workflowState = await getPersistence().getWorkflowState<TestWorkflowStartedByCompletesData, TestCommand>(
         TestWorkflowStartedByCompletesData,
         propertyMapping,
         command,
@@ -133,8 +133,8 @@ describe('Workflow', () => {
         true
       )
 
-      expect(workflowData).toHaveLength(1)
-      const data = workflowData[0]
+      expect(workflowState).toHaveLength(1)
+      const data = workflowState[0]
       expect(data.$status).toEqual(WorkflowStatus.Complete)
     })
   })
@@ -147,7 +147,7 @@ describe('Workflow', () => {
     }
 
     it('should not persist the workflow', async () => {
-      const workflowData = await getPersistence().getWorkflowData<TestWorkflowStartedByDiscardData, TestCommand>(
+      const workflowState = await getPersistence().getWorkflowState<TestWorkflowStartedByDiscardData, TestCommand>(
         TestWorkflowStartedByDiscardData,
         propertyMapping,
         command,
@@ -155,7 +155,7 @@ describe('Workflow', () => {
         true
       )
 
-      expect(workflowData).toHaveLength(0)
+      expect(workflowState).toHaveLength(0)
     })
   })
 })

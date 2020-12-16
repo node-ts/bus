@@ -1,12 +1,12 @@
 import { InMemoryPersistence } from './in-memory-persistence'
-import { TestWorkflowData, TestCommand } from '../test'
+import { TestWorkflowState, TestCommand } from '../test'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { WorkflowData, WorkflowStatus } from '../workflow-data'
+import { WorkflowState, WorkflowStatus } from '../workflow-state'
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
-  const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+  const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
     lookup: ({ message }) => message.property1,
     mapsTo: 'property1'
   }
@@ -19,23 +19,23 @@ describe('InMemoryPersistence', () => {
     const messageOptions = new MessageAttributes()
 
     beforeEach(async () => {
-      const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+      const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
         lookup: command => command.property1,
         mapsTo: 'property1'
       }
       await sut.initializeWorkflow(
-        TestWorkflowData,
-        [mapping as MessageWorkflowMapping<Message, WorkflowData>]
+        TestWorkflowState,
+        [mapping as MessageWorkflowMapping<Message, WorkflowState>]
       )
     })
 
     describe('when the mapper doesn\'t resolve', () => {
-      let result: TestWorkflowData[]
+      let result: TestWorkflowState[]
 
       beforeEach(async () => {
         const message = new TestCommand(undefined)
-        result = await sut.getWorkflowData(
-          TestWorkflowData,
+        result = await sut.getWorkflowState(
+          TestWorkflowState,
           propertyMapping,
           message,
           messageOptions
@@ -48,15 +48,15 @@ describe('InMemoryPersistence', () => {
     })
 
     describe('that doesn\'t exist', () => {
-      let result: TestWorkflowData[]
-      const unmatchedMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
+      let result: TestWorkflowState[]
+      const unmatchedMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
         lookup: testMessage => testMessage.$name,
         mapsTo: '$workflowId'
       }
 
       beforeEach(async () => {
-        result = await sut.getWorkflowData(
-          TestWorkflowData,
+        result = await sut.getWorkflowState(
+          TestWorkflowState,
           unmatchedMapping,
           new TestCommand('abc'),
           messageOptions
@@ -72,18 +72,18 @@ describe('InMemoryPersistence', () => {
   describe('when saving workflow data', () => {
     beforeEach(async () => {
       await sut.initializeWorkflow(
-        TestWorkflowData,
-        [propertyMapping as MessageWorkflowMapping<Message, WorkflowData>]
+        TestWorkflowState,
+        [propertyMapping as MessageWorkflowMapping<Message, WorkflowState>]
       )
     })
 
     describe('for a new workflow', () => {
       beforeEach(async () => {
-        await sut.saveWorkflowData(new TestWorkflowData())
+        await sut.saveWorkflowState(new TestWorkflowState())
       })
 
       it('should add the item to memory', () => {
-        expect(sut.length(TestWorkflowData)).toEqual(1)
+        expect(sut.length(TestWorkflowState)).toEqual(1)
       })
     })
 
@@ -93,30 +93,30 @@ describe('InMemoryPersistence', () => {
       const messageOptions = new MessageAttributes()
 
       beforeEach(async () => {
-        const workflowData = new TestWorkflowData()
-        workflowData.$workflowId = workflowId
-        workflowData.$status = WorkflowStatus.Running
-        await sut.saveWorkflowData(workflowData)
+        const workflowState = new TestWorkflowState()
+        workflowState.$workflowId = workflowId
+        workflowState.$status = WorkflowStatus.Running
+        await sut.saveWorkflowState(workflowState)
 
-        workflowData.property1 = testCommand.property1!
-        await sut.saveWorkflowData(workflowData)
+        workflowState.property1 = testCommand.property1!
+        await sut.saveWorkflowState(workflowState)
       })
 
       it('should save in place', () => {
-        expect(sut.length(TestWorkflowData)).toEqual(1)
+        expect(sut.length(TestWorkflowState)).toEqual(1)
       })
 
       it('should save the changes', async () => {
-        const workflowData = await sut.getWorkflowData(
-          TestWorkflowData,
+        const workflowState = await sut.getWorkflowState(
+          TestWorkflowState,
           propertyMapping,
           testCommand,
           messageOptions
         )
 
-        expect(workflowData).toHaveLength(1)
-        expect(workflowData[0].$workflowId).toEqual(workflowId)
-        expect(workflowData[0].property1).toEqual(testCommand.property1)
+        expect(workflowState).toHaveLength(1)
+        expect(workflowState[0].$workflowId).toEqual(workflowId)
+        expect(workflowState[0].property1).toEqual(testCommand.property1)
       })
     })
   })

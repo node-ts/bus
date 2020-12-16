@@ -1,8 +1,8 @@
-import { ClassConstructor, getLogger, getSerializer, MessageWorkflowMapping, Persistence, WorkflowData } from '@node-ts/bus-core'
+import { ClassConstructor, getLogger, getSerializer, MessageWorkflowMapping, Persistence, WorkflowState } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Pool } from 'pg'
 import { PostgresConfiguration } from './postgres-configuration'
-import { WorkflowDataNotFound } from './error'
+import { WorkflowStateNotFound } from './error'
 
 /**
  * The name of the field that stores workflow data as JSON in the database row.
@@ -36,31 +36,31 @@ export class PostgresPersistence implements Persistence {
     getLogger().info('Postgres persistence disposed')
   }
 
-  async initializeWorkflow<WorkflowDataType extends WorkflowData> (
-    workflowDataConstructor: ClassConstructor<WorkflowDataType>,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowData>[]
+  async initializeWorkflow<WorkflowStateType extends WorkflowState> (
+    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
+    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
-    const workflowDataName = new workflowDataConstructor().$name
-    getLogger().info('Initializing workflow', { workflowData: workflowDataName })
+    const workflowStateName = new workflowStateConstructor().$name
+    getLogger().info('Initializing workflow', { workflowState: workflowStateName })
 
-    const tableName = resolveQualifiedTableName(workflowDataName, this.configuration.schemaName)
+    const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
     await this.ensureTableExists(tableName)
     await this.ensureIndexesExist(tableName, messageWorkflowMappings)
   }
 
-  async getWorkflowData<WorkflowDataType extends WorkflowData, MessageType extends Message> (
-    workflowDataConstructor: ClassConstructor<WorkflowDataType>,
-    messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
+  async getWorkflowState<WorkflowStateType extends WorkflowState, MessageType extends Message> (
+    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
+    messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
     message: MessageType,
     context: MessageAttributes,
     includeCompleted = false
-  ): Promise<WorkflowDataType[]> {
-    getLogger().debug('Getting workflow data', { workflowDataName: workflowDataConstructor.name })
-    const workflowDataName = new workflowDataConstructor().$name
-    const tableName = resolveQualifiedTableName(workflowDataName, this.configuration.schemaName)
+  ): Promise<WorkflowStateType[]> {
+    getLogger().debug('Getting workflow data', { workflowStateName: workflowStateConstructor.name })
+    const workflowStateName = new workflowStateConstructor().$name
+    const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
     const matcherValue = messageMap.lookup({ message, context })
 
-    const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.mapsTo}'`
+    const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.mapsTo}'`
     const query = `
       select
         ${WORKFLOW_DATA_FIELD_NAME}
@@ -68,8 +68,8 @@ export class PostgresPersistence implements Persistence {
         ${tableName}
       where
         (${includeCompleted} = true or ${WORKFLOW_DATA_FIELD_NAME}->>'$status' = 'running')
-        and (${workflowDataField}) is not null
-        and (${workflowDataField}::text) = $1
+        and (${workflowStateField}) is not null
+        and (${workflowStateField}::text) = $1
     `
     getLogger().debug('Querying workflow data', { query })
 
@@ -80,31 +80,31 @@ export class PostgresPersistence implements Persistence {
 
     getLogger().debug('Got workflow data', { resultsCount: results.rows.length })
 
-    const rows = results.rows as [{ [WORKFLOW_DATA_FIELD_NAME]: WorkflowDataType | undefined }]
+    const rows = results.rows as [{ [WORKFLOW_DATA_FIELD_NAME]: WorkflowStateType | undefined }]
 
     return rows
       .map(row => row[WORKFLOW_DATA_FIELD_NAME])
-      .filter(workflowData => workflowData !== undefined)
-      .map(workflowData => getSerializer().toClass(workflowData!, workflowDataConstructor))
+      .filter(workflowState => workflowState !== undefined)
+      .map(workflowState => getSerializer().toClass(workflowState!, workflowStateConstructor))
   }
 
-  async saveWorkflowData<WorkflowDataType extends WorkflowData> (
-    workflowData: WorkflowDataType
+  async saveWorkflowState<WorkflowStateType extends WorkflowState> (
+    workflowState: WorkflowStateType
   ): Promise<void> {
-    getLogger().debug('Saving workflow data', { workflowDataName: workflowData.$name, id: workflowData.$workflowId })
-    const tableName = resolveQualifiedTableName(workflowData.$name, this.configuration.schemaName)
+    getLogger().debug('Saving workflow data', { workflowStateName: workflowState.$name, id: workflowState.$workflowId })
+    const tableName = resolveQualifiedTableName(workflowState.$name, this.configuration.schemaName)
 
-    const oldVersion = workflowData.$version
+    const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
-    const plainWorkflowData = {
-      ...getSerializer().toPlain(workflowData),
+    const plainWorkflowState = {
+      ...getSerializer().toPlain(workflowState),
       $version: newVersion
     }
 
-    await this.upsertWorkflowData(
+    await this.upsertWorkflowState(
       tableName,
-      workflowData.$workflowId,
-      plainWorkflowData,
+      workflowState.$workflowId,
+      plainWorkflowState,
       oldVersion,
       newVersion
     )
@@ -130,7 +130,7 @@ export class PostgresPersistence implements Persistence {
 
   private async ensureIndexesExist (
     tableName: string,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowData>[]
+    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
     const createPrimaryIndex = this.createPrimaryIndex(tableName)
 
@@ -141,7 +141,7 @@ export class PostgresPersistence implements Persistence {
     const createSecondaryIndexes = workflowFields.map(async workflowField => {
       const indexName = resolveIndexName(tableName, workflowField)
       const indexNameWithSchema = `${this.configuration.schemaName}.${indexName}`
-      const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${workflowField}'`
+      const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}->>'${workflowField}'`
       // Support Postgres 9.4+
       const createSecondaryIndex = `
         DO
@@ -151,9 +151,9 @@ export class PostgresPersistence implements Persistence {
             CREATE INDEX
               ${indexName}
             ON
-              ${tableName} ((${workflowDataField}))
+              ${tableName} ((${workflowStateField}))
             WHERE
-              (${workflowDataField}) is not null;
+              (${workflowStateField}) is not null;
           END IF;
         END
         $$;
@@ -183,10 +183,10 @@ export class PostgresPersistence implements Persistence {
     await this.postgres.query(createPrimaryIndexSql)
   }
 
-  private async upsertWorkflowData (
+  private async upsertWorkflowState (
     tableName: string,
     workflowId: string,
-    plainWorkflowData: object,
+    plainWorkflowState: object,
     oldVersion: number,
     newVersion: number
   ): Promise<void> {
@@ -207,7 +207,7 @@ export class PostgresPersistence implements Persistence {
         [
           workflowId,
           newVersion,
-          getSerializer().serialize(plainWorkflowData)
+          getSerializer().serialize(plainWorkflowState)
         ])
     } else {
       getLogger().debug('Updating existing workflow data', { tableName, workflowId, oldVersion, newVersion })
@@ -224,14 +224,14 @@ export class PostgresPersistence implements Persistence {
           and version = $4;`,
         [
           newVersion,
-          getSerializer().serialize(plainWorkflowData),
+          getSerializer().serialize(plainWorkflowState),
           workflowId,
           oldVersion
         ]
       )
 
       if (result.rowCount === 0) {
-        throw new WorkflowDataNotFound(workflowId, tableName, oldVersion)
+        throw new WorkflowStateNotFound(workflowId, tableName, oldVersion)
       }
     }
   }

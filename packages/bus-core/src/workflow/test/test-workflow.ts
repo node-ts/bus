@@ -1,5 +1,5 @@
 import { completeWorkflow, Workflow } from '../workflow'
-import { TestWorkflowData } from './test-workflow-data'
+import { TestWorkflowState } from './test-workflow-state'
 import { TestCommand } from './test-command'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
@@ -7,7 +7,7 @@ import { FinalTask } from './final-task'
 import { Bus } from '../../service-bus'
 
 export const testWorkflow = Workflow
-  .configure('testWorkflow', TestWorkflowData)
+  .configure('testWorkflow', TestWorkflowState)
   .startedBy(TestCommand, async ({ message: { property1 } }) => {
     await Bus.send(new RunTask(property1!))
     return { property1 }

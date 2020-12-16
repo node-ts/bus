@@ -1,4 +1,4 @@
-import { WorkflowData, WorkflowStatus } from '../workflow-data'
+import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import * as uuid from 'uuid'
@@ -7,7 +7,7 @@ import { getPersistence } from '../persistence/persistence'
 import { ClassConstructor, getLogger } from '../../util'
 import { handlerRegistry } from '../../handler/handler-registry'
 
-const createWorkflowState = <TWorkflowData extends WorkflowData> (workflowStateType: ClassConstructor<TWorkflowData>) => {
+const createWorkflowState = <TWorkflowState extends WorkflowState> (workflowStateType: ClassConstructor<TWorkflowState>) => {
   const data = new workflowStateType()
   data.$status = WorkflowStatus.Running
   data.$workflowId = uuid.v4()
@@ -18,40 +18,40 @@ const dispatchMessageToWorkflow = async (
   message: Message,
   context: MessageAttributes,
   workflowName: string,
-  workflowData: WorkflowData,
-  workflowDataConstructor: ClassConstructor<WorkflowData>,
-  handler: WhenHandler<Message, WorkflowData>
+  workflowState: WorkflowState,
+  workflowStateConstructor: ClassConstructor<WorkflowState>,
+  handler: WhenHandler<Message, WorkflowState>
 ) => {
-  const immutableWorkflowData = Object.freeze({...workflowData})
-  const workflowDataOutput = await handler({
+  const immutableWorkflowState = Object.freeze({...workflowState})
+  const workflowStateOutput = await handler({
     message,
     context,
-    state: immutableWorkflowData
+    state: immutableWorkflowState
   })
 
-  if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
+  if (workflowStateOutput && workflowStateOutput.$status === WorkflowStatus.Discard) {
     getLogger().debug(
       'Workflow step is discarding state changes. State changes will not be persisted',
-      { workflowId: immutableWorkflowData.$workflowId, workflowName }
+      { workflowId: immutableWorkflowState.$workflowId, workflowName }
     )
-  } else if (workflowDataOutput) {
+  } else if (workflowStateOutput) {
     getLogger().debug(
       'Changes detected in workflow data and will be persisted.',
       {
-        workflowId: immutableWorkflowData.$workflowId,
+        workflowId: immutableWorkflowState.$workflowId,
         workflowName,
-        changes: workflowDataOutput
+        changes: workflowStateOutput
       }
     )
 
-    const updatedWorkflowData = Object.assign(
-      new workflowDataConstructor(),
-      workflowData,
-      workflowDataOutput
+    const updatedWorkflowState = Object.assign(
+      new workflowStateConstructor(),
+      workflowState,
+      workflowStateOutput
     )
 
     try {
-      await persist(updatedWorkflowData)
+      await persist(updatedWorkflowState)
     } catch (error) {
       getLogger().warn(
         'Error persisting workflow data',
@@ -60,13 +60,13 @@ const dispatchMessageToWorkflow = async (
       throw error
     }
   } else {
-    getLogger().trace('No changes detected in workflow data.', { workflowId: immutableWorkflowData.$workflowId })
+    getLogger().trace('No changes detected in workflow data.', { workflowId: immutableWorkflowState.$workflowId })
   }
 }
 
-const persist = async (data: WorkflowData) => {
+const persist = async (data: WorkflowState) => {
   try {
-    await getPersistence().saveWorkflowData(data)
+    await getPersistence().saveWorkflowState(data)
     getLogger().info('Saving workflow data', { data })
   } catch (err) {
     getLogger().error('Error persisting workflow data', { err })
@@ -164,7 +164,7 @@ class WorkflowRegistry {
           const immutableWorkflowState = Object.freeze({...workflowState})
           const result = await handler({ message, context, state: immutableWorkflowState })
           if (result) {
-            await getPersistence().saveWorkflowData({
+            await getPersistence().saveWorkflowState({
               ...workflowState,
               ...result
             })
@@ -177,14 +177,14 @@ class WorkflowRegistry {
     workflow: Workflow
   ): void {
     workflow.onWhen.forEach((handler, messageConstructor) => {
-      const messageMapping: MessageWorkflowMapping<Message, WorkflowData> = {
+      const messageMapping: MessageWorkflowMapping<Message, WorkflowState> = {
         lookup: handler.options.lookup,
         mapsTo: handler.options.mapsTo
       }
       handlerRegistry.register(
         messageConstructor,
         async ({ message, context }) => {
-          const workflowState = await getPersistence().getWorkflowData(
+          const workflowState = await getPersistence().getWorkflowState(
             workflow.stateType,
             messageMapping,
             message,

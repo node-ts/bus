@@ -1,8 +1,8 @@
 import { Workflow } from '../workflow'
-import { WorkflowData } from '../workflow-data'
+import { WorkflowState } from '../workflow-state'
 import { TestCommand } from './test-command'
 
-export class TestWorkflowStartedByDiscardData extends WorkflowData {
+export class TestWorkflowStartedByDiscardData extends WorkflowState {
   $name = 'node-ts/bus/workflow/test-workflow-started-by-discard'
   property1: string
 }
