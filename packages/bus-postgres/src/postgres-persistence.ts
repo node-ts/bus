@@ -5,7 +5,7 @@ import { PostgresConfiguration } from './postgres-configuration'
 import { WorkflowStateNotFound } from './error'
 
 /**
- * The name of the field that stores workflow data as JSON in the database row.
+ * The name of the field that stores workflow state as JSON in the database row.
  */
 const WORKFLOW_DATA_FIELD_NAME = 'data'
 
@@ -55,7 +55,7 @@ export class PostgresPersistence implements Persistence {
     context: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowStateType[]> {
-    getLogger().debug('Getting workflow data', { workflowStateName: workflowStateConstructor.name })
+    getLogger().debug('Getting workflow state', { workflowStateName: workflowStateConstructor.name })
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
     const matcherValue = messageMap.lookup({ message, context })
@@ -71,14 +71,14 @@ export class PostgresPersistence implements Persistence {
         and (${workflowStateField}) is not null
         and (${workflowStateField}::text) = $1
     `
-    getLogger().debug('Querying workflow data', { query })
+    getLogger().debug('Querying workflow state', { query })
 
     const results = await this.postgres.query(
       query,
       [matcherValue]
     )
 
-    getLogger().debug('Got workflow data', { resultsCount: results.rows.length })
+    getLogger().debug('Got workflow state', { resultsCount: results.rows.length })
 
     const rows = results.rows as [{ [WORKFLOW_DATA_FIELD_NAME]: WorkflowStateType | undefined }]
 
@@ -91,7 +91,7 @@ export class PostgresPersistence implements Persistence {
   async saveWorkflowState<WorkflowStateType extends WorkflowState> (
     workflowState: WorkflowStateType
   ): Promise<void> {
-    getLogger().debug('Saving workflow data', { workflowStateName: workflowState.$name, id: workflowState.$workflowId })
+    getLogger().debug('Saving workflow state', { workflowStateName: workflowState.$name, id: workflowState.$workflowId })
     const tableName = resolveQualifiedTableName(workflowState.$name, this.configuration.schemaName)
 
     const oldVersion = workflowState.$version
@@ -124,7 +124,7 @@ export class PostgresPersistence implements Persistence {
         ${WORKFLOW_DATA_FIELD_NAME} jsonb not null
       );
     `
-    getLogger().debug('Ensuring postgres table for workflow data exists', { sql })
+    getLogger().debug('Ensuring postgres table for workflow state exists', { sql })
     await this.postgres.query(sql)
   }
 
@@ -191,7 +191,7 @@ export class PostgresPersistence implements Persistence {
     newVersion: number
   ): Promise<void> {
     if (oldVersion === 0) {
-      getLogger().debug('Inserting new workflow data', { tableName, workflowId, oldVersion, newVersion })
+      getLogger().debug('Inserting new workflow state', { tableName, workflowId, oldVersion, newVersion })
 
       // This is a new workflow, so just insert the data
       await this.postgres.query(`
@@ -210,7 +210,7 @@ export class PostgresPersistence implements Persistence {
           getSerializer().serialize(plainWorkflowState)
         ])
     } else {
-      getLogger().debug('Updating existing workflow data', { tableName, workflowId, oldVersion, newVersion })
+      getLogger().debug('Updating existing workflow state', { tableName, workflowId, oldVersion, newVersion })
 
       // This is an exsiting workflow, so update teh data
       const result = await this.postgres.query(`

@@ -4,7 +4,7 @@ export class WorkflowStateNotInitialized extends Error {
   constructor (
     readonly workflowStateName: string
   ) {
-    super(`Workflow data not initialized`)
+    super(`Workflow state not initialized`)
     this.help = 'Ensure that the workflow has been registered with `Bus.configure().withWorkflow()'
 
     // tslint:disable-next-line:no-unsafe-any

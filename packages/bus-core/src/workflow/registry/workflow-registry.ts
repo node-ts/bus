@@ -36,7 +36,7 @@ const dispatchMessageToWorkflow = async (
     )
   } else if (workflowStateOutput) {
     getLogger().debug(
-      'Changes detected in workflow data and will be persisted.',
+      'Changes detected in workflow state and will be persisted.',
       {
         workflowId: immutableWorkflowState.$workflowId,
         workflowName,
@@ -54,22 +54,22 @@ const dispatchMessageToWorkflow = async (
       await persist(updatedWorkflowState)
     } catch (error) {
       getLogger().warn(
-        'Error persisting workflow data',
+        'Error persisting workflow state',
         { err: error, workflow: workflowName }
       )
       throw error
     }
   } else {
-    getLogger().trace('No changes detected in workflow data.', { workflowId: immutableWorkflowState.$workflowId })
+    getLogger().trace('No changes detected in workflow state.', { workflowId: immutableWorkflowState.$workflowId })
   }
 }
 
 const persist = async (data: WorkflowState) => {
   try {
     await getPersistence().saveWorkflowState(data)
-    getLogger().info('Saving workflow data', { data })
+    getLogger().info('Saving workflow state', { data })
   } catch (err) {
-    getLogger().error('Error persisting workflow data', { err })
+    getLogger().error('Error persisting workflow state', { err })
     throw err
   }
 }
@@ -193,7 +193,7 @@ class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            getLogger().info('No existing workflow data found for message. Ignoring.', { message })
+            getLogger().info('No existing workflow state found for message. Ignoring.', { message })
             return
           }
 

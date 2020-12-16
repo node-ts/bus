@@ -16,17 +16,17 @@ export enum WorkflowStatus {
 }
 
 /**
- * A base workflow data definition to model and persist the state of a workflow throughout
+ * A base workflow state definition to model and persist the state of a workflow throughout
  * its lifespan.
  */
 export abstract class WorkflowState {
   /**
-   * Unique identifier of the workflow data
+   * Unique identifier of the workflow state
    */
   $workflowId: string
 
   /**
-   * Used to manage concurrency when storing the workflow data. This value is incremented
+   * Used to manage concurrency when storing the workflow state. This value is incremented
    * each time the data is persisted which keeps locking of data low.
    */
   $version = 0
@@ -37,7 +37,7 @@ export abstract class WorkflowState {
   $status: WorkflowStatus
 
   /**
-   * A unique name for the workflow data. This should be formatted in a namespace style,
+   * A unique name for the workflow state. This should be formatted in a namespace style,
    * ie: 'company/application/workflow-name'
    * eg: $name = 'node-ts/bus-core/my-workflow'
    */

@@ -10,8 +10,8 @@ interface WorkflowStorage {
 }
 
 /**
- * A non-durable in-memory persistence for storage and retrieval of workflow data. Before using this,
- * be warned that all workflow data will not survive a process restart or application shut down. As
+ * A non-durable in-memory persistence for storage and retrieval of workflow state. Before using this,
+ * be warned that all workflow state will not survive a process restart or application shut down. As
  * such this should only be used for testing, prototyping or handling unimportant workflows.
  */
 export class InMemoryPersistence implements Persistence {
@@ -41,7 +41,7 @@ export class InMemoryPersistence implements Persistence {
     const workflowStateName = new workflowStateConstructor().$name
     const workflowState = this.workflowState[workflowStateName] as WorkflowStateType[]
     if (!workflowState) {
-      throw new WorkflowStateNotInitialized('Workflow data not initialized')
+      throw new WorkflowStateNotInitialized('Workflow state not initialized')
     }
     return workflowState
       .filter(data =>

@@ -48,7 +48,7 @@ describe('PostgresPersistence', () => {
     })
   })
 
-  describe('when saving new workflow data', () => {
+  describe('when saving new workflow state', () => {
     const workflowState = new TestWorkflowState()
     workflowState.$workflowId = uuid.v4()
     workflowState.$status = WorkflowStatus.Running
@@ -66,7 +66,7 @@ describe('PostgresPersistence', () => {
       expect(count).toEqual('1')
     })
 
-    describe('when getting the workflow data by property', () => {
+    describe('when getting the workflow state by property', () => {
       const testCommand = new TestCommand(workflowState.property1)
       const messageOptions = new MessageAttributes()
       let dataV1: TestWorkflowState
@@ -88,7 +88,7 @@ describe('PostgresPersistence', () => {
         expect(dataV1).toMatchObject({ ...workflowState, $version: 1 })
       })
 
-      describe('when updating the workflow data', () => {
+      describe('when updating the workflow state', () => {
         let updates: TestWorkflowState
         let dataV2: TestWorkflowState
 

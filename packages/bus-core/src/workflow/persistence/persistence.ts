@@ -32,9 +32,9 @@ export interface Persistence {
   dispose? (): Promise<void>
 
   /**
-   * Allows the persistence implementation to set up its internal structure to support the workflow data
+   * Allows the persistence implementation to set up its internal structure to support the workflow state
    * that it will be persisting. Typically for a database this could mean setting up the internal table
-   * schema to support persisting of each of the workflow data models.
+   * schema to support persisting of each of the workflow state models.
    */
   initializeWorkflow<TWorkflowState extends WorkflowState> (
     workflowStateConstructor: ClassConstructor<TWorkflowState>,
@@ -42,11 +42,11 @@ export interface Persistence {
   ): Promise<void>
 
   /**
-   * Retrieves all workflow data models that match the given `messageMap` criteria
+   * Retrieves all workflow state models that match the given `messageMap` criteria
    * @param workflowStateConstructor The workflow model type to retrieve
-   * @param messageMap How the message is mapped to workflow data models
-   * @param message The message to map to workflow data
-   * @param includeCompleted If completed workflow data items should also be returned. False by default
+   * @param messageMap How the message is mapped to workflow state models
+   * @param message The message to map to workflow state
+   * @param includeCompleted If completed workflow state items should also be returned. False by default
    */
   getWorkflowState<WorkflowStateType extends WorkflowState, MessageType extends Message> (
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
@@ -57,8 +57,8 @@ export interface Persistence {
   ): Promise<WorkflowStateType[]>
 
   /**
-   * Saves a new workflow data model or updates an existing one. Persistence implementations should take care
-   * to observe the change in `$version` of the workflow data model when persisting to ensure race conditions
+   * Saves a new workflow state model or updates an existing one. Persistence implementations should take care
+   * to observe the change in `$version` of the workflow state model when persisting to ensure race conditions
    * don't occur.
    */
   saveWorkflowState<WorkflowStateType extends WorkflowState> (

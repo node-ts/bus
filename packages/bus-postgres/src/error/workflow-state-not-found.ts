@@ -4,6 +4,6 @@ export class WorkflowStateNotFound extends Error {
     readonly tableName: string,
     readonly version: number
   ) {
-    super(`Could not find workflow data`)
+    super(`Could not find workflow state`)
   }
 }

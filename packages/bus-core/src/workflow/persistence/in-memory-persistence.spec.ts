@@ -15,7 +15,7 @@ describe('InMemoryPersistence', () => {
     sut = new InMemoryPersistence()
   })
 
-  describe('when getting workflow data', () => {
+  describe('when getting workflow state', () => {
     const messageOptions = new MessageAttributes()
 
     beforeEach(async () => {
@@ -69,7 +69,7 @@ describe('InMemoryPersistence', () => {
     })
   })
 
-  describe('when saving workflow data', () => {
+  describe('when saving workflow state', () => {
     beforeEach(async () => {
       await sut.initializeWorkflow(
         TestWorkflowState,
