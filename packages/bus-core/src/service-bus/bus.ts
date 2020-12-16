@@ -8,11 +8,12 @@ import { ServiceBus } from './service-bus'
 import { Persistence, Workflow, WorkflowData } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
+import { BusAlreadyInitialized, BusNotInitialized } from './error'
 
 let serviceBus: ServiceBus | undefined
 const getServiceBus = () => {
   if (!serviceBus) {
-    throw new Error('Bus has not been initialized, call `await .initialize()`')
+    throw new BusNotInitialized()
   }
 
   return serviceBus
@@ -44,7 +45,7 @@ class BusConfiguration {
     messageHandler: Handler<MessageType>
   ): this {
     if (!!serviceBus) {
-      throw new Error('Cannot call registerHandler() after initialize() has been called')
+      throw new BusAlreadyInitialized()
     }
 
     handlerRegistry.register(
@@ -55,6 +56,10 @@ class BusConfiguration {
   }
 
   withWorkflow<TWorkflowData extends WorkflowData> (workflow: Workflow<TWorkflowData>): this {
+    if (!!serviceBus) {
+      throw new BusAlreadyInitialized()
+    }
+
     workflowRegistry.register(
       workflow
     )
@@ -62,21 +67,37 @@ class BusConfiguration {
   }
 
   withTransport (transportConfiguration: Transport): this {
+    if (!!serviceBus) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.configuredTransport = transportConfiguration
     return this
   }
 
   withLogger (loggerConfiguration: Logger): this {
+    if (!!serviceBus) {
+      throw new BusAlreadyInitialized()
+    }
+
     setLogger(loggerConfiguration)
     return this
   }
 
   withSerializer (serializerConfiguration: Serializer): this {
+    if (!!serviceBus) {
+      throw new BusAlreadyInitialized()
+    }
+
     setSerializer(serializerConfiguration)
     return this
   }
 
   withPersistence (persistence: Persistence): this {
+    if (!!serviceBus) {
+      throw new BusAlreadyInitialized()
+    }
+
     setPersistence(persistence)
     return this
   }
@@ -88,7 +109,7 @@ export class Bus {
 
   static configure (): BusConfiguration {
     if (!!serviceBus) {
-      throw new Error('Bus has already been configured')
+      throw new BusAlreadyInitialized()
     }
     return new BusConfiguration()
   }

@@ -1,7 +1,8 @@
-import { Bus, WorkflowStatus, MessageWorkflowMapping } from '@node-ts/bus-core'
+import { Bus, WorkflowStatus, MessageWorkflowMapping, Logger } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { PostgresPersistence } from './postgres-persistence'
 import { PostgresConfiguration } from './postgres-configuration'
+import { Mock } from 'typemoq'
 import { TestWorkflowData, TestCommand, testWorkflow } from '../test'
 import { Pool } from 'pg'
 import * as uuid from 'uuid'
@@ -25,6 +26,7 @@ describe('PostgresPersistence', () => {
     sut = PostgresPersistence.configure(configuration)
     await Bus
       .configure()
+      .withLogger(Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(testWorkflow)
       .initialize()

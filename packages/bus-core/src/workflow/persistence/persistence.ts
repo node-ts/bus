@@ -2,6 +2,7 @@ import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowData } from '../workflow-data'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { ClassConstructor } from '../../util'
+import { PersistenceNotConfigured } from './error'
 
 let configuredPersistence: Persistence | undefined
 export const setPersistence = (persistence: Persistence) =>
@@ -9,7 +10,7 @@ export const setPersistence = (persistence: Persistence) =>
 
 export const getPersistence = (): Persistence => {
   if (!configuredPersistence) {
-    throw new Error('Persistence not configured')
+    throw new PersistenceNotConfigured()
   }
   return configuredPersistence
 }

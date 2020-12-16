@@ -191,7 +191,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     } catch (err) {
       const error = err as { code: string }
       if (error.code === 'QueueAlreadyExists') {
-        getLogger().trace('Queue already exsts', { queueName })
+        getLogger().trace('Queue already exists', { queueName })
       } else {
         getLogger().error('SQS queue could not be created', { queueName, error })
         throw err

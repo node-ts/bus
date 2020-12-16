@@ -1,10 +1,11 @@
 import { RabbitMqTransport } from './rabbitmq-transport'
 import { TestEvent, TestCommand, testCommandHandler } from '../test'
 import { Connection, Channel, Message as RabbitMqMessage, connect } from 'amqplib'
-import { TransportMessage, Bus } from '@node-ts/bus-core'
+import { TransportMessage, Bus, Logger } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { Mock } from 'typemoq'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -23,6 +24,7 @@ describe('RabbitMqTransport', () => {
   beforeAll(async () => {
     await Bus.configure()
       .withTransport(rabbitMqTransport)
+      .withLogger(Mock.ofType<Logger>().object)
       .withHandler(TestCommand, testCommandHandler)
       .initialize()
 

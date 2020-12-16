@@ -1,16 +1,17 @@
 import { SqsTransport } from './sqs-transport'
 import {
-  testCommandHandler,
   TestCommand,
-  HandleChecker
+  HandleChecker,
+  TestEvent
 } from '../test'
-import { Bus, sleep } from '@node-ts/bus-core'
+import { Bus, Logger } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { EventEmitter } from 'events'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -25,6 +26,8 @@ const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
+const testCommandHandlerEmitter = new EventEmitter()
+const testEventHandlerEmitter = new EventEmitter()
 
 const sqsConfiguration: SqsTransportConfiguration = {
   queueName: `${resourcePrefix}-test`,
@@ -69,6 +72,7 @@ describe('SqsTransport', () => {
   let sns: SNS
 
   let handleChecker = Mock.ofType<HandleChecker>()
+  const logger = Mock.ofType<Logger>()
 
   beforeAll(async () => {
     sqs = new SQS()
@@ -79,23 +83,34 @@ describe('SqsTransport', () => {
     // tslint:disable-next-line:no-magic-numbers A timeout > 10s which is the default sqs receive timeout
     jest.setTimeout(15000)
     await Bus.dispose()
-    await sqs.deleteQueue({
+    await sqs.purgeQueue({
       QueueUrl: sqsConfiguration.queueUrl
     }).promise()
-    await sqs.deleteQueue({
-      QueueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
-    }).promise()
-    await sns.deleteTopic({
-      TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-    }).promise()
+    // await sqs.deleteQueue({
+    //   QueueUrl: sqsConfiguration.queueUrl
+    // }).promise()
+    // await sqs.deleteQueue({
+    //   QueueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
+    // }).promise()
+    // await sns.deleteTopic({
+    //   TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
+    // }).promise()
   })
 
   describe('when the transport has been initialized', () => {
     beforeAll(async () => {
       const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
       await Bus.configure()
+        .withLogger(logger.object)
         .withTransport(sqsTransport)
-        .withHandler(TestCommand, testCommandHandler(handleChecker.object))
+        .withHandler(TestCommand, (_, attributes) => {
+          testCommandHandlerEmitter.emit('received')
+          handleChecker.object.check(attributes)
+        })
+        .withHandler(TestEvent, async () => {
+          testEventHandlerEmitter.emit('received')
+          throw new Error()
+        })
         .initialize()
       await Bus.start()
     })
@@ -138,23 +153,22 @@ describe('SqsTransport', () => {
         }
       }
 
-      beforeAll(async () => {
-        await Bus.send(testCommand, messageOptions)
-      })
-
       it('should receive and dispatch to the handler', async () => {
-        jest.setTimeout(15000)
-        while (true) {
-          await sleep(1000 * 2)
-          try {
-            handleChecker.verify(
-              h => h.check(It.isObjectWith(messageOptions)),
-              Times.once()
-            )
-            break
-          } catch {
-            // Loop and wait for message to be received
-          }
+        await Bus.send(testCommand, messageOptions)
+        await new Promise(resolve => testCommandHandlerEmitter.on('received', resolve))
+        handleChecker.verify(
+          h => h.check(It.isObjectWith(messageOptions)),
+          Times.once()
+        )
+      })
+    })
+
+    describe('when retrying a message', () => {
+      it('should retry subsequent requests', async () => {
+        await Bus.publish(new TestEvent())
+        let attempts = 3
+        while (attempts--  > 0) {
+          await new Promise<void>(resolve => testEventHandlerEmitter.on('received', resolve))
         }
       })
     })
