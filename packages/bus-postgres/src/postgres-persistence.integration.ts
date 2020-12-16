@@ -74,8 +74,8 @@ describe('PostgresPersistence', () => {
 
       it('should retrieve the item', async () => {
         mapping = {
-          lookupMessage: cmd => cmd.property1,
-          workflowDataProperty: 'property1'
+          lookup: ({ message }) => message.property1,
+          mapsTo: 'property1'
         }
         const results = await sut.getWorkflowData(
           TestWorkflowData,
