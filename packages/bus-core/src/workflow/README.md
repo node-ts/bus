@@ -123,7 +123,7 @@ const processDocumentWorkflow = Workflow
 
 The following represents a simple workflow that sends a welcome message to new users and subscribes them to a mailing list.
 
-`user-signup-workflow-data.ts` is a workflow data definition that describes the state that the workflow will create and update throughout its lifetime.  
+`user-signup-workflow-state.ts` is a workflow data definition that describes the state that the workflow will create and update throughout its lifetime.  
 
 ```typescript
 // user-signup-workflow.ts
@@ -134,14 +134,14 @@ import {
   SubscribeToMailingList,
   Uuid
 } from 'contracts'
-import { UserSignupWorkflowData } from './user-signup-workflow-data'
+import { UserSignupWorkflowData } from './user-signup-workflow-state'
 
 /**
  * Describes the state that the workflow will create and update throughout its lifetime
  */
 export class UserSignupWorkflowData extends WorkflowData {
   // The name needs to be unique to distinguish it from other persisted workflow
-  static readonly NAME = 'node-ts/bus-workflow/user-signup-workflow-data'
+  static readonly NAME = 'node-ts/bus-workflow/user-signup-workflow-state'
   readonly $name = UserSignupWorkflowData.NAME
 
   email: string

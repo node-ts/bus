@@ -112,7 +112,7 @@ If later you decide to move this handler to a different service, [@node-ts/bus](
 The workflow only operates on messages like commands and events. It's not allowed to query databases or anything else, as it should only model the flow of logic through your business. In our case the code is trivial:
 
 ```typescript
-import { TestWorkflowData } from './test-workflow-data'
+import { TestWorkflowData } from './test-workflow-state'
 import { BUS_SYMBOLS, Bus } from '@node-ts/bus-core'
 import { Workflow, StartedBy, Handles } from '@node-ts/bus-workflow'
 import { RoomReserved, EmailHotelConfirmation } from '@org/contracts'
