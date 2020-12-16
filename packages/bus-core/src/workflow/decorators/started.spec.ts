@@ -100,11 +100,6 @@ export class AssignmentWorkflowState extends WorkflowData {
   assigneeId: string
 }
 
-interface AssignmentWorkflowDependencies {
-  bus: Bus
-  logger: Logger
-}
-
 export const assignmentWorkflow = Workflow
   .configure('assignment', AssignmentWorkflowState)
   .startedBy(
@@ -114,7 +109,7 @@ export const assignmentWorkflow = Workflow
   .when(
     AssignmentAssigned,
     {
-      lookup: e => e.assignmentId,
+      lookup: ({ message }) => message.assignmentId,
       mapsTo: 'assignmentId'
     },
     async ({ message }) => {
@@ -130,10 +125,10 @@ export const assignmentWorkflow = Workflow
   .when(
     AssignmentReassigned,
     {
-      lookup: (_, messageAttributes) => messageAttributes.correlationId,
+      lookup: ({ context }) => context.correlationId,
       mapsTo: '$workflowId'
     },
-    async ({ message, workflowState }) => {
+    async ({ message, state: workflowState }) => {
       const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
       await Bus.send(notifyAssignmentAssigned)
 
@@ -147,7 +142,7 @@ export const assignmentWorkflow = Workflow
   .when(
     AssignmentCompleted,
     {
-      lookup: e => e.assignmentId,
+      lookup: ({ message }) => message.assignmentId,
       mapsTo: 'assignmentId'
     },
     async () => completeWorkflow()
@@ -178,8 +173,8 @@ describe('Workflow', () => {
 
   describe('when a message that starts a workflow is received', () => {
     const propertyMapping: MessageWorkflowMapping<AssignmentCreated, AssignmentWorkflowState & WorkflowData> = {
-      lookupMessage: e => e.assignmentId,
-      workflowDataProperty: 'assignmentId'
+      lookup: ({ message }) => message.assignmentId,
+      mapsTo: 'assignmentId'
     }
     const messageOptions = new MessageAttributes()
     let workflowData: AssignmentWorkflowState[]

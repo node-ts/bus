@@ -2,6 +2,7 @@ import { ClassConstructor } from '../util'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowData, WorkflowStatus } from './workflow-data'
 import { WorkflowAlreadyHandlesMessage, WorkflowAlreadyStartedByMessage } from './error'
+import { HandlerParameters } from '../handler'
 
 export type HandlerReturnType<State> = Promise<Partial<State>>
   | Partial<State>
@@ -20,15 +21,15 @@ export type WorkflowConstructor<
 export type WhenHandler<MessageType extends Message, State extends WorkflowData> = (
   parameters: {
     message: MessageType,
-    messageAttributes: MessageAttributes,
-    workflowState: Readonly<State>
+    context: MessageAttributes,
+    state: Readonly<State>
   }
 ) => HandlerReturnType<State>
 
 interface WhenOptions<MessageType extends Message, State extends WorkflowData> {
   mapsTo: keyof State & string
   // tslint:disable-next-line:prefer-method-signature Avoid unbound this
-  lookup: (message: MessageType, attributes: MessageAttributes) => string | undefined
+  lookup: (parameters: HandlerParameters<MessageType>) => string | undefined
 }
 
 export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> => {

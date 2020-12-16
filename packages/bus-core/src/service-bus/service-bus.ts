@@ -147,5 +147,8 @@ async function dispatchMessageToHandler (
   context: MessageAttributes,
   handler: Handler<Message>
 ): Promise<void> {
-  return handler(message, context)
+  return handler({
+    message,
+    context
+  })
 }

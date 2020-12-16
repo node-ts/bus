@@ -15,7 +15,7 @@ export const testWorkflow = Workflow
   .when(
     TaskRan,
     {
-      lookup: e => e.value,
+      lookup: ({ message }) => message.value,
       mapsTo: 'property1'
     },
     async ({ message: { value }}) => ({ property1: value })
@@ -23,7 +23,7 @@ export const testWorkflow = Workflow
   .when(
     FinalTask,
     {
-      lookup: (_, a) => a.correlationId,
+      lookup: ({ context }) => context.correlationId,
       mapsTo: '$workflowId'
     },
     async () => completeWorkflow()

@@ -39,7 +39,7 @@ export abstract class WorkflowData {
   /**
    * A unique name for the workflow data. This should be formatted in a namespace style,
    * ie: 'company/application/workflow-name'
-   * eg: $name = 'node-ts/bus-workflow/my-workflow'
+   * eg: $name = 'node-ts/bus-core/my-workflow'
    */
   abstract readonly $name: string
 }

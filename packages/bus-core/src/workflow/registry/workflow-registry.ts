@@ -16,7 +16,7 @@ const createWorkflowState = <TWorkflowData extends WorkflowData> (workflowStateT
 
 const dispatchMessageToWorkflow = async (
   message: Message,
-  messageAttributes: MessageAttributes,
+  context: MessageAttributes,
   workflowName: string,
   workflowData: WorkflowData,
   workflowDataConstructor: ClassConstructor<WorkflowData>,
@@ -25,8 +25,8 @@ const dispatchMessageToWorkflow = async (
   const immutableWorkflowData = Object.freeze({...workflowData})
   const workflowDataOutput = await handler({
     message,
-    messageAttributes,
-    workflowState: immutableWorkflowData
+    context,
+    state: immutableWorkflowData
   })
 
   if (workflowDataOutput && workflowDataOutput.$status === WorkflowStatus.Discard) {
@@ -130,10 +130,7 @@ class WorkflowRegistry {
 
       const messageWorkflowMappings: MessageWorkflowMapping[] = Array.from<[ClassConstructor<Message>, OnWhenHandler], MessageWorkflowMapping>(
         workflow.onWhen,
-        ([_, onWhenHandler]) => ({
-          lookupMessage: onWhenHandler.options.lookup,
-          workflowDataProperty: onWhenHandler.options.mapsTo
-        })
+        ([_, onWhenHandler]) => onWhenHandler.options
       )
       await getPersistence().initializeWorkflow(workflow.stateType, messageWorkflowMappings)
       getLogger().debug('Workflow initialized', { workflowName: workflow.workflowName })
@@ -162,10 +159,10 @@ class WorkflowRegistry {
     workflow.onStartedBy.forEach((handler, messageConstructor) =>
       handlerRegistry.register(
         messageConstructor,
-        async (message, messageAttributes) => {
+        async ({ message, context }) => {
           const workflowState = createWorkflowState(workflow.stateType)
           const immutableWorkflowState = Object.freeze({...workflowState})
-          const result = await handler({ message, messageAttributes, workflowState: immutableWorkflowState })
+          const result = await handler({ message, context, state: immutableWorkflowState })
           if (result) {
             await getPersistence().saveWorkflowData({
               ...workflowState,
@@ -181,17 +178,17 @@ class WorkflowRegistry {
   ): void {
     workflow.onWhen.forEach((handler, messageConstructor) => {
       const messageMapping: MessageWorkflowMapping<Message, WorkflowData> = {
-        lookupMessage: handler.options.lookup,
-        workflowDataProperty: handler.options.mapsTo
+        lookup: handler.options.lookup,
+        mapsTo: handler.options.mapsTo
       }
       handlerRegistry.register(
         messageConstructor,
-        async (message, messageAttributes) => {
+        async ({ message, context }) => {
           const workflowState = await getPersistence().getWorkflowData(
             workflow.stateType,
             messageMapping,
             message,
-            messageAttributes,
+            context,
             false
           )
 
@@ -202,7 +199,7 @@ class WorkflowRegistry {
 
           const workflowHandlers = workflowState.map(state => dispatchMessageToWorkflow(
             message,
-            messageAttributes,
+            context,
             workflow.workflowName,
             state,
             workflow.stateType,

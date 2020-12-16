@@ -7,8 +7,8 @@ import { WorkflowData, WorkflowStatus } from '../workflow-data'
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
   const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
-    lookupMessage: message => message.property1,
-    workflowDataProperty: 'property1'
+    lookup: ({ message }) => message.property1,
+    mapsTo: 'property1'
   }
 
   beforeEach(() => {
@@ -20,8 +20,8 @@ describe('InMemoryPersistence', () => {
 
     beforeEach(async () => {
       const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
-        lookupMessage: command => command.property1,
-        workflowDataProperty: 'property1'
+        lookup: command => command.property1,
+        mapsTo: 'property1'
       }
       await sut.initializeWorkflow(
         TestWorkflowData,
@@ -50,8 +50,8 @@ describe('InMemoryPersistence', () => {
     describe('that doesn\'t exist', () => {
       let result: TestWorkflowData[]
       const unmatchedMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
-        lookupMessage: testMessage => testMessage.$name,
-        workflowDataProperty: '$workflowId'
+        lookup: testMessage => testMessage.$name,
+        mapsTo: '$workflowId'
       }
 
       beforeEach(async () => {

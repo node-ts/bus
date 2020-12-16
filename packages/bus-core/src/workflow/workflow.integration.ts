@@ -1,4 +1,4 @@
-import { InMemoryPersistence, Persistence } from './persistence'
+import { InMemoryPersistence } from './persistence'
 import { TestCommand, TestWorkflowData, testWorkflow, TaskRan, FinalTask } from './test'
 import { WorkflowStatus } from './workflow-data'
 import { Logger } from '@node-ts/logger-core'
@@ -44,8 +44,8 @@ describe('Workflow', () => {
 
   describe('when a message that starts a workflow is received', () => {
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowData> = {
-      lookupMessage: cmd => cmd.property1,
-      workflowDataProperty: 'property1'
+      lookup: ({ message }) => message.property1,
+      mapsTo: 'property1'
     }
     let workflowData: TestWorkflowData[]
     const messageOptions = new MessageAttributes()
@@ -120,8 +120,8 @@ describe('Workflow', () => {
   describe('when a workflow is completed in a StartedBy handler', () => {
     const messageOptions = new MessageAttributes()
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> = {
-      lookupMessage: cmd => cmd.property1,
-      workflowDataProperty: 'property1'
+      lookup: ({ message }) => message.property1,
+      mapsTo: 'property1'
     }
 
     it('should persist the workflow as completed', async () => {
@@ -142,8 +142,8 @@ describe('Workflow', () => {
   describe('when a StartedBy handler returns undefined', () => {
     const messageOptions = new MessageAttributes()
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> = {
-      lookupMessage: cmd => cmd.property1,
-      workflowDataProperty: 'property1'
+      lookup: ({ message }) => message.property1,
+      mapsTo: 'property1'
     }
 
     it('should not persist the workflow', async () => {

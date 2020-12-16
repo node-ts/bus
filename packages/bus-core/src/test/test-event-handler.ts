@@ -1,12 +1,12 @@
 import { TestEvent } from './test-event'
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { HandlerParameters } from '../handler/handler'
 
 export interface MessageLogger {
   log (message: unknown): void
 }
 
 export const testEventHandler = (messageLogger: MessageLogger) =>
-  (testEvent: TestEvent, attributes: MessageAttributes) => {
-    messageLogger.log(testEvent)
-    messageLogger.log(attributes)
+  ({ message, context }: HandlerParameters<TestEvent>) => {
+    messageLogger.log(message)
+    messageLogger.log(context)
   }

@@ -1,9 +1,8 @@
-import { ClassConstructor, getLogger, getSerializer, Persistence, WorkflowData } from '@node-ts/bus-core'
+import { ClassConstructor, getLogger, getSerializer, MessageWorkflowMapping, Persistence, WorkflowData } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Pool } from 'pg'
 import { PostgresConfiguration } from './postgres-configuration'
 import { WorkflowDataNotFound } from './error'
-import { MessageWorkflowMapping } from '@node-ts/bus-workflow'
 
 /**
  * The name of the field that stores workflow data as JSON in the database row.
@@ -53,15 +52,15 @@ export class PostgresPersistence implements Persistence {
     workflowDataConstructor: ClassConstructor<WorkflowDataType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowDataType>,
     message: MessageType,
-    messageOptions: MessageAttributes,
+    context: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowDataType[]> {
     getLogger().debug('Getting workflow data', { workflowDataName: workflowDataConstructor.name })
     const workflowDataName = new workflowDataConstructor().$name
     const tableName = resolveQualifiedTableName(workflowDataName, this.configuration.schemaName)
-    const matcherValue = messageMap.lookupMessage(message, messageOptions)
+    const matcherValue = messageMap.lookup({ message, context })
 
-    const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.workflowDataProperty}'`
+    const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.mapsTo}'`
     const query = `
       select
         ${WORKFLOW_DATA_FIELD_NAME}
@@ -135,7 +134,7 @@ export class PostgresPersistence implements Persistence {
   ): Promise<void> {
     const createPrimaryIndex = this.createPrimaryIndex(tableName)
 
-    const allWorkflowFields = messageWorkflowMappings.map(mapping => mapping.workflowDataProperty)
+    const allWorkflowFields = messageWorkflowMappings.map(mapping => mapping.mapsTo)
     const distinctWorkflowFields = new Set(allWorkflowFields)
     const workflowFields: string[] = [...distinctWorkflowFields]
 
