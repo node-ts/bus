@@ -14,25 +14,138 @@ View our docs at [https://node-ts.github.io/bus/](https://node-ts.github.io/bus/
 
 ## Overview
 
-This framework provides a way to connect different applications or parts of the same application together in a developer-friendly way powered by message queues. It helps to decouple and greatly simplify applications, especially as they grow larger or more fragmented.
+- what problem does this solve?
+  - application can be broken apart
+  - application can be scaled out
+  - does the heavy lifting to make sure nothing gets lost
+- what's the difference to using an amqp library/rabbit/sqs etc
+- new to messaging?
+  - makes your app fault tolerant
+  - your app can recover after an outage (ie if it's offline for a few hours, nothing is lost and will resume processing)
+  - under load it's easy to stand up new instances of the app to help
 
-The simplest way to imagine a message based system is the following:
+## Installation
 
-- Your system, as a whole, can accept and process `commands`
-- When a command is executed, one or more `events` are published
-- The system can listen for certain `events` and trigger other `commands` because of it
+You can get the latest release and type definitions using npm:
 
-For example consider an online hotel booking message based system:
-
-- A `command` like `ReserveRoom` is sent when a customer wants to reserve a room
-- Upon processing this `command`, a `RoomReserved` event is published
-- Whenever a `RoomReserved` `event` is received, a `SendEmailToHotel` `command` is sent
-
-This library can be combined with the Domain Driven Design library [@node-ts/ddd](https://www.github.com/node-ts/ddd) that helps align software with the business domain.
+```
+$ npm install @node-ts/bus-core @node-ts/bus-messages --save
+```
 
 ## Getting Started
 
-The fastest way to get started with this service bus is to clone the starter project at [@node-ts/bus-starter](https://github.com/node-ts/bus-starter).
+This example assumes we're writing a hotel booking application. Guests can make a reservation with our app, which coordinates the reservation between the guest and the hotel.
+
+### Step 1 - Let guests place a reservation
+
+We want to write a new command and handler that allows guests to make a reservation. Once the reservation has been made, we want to publish an event to let the rest of the system know this has taken place. 
+
+Firstly, the command and event definitions are created. These just hold data that is passed around across the message bus.
+
+For a command, these represent all of the inputs and parameters that need to be know to execute (think of them as function parameters that will be passed to a service for execution).
+
+For an event, the fields represent a historical fact of what changed as well as any other useful information that a consumer might want to know about.
+
+```ts
+// messages.ts
+import { Command, Event } from '@node-ts/bus-messages'
+
+export class MakeReservation extends Command {
+  $name = 'hotel/make-reservation'
+  $version = 1
+
+  constructor (
+    readonly customerId,
+    readonly hotelId,
+    readonly roomId,
+    readonly fromDate,
+    readonly toDate
+  ) {
+    super()
+  }
+}
+
+export class ReservationMade extends Event {
+  $name = 'hotel/reservation-made'
+  $version = 1
+
+  constructor (
+    readonly reservationId,
+    readonly customerId,
+    readonly hotelId,
+    readonly roomId,
+    readonly fromDate,
+    readonly toDate
+  ) {
+    super()
+  }
+}
+
+```
+
+Next we want to write a handler to receive and publish these messages:
+
+```ts
+// handle-make-reservation.ts
+import { Bus, Handler } from '@node-ts/bus-core'
+import { MakeReservation, ReservationMade } from './messages'
+import { reservationService } from './reservation-service'
+
+export const handleMakeReservation: Handler<MakeReservation> = async ({ message }) => {
+  // `message` is of type `MakeReservation` and will be passed into this function each time a publisher send it
+  const reservationId = await reservationService.makeReservation(message)
+
+  // We publish that a reservation has been made so that any interested consumers can be notified
+  const reservationMade = new ReservationMade(
+    reservationId,
+    message.customerId,
+    message.hotelId,
+    message.roomId,
+    message.fromDate,
+    message.toDate
+  )
+  console.log('reservation made', reservationMade)
+  await Bus.publish(reservationMade)
+}
+```
+
+Lastly we need to register the handler with the bus:
+
+```ts
+// application.ts
+import { Bus } from '@node-ts/bus-core'
+import { MakeReservation } from './messages'
+import { handleMakeReservation } from './handle-make-reservation'
+
+const run = async () => {
+  await Bus
+    .configure()
+    .withHandler(MakeReservation, handleMakeReservation)
+    .initialize()
+
+  // Start the bus listening for messages
+  await Bus.start()
+}
+
+run().catch(console.error)
+
+```
+
+At this point our app will be subscribed to a message queue and listening for its first command. We can send it out by doing:
+
+```ts
+const makeReservation = new MakeReservation(
+  customerId,
+  hotelId,
+  roomId,
+  fromDate,
+  toDate
+)
+await Bus.send(makeReservation)
+```
+
+## Step 2 - Notify the hotel when a reservation is made
+
 
 ## Components
 
