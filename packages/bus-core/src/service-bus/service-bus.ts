@@ -1,6 +1,6 @@
 import { injectable, inject, optional } from 'inversify'
 import autobind from 'autobind-decorator'
-import { Bus, BusState, HookAction, HookCallback } from './bus'
+import { Bus, BusState } from './bus'
 import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
@@ -98,9 +98,8 @@ export class ServiceBus implements Bus {
   // tslint:disable-next-line:member-ordering
   on = this.busHooks.on.bind(this.busHooks)
 
-  off (action: HookAction, callback: HookCallback): void {
-    this.busHooks.off(action, callback)
-  }
+  // tslint:disable-next-line:member-ordering
+  off = this.busHooks.off.bind(this.busHooks)
 
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
@@ -131,7 +130,8 @@ export class ServiceBus implements Bus {
           await Promise.all(this.busHooks.error.map(callback => callback(
             message.domainMessage as Message,
             (error as Error),
-            message.attributes
+            message.attributes,
+            message
           )))
           await this.transport.returnMessage(message)
           return false

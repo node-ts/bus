@@ -167,7 +167,7 @@ describe('ServiceBus', () => {
         callback.verifyAll()
       })
 
-      it('should trigger error hook if registered', async () => {
+      fit('should trigger error hook if registered', async () => {
         const errorCallback = jest.fn()
         setupErroneousCallback()
 
@@ -189,6 +189,9 @@ describe('ServiceBus', () => {
             correlationId: undefined,
             attributes: expect.anything(),
             stickyAttributes: expect.anything()
+          }),
+          expect.objectContaining({
+            raw: expect.anything()
           })
         )
         sut.off('error', errorCallback)
