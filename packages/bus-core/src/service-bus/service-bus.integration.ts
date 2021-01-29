@@ -167,7 +167,7 @@ describe('ServiceBus', () => {
         callback.verifyAll()
       })
 
-      fit('should trigger error hook if registered', async () => {
+      it('should trigger error hook if registered', async () => {
         const errorCallback = jest.fn()
         setupErroneousCallback()
 
