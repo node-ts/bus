@@ -6,12 +6,14 @@ import * as serializeError from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from './message-handling-context'
 import * as asyncHooks from 'async_hooks'
+import { BusHooks } from './bus-hooks'
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 export class ServiceBus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+  private busHooks = new BusHooks()
 
   constructor (
     private readonly transport: Transport<{}>,
@@ -25,6 +27,7 @@ export class ServiceBus {
   ): Promise<void> {
     getLogger().debug('publish', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
+    await Promise.all(this.busHooks.publish.map(callback => callback(event, transportOptions)))
     return this.transport.publish(event, transportOptions)
   }
 
@@ -34,6 +37,7 @@ export class ServiceBus {
   ): Promise<void> {
     getLogger().debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
+    await Promise.all(this.busHooks.send.map(callback => callback(command, transportOptions)))
     return this.transport.send(command, transportOptions)
   }
 
@@ -81,6 +85,10 @@ export class ServiceBus {
     return this.internalState
   }
 
+  on = this.busHooks.on.bind(this.busHooks)
+
+  off = this.busHooks.off.bind(this.busHooks)
+
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {
@@ -113,6 +121,12 @@ export class ServiceBus {
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
+          await Promise.all(this.busHooks.error.map(callback => callback(
+            message.domainMessage as Message,
+            (error as Error),
+            message.attributes,
+            message
+          )))
           await this.transport.returnMessage(message)
           return false
         } finally {
