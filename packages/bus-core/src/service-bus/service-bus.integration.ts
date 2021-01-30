@@ -6,7 +6,7 @@ import { Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times } from 'typemoq'
 
 const event = new TestEvent()
-type Callback = () => void
+type Callback = () => void;
 
 describe('ServiceBus', () => {
   let queue: MemoryQueue
@@ -55,7 +55,6 @@ describe('ServiceBus', () => {
       })
     })
   })
-
 
   describe('when a message is successfully handled from the queue', () => {
     beforeEach(async () => Bus.start())

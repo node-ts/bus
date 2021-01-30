@@ -29,6 +29,7 @@ export enum BusState {
 class BusConfiguration {
 
   private configuredTransport: Transport | undefined
+  private concurrency = 1
 
   async initialize (): Promise<void> {
     await workflowRegistry.initialize()
@@ -37,7 +38,7 @@ class BusConfiguration {
     if (transport.initialize) {
       await transport.initialize(handlerRegistry)
     }
-    serviceBus = new ServiceBus(transport)
+    serviceBus = new ServiceBus(transport, this.concurrency)
   }
 
   withHandler<MessageType extends Message> (
@@ -99,6 +100,15 @@ class BusConfiguration {
     }
 
     setPersistence(persistence)
+    return this
+  }
+
+  withConcurrency (concurrency: number): this {
+    if (concurrency < 1) {
+      throw new Error('Invalid concurrency setting. Must be set to 1 or greater')
+    }
+
+    this.concurrency = concurrency
     return this
   }
 }

@@ -4,7 +4,7 @@ import { sleep, getLogger} from '../util'
 import { Handler, handlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
 import { BusState } from './bus'
-
+import { messageHandlingContext } from './message-handling-context'
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 export class ServiceBus {
@@ -13,7 +13,8 @@ export class ServiceBus {
   private runningWorkerCount = 0
 
   constructor (
-    private readonly transport: Transport<{}>
+    private readonly transport: Transport<{}>,
+    private readonly concurrency: number
   ) {
   }
 
@@ -42,8 +43,12 @@ export class ServiceBus {
     }
     this.internalState = BusState.Starting
     getLogger().info('ServiceBus starting...')
+    messageHandlingContext.enable()
+
     this.internalState = BusState.Started
-    setTimeout(async () => this.applicationLoop(), 0)
+    for (var i = 0; i < this.concurrency; i++) {
+      setTimeout(async () => this.applicationLoop(), 0)
+    }
   }
 
   async stop (): Promise<void> {
@@ -94,6 +99,8 @@ export class ServiceBus {
         getLogger().debug('Message read from transport', { message })
 
         try {
+          messageHandlingContext.set(message)
+
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           getLogger().debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
@@ -130,10 +137,14 @@ export class ServiceBus {
   }
 
   private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
+    const handlingContext = messageHandlingContext.get()
+
     const result: MessageAttributes = {
-      correlationId: clientOptions.correlationId,
+      // The optional operator? decided not to work here
+      correlationId: (handlingContext ? handlingContext.attributes.correlationId : undefined) || clientOptions.correlationId,
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
+        ...(handlingContext ? handlingContext.attributes.stickyAttributes : {}),
         ...clientOptions.stickyAttributes
       }
     }
