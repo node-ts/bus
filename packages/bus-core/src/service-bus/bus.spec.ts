@@ -24,4 +24,10 @@ describe('Bus', () => {
       expect(() => config.withWorkflow({} as Workflow)).toThrowError(BusAlreadyInitialized)
     })
   })
+
+  describe('when configuring bus with an invalid concurrency setting', () => {
+    it('should throw an error when concurrency < 1', () => {
+      expect(() => Bus.configure().withConcurrency(0)).toThrowError()
+    })
+  })
 })

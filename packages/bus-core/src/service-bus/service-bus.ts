@@ -50,6 +50,8 @@ export class ServiceBus {
     for (var i = 0; i < this.concurrency; i++) {
       setTimeout(async () => this.applicationLoop(), 0)
     }
+
+    getLogger().info(`ServiceBus started with concurrency ${this.concurrency}`)
   }
 
   async stop (): Promise<void> {
