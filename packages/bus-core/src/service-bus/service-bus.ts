@@ -5,6 +5,7 @@ import { Handler, handlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from './message-handling-context'
+import * as asyncHooks from 'async_hooks'
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 export class ServiceBus {
@@ -98,8 +99,9 @@ export class ServiceBus {
       if (message) {
         getLogger().debug('Message read from transport', { message })
 
+        const asyncId = asyncHooks.executionAsyncId()
         try {
-          messageHandlingContext.set(message)
+          messageHandlingContext.set(asyncId, message)
 
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           getLogger().debug('Message dispatched to all handlers', { message })
@@ -111,6 +113,8 @@ export class ServiceBus {
           )
           await this.transport.returnMessage(message)
           return false
+        } finally {
+          messageHandlingContext.destroy(asyncId)
         }
         return true
       }
@@ -141,10 +145,10 @@ export class ServiceBus {
 
     const result: MessageAttributes = {
       // The optional operator? decided not to work here
-      correlationId: (handlingContext ? handlingContext.attributes.correlationId : undefined) || clientOptions.correlationId,
+      correlationId: (handlingContext ? handlingContext.message.attributes.correlationId : undefined) || clientOptions.correlationId,
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
-        ...(handlingContext ? handlingContext.attributes.stickyAttributes : {}),
+        ...(handlingContext ? handlingContext.message.attributes.stickyAttributes : {}),
         ...clientOptions.stickyAttributes
       }
     }

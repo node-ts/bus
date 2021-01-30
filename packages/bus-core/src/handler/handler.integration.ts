@@ -35,6 +35,7 @@ describe('Handler', () => {
 
     await Bus.configure()
       .withLogger(Mock.ofType<Logger>().object)
+      .withConcurrency(2)
       .withHandler(TestEvent, testEventHandler(messageLogger.object))
       .withHandler(TestCommand2, command2Handler)
       .withHandler(TestCommand3, command3Handler(messageLogger.object))
