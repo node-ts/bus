@@ -1,5 +1,5 @@
 import { Message } from '@node-ts/bus-messages'
-import { HandlerParameters } from '../handler'
+import { HandlerContext } from '../handler'
 import { WorkflowState } from './workflow-state'
 
 /**
@@ -10,7 +10,7 @@ export interface MessageWorkflowMapping <MessageType extends Message = Message, 
   /**
    * A lookup function that resolves a value used to lookup workflow state
    */
-  lookup: (parameters: HandlerParameters<MessageType>) => string | undefined
+  lookup: (context: HandlerContext<MessageType>) => string | undefined
 
   /**
    * The field in workflow state where the lookup value is matched against

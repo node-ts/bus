@@ -1,9 +1,10 @@
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { Handler, HandlerParameters } from '@node-ts/bus-core'
+import { MessageAttributeMap } from '@node-ts/bus-messages'
 import { TestCommand } from './test-command'
 
 export interface HandleChecker {
-  check (attributes: MessageAttributes): void
+  check (attributes: MessageAttributeMap): void
 }
 
-export const testCommandHandler = (handleChecker: HandleChecker) =>
-  (_: TestCommand, messageAttributes: MessageAttributes) => handleChecker.check(messageAttributes)
+export const testCommandHandler = (handleChecker: HandleChecker): Handler<TestCommand> =>
+  ({ attributes }: HandlerParameters<TestCommand>) => handleChecker.check(attributes)

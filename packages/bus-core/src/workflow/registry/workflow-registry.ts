@@ -159,7 +159,7 @@ class WorkflowRegistry {
     workflow.onStartedBy.forEach((handler, messageConstructor) =>
       handlerRegistry.register(
         messageConstructor,
-        async ({ message, context }) => {
+        async ({ message, ...context }) => {
           const workflowState = createWorkflowState(workflow.stateType)
           const immutableWorkflowState = Object.freeze({...workflowState})
           const result = await handler({ message, context, state: immutableWorkflowState })
@@ -183,7 +183,7 @@ class WorkflowRegistry {
       }
       handlerRegistry.register(
         messageConstructor,
-        async ({ message, context }) => {
+        async ({ message, ...context }) => {
           const workflowState = await getPersistence().getWorkflowState(
             workflow.stateType,
             messageMapping,

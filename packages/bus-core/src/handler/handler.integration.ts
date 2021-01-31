@@ -7,7 +7,7 @@ import { sleep } from '../util'
 import { MessageLogger, TestCommand2, testEventHandler } from '../test'
 import * as faker from 'faker'
 import { Logger } from '@node-ts/logger-core'
-import { Handler, HandlerParameters } from './handler'
+import { Handler, HandlerContext } from './handler'
 import { TestCommand3 } from '../test/test-command-3'
 
 const event = new TestEvent()
@@ -29,7 +29,7 @@ describe('Handler', () => {
 
   // Sticky attributes should propagate during Bus.send
   const command2Handler: Handler<TestCommand2> = async () => { Bus.send(new TestCommand3()); await sleep(100) }
-  const command3Handler = (logger: MessageLogger) => async ({ context: { stickyAttributes } }: HandlerParameters<TestCommand3>) => logger.log(stickyAttributes.value)
+  const command3Handler = (logger: MessageLogger) => async ({ stickyAttributes }: HandlerContext<TestCommand3>) => logger.log(stickyAttributes.value)
 
   beforeAll(async () => {
 

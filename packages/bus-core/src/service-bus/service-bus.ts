@@ -180,6 +180,6 @@ async function dispatchMessageToHandler (
 ): Promise<void> {
   return handler({
     message,
-    context
+    ...context
   })
 }

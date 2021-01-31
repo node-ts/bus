@@ -1,12 +1,14 @@
 import { TestEvent } from './test-event'
-import { HandlerParameters } from '../handler/handler'
+import { HandlerContext } from '../handler/handler'
 
 export interface MessageLogger {
   log (message: unknown): void
 }
 
 export const testEventHandler = (messageLogger: MessageLogger) =>
-  ({ message, context }: HandlerParameters<TestEvent>) => {
+  ({ message, attributes, stickyAttributes, correlationId }: HandlerContext<TestEvent>) => {
     messageLogger.log(message)
-    messageLogger.log(context)
+    messageLogger.log(attributes)
+    messageLogger.log(stickyAttributes)
+    messageLogger.log(correlationId)
   }

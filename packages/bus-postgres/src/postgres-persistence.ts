@@ -58,7 +58,7 @@ export class PostgresPersistence implements Persistence {
     getLogger().debug('Getting workflow state', { workflowStateName: workflowStateConstructor.name })
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
-    const matcherValue = messageMap.lookup({ message, context })
+    const matcherValue = messageMap.lookup({ message, ...context })
 
     const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.mapsTo}'`
     const query = `

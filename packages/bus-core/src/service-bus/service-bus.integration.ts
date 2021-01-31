@@ -77,7 +77,7 @@ describe('ServiceBus', () => {
     })
   })
 
-  describe('and a handled message throws an Error', () => {
+  describe('when a handled message throws an Error', () => {
     beforeEach(async () => Bus.start())
     afterEach(async () => Bus.stop())
 

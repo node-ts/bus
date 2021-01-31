@@ -1,8 +1,7 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 
-export interface HandlerParameters<TMessage extends Message> {
+export interface HandlerContext<TMessage extends Message> extends MessageAttributes {
   message: TMessage
-  context: MessageAttributes
 }
 
-export type Handler<TMessage extends Message = Message> = (parameters: HandlerParameters<TMessage>) => void | Promise<void>
+export type Handler<TMessage extends Message = Message> = (context: HandlerContext<TMessage>) => void | Promise<void>
