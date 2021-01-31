@@ -1,5 +1,5 @@
-import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
-import { TestCommand, TestEvent, TestCommand2, TestSystemMessage } from '../test'
+import { MemoryQueue, InMemoryMessage, RETRY_LIMIT, toTransportMessage, RECEIVE_TIMEOUT_MS } from './memory-queue'
+import { TestCommand, TestEvent, TestCommand2, TestSystemMessage, TestFailMessage } from '../test'
 import { TransportMessage } from '../transport'
 import { Mock } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
@@ -19,16 +19,17 @@ describe('MemoryQueue', () => {
    })
 
   beforeEach(async () => {
-    sut = new MemoryQueue(
-      Mock.ofType<Logger>().object
-    )
-
     const handlerRegistry = Mock.ofType<HandlerRegistry>()
     handlerRegistry
       .setup(h => h.messageSubscriptions)
       .returns(() => handledMessages.map(h => ({ messageType: h }) as {} as HandlerResolver))
 
-    await sut.initialize(handlerRegistry.object)
+    sut = new MemoryQueue(
+      Mock.ofType<Logger>().object,
+      handlerRegistry.object
+    )
+
+    await sut.initialize()
   })
 
   describe('when publishing an event', () => {
@@ -59,10 +60,50 @@ describe('MemoryQueue', () => {
     })
   })
 
+  describe('when failing a message', () => {
+    beforeEach(async () => {
+      const message = new TestFailMessage(faker.random.uuid())
+      const transportMessage = toTransportMessage(message, new MessageAttributes(), true)
+      await sut.fail(transportMessage)
+    })
+
+    it('should deliver the failed message to the dead letter queue', () => {
+      expect(sut.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should remove the message from the source queue', () => {
+      expect(sut.depth).toEqual(0)
+    })
+  })
+
   describe('when reading the next message', () => {
     it('should return undefined when the queue is empty', async () => {
-      const message = await sut.readNextMessage()
+      jest.useFakeTimers()
+      const readNextMessagePromise = sut.readNextMessage()
+      jest.advanceTimersByTime(RECEIVE_TIMEOUT_MS)
+      const message = await readNextMessagePromise
       expect(message).toBeUndefined()
+    })
+
+    it('should return when a message is published', async () => {
+      jest.useFakeTimers()
+      const readNextMessagPromise = sut.readNextMessage()
+      jest.advanceTimersByTime(RECEIVE_TIMEOUT_MS / 2)
+      await sut.publish(event, messageOptions)
+      const message = await readNextMessagPromise
+      expect(message).toBeDefined()
+    })
+
+    it('should return a single message from the emitter', async () => {
+      jest.useFakeTimers()
+      const readNextMessagePromise = sut.readNextMessage()
+      jest.advanceTimersByTime(RECEIVE_TIMEOUT_MS / 2)
+      await sut.publish({...event}, messageOptions)
+      await sut.publish({...event}, messageOptions)
+      const message = await readNextMessagePromise
+      expect(message).toBeDefined()
+      await sut.deleteMessage(message!)
+      expect(sut.depth).toEqual(1)
     })
 
     it('should return the message when the queue has one', async () => {

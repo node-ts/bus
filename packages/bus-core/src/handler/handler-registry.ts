@@ -118,6 +118,23 @@ export class HandlerRegistry {
   }
 
   /**
+   * Gets the type consturctor for a given message name.
+   * This is used for deserialization
+   * @param message A message instance to resolve handlers for
+   */
+  getMessageType<TMessage extends MessageType> (message: TMessage): HandlerResolver['messageType'] {
+    const resolvedHandlers = this.handlerResolvers
+      .filter(resolvers => resolvers.resolver(message))
+
+    if (resolvedHandlers.length === 0) {
+      return undefined
+    }
+
+    // Assuming one message name is only associated with one message type
+    return resolvedHandlers[0].messageType
+  }
+
+  /**
    * Binds message handlers into the IoC container. All handlers should be stateless and are
    * bound in a transient scope.
    */

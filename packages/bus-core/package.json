@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-core",
-  "version": "0.5.3",
+  "version": "0.6.3",
   "description": "A service bus for message-based, distributed node applications",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,10 +13,10 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.2.3",
+    "@node-ts/bus-messages": "^0.3.0",
     "@types/node": "^12.12.39",
     "autobind-decorator": "^2.4.0",
-    "class-transformer": "^0.2.3",
+    "class-transformer": "^0.3.1",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
     "serialize-error": "^4.1.0",

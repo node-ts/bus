@@ -1,6 +1,6 @@
 # @node-ts/bus-postgres
 
-[![Greenkeeper badge](https://badges.greenkeeper.io/node-ts/bus.svg)](https://greenkeeper.io/)
+[![Known Vulnerabilities](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
 [![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 A Postgrres based persistence for workflow storage.
@@ -53,5 +53,5 @@ application
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
 
 ```bash
-docker run --name bus-postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
+docker run -d --name bus-postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
 ```

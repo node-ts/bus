@@ -5,9 +5,13 @@ export const BUS_SYMBOLS = {
   HandlerRegistry: Symbol.for('@node-ts/bus-core/handler-registry'),
   ApplicationBootstrap: Symbol.for('@node-ts/bus-core/application-bootstrap'),
   JsonSerializer: Symbol.for('@node-ts/bus-core/json-serializer'),
-  MessageHandlingContext: Symbol.for('@node-ts/bus-core/message-handling-context')
+  MessageSerializer: Symbol.for('@node-ts/bus-core/message-serializer'),
+  MessageHandlingContext: Symbol.for('@node-ts/bus-core/message-handling-context'),
+  BusConfiguration: Symbol.for('@node-ts/bus-core/bus-configuration')
 }
 
 export const BUS_INTERNAL_SYMBOLS = {
-  SessionScopeBinder: Symbol.for('@node-ts/bus-core/session-scope-binder')
+  SessionScopeBinder: Symbol.for('@node-ts/bus-core/session-scope-binder'),
+  BusHooks: Symbol.for('@node-ts/bus-core/bus-hooks'),
+  RawMessage: Symbol.for('@node-ts/bus-core/raw-message')
 }

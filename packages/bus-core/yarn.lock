@@ -2,10 +2,11 @@
 # yarn lockfile v1
 
 
-"@node-ts/bus-messages@^0.2.3":
-  version "0.2.3"
-  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.2.3.tgz#93eea4832b30e46d8b7244b6b19e75d4c765c5ae"
-  integrity sha512-Wx15syvIqajVOaXyPA28d1DfxxHgLuPJjpw+IQ8HfSi6L96bvp7QuRntWitE8ck6K5zAvjs8b1L21MXgD6dTtQ==
+
+"@node-ts/bus-messages@^0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.3.0.tgz#a5e19474e54f24ff683fa4fd8e54e65ecb68ce78"
+  integrity sha512-rrjo6v8dv21kqbYcWFkohmUS7BwIfn6xyCPiAxAvVpdQ2QYdUY1e9XYshWg9PSmlCtKKYh2Hs4kFf4Mj4Yc10A==
   dependencies:
     tslib "^1.9.3"
 
@@ -110,10 +111,10 @@ circular-json@^0.3.1:
   resolved "https://registry.yarnpkg.com/circular-json/-/circular-json-0.3.3.tgz#815c99ea84f6809529d2f45791bdf82711352d66"
   integrity sha512-UZK3NBx2Mca+b5LsG7bY183pHWt5Y1xts4P3Pz7ENTwGVnJOUWbRb3ocjvX7hx9tq/yTAdclXm9sZ38gNuem4A==
 
-class-transformer@^0.2.3:
-  version "0.2.3"
-  resolved "https://registry.yarnpkg.com/class-transformer/-/class-transformer-0.2.3.tgz#598c92ca71dcca73f91ccb875d74a3847ccfa32d"
-  integrity sha512-qsP+0xoavpOlJHuYsQJsN58HXSl8Jvveo+T37rEvCEeRfMWoytAyR0Ua/YsFgpM6AZYZ/og2PJwArwzJl1aXtQ==
+class-transformer@^0.3.1:
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/class-transformer/-/class-transformer-0.3.1.tgz#ee681a5439ff2230fc57f5056412d3befa70d597"
+  integrity sha512-cKFwohpJbuMovS8xVLmn8N2AUbAuc8pVo4zEfsUVo8qgECOogns1WVk/FkOZoxhOPTyTYFckuoH+13FO+MQ8GA==
 
 color-convert@^1.9.0:
   version "1.9.3"
@@ -223,9 +224,9 @@ js-yaml@^3.7.0:
     esprima "^4.0.0"
 
 lodash@^4.17.4:
-  version "4.17.15"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.15.tgz#b447f6670a0455bbfeedd11392eff330ea097548"
-  integrity sha512-8xOcRHvCjnocdS5cpwXQXVzmmh5e5+saE2QGoeQmbKmRS6J3VQppPOIt0MnmE+4xlZoumy0GPG0D0MVIQbNA1A==
+  version "4.17.19"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.19.tgz#e48ddedbe30b3321783c5b4301fbd353bc1e4a4b"
+  integrity sha512-JNvd8XER9GQX0v2qJgsaN/mzFCNA5BRe/j8JN9d+tWyGLSodKQHKFicdwNYzWwI3wjRnaKPsGj1XkBjx/F96DQ==
 
 minimatch@^3.0.4:
   version "3.0.4"
