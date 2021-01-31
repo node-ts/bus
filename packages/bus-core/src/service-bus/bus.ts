@@ -53,7 +53,16 @@ class BusConfiguration {
   withHandler<MessageType extends Message> (
     messageType: ClassConstructor<MessageType>,
     messageHandler: Handler<MessageType>
-  ): this {
+  ): this
+
+
+  withHandler<MessageType extends Message> (
+    messageType: ClassConstructor<MessageType>,
+    messageHandler: Handler<MessageType>,
+    resolveWith: ClassConstructor<Message | {}> | ((message: Message | {}) => boolean),
+    topicIdentifier?: string
+  ): this
+  {
     if (!!serviceBus) {
       throw new BusAlreadyInitialized()
     }

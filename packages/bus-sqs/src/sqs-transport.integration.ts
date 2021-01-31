@@ -3,11 +3,9 @@ import {
   TestCommand,
   HandleChecker,
   TestEvent,
-  HANDLE_CHECKER,
-  TestFailMessageHandler,
   TestFailMessage
 } from '../test'
-import { Bus, HandlerContext, Logger } from '@node-ts/bus-core'
+import { Bus, HandlerContext, Logger, sleep } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Mock, Times, It } from 'typemoq'
@@ -15,7 +13,7 @@ import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { EventEmitter } from 'events'
 import { MessageAttributes, Message } from '@node-ts/bus-messages'
-import { TestSystemMessageHandler } from '../test/test-system-message-handler'
+import { testSystemMessageHandler, TestSystemMessageHandler } from '../test/test-system-message-handler'
 import { TestSystemMessage } from '../test/test-system-message'
 
 function getEnvVar (key: string): string {
@@ -37,12 +35,12 @@ const testEventHandlerEmitter = new EventEmitter()
 
 const sqsConfiguration: SqsTransportConfiguration = {
   queueName: `${resourcePrefix}-test`,
-  queueUrl: `http://localhost:4576/queue/${resourcePrefix}-test`,
-  queueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
+  queueUrl: `http://localhost:4566/queue/${resourcePrefix}-test`,
+  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
 
   deadLetterQueueName: `${resourcePrefix}-dead-letter`,
-  deadLetterQueueUrl: `http://localhost:4576/queue/${resourcePrefix}-dead-letter`,
-  deadLetterQueueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
+  deadLetterQueueUrl: `http://localhost:4566/queue/${resourcePrefix}-dead-letter`,
+  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
 
   resolveTopicName: (messageName: string) =>
     `${resourcePrefix}-${normalizeMessageName(messageName)}`,
@@ -61,7 +59,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
           "sqs:SendMessage"
         ],
         "Resource": [
-          "arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
+          "arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
         ],
         "Condition": {
           "ArnLike": {
@@ -82,8 +80,8 @@ describe('SqsTransport', () => {
   const logger = Mock.ofType<Logger>()
 
   beforeAll(async () => {
-    sqs = new SQS()
-    sns = new SNS()
+    sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+    sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
   })
 
   afterAll(async () => {
@@ -108,7 +106,7 @@ describe('SqsTransport', () => {
     beforeAll(async () => {
       const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
       await Bus.configure()
-        .withLogger(logger.object)
+        // .withLogger(logger.object)
         .withTransport(sqsTransport)
         .withHandler(TestCommand, ({ attributes: { attributes } }: HandlerContext<TestCommand>) => {
           testCommandHandlerEmitter.emit('received')
@@ -118,6 +116,12 @@ describe('SqsTransport', () => {
           testEventHandlerEmitter.emit('received')
           throw new Error()
         })
+        .withHandler(
+          TestSystemMessage,
+          testSystemMessageHandler(handleChecker.object),
+          (m: TestSystemMessage) => m.name === TestSystemMessage.NAME
+          // `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+        )
         .initialize()
       await Bus.start()
     })
@@ -156,16 +160,13 @@ describe('SqsTransport', () => {
       const message = new TestSystemMessage()
 
       beforeAll(async () => {
-        await sns.publish({
-          Message: JSON.stringify(message),
-          TopicArn: testSystemMessageTopicArn
-        }).promise()
+        await Bus.publish(message, { attributes: { foo: 'bar' }})
       })
 
       it('should handle the system message', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
-          h => h.check(It.isObjectWith({...message}), It.isAny()),
+          h => h.check(It.isObjectWith({ foo: 'bar'})),
           Times.once()
         )
       })
@@ -212,9 +213,9 @@ describe('SqsTransport', () => {
       let message: TestFailMessage
       let receiveCount: number
       beforeAll(async () => {
-        const deadLetterQueueUrl = `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
+        const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
         await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
-        await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
+        await Bus.publish(messageToFail, { correlationId })
         const result = await sqs.receiveMessage({
           QueueUrl: deadLetterQueueUrl,
           WaitTimeSeconds: 5,

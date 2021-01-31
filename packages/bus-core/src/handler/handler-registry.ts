@@ -12,6 +12,13 @@ interface HandlerRegistrations {
   [key: string]: RegisteredHandlers
 }
 
+export interface HandlerResolver {
+  handler: Handler
+  topicIdentifier: string | undefined
+  messageType: ClassConstructor<Message> | undefined
+  resolver (message: unknown): boolean
+}
+
 type MessageName = string
 
 /**
@@ -30,7 +37,9 @@ export interface HandlerRegistry {
    */
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,
-    handler: Handler<TMessage>
+    handler: Handler<TMessage>,
+    resolveWith?: (message: TMessage | {}) => boolean,
+    topicIdentifier?: string
   ): void
 
   /**
@@ -60,11 +69,22 @@ class DefaultHandlerRegistry implements HandlerRegistry {
 
   private registry: HandlerRegistrations = {}
   private unhandledMessages: MessageName[] = []
+  private handlerResolvers: HandlerResolver[] = []
 
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,
-    handler: Handler<TMessage>
+    handler: Handler<TMessage>,
+    resolveWith?: (message: TMessage | {}) => boolean,
+    topicIdentifier?: string
   ): void {
+
+    // TODO provide optional lookup on resolveWith for external messages
+    // this.handlerResolvers.push({
+    //   handler,
+    //   messageType,
+    //   resolver: resolveWith,
+    //   topicIdentifier
+    // })
 
     const messageName = new messageType().$name
 

@@ -73,4 +73,12 @@ await Bus
   .initialize()
 ```
 
+## Development
+
+Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
+
+```bash
+docker run -e SERVICES=sqs,sns -p 4566:4566 localstack/localstack
+```
+
 This will create a localstack instance running and exposing a mock sqs/sns that's compatible with the AWS-SDK. This same environment is used when running integration tests for the `SqsTransport`.

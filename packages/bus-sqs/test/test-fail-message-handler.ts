@@ -1,16 +1,5 @@
-import { HandlesMessage, BUS_SYMBOLS, Bus } from '@node-ts/bus-core'
-import { inject } from 'inversify'
+import { Bus, Handler, HandlerContext } from '@node-ts/bus-core'
 import { TestFailMessage } from './test-fail-message'
 
-@HandlesMessage(TestFailMessage)
-export class TestFailMessageHandler {
 
-  constructor (
-    @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
-  ) {
-  }
-
-  async handle (_: TestFailMessage): Promise<void> {
-    await this.bus.fail()
-  }
-}
+export const TestFailMessageHandler: Handler<TestFailMessage> = async (_: HandlerContext<TestFailMessage>) => Bus.fail()
