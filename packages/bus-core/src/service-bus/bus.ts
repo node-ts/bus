@@ -163,7 +163,7 @@ export class Bus {
    * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
    */
   static async publish<EventType extends Event> (event: EventType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
-    return getServiceBus().publish(event,  messageOptions)
+    return getServiceBus().publish(event, messageOptions)
   }
 
   /**
@@ -171,7 +171,11 @@ export class Bus {
    * process it and perform the requested action.
    */
   static async send<CommandType extends Command> (command: CommandType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
-    return getServiceBus().send(command,  messageOptions)
+    return getServiceBus().send(command, messageOptions)
+  }
+
+  static async fail (): Promise<void> {
+    return getServiceBus().fail()
   }
 
   /**

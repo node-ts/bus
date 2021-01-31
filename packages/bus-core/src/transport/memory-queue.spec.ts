@@ -1,11 +1,12 @@
 import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
-import { TestCommand, TestEvent, TestCommand2 } from '../test'
+import { TestCommand, TestEvent, TestCommand2, TestEvent2 } from '../test'
 import { TransportMessage } from '../transport'
 import { handlerRegistry } from '../handler'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { Mock } from 'typemoq'
 import { Logger, setLogger } from '../util'
+import { Bus } from '../../dist'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -130,6 +131,24 @@ describe('MemoryQueue', () => {
 
     it('should send the message to the dead letter queue', () => {
       expect(sut.deadLetterQueueDepth).toEqual(1)
+    })
+  })
+
+  describe('when failing a message', () => {
+    const message = new TestEvent2()
+    let receiveCount = 0
+
+    beforeEach(() => {
+      handlerRegistry.register(TestEvent2, async () => { receiveCount++; Bus.fail(); })
+      sut.publish(message)
+    })
+
+    it('should forward it to the dead letter queue', () => {
+      expect(sut.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should only have received the message once', () => {
+      expect(receiveCount).toEqual(1)
     })
   })
 })

@@ -57,7 +57,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     this.addToQueue(command, messageOptions)
   }
 
-  async fail (): Promise<void> {
+  async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
     // TODO
   }
 
