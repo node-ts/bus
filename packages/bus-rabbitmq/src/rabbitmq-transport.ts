@@ -16,7 +16,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private assertedExchanges: { [key: string]: boolean } = {}
 
   constructor (
-      private readonly configuration: RabbitMqTransportConfiguration,
+    private readonly configuration: RabbitMqTransportConfiguration
   ) {
   }
 

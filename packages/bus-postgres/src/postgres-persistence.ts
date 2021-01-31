@@ -1,4 +1,11 @@
-import { ClassConstructor, getLogger, getSerializer, MessageWorkflowMapping, Persistence, WorkflowState } from '@node-ts/bus-core'
+import {
+  ClassConstructor,
+  getLogger,
+  getSerializer,
+  MessageWorkflowMapping,
+  Persistence,
+  WorkflowState
+} from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Pool } from 'pg'
 import { PostgresConfiguration } from './postgres-configuration'
@@ -91,7 +98,10 @@ export class PostgresPersistence implements Persistence {
   async saveWorkflowState<WorkflowStateType extends WorkflowState> (
     workflowState: WorkflowStateType
   ): Promise<void> {
-    getLogger().debug('Saving workflow state', { workflowStateName: workflowState.$name, id: workflowState.$workflowId })
+    getLogger().debug(
+      'Saving workflow state',
+      { workflowStateName: workflowState.$name, id: workflowState.$workflowId }
+    )
     const tableName = resolveQualifiedTableName(workflowState.$name, this.configuration.schemaName)
 
     const oldVersion = workflowState.$version
