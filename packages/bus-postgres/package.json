@@ -22,6 +22,7 @@
     "uuid": "^3.3.2"
   },
   "devDependencies": {
+    "@node-ts/bus-core": "^1.0.0-alpha.0",
     "@node-ts/bus-workflow": "^0.6.4",
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.13",

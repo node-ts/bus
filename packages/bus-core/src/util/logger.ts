@@ -6,7 +6,7 @@ import { ConsoleLogger } from '@node-ts/logger-core'
  * whilst it still has the hard dependency on inversify.
  *
  * Because it's the same shape, duck typing should allow this to be used
- * interchangably with other packages that consume @node-ts/logger-core
+ * interchangeably with other packages that consume @node-ts/logger-core
  */
 interface Logger {
   debug (message: string, meta?: object): void

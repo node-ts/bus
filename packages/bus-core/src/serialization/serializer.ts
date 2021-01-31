@@ -6,8 +6,7 @@ import { JsonSerializer } from './json-serializer'
 let configuredSerializer: Serializer | undefined
 const defaultSerializer = new JsonSerializer()
 
-const activeSerializer = () => configuredSerializer || defaultSerializer
-export const getSerializer = () => MessageSerializer
+export const getSerializer = () => configuredSerializer || defaultSerializer
 export const setSerializer = (serializer: Serializer) => {
   configuredSerializer = serializer
 }
@@ -37,10 +36,10 @@ export const MessageSerializer = {
 
   deserialize<MessageType extends Message> (serializedMessage: string): MessageType {
     const naiveDeserializedMessage = JSON.parse(serializedMessage) as Message
-    const messageType = handlerRegistry.getMessageType(naiveDeserializedMessage)
+    const messageType = handlerRegistry.getMessageConstructor(naiveDeserializedMessage.$name)
 
     return (!!messageType
-      ? activeSerializer().deserialize(
+      ? getSerializer().deserialize(
           serializedMessage,
           messageType
         )

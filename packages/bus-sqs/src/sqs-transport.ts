@@ -1,7 +1,13 @@
 import { Command, Event, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
 import { SNS, SQS } from 'aws-sdk'
 import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
-import { Transport, TransportMessage, HandlerRegistry, getLogger, getSerializer } from '@node-ts/bus-core'
+import {
+  Transport,
+  TransportMessage,
+  getLogger,
+  handlerRegistry,
+  MessageSerializer
+} from '@node-ts/bus-core'
 import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
@@ -126,7 +132,7 @@ export class SqsTransport implements Transport<SQS.Message> {
         { transportAttributes: snsMessage.MessageAttributes, messageAttributes: attributes}
       )
 
-      const domainMessage = getSerializer().deserialize(snsMessage.Message)
+      const domainMessage = MessageSerializer.deserialize(snsMessage.Message)
 
       return {
         id: sqsMessage.MessageId,
@@ -239,7 +245,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     const snsMessage: SNS.PublishInput = {
       TopicArn: topicArn,
       Subject: message.$name,
-      Message: getSerializer().serialize(message),
+      Message: MessageSerializer.serialize(message),
       MessageAttributes: attributeMap
     }
     getLogger().debug('Sending message to SNS', { snsMessage })
@@ -248,25 +254,10 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async subscribeQueueToMessages (): Promise<void> {
     const queueArn = this.sqsConfiguration.queueArn
-    const queueSubscriptionPromises = HandlerRegistry.messageSubscriptions
-      .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
-      .map(async subscription => {
-        let topicArn: string
-
-        if (subscription.topicIdentifier) {
-          topicArn = subscription.topicIdentifier
-          getLogger().trace(
-            'Assuming supplied topicIdentifier already exists as an sns topic',
-            { topicIdentifier: topicArn }
-          )
-        } else if (subscription.messageType) {
-          const messageCtor = subscription.messageType
-          const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor().$name)
-          await this.createSnsTopic(topicName)
-          topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
-        } else {
-          throw new Error('Unable to subscribe SNS topic to queue - no topic information provided')
-        }
+    const queueSubscriptionPromises = handlerRegistry.getMessageNames()
+      .map(async messageName => {
+        const topicName = this.sqsConfiguration.resolveTopicName(messageName)
+        await this.createSnsTopic(topicName)
 
         const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
         getLogger().info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })

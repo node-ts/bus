@@ -6,9 +6,7 @@ export interface MessageLogger {
 }
 
 export const testEventHandler = (messageLogger: MessageLogger) =>
-  ({ message, attributes, stickyAttributes, correlationId }: HandlerContext<TestEvent>) => {
+  ({ message, attributes }: HandlerContext<TestEvent>) => {
     messageLogger.log(message)
     messageLogger.log(attributes)
-    messageLogger.log(stickyAttributes)
-    messageLogger.log(correlationId)
   }

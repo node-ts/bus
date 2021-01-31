@@ -162,7 +162,7 @@ export class Bus {
   /**
    * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
    */
-  static async publish<EventType extends Event> (event: EventType, messageOptions?: MessageAttributes): Promise<void> {
+  static async publish<EventType extends Event> (event: EventType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
     return getServiceBus().publish(event,  messageOptions)
   }
 
@@ -170,7 +170,7 @@ export class Bus {
    * Sends a command onto the bus. There should be exactly one subscriber of this command type who can
    * process it and perform the requested action.
    */
-  static async send<CommandType extends Command> (command: CommandType, messageOptions?: MessageAttributes): Promise<void> {
+  static async send<CommandType extends Command> (command: CommandType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
     return getServiceBus().send(command,  messageOptions)
   }
 

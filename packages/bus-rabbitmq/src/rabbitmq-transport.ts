@@ -1,5 +1,18 @@
-import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, handlerRegistry, getLogger, getSerializer } from '@node-ts/bus-core'
+import {
+  Event,
+  Command,
+  Message,
+  MessageAttributes,
+  MessageAttributeMap
+} from '@node-ts/bus-messages'
+import {
+  Transport,
+  TransportMessage,
+  handlerRegistry,
+  getLogger,
+  getSerializer,
+  MessageSerializer
+} from '@node-ts/bus-core'
 import { Connection, Channel, Message as RabbitMqMessage, connect, GetMessage } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
@@ -46,7 +59,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
-    const serializedPayload = getSerializer().serialize(transportMessage.domainMessage as Message)
+    const serializedPayload = getSerializer().serialize(transportMessage.domainMessage)
     this.channel.sendToQueue(
       deadLetterQueue,
       Buffer.from(serializedPayload),
@@ -61,7 +74,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       return undefined
     }
     const payloadStr = rabbitMessage.content.toString('utf8')
-    const payload = getSerializer().deserialize(payloadStr)
+    const payload = MessageSerializer.deserialize(payloadStr)
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string,

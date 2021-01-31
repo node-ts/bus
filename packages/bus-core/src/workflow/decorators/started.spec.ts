@@ -125,7 +125,7 @@ export const assignmentWorkflow = Workflow
   .when(
     AssignmentReassigned,
     {
-      lookup: ({ correlationId }) => correlationId,
+      lookup: ({ attributes: { correlationId }}) => correlationId,
       mapsTo: '$workflowId'
     },
     async ({ message, state: workflowState }) => {
