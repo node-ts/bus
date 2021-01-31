@@ -30,10 +30,10 @@ export class InMemoryPersistence implements Persistence {
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
     message: MessageType,
-    context: MessageAttributes,
+    attributes: MessageAttributes,
     includeCompleted?: boolean | undefined
   ): Promise<WorkflowStateType[]> {
-    const filterValue = messageMap.lookup({ message, ...context })
+    const filterValue = messageMap.lookup({ message, attributes })
     if (!filterValue) {
       return []
     }

@@ -29,7 +29,7 @@ describe('Handler', () => {
 
   // Sticky attributes should propagate during Bus.send
   const command2Handler: Handler<TestCommand2> = async () => { Bus.send(new TestCommand3()); await sleep(100) }
-  const command3Handler = (logger: MessageLogger) => async ({ stickyAttributes }: HandlerContext<TestCommand3>) => logger.log(stickyAttributes.value)
+  const command3Handler = (logger: MessageLogger) => async ({ attributes: { stickyAttributes } }: HandlerContext<TestCommand3>) => logger.log(stickyAttributes.value)
 
   beforeAll(async () => {
 
@@ -72,16 +72,16 @@ describe('Handler', () => {
   describe('when a handled message is received with sticky attributes', () => {
     beforeAll(async () => {
       const command2 = new TestCommand2()
-      const attributes1 = new MessageAttributes({
+      const attributes1: Partial<MessageAttributes> = {
         stickyAttributes: {
           value: 1
         }
-      })
-      const attributes2 = new MessageAttributes({
+      }
+      const attributes2: Partial<MessageAttributes> = {
         stickyAttributes: {
           value: 2
         }
-      })
+      }
       await Bus.send(command2, attributes1)
       await Bus.send(command2, attributes2)
       await sleep(1000)

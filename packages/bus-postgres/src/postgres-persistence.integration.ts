@@ -68,7 +68,7 @@ describe('PostgresPersistence', () => {
 
     describe('when getting the workflow state by property', () => {
       const testCommand = new TestCommand(workflowState.property1)
-      const messageOptions = new MessageAttributes()
+      const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
       let dataV1: TestWorkflowState
       let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState>
 

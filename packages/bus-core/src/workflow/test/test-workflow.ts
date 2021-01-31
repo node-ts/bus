@@ -23,7 +23,7 @@ export const testWorkflow = Workflow
   .when(
     FinalTask,
     {
-      lookup: ({ context }) => context.correlationId,
+      lookup: ({ attributes }) => attributes.correlationId,
       mapsTo: '$workflowId'
     },
     async () => completeWorkflow()

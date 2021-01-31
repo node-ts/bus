@@ -16,7 +16,7 @@ const createWorkflowState = <TWorkflowState extends WorkflowState> (workflowStat
 
 const dispatchMessageToWorkflow = async (
   message: Message,
-  context: MessageAttributes,
+  attributes: MessageAttributes,
   workflowName: string,
   workflowState: WorkflowState,
   workflowStateConstructor: ClassConstructor<WorkflowState>,
@@ -25,7 +25,7 @@ const dispatchMessageToWorkflow = async (
   const immutableWorkflowState = Object.freeze({...workflowState})
   const workflowStateOutput = await handler({
     message,
-    context,
+    attributes,
     state: immutableWorkflowState
   })
 
@@ -159,10 +159,10 @@ class WorkflowRegistry {
     workflow.onStartedBy.forEach((handler, messageConstructor) =>
       handlerRegistry.register(
         messageConstructor,
-        async ({ message, ...context }) => {
+        async ({ message, attributes }) => {
           const workflowState = createWorkflowState(workflow.stateType)
           const immutableWorkflowState = Object.freeze({...workflowState})
-          const result = await handler({ message, context, state: immutableWorkflowState })
+          const result = await handler({ message, attributes, state: immutableWorkflowState })
           if (result) {
             await getPersistence().saveWorkflowState({
               ...workflowState,
@@ -183,12 +183,12 @@ class WorkflowRegistry {
       }
       handlerRegistry.register(
         messageConstructor,
-        async ({ message, ...context }) => {
+        async ({ message, attributes }) => {
           const workflowState = await getPersistence().getWorkflowState(
             workflow.stateType,
             messageMapping,
             message,
-            context,
+            attributes,
             false
           )
 
@@ -199,7 +199,7 @@ class WorkflowRegistry {
 
           const workflowHandlers = workflowState.map(state => dispatchMessageToWorkflow(
             message,
-            context,
+            attributes,
             workflow.workflowName,
             state,
             workflow.stateType,

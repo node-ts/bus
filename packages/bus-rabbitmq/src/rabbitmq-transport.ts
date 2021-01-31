@@ -120,7 +120,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private async publishMessage (
     message: Message,
-    messageOptions: MessageAttributes = new MessageAttributes()
+    messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): Promise<void> {
     await this.assertExchange(message.$name)
     const payload = JSON.stringify(message)

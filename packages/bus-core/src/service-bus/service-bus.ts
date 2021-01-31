@@ -23,7 +23,7 @@ export class ServiceBus {
 
   async publish<TEvent extends Event> (
     event: TEvent,
-    messageOptions: Partial<MessageAttributes> = new MessageAttributes()
+    messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
     getLogger().debug('publish', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
@@ -33,7 +33,7 @@ export class ServiceBus {
 
   async send<TCommand extends Command> (
     command: TCommand,
-    messageOptions: Partial<MessageAttributes> = new MessageAttributes()
+    messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
     getLogger().debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
@@ -175,11 +175,11 @@ export class ServiceBus {
 
 async function dispatchMessageToHandler (
   message: Message,
-  context: MessageAttributes,
+  attributes: MessageAttributes,
   handler: Handler<Message>
 ): Promise<void> {
   return handler({
     message,
-    ...context
+    attributes
   })
 }

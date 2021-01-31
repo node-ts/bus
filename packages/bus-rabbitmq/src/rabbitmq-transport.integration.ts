@@ -78,7 +78,7 @@ describe('RabbitMqTransport', () => {
       describe('from a queue with messages', () => {
         const command = new TestCommand()
         let message: TransportMessage<RabbitMqMessage> | undefined
-        const messageOptions = new MessageAttributes({
+        const messageOptions: Partial<MessageAttributes> = {
           correlationId: faker.random.uuid(),
           attributes: {
             attribute1: 'a',
@@ -88,7 +88,7 @@ describe('RabbitMqTransport', () => {
             attribute1: 'b',
             attribute2: 2
           }
-        })
+        }
 
         beforeEach(async () => {
           await Bus.send(command, messageOptions)

@@ -13,9 +13,11 @@ const command2 = new TestCommand2()
 
 describe('MemoryQueue', () => {
   let sut: MemoryQueue
-  const messageOptions = new MessageAttributes({
-    correlationId: faker.random.uuid()
-   })
+  const messageOptions: MessageAttributes = {
+    correlationId: faker.random.uuid(),
+    attributes: {},
+    stickyAttributes: {}
+   }
 
   beforeEach(async () => {
     sut = new MemoryQueue()

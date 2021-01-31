@@ -4,9 +4,8 @@ import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
 import { Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times } from 'typemoq'
-import { HandlerParameters } from '../handler'
+import { HandlerContext } from '../handler'
 import { TestCommand } from '../test/test-command'
-import { MessageAttributes } from '@node-ts/bus-messages'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -14,7 +13,7 @@ type Callback = () => void;
 describe('ServiceBus', () => {
   let queue: MemoryQueue
   let callback: IMock<Callback>
-  const handler = async (_: HandlerParameters<TestEvent>) => callback.object()
+  const handler = async (_: HandlerContext<TestEvent>) => callback.object()
 
   beforeAll(async () => {
     queue = new MemoryQueue()
@@ -124,7 +123,7 @@ describe('ServiceBus', () => {
 
       const expectedTransportMessage: TransportMessage<InMemoryMessage> = {
         id: undefined,
-        attributes: new MessageAttributes(),
+        attributes: { attributes: {}, stickyAttributes: {} },
         domainMessage: event,
         raw: {
           inFlight: true,
@@ -157,11 +156,10 @@ describe('ServiceBus', () => {
     const command = new TestCommand()
 
     beforeAll(async () => {
-      const attributes = new MessageAttributes({ correlationId: 'a' })
       Bus.on('send', sendCallback)
-      await Bus.send(command, attributes)
+      await Bus.send(command, { correlationId: 'a' })
       Bus.off('send', sendCallback)
-      await Bus.send(command, attributes)
+      await Bus.send(command, { correlationId: 'a' })
     })
 
     it('should trigger the hook once when send() is called', async () => {
@@ -178,11 +176,10 @@ describe('ServiceBus', () => {
     const evt = new TestEvent()
 
     beforeAll(async () => {
-      const attributes = new MessageAttributes({ correlationId: 'b' })
       Bus.on('publish', publishCallback)
-      await Bus.publish(evt, attributes)
+      await Bus.publish(evt, { correlationId: 'b' })
       Bus.off('publish', publishCallback)
-      await Bus.publish(evt, attributes)
+      await Bus.publish(evt, { correlationId: 'b' })
     })
 
     it('should trigger the hook once when publish() is called', async () => {

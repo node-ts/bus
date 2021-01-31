@@ -48,7 +48,7 @@ describe('Workflow', () => {
       mapsTo: 'property1'
     }
     let workflowState: TestWorkflowState[]
-    const messageOptions = new MessageAttributes()
+    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
 
     beforeAll(async () => {
       workflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
@@ -95,7 +95,7 @@ describe('Workflow', () => {
         beforeAll(async () => {
           await Bus.publish(
             finalTask,
-            new MessageAttributes({ correlationId: nextWorkflowState[0].$workflowId })
+            { correlationId: nextWorkflowState[0].$workflowId }
           )
           await sleep(CONSUME_TIMEOUT)
 
@@ -118,7 +118,7 @@ describe('Workflow', () => {
   })
 
   describe('when a workflow is completed in a StartedBy handler', () => {
-    const messageOptions = new MessageAttributes()
+    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> = {
       lookup: ({ message }) => message.property1,
       mapsTo: 'property1'
@@ -140,7 +140,7 @@ describe('Workflow', () => {
   })
 
   describe('when a StartedBy handler returns undefined', () => {
-    const messageOptions = new MessageAttributes()
+    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> = {
       lookup: ({ message }) => message.property1,
       mapsTo: 'property1'

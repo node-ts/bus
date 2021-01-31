@@ -16,7 +16,7 @@ describe('InMemoryPersistence', () => {
   })
 
   describe('when getting workflow state', () => {
-    const messageOptions = new MessageAttributes()
+    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
 
     beforeEach(async () => {
       const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
@@ -90,7 +90,7 @@ describe('InMemoryPersistence', () => {
     describe('for an existing workflow', () => {
       const testCommand = new TestCommand('a')
       const workflowId = 'abc'
-      const messageOptions = new MessageAttributes()
+      const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
 
       beforeEach(async () => {
         const workflowState = new TestWorkflowState()

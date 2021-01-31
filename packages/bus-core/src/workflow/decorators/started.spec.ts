@@ -2,7 +2,7 @@
 import * as uuid from 'uuid'
 import { completeWorkflow, Workflow } from '../workflow'
 import { Bus } from '../../service-bus'
-import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
+import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
 import { InMemoryPersistence } from '../persistence'
 import { Logger } from '@node-ts/logger-core'
 import { Mock } from 'typemoq'
@@ -125,7 +125,7 @@ export const assignmentWorkflow = Workflow
   .when(
     AssignmentReassigned,
     {
-      lookup: ({ context }) => context.correlationId,
+      lookup: ({ correlationId }) => correlationId,
       mapsTo: '$workflowId'
     },
     async ({ message, state: workflowState }) => {
@@ -176,7 +176,7 @@ describe('Workflow', () => {
       lookup: ({ message }) => message.assignmentId,
       mapsTo: 'assignmentId'
     }
-    const messageOptions = new MessageAttributes()
+    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
     let workflowState: AssignmentWorkflowState[]
 
     beforeAll(async () => {
@@ -225,9 +225,9 @@ describe('Workflow', () => {
         beforeAll(async () => {
           await Bus.publish(
             assignmentReassigned,
-            new MessageAttributes({
+            {
               correlationId: startedWorkflowState[0].$workflowId
-            })
+            }
           )
           await sleep(CONSUME_TIMEOUT)
 
@@ -251,7 +251,7 @@ describe('Workflow', () => {
           beforeAll(async () => {
             await Bus.publish(
               finalTask,
-              new MessageAttributes({ correlationId: nextWorkflowState[0].$workflowId })
+              { correlationId: nextWorkflowState[0].$workflowId }
             )
             await sleep(CONSUME_TIMEOUT)
 

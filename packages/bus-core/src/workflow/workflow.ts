@@ -21,7 +21,7 @@ export type WorkflowConstructor<
 export type WhenHandler<MessageType extends Message, State extends WorkflowState> = (
   parameters: {
     message: MessageType,
-    context: MessageAttributes,
+    attributes: MessageAttributes,
     state: Readonly<State>
   }
 ) => HandlerReturnType<State>

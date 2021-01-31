@@ -103,7 +103,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     await this.deleteMessage(message)
   }
 
-  private addToQueue (message: Message, messageOptions: MessageAttributes = new MessageAttributes()): void {
+  private addToQueue (message: Message, messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }): void {
     if (this.messagesWithHandlers[message.$name]) {
       const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)

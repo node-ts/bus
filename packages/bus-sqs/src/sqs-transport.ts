@@ -201,7 +201,7 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async publishMessage (
     message: Message,
-    messageAttributes: MessageAttributes = new MessageAttributes()
+    messageAttributes: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): Promise<void> {
     await this.assertSnsTopic(message)
 
@@ -302,11 +302,13 @@ function calculateVisibilityTimeout (sqsMessage: SQS.Message): Seconds {
 export function toMessageAttributeMap (messageOptions: MessageAttributes): SNS.MessageAttributeMap {
   const map: SNS.MessageAttributeMap = {}
 
-  const toAttributeValue = (value: string | number) => {
-    const isNumber = typeof value === 'number'
-
+  const toAttributeValue = (value: string | number | boolean) => {
     const attribute: MessageAttributeValue = {
-      DataType: isNumber ? 'Number' : 'String',
+      DataType: typeof value === 'number'
+          ? 'Number'
+        : typeof value === 'boolean'
+          ? 'Boolean'
+        : 'String',
       StringValue: value.toString()
     }
 
@@ -341,7 +343,7 @@ export function toMessageAttributeMap (messageOptions: MessageAttributes): SNS.M
 }
 
 export function fromMessageAttributeMap (sqsAttributes: SqsMessageAttributes | undefined): MessageAttributes {
-  const messageOptions = new MessageAttributes()
+  const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
 
   if (sqsAttributes) {
     messageOptions.correlationId = sqsAttributes.correlationId
@@ -369,10 +371,12 @@ export function fromMessageAttributeMap (sqsAttributes: SqsMessageAttributes | u
   return messageOptions
 }
 
-function getAttributeValue (attributes: SqsMessageAttributes, key: string): string | number {
+function getAttributeValue (attributes: SqsMessageAttributes, key: string): string | number | boolean {
   const attribute = attributes[key]
   const value = attribute.Type === 'Number'
-    ? Number(attribute.Value)
+      ? Number(attribute.Value)
+    : attribute.Type === 'Boolean'
+      ? attribute.Value === 'true'
     : attribute.Value
   return value
 }
