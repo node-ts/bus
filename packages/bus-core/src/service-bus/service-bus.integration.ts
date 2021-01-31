@@ -1,6 +1,6 @@
 // tslint:disable:max-classes-per-file
 import { ServiceBus } from './service-bus'
-import { MemoryQueue } from '../transport'
+import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
 import { BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { TestEvent2 } from '../test/test-event-2'
@@ -177,6 +177,17 @@ describe('ServiceBus', () => {
 
         callback.verifyAll()
 
+        const expectedTransportMessage: TransportMessage<InMemoryMessage> = {
+          id: undefined,
+          attributes: new MessageAttributes(),
+          domainMessage: event,
+          raw: {
+            inFlight: true,
+            seenCount: 1,
+            payload: event
+          }
+        }
+
         expect(errorCallback).toHaveBeenCalledTimes(1)
         expect(errorCallback).toHaveBeenCalledWith(
           event,
@@ -190,9 +201,7 @@ describe('ServiceBus', () => {
             attributes: expect.anything(),
             stickyAttributes: expect.anything()
           }),
-          expect.objectContaining({
-            raw: expect.anything()
-          })
+          expect.objectContaining(expectedTransportMessage)
         )
         sut.off('error', errorCallback)
       })
