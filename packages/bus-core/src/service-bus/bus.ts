@@ -174,6 +174,11 @@ export class Bus {
     return getServiceBus().send(command, messageOptions)
   }
 
+  /**
+   * Immediately fail the message of the current receive context and deliver it to the dead letter queue
+   * (if configured). It will not be retried Any processing of the message by a different handler on the
+   * same service instance will still process it.
+   */
   static async fail (): Promise<void> {
     return getServiceBus().fail()
   }

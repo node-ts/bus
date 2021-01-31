@@ -7,6 +7,7 @@ import { BusState } from './bus'
 import { messageHandlingContext } from './message-handling-context'
 import * as asyncHooks from 'async_hooks'
 import { BusHooks } from './bus-hooks'
+import { FailMessageOutsideHandlingContext } from '../error'
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 export class ServiceBus {
@@ -39,6 +40,16 @@ export class ServiceBus {
     const transportOptions = this.prepareTransportOptions(messageOptions)
     await Promise.all(this.busHooks.send.map(callback => callback(command, transportOptions)))
     return this.transport.send(command, transportOptions)
+  }
+
+  async fail (): Promise<void> {
+    const context = messageHandlingContext.get()
+    if (!context) {
+      throw new FailMessageOutsideHandlingContext()
+    }
+    const message = context.message
+    getLogger().debug('failing message', { message })
+    return this.transport.fail(message)
   }
 
   async start (): Promise<void> {

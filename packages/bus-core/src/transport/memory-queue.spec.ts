@@ -5,7 +5,7 @@ import { handlerRegistry } from '../handler'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { Mock } from 'typemoq'
-import { Logger, setLogger } from '../util'
+import { Logger, setLogger, sleep } from '../util'
 import { Bus } from '../../dist'
 
 const event = new TestEvent()
@@ -26,6 +26,7 @@ describe('MemoryQueue', () => {
     setLogger(Mock.ofType<Logger>().object)
     handlerRegistry.register(TestEvent, () => undefined)
     handlerRegistry.register(TestCommand, () => undefined)
+    handlerRegistry.register(TestEvent2, () => undefined)
 
     await sut.initialize()
   })
@@ -136,19 +137,15 @@ describe('MemoryQueue', () => {
 
   describe('when failing a message', () => {
     const message = new TestEvent2()
-    let receiveCount = 0
 
-    beforeEach(() => {
-      handlerRegistry.register(TestEvent2, async () => { receiveCount++; Bus.fail(); })
-      sut.publish(message)
+    beforeEach(async () => {
+      await sut.publish(message)
+      const receivedMessage = await sut.readNextMessage()
+      await sut.fail(receivedMessage!)
     })
 
     it('should forward it to the dead letter queue', () => {
       expect(sut.deadLetterQueueDepth).toEqual(1)
-    })
-
-    it('should only have received the message once', () => {
-      expect(receiveCount).toEqual(1)
     })
   })
 })
