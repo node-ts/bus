@@ -4,7 +4,7 @@ import {
   HandleChecker,
   TestEvent
 } from '../test'
-import { Bus, HandlerParameters, Logger } from '@node-ts/bus-core'
+import { Bus, HandlerContext, Logger } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Mock, Times, It } from 'typemoq'
@@ -103,7 +103,7 @@ describe('SqsTransport', () => {
       await Bus.configure()
         .withLogger(logger.object)
         .withTransport(sqsTransport)
-        .withHandler(TestCommand, ({ attributes }: HandlerParameters<TestCommand>) => {
+        .withHandler(TestCommand, ({ attributes: { attributes } }: HandlerContext<TestCommand>) => {
           testCommandHandlerEmitter.emit('received')
           handleChecker.object.check(attributes)
         })
