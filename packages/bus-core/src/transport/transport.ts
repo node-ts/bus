@@ -1,4 +1,5 @@
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
+import { HandlerRegistry } from '../handler'
 import { TransportMessage } from './transport-message'
 
 /**
@@ -22,6 +23,12 @@ export interface Transport<TransportMessageType = {}> {
    * additional information that travels with it.
    */
   send<TCommand extends Command> (command: TCommand, messageOptions?: MessageAttributes): Promise<void>
+
+  /**
+   * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
+   * queue and have a receipt handle.
+   */
+  fail (transportMessage: TransportMessage<unknown>): Promise<void>
 
   /**
    * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
@@ -56,8 +63,9 @@ export interface Transport<TransportMessageType = {}> {
    * An optional function that will be called when the service bus is starting. This is an
    * opportunity for the transport to see what messages need to be handled so that subscriptions
    * to the topics can be created.
+   * @param handlerRegistry The list of messages being handled by the bus that the transport needs to subscribe to.
    */
-  initialize? (): Promise<void>
+  initialize? (handlerRegistry: HandlerRegistry): Promise<void>
 
   /**
    * An optional function that will be called when the service bus is shutting down. This is an

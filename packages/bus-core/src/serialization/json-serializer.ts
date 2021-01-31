@@ -1,4 +1,3 @@
-import { injectable } from 'inversify'
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
 import { classToPlain, plainToClass, serialize, deserialize } from 'class-transformer'
@@ -9,7 +8,6 @@ import { classToPlain, plainToClass, serialize, deserialize } from 'class-transf
  * object types can use all of the serialization decorator hints provided by
  * that library.
  */
-@injectable()
 export class JsonSerializer implements Serializer {
   serialize<ObjectType extends object> (obj: ObjectType): string {
     return serialize(obj)

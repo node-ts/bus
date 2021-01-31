@@ -1,5 +1,4 @@
-import { BusHooks } from './bus-hooks'
-import { HookAction } from './bus'
+import { BusHooks, HookAction } from './bus-hooks'
 
 describe('BusHooks', () => {
   let sut: BusHooks

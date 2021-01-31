@@ -1,115 +1,116 @@
-import { injectable, inject, optional } from 'inversify'
-import autobind from 'autobind-decorator'
-import { Bus, BusState, HookAction, HookCallback } from './bus'
-import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
-import { Transport, TransportMessage } from '../transport'
-import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
-import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
-import { sleep } from '../util'
-import { HandlerRegistry, HandlerRegistration } from '../handler'
+import { Transport } from '../transport'
+import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
+import { sleep, getLogger} from '../util'
+import { Handler, handlerRegistry } from '../handler'
 import * as serializeError from 'serialize-error'
-import { SessionScopeBinder } from '../bus-module'
-import { MessageType } from '../handler/handler'
+import { BusState } from './bus'
+import { messageHandlingContext } from './message-handling-context'
+import * as asyncHooks from 'async_hooks'
 import { BusHooks } from './bus-hooks'
 import { FailMessageOutsideHandlingContext } from '../error'
-import { BusConfiguration } from './bus-configuration'
+const EMPTY_QUEUE_SLEEP_MS = 500
 
-@injectable()
-@autobind
-export class ServiceBus implements Bus {
+export class ServiceBus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+  private busHooks = new BusHooks()
 
   constructor (
-    @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
-    @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes,
-    @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks,
-    @inject(BUS_SYMBOLS.BusConfiguration) private readonly busConfiguration: BusConfiguration,
-    @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
+    private readonly transport: Transport<{}>,
+    private readonly concurrency: number
   ) {
   }
 
   async publish<TEvent extends Event> (
     event: TEvent,
-    messageOptions: MessageAttributes = new MessageAttributes()
+    messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    this.logger.debug('publish', { event })
+    getLogger().debug('publish', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
-
-    await Promise.all(this.busHooks.publish.map(callback => callback(event, messageOptions)))
+    await Promise.all(this.busHooks.publish.map(callback => callback(event, transportOptions)))
     return this.transport.publish(event, transportOptions)
-  }
-
-  async fail (): Promise<void> {
-    if (!this.rawMessage) {
-      throw new FailMessageOutsideHandlingContext(this.rawMessage)
-
-    }
-    this.logger.debug('failing message', { message: this.rawMessage })
-    return this.transport.fail(this.rawMessage)
   }
 
   async send<TCommand extends Command> (
     command: TCommand,
-    messageOptions: MessageAttributes = new MessageAttributes()
+    messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    this.logger.debug('send', { command })
+    getLogger().debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
-
-    await Promise.all(this.busHooks.send.map(callback => callback(command, messageOptions)))
+    await Promise.all(this.busHooks.send.map(callback => callback(command, transportOptions)))
     return this.transport.send(command, transportOptions)
   }
 
+  async fail (): Promise<void> {
+    const context = messageHandlingContext.get()
+    if (!context) {
+      throw new FailMessageOutsideHandlingContext()
+    }
+    const message = context.message
+    getLogger().debug('failing message', { message })
+    return this.transport.fail(message)
+  }
+
   async start (): Promise<void> {
-    if (this.internalState !== BusState.Stopped) {
+    const startedStates = [BusState.Started, BusState.Starting]
+    if (startedStates.includes(this.state)) {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
     this.internalState = BusState.Starting
-    this.logger.info('ServiceBus starting...', { concurrency: this.busConfiguration.concurrency })
-    new Array(this.busConfiguration.concurrency)
-      .fill(undefined)
-      .forEach(() => setTimeout(async () => this.applicationLoop(), 0))
+    getLogger().info('ServiceBus starting...')
+    messageHandlingContext.enable()
+
     this.internalState = BusState.Started
+    for (var i = 0; i < this.concurrency; i++) {
+      setTimeout(async () => this.applicationLoop(), 0)
+    }
+
+    getLogger().info(`ServiceBus started with concurrency ${this.concurrency}`)
   }
 
   async stop (): Promise<void> {
+    const stoppedStates = [BusState.Stopped, BusState.Stopping]
+    if (stoppedStates.includes(this.state)) {
+      throw new Error('Bus must be started before it can be stopped')
+    }
     this.internalState = BusState.Stopping
-    this.logger.info('ServiceBus stopping...')
+    getLogger().info('ServiceBus stopping...')
 
     while (this.runningWorkerCount > 0) {
       await sleep(100)
     }
 
     this.internalState = BusState.Stopped
-    this.logger.info('ServiceBus stopped')
+    getLogger().info('ServiceBus stopped')
+  }
+
+  async dispose (): Promise<void> {
+    await this.stop()
+    if (this.transport.dispose) {
+      await this.transport.dispose()
+    }
   }
 
   get state (): BusState {
     return this.internalState
   }
 
-  get runningParallelWorkerCount (): number {
-    return this.runningWorkerCount
-  }
-
-  // tslint:disable-next-line:member-ordering
   on = this.busHooks.on.bind(this.busHooks)
 
-  off (action: HookAction, callback: HookCallback): void {
-    this.busHooks.off(action, callback)
-  }
+  off = this.busHooks.off.bind(this.busHooks)
 
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
-    this.logger.debug('Worker started', { runningParallelWorkerCount: this.runningParallelWorkerCount })
     while (this.internalState === BusState.Started) {
-      await this.handleNextMessage()
+      const messageHandled = await this.handleNextMessage()
+
+      // Avoids locking up CPU when there's no messages to be processed
+      if (!messageHandled) {
+        await sleep(EMPTY_QUEUE_SLEEP_MS)
+      }
     }
     this.runningWorkerCount--
-    this.logger.debug('Worker stopped', { runningParallelWorkerCount: this.runningParallelWorkerCount })
   }
 
   private async handleNextMessage (): Promise<boolean> {
@@ -117,60 +118,65 @@ export class ServiceBus implements Bus {
       const message = await this.transport.readNextMessage()
 
       if (message) {
-        this.logger.debug('Message read from transport', { message })
+        getLogger().debug('Message read from transport', { message })
 
+        const asyncId = asyncHooks.executionAsyncId()
         try {
-          await this.dispatchMessageToHandlers(message)
-          this.logger.debug('Message dispatched to all handlers', { message })
+          messageHandlingContext.set(asyncId, message)
+
+          await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
+          getLogger().debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
-          this.logger.warn(
+          getLogger().warn(
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
           await Promise.all(this.busHooks.error.map(callback => callback(
             message.domainMessage as Message,
             (error as Error),
-            message.attributes
+            message.attributes,
+            message
           )))
           await this.transport.returnMessage(message)
           return false
+        } finally {
+          messageHandlingContext.destroy(asyncId)
         }
         return true
       }
     } catch (error) {
-      this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
+      getLogger().error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
   }
 
-  private async dispatchMessageToHandlers (
-    rawMessage: TransportMessage<MessageType>
-  ): Promise<void> {
-    const handlers = this.handlerRegistry.get(rawMessage.domainMessage)
+  private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
+    const handlers = handlerRegistry.get(message.$name)
     if (handlers.length === 0) {
-      this.logger.warn(
-        `No handlers registered for message. Message will be discarded`,
-        { messageType: rawMessage.domainMessage }
-      )
+      getLogger().error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
       return
     }
 
     const handlersToInvoke = handlers.map(handler => dispatchMessageToHandler(
-      rawMessage,
+      message,
+      context,
       handler
     ))
 
     await Promise.all(handlersToInvoke)
   }
 
-  private prepareTransportOptions (clientOptions: MessageAttributes): MessageAttributes {
+  private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
+    const handlingContext = messageHandlingContext.get()
+
     const result: MessageAttributes = {
-      correlationId: clientOptions.correlationId || this.messageHandlingContext.correlationId,
-      attributes: clientOptions.attributes,
+      // The optional operator? decided not to work here
+      correlationId: (handlingContext ? handlingContext.message.attributes.correlationId : undefined) || clientOptions.correlationId,
+      attributes: clientOptions.attributes || {},
       stickyAttributes: {
-        ...clientOptions.stickyAttributes,
-        ...this.messageHandlingContext.stickyAttributes
+        ...(handlingContext ? handlingContext.message.attributes.stickyAttributes : {}),
+        ...clientOptions.stickyAttributes
       }
     }
 
@@ -179,24 +185,12 @@ export class ServiceBus implements Bus {
 }
 
 async function dispatchMessageToHandler (
-  rawMessage: TransportMessage<MessageType>,
-  handlerRegistration: HandlerRegistration<MessageType>
+  message: Message,
+  attributes: MessageAttributes,
+  handler: Handler<Message>
 ): Promise<void> {
-  const container = handlerRegistration.defaultContainer
-  const childContainer = container.createChild()
-
-  childContainer
-    .bind<TransportMessage<MessageType>>(BUS_INTERNAL_SYMBOLS.RawMessage)
-    .toConstantValue(rawMessage)
-
-  childContainer
-    .bind<MessageAttributes>(BUS_SYMBOLS.MessageHandlingContext)
-    .toConstantValue(rawMessage.attributes)
-
-  const sessionScopeBinder = container.get<SessionScopeBinder>(BUS_INTERNAL_SYMBOLS.SessionScopeBinder)
-  // tslint:disable-next-line:no-unsafe-any
-  sessionScopeBinder(childContainer.bind.bind(childContainer))
-
-  const handler = handlerRegistration.resolveHandler(childContainer)
-  return handler.handle(rawMessage.domainMessage, rawMessage.attributes)
+  return handler({
+    message,
+    attributes
+  })
 }

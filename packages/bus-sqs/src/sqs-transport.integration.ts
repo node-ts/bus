@@ -1,22 +1,19 @@
 import { SqsTransport, SQSMessageBody, fromMessageAttributeMap } from './sqs-transport'
 import {
-  TestContainer,
-  TestCommandHandler,
   TestCommand,
   HandleChecker,
-  HANDLE_CHECKER,
-  TestFailMessageHandler,
+  TestEvent,
   TestFailMessage
 } from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
+import { Bus, HandlerContext, Logger, sleep } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
-import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { IMock, Mock, Times, It } from 'typemoq'
+import { Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
+import { EventEmitter } from 'events'
 import { MessageAttributes, Message } from '@node-ts/bus-messages'
-import { TestSystemMessageHandler } from '../test/test-system-message-handler'
+import { testSystemMessageHandler, TestSystemMessageHandler } from '../test/test-system-message-handler'
 import { TestSystemMessage } from '../test/test-system-message'
 
 function getEnvVar (key: string): string {
@@ -33,15 +30,17 @@ const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
+const testCommandHandlerEmitter = new EventEmitter()
+const testEventHandlerEmitter = new EventEmitter()
 
 const sqsConfiguration: SqsTransportConfiguration = {
   queueName: `${resourcePrefix}-test`,
-  queueUrl: `http://localhost:4576/queue/${resourcePrefix}-test`,
-  queueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
+  queueUrl: `http://localhost:4566/queue/${resourcePrefix}-test`,
+  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
 
   deadLetterQueueName: `${resourcePrefix}-dead-letter`,
-  deadLetterQueueUrl: `http://localhost:4576/queue/${resourcePrefix}-dead-letter`,
-  deadLetterQueueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
+  deadLetterQueueUrl: `http://localhost:4566/queue/${resourcePrefix}-dead-letter`,
+  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
 
   resolveTopicName: (messageName: string) =>
     `${resourcePrefix}-${normalizeMessageName(messageName)}`,
@@ -60,7 +59,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
           "sqs:SendMessage"
         ],
         "Resource": [
-          "arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
+          "arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
         ],
         "Condition": {
           "ArnLike": {
@@ -74,71 +73,57 @@ const sqsConfiguration: SqsTransportConfiguration = {
 }
 
 describe('SqsTransport', () => {
-  let container: TestContainer
-  let sut: SqsTransport
-  let bootstrap: ApplicationBootstrap
   let sqs: SQS
   let sns: SNS
-  let bus: Bus
 
-  let handleChecker: IMock<HandleChecker>
-  let testSystemMessageTopicArn: string
+  let handleChecker = Mock.ofType<HandleChecker>()
+  const logger = Mock.ofType<Logger>()
 
   beforeAll(async () => {
-    jest.setTimeout(10000)
-    container = new TestContainer()
-    container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
-    container
-      .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sns)
-      .toConstantValue(new SNS({
-        endpoint: 'http://localhost:4575'
-      }))
-    container
-      .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
-      .toConstantValue(new SQS({
-        endpoint: 'http://localhost:4576'
-      }))
-    sut = container.get(BUS_SYMBOLS.Transport)
-    sqs = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
-    sns = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sns)
-    bus = container.get(BUS_SYMBOLS.Bus)
-    bootstrap = container.get(BUS_SYMBOLS.ApplicationBootstrap)
-
-    handleChecker = Mock.ofType<HandleChecker>()
-    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
-
-    bootstrap.registerHandler(TestCommandHandler)
-    bootstrap.registerHandler(TestSystemMessageHandler)
-    bootstrap.registerHandler(TestFailMessageHandler)
-
-    const testSystemMessageTopic = await sns.createTopic({ Name: TestSystemMessage.NAME }).promise()
-    testSystemMessageTopicArn = testSystemMessageTopic.TopicArn!
+    sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+    sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
   })
 
   afterAll(async () => {
     // tslint:disable-next-line:no-magic-numbers A timeout > 10s which is the default sqs receive timeout
     jest.setTimeout(15000)
-    await bootstrap.dispose()
-    await Promise.all([
-      sqs.deleteQueue({
-        QueueUrl: sqsConfiguration.queueUrl
-      }).promise(),
-      sqs.deleteQueue({
-        QueueUrl: `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
-      }).promise(),
-      sns.deleteTopic({
-        TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-      }).promise(),
-      sns.deleteTopic({
-        TopicArn: testSystemMessageTopicArn
-      }).promise()
-    ])
+    await Bus.dispose()
+    await sqs.purgeQueue({
+      QueueUrl: sqsConfiguration.queueUrl
+    }).promise()
+    // await sqs.deleteQueue({
+    //   QueueUrl: sqsConfiguration.queueUrl
+    // }).promise()
+    // await sqs.deleteQueue({
+    //   QueueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
+    // }).promise()
+    // await sns.deleteTopic({
+    //   TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
+    // }).promise()
   })
 
   describe('when the transport has been initialized', () => {
-
     beforeAll(async () => {
-      await bootstrap.initialize(container)
+      const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
+      await Bus.configure()
+        // .withLogger(logger.object)
+        .withTransport(sqsTransport)
+        .withHandler(TestCommand, ({ attributes: { attributes } }: HandlerContext<TestCommand>) => {
+          testCommandHandlerEmitter.emit('received')
+          handleChecker.object.check(attributes)
+        })
+        .withHandler(TestEvent, async () => {
+          testEventHandlerEmitter.emit('received')
+          throw new Error()
+        })
+        .withHandler(
+          TestSystemMessage,
+          testSystemMessageHandler(handleChecker.object),
+          (m: TestSystemMessage) => m.name === TestSystemMessage.NAME
+          // `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+        )
+        .initialize()
+      await Bus.start()
     })
 
     it('should subscribe the queue to manually provided topics', () => {
@@ -175,16 +160,13 @@ describe('SqsTransport', () => {
       const message = new TestSystemMessage()
 
       beforeAll(async () => {
-        await sns.publish({
-          Message: JSON.stringify(message),
-          TopicArn: testSystemMessageTopicArn
-        }).promise()
+        await Bus.publish(message, { attributes: { foo: 'bar' }})
       })
 
       it('should handle the system message', async () => {
         await sleep(1000 * 8)
         handleChecker.verify(
-          h => h.check(It.isObjectWith({...message}), It.isAny()),
+          h => h.check(It.isObjectWith({ foo: 'bar'})),
           Times.once()
         )
       })
@@ -204,16 +186,23 @@ describe('SqsTransport', () => {
         }
       }
 
-      beforeAll(async () => {
-        await bus.send(testCommand, messageOptions)
-      })
-
       it('should receive and dispatch to the handler', async () => {
-        await sleep(1000 * 8)
+        await Bus.send(testCommand, messageOptions)
+        await new Promise(resolve => testCommandHandlerEmitter.on('received', resolve))
         handleChecker.verify(
-          h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
+          h => h.check(It.isObjectWith(messageOptions.attributes)),
           Times.once()
         )
+      })
+    })
+
+    describe('when retrying a message', () => {
+      it('should retry subsequent requests', async () => {
+        await Bus.publish(new TestEvent())
+        let attempts = 3
+        while (attempts--  > 0) {
+          await new Promise<void>(resolve => testEventHandlerEmitter.on('received', resolve))
+        }
       })
     })
 
@@ -224,9 +213,9 @@ describe('SqsTransport', () => {
       let message: TestFailMessage
       let receiveCount: number
       beforeAll(async () => {
-        const deadLetterQueueUrl = `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
+        const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
         await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
-        await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
+        await Bus.publish(messageToFail, { correlationId })
         const result = await sqs.receiveMessage({
           QueueUrl: deadLetterQueueUrl,
           WaitTimeSeconds: 5,

@@ -1,5 +1,3 @@
-import { Message } from '@node-ts/bus-messages'
-
 export class FailMessageOutsideHandlingContext extends Error {
   /**
    * Calling .fail() with a message indicates that the message received from the
@@ -8,10 +6,8 @@ export class FailMessageOutsideHandlingContext extends Error {
    *
    * This error occurs when .fail() has been called outside of a message handling context,
    * or more specifically - outside the stack of a Handler() operation
-   * @param msg The message that was attempted to be failed
    */
   constructor (
-    readonly msg: Message
   ) {
     super(`Attempted to fail message outside of a message handling context`)
     // tslint:disable-next-line:no-unsafe-any

@@ -67,4 +67,16 @@ describe('JsonSerializer', () => {
       expect(Object.keys(result)).not.toContain('testFn')
     })
   })
+
+  describe('when converting plain object to typed', () => {
+    let result: Contract
+    beforeEach(() => {
+      const plain = sut.toPlain(contract)
+      result = sut.toClass(plain, Contract)
+    })
+
+    it('should strip out additional fields', () => {
+      expect(result).toBeInstanceOf(Contract)
+    })
+  })
 })

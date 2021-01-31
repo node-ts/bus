@@ -10,49 +10,33 @@ Each message handler is a new class definition. Handlers can receive any type of
 
 ```typescript
 // send-welcome-email-handler.ts
-import { HandlesMessage } from '@node-ts/bus-core'
+import { Handler } from '@node-ts/bus-core'
 import { SendWelcomeEmail } from 'contracts'
-import { inject } from 'inversify'
-import { ACCOUNT_SYMBOLS, EmailService } from 'domain'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import { emailService } from 'domain'
 
-@HandlesMessage(SendWelcomeEmail)
-export class GenerateTranscriptHandler {
-
-  constructor (
-    @inject(ACCOUNT_SYMBOLS.EmailService) private readonly emailService: EmailService
-  ) {
-  }
-
-  async handle (command: SendWelcomeEmail): Promise<void> {
-    await this.emailService.sendWelcomeEmail(command)
-  }
-
-}
+/**
+ * Handles all `SendWelcomeEmail` messages and delegates them through to the emailService to send a welcome email
+ */
+export const handleSendWelcomeEmail: Handler<SendWelcomeEmail> = async ({ message }) => emailService.sendWelcomeEmail(message)
 ```
 
-The next step is to register the handler with the `ApplicationBootstrap` so that the underlying transport can be configured and subscribed to the various topics:
+The next step is to register the handler with the `Bus` so that the underlying transport can be configured and subscribed to the various topics:
 
 ```typescript
-// application-container.ts
+// application.ts
+import { Bus } from '@node-ts/bus-core'
+import { handleSendWelcomeEmail } from './handle-send-welcome-email'
 
-import { ApplicationBootstrap, BUS_SYMBOLS } from '@node-ts/bus-core'
-import { Container, ContainerModule } from 'inversify'
-import { GenerateTranscriptHandler } from './generate-transcript-handler'
+const run = async () => {
+  await Bus
+    .configure()
+    .withHandler(SendWelcomeEmail, handleSendWelcomeEmail)
+    .initialize()
 
-const container = new Container()
-container.load([
-  new BusModule()
-])
+  await Bus.start()
+}
 
-const bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-bootstrap.registerHandler(GenerateTranscriptHandler)
-
-bootstrap.initialize(container)
-  .then(() => {
-    // ...
-  })
-  .catch(console.error)
+run.then(() => undefined)
 ```
 
 ## Consuming messages
@@ -64,15 +48,10 @@ Messages read from the underlying transport aren't immediately removed. Instead,
 Additional metadata can be sent along with messages that don't belong to the message body, but is instead added to the message headers or attributes as metadata. This is sent to messages handlers as a second, optional parameter. For example:
 
 ```typescript
-class Handler {
-  async handle (
-    _: Command,
-    messageOptions: MessageAttributes<{ userId: string }>
-  ): Promise<void> {
-    this.logger.info('Example consuming message headers', { userId: messageOptions.attributes.userId })
-  }
-}
+import { Handler } from '@node-ts/bus-core'
 
+export const handleWithAttributes: Handler<Command> = ({ context }) =>
+  console.log('The user id sent in the message attributes is', context.attributes.userId)
 ```
 
 ## System and non-domain messages
@@ -123,4 +102,4 @@ Instead, the action of the message handling function should be to start the proc
 
 This then treats the process as asynchronous. Ie: an event is raised when the process starts, and another to report that the process has completed.
 
-For more information on coordinating long running processes and higher-order logic, see [@node-ts/bus-workflows](/packages/bus-workflow/)
+For more information on coordinating long running processes and higher-order logic, see [@node-ts/bus-core/workflow](/packages/bus-core/src/workflow)

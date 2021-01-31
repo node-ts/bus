@@ -1,20 +1,17 @@
 import { TestEvent } from '../test/test-event'
 import { Bus } from '../service-bus'
-import { MessageAttributes, Message } from '@node-ts/bus-messages'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestCommand } from '../test/test-command'
-import { Container } from 'inversify'
-import { BUS_SYMBOLS } from '../bus-symbols'
-import { ApplicationBootstrap } from '../application-bootstrap'
-import { IMock, Mock, Times, It } from 'typemoq'
+import { Mock, Times, It } from 'typemoq'
 import { sleep } from '../util'
-import { TestContainer } from '../test/test-container'
-import { MessageLogger, MESSAGE_LOGGER, TestEventHandler } from '../test'
+import { MessageLogger, TestCommand2, testEventHandler } from '../test'
 import * as faker from 'faker'
-import { SystemEvent, TestResolverHandler } from '../test/test-resolver-handler'
+import { Logger } from '@node-ts/logger-core'
+import { Handler, HandlerContext } from './handler'
+import { TestCommand3 } from '../test/test-command-3'
 
 const event = new TestEvent()
 const command = new TestCommand()
-const systemEvent = new SystemEvent()
 
 const attributes: MessageAttributes = {
   correlationId: faker.random.uuid(),
@@ -26,35 +23,33 @@ const attributes: MessageAttributes = {
   }
 }
 
+
 describe('Handler', () => {
-  let serviceBus: Bus
-  let container: Container
-  let bootstrapper: ApplicationBootstrap
-  let messageLogger: IMock<MessageLogger>
+  const messageLogger = Mock.ofType<MessageLogger>()
+
+  // Sticky attributes should propagate during Bus.send
+  const command2Handler: Handler<TestCommand2> = async () => { Bus.send(new TestCommand3()); await sleep(100) }
+  const command3Handler = (logger: MessageLogger) => async ({ attributes: { stickyAttributes } }: HandlerContext<TestCommand3>) => logger.log(stickyAttributes.value)
 
   beforeAll(async () => {
-    container = new TestContainer().silenceLogs()
 
-    messageLogger = Mock.ofType<MessageLogger>()
-    container.bind(MESSAGE_LOGGER).toConstantValue(messageLogger.object)
+    await Bus.configure()
+      .withLogger(Mock.ofType<Logger>().object)
+      .withConcurrency(2)
+      .withHandler(TestEvent, testEventHandler(messageLogger.object))
+      .withHandler(TestCommand2, command2Handler)
+      .withHandler(TestCommand3, command3Handler(messageLogger.object))
+      .initialize()
 
-    serviceBus = container.get(BUS_SYMBOLS.Bus)
+    await Bus.start()
+    await Bus.publish(event)
+    await Bus.publish(event, attributes)
+    await Bus.send(command)
 
-    bootstrapper = container.get(BUS_SYMBOLS.ApplicationBootstrap)
-    bootstrapper.registerHandler(TestEventHandler)
-    bootstrapper.registerHandler(TestResolverHandler)
-    await bootstrapper.initialize(container)
-
-    await serviceBus.publish(event)
-    await serviceBus.publish(event, attributes)
-    await serviceBus.send(command)
-    await serviceBus.publish(systemEvent as {} as Message)
     await sleep(1)
   })
 
-  afterAll(async () => {
-    await serviceBus.stop()
-  })
+  afterAll(async () => Bus.stop())
 
   describe('when a handled message is received', () => {
     it('should dispatch to the registered handler', () => {
@@ -74,10 +69,32 @@ describe('Handler', () => {
     })
   })
 
-  describe('when a message matching a resolver is received', () => {
-    it('should receive the message', () => {
+  describe('when a handled message is received with sticky attributes', () => {
+    beforeAll(async () => {
+      const command2 = new TestCommand2()
+      const attributes1: Partial<MessageAttributes> = {
+        stickyAttributes: {
+          value: 1
+        }
+      }
+      const attributes2: Partial<MessageAttributes> = {
+        stickyAttributes: {
+          value: 2
+        }
+      }
+      await Bus.send(command2, attributes1)
+      await Bus.send(command2, attributes2)
+      await sleep(1000)
+    })
+
+    it('should propagate sticky attributes', () => {
       messageLogger.verify(
-        m => m.log(It.isObjectWith({ ...systemEvent })),
+        logger => logger.log(1),
+        Times.once()
+      )
+
+      messageLogger.verify(
+        logger => logger.log(2),
         Times.once()
       )
     })

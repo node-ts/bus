@@ -1,25 +1,11 @@
 import { RabbitMqTransport } from './rabbitmq-transport'
-import {
-  TestContainer,
-  TestEvent,
-  TestCommand,
-  TestCommandHandler,
-  TestPoisonedMessageHandler,
-  TestPoisonedMessage,
-  HANDLE_CHECKER,
-  HandleChecker,
-  TestFailMessageHandler,
-  TestFailMessage
-} from '../test'
-import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
-import { Connection, Channel, Message as RabbitMqMessage, ConsumeMessage } from 'amqplib'
-import { TransportMessage, BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
+import { TestEvent, TestCommand, testCommandHandler, TestPoisonedMessage, TestFailMessage } from '../test'
+import { Connection, Channel, Message as RabbitMqMessage, connect, ConsumeMessage } from 'amqplib'
+import { TransportMessage, Bus, Logger } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { TestSystemMessage } from '../test/test-system-message'
-import { TestSystemMessageHandler } from '../test/test-system-message-handler'
-import { Mock, IMock, It, Times } from 'typemoq'
+import { It, Mock, Times } from 'typemoq'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -32,41 +18,25 @@ const configuration: RabbitMqTransportConfiguration = {
 }
 
 describe('RabbitMqTransport', () => {
-  let bus: Bus
-  let sut: RabbitMqTransport
+  let rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: Connection
   let channel: Channel
-  let container: TestContainer
-  let bootstrap: ApplicationBootstrap
-  let handleChecker: IMock<HandleChecker>
 
   beforeAll(async () => {
-    handleChecker = Mock.ofType<HandleChecker>()
-    container = new TestContainer()
-    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
-    container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(configuration)
-    bus = container.get(BUS_SYMBOLS.Bus)
-    sut = container.get(BUS_SYMBOLS.Transport)
+    await Bus.configure()
+      .withTransport(rabbitMqTransport)
+      .withLogger(Mock.ofType<Logger>().object)
+      .withHandler(TestCommand, testCommandHandler)
+      .initialize()
 
-    bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    bootstrap.registerHandler(TestCommandHandler)
-    bootstrap.registerHandler(TestSystemMessageHandler)
-    bootstrap.registerHandler(TestPoisonedMessageHandler)
-    bootstrap.registerHandler(TestFailMessageHandler)
-
-    const connectionFactory = container.get<() => Promise<Connection>>(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
-    connection = await connectionFactory()
+    connection = await connect(configuration.connectionString)
     channel = await connection.createChannel()
-
-    await channel.assertExchange(TestSystemMessage.NAME, 'fanout', { durable: true })
-
-    await bootstrap.initialize(container)
   })
 
   afterAll(async () => {
     await channel.close()
     await connection.close()
-    await bootstrap.dispose()
+    await Bus.dispose()
   })
 
   describe('when initializing the transport', () => {
@@ -80,7 +50,7 @@ describe('RabbitMqTransport', () => {
       const event = new TestEvent()
 
       beforeEach(async () => {
-        await bus.publish(event)
+        await Bus.publish(event)
       })
 
       it('should create a fanout exchange with the name of the event', async () => {
@@ -93,7 +63,7 @@ describe('RabbitMqTransport', () => {
       const poisonedMessage = new TestPoisonedMessage(faker.random.uuid())
       beforeAll(async () => {
         jest.setTimeout(10000)
-        await bus.publish(poisonedMessage)
+        await Bus.publish(poisonedMessage)
         await new Promise<void>(resolve => {
           const consumerTag = faker.random.uuid()
           channel.consume('dead-letter', msg => {
@@ -123,7 +93,7 @@ describe('RabbitMqTransport', () => {
     describe('when sending a command', () => {
       const command = new TestCommand()
       beforeEach(async () => {
-        await bus.send(command)
+        await Bus.send(command)
       })
 
       afterEach(async () => {
@@ -162,7 +132,7 @@ describe('RabbitMqTransport', () => {
       describe('from a queue with messages', () => {
         const command = new TestCommand()
         let message: TransportMessage<RabbitMqMessage> | undefined
-        const messageOptions = new MessageAttributes({
+        const messageOptions: Partial<MessageAttributes> = {
           correlationId: faker.random.uuid(),
           attributes: {
             attribute1: 'a',
@@ -172,16 +142,16 @@ describe('RabbitMqTransport', () => {
             attribute1: 'b',
             attribute2: 2
           }
-        })
+        }
 
         beforeEach(async () => {
-          await bus.send(command, messageOptions)
-          message = await sut.readNextMessage()
+          await Bus.send(command, messageOptions)
+          message = await rabbitMqTransport.readNextMessage()
         })
 
         afterEach(async () => {
           if (message) {
-            await sut.deleteMessage(message)
+            await rabbitMqTransport.deleteMessage(message)
           }
         })
 
@@ -211,7 +181,7 @@ describe('RabbitMqTransport', () => {
       let rawDeadLetter: ConsumeMessage
 
       beforeAll(async () => {
-        await bus.publish(failMessage, new MessageAttributes({ correlationId }))
+        await Bus.publish(failMessage, { correlationId })
         await new Promise<void>(resolve => {
           const consumerTag = faker.random.uuid()
           channel.consume(

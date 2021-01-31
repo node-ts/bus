@@ -1,11 +1,10 @@
 // tslint:disable:max-classes-per-file no-inferred-empty-object-type
-import { Serializer } from './serializer'
+import { handlerRegistry } from '../handler/handler-registry'
+import { Serializer, MessageSerializer, setSerializer } from './serializer'
 import { ClassConstructor } from '../util'
-import { MessageSerializer } from './message-serializer'
-import { Mock, IMock, It } from 'typemoq'
-import { HandlerRegistry } from '../handler'
 import * as faker from 'faker'
 import { Message } from '@node-ts/bus-messages'
+import { HandlerContext } from '../handler/handler'
 
 class DummyMessage {
   $name = 'bluh'
@@ -26,49 +25,37 @@ class ToxicSerializer implements Serializer {
   deserialize<ObjectType extends object> (serialized: string, classType: ClassConstructor<ObjectType>): ObjectType {
     return new classType(serialized)
   }
+
+  toPlain<T extends object> (_: T): object {
+    return {}
+  }
+
+  toClass<T extends object> (_: object, __: ClassConstructor<T>): T {
+    return {} as T
+  }
 }
 
 describe('MessageSerializer', () => {
 
-  let sut: MessageSerializer
-  let handlerRegistry: IMock<HandlerRegistry>
-  const msgName = 'dummy-message'
-
   beforeEach(() => {
-    handlerRegistry = Mock.ofType<HandlerRegistry>()
-    handlerRegistry.setup(h => h.getMessageType(
-      It.isObjectWith({
-        $name: msgName
-      })
-    )).returns(() => DummyMessage)
-
     const toxicSerializer = new ToxicSerializer()
+    setSerializer(toxicSerializer)
 
-    sut = new MessageSerializer(
-      toxicSerializer,
-      handlerRegistry.object
-    )
+    handlerRegistry.register(DummyMessage, (_: HandlerContext<DummyMessage>) => undefined)
   })
 
   it('should use underlying serializer to serialize', () => {
-    const message: Message = {
-      $name: msgName,
-      $version: 1
-    }
-    const result = sut.serialize(message)
+    const message = new DummyMessage('a')
+    const result = MessageSerializer.serialize(message)
     expect(result).toBe(message.$name)
   })
 
   it('should use underlying deserializer to deserialize', () => {
-    const msg = {
-      $name: msgName,
-      text: faker.random.words()
-    }
+    const msg = new DummyMessage(faker.random.words())
     const raw = JSON.stringify(msg)
 
-    const result = sut.deserialize<DummyMessage>(raw)
+    const result = MessageSerializer.deserialize<DummyMessage>(raw)
 
-    handlerRegistry.verifyAll()
     expect(result.value).toBe(raw)
   })
 })

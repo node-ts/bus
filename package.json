@@ -16,9 +16,9 @@
     "docs:deploy": "./deploy-docs.sh",
     "lint": "lerna run lint",
     "test": "yarn test:unit && yarn test:integration",
-    "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
+    "test:unit": "dotenv -e test.env -- jest --collect-coverage \"(src\\/.+\\.|/)spec\\.ts$\"",
     "test:unit:watch": "yarn run test:unit --watch",
-    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core|messages|workflow).*(src\\/.+\\.|/)integration\\.ts$\""
+    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(sqs).*(src\\/.+\\.|/)integration\\.ts$\""
   },
   "keywords": [
     "typescript",
@@ -34,6 +34,11 @@
     ],
     "transformIgnorePatterns": [
       "[/\\\\]node_modules[/\\\\](?!node-ts.+).+\\.ts$"
+    ],
+    "coveragePathIgnorePatterns": [
+      ".js",
+      "\/error\/.*",
+      "\/test\/.*"
     ],
     "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "testEnvironment": "node",

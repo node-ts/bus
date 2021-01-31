@@ -1,147 +1,117 @@
-import { HandlerRegistry } from './handler-registry'
-import { Mock, IMock, Times, It } from 'typemoq'
+import { handlerRegistry } from './handler-registry'
+import { Mock, IMock, It, Times } from 'typemoq'
 import { Logger } from '@node-ts/logger-core'
-import { TestEvent, TestEventHandler, TestCommandHandler, TestCommand } from '../test'
-import { Container, interfaces } from 'inversify'
-import { Message } from '@node-ts/bus-messages'
-import * as faker from 'faker'
+import { TestEvent, testEventHandler, MessageLogger, TestCommand } from '../test'
+import { HandlerAlreadyRegistered } from './errors'
+import { setLogger } from '../util'
+import { Handler } from './handler'
 
 describe('HandlerRegistry', () => {
-  let sut: HandlerRegistry
 
   let logger: IMock<Logger>
 
   const messageName = TestEvent.NAME
-  const symbol = Symbol()
-  const handler = TestEventHandler
+  const messageLoggerMock = Mock.ofType<MessageLogger>()
+  const handler = testEventHandler(messageLoggerMock.object)
   const messageType = TestEvent
+  const genericHandler = () => undefined
 
-  beforeEach(() => {
+  beforeAll(() => {
     logger = Mock.ofType<Logger>()
-    sut = new HandlerRegistry(
-      logger.object
-    )
+    setLogger(logger.object)
   })
 
-  describe('when registering a handler for a bus message', () => {
-    beforeEach(() => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
-    })
+  afterEach(() => handlerRegistry.reset())
+
+  describe('when registering a handler', () => {
+    beforeEach(() => handlerRegistry.register(messageType, handler))
 
     it('should register the handler', () => {
-      const handlers = sut.get(new TestEvent())
+      const handlers = handlerRegistry.get(messageType.NAME)
       expect(handlers).toHaveLength(1)
-    })
-
-    it('should add it to the subscribed message subscription list', () => {
-      const subscription = sut.messageSubscriptions.find(s => new s.messageType!().$name === messageType.NAME)
-      expect(subscription).toBeDefined()
-    })
-
-    describe('when binding handlers to the container', () => {
-      let container: IMock<Container>
-      let bindingTo: IMock<interfaces.BindingToSyntax<{}>>
-      let bindingWhenOn: IMock<interfaces.BindingInWhenOnSyntax<{}>>
-
-      beforeEach(() => {
-        container = Mock.ofType<Container>()
-        bindingTo = Mock.ofType<interfaces.BindingToSyntax<{}>>()
-        bindingWhenOn = Mock.ofType<interfaces.BindingInWhenOnSyntax<{}>>()
-
-        container
-          .setup(c => c.bind(It.isAny()))
-          .returns(() => bindingTo.object)
-          .verifiable(Times.once())
-
-        bindingTo
-          .setup(b => b.to(handler))
-          .returns(() => bindingWhenOn.object)
-          .verifiable(Times.once())
-
-        bindingWhenOn
-          .setup(b => b.inTransientScope())
-          .verifiable(Times.once())
-
-        sut.bindHandlersToContainer(container.object)
-      })
-
-      it('should bind each handler', () => {
-        container.verifyAll()
-        bindingTo.verifyAll()
-        bindingWhenOn.verifyAll()
-      })
-    })
-  })
-
-  describe('when registering a handler for an external message', () => {
-    const identifier = faker.random.uuid()
-
-    beforeEach(() => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, undefined, identifier)
-    })
-
-    it('should include the message in the subscribed messages list', () => {
-      const messageSubscription = sut.messageSubscriptions.find(m => m.topicIdentifier === identifier)
-      expect(messageSubscription).toBeDefined()
     })
   })
 
   describe('when registering a handler twice', () => {
-    beforeEach(() => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
-    })
-
-    it('should warn that the handler is already registered', () => {
-      logger.verify(
-        l => l.warn('Attempted to re-register a handler that\'s already registered', It.isAny()),
-        Times.once()
-      )
-    })
-
-    it('should register a single instance of the handler', () => {
-      const handlers = sut.get(new TestEvent())
-      expect(handlers).toHaveLength(1)
+    it('should throw a HandlerAlreadyRegistered error', () => {
+      handlerRegistry.register(messageType, handler)
+      expect(() => handlerRegistry.register(messageType, handler)).toThrowError(HandlerAlreadyRegistered)
     })
   })
 
   describe('when getting a handler', () => {
     it('should return an empty array for an unregistered handler', () => {
-      expect(sut.get(new TestCommand())).toHaveLength(0)
+      expect(handlerRegistry.get('')).toHaveLength(0)
     })
 
     it('should return a single handler for a single registration', () => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
-      expect(sut.get(new TestEvent())).toHaveLength(1)
+      handlerRegistry.register(messageType, handler)
+      expect(handlerRegistry.get(messageName)).toHaveLength(1)
     })
 
     it('should return a multiple handlers for multiple registrations', () => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
-      sut.register((m: Message) => m.$name === messageName, Symbol(), TestCommandHandler, messageType)
-      expect(sut.get(new TestEvent())).toHaveLength(2)
+      handlerRegistry.register(messageType, handler)
+      handlerRegistry.register(messageType, () => undefined)
+      expect(handlerRegistry.get(messageName)).toHaveLength(2)
     })
   })
 
-  describe('when getting a messageType', () => {
-
+  describe('when getting a handler for a message with no registered handlers', () => {
+    let handlers: Handler[]
     beforeEach(() => {
-      sut.register((m: Message) => m.$name === messageName, symbol, handler, messageType)
+      handlers = handlerRegistry.get('abc')
     })
 
-    it('return msg constructor when found', () => {
-      const msg = {
-        $name: TestEvent.NAME
-      }
-      const result = sut.getMessageType(msg as Message)
-      expect(result).toBe(TestEvent)
+    it('should return an empty array of handlers', () => {
+      expect(handlers).toHaveLength(0)
     })
 
-    it('return undefined when not found', () => {
-      const msg = {
-        $name: 'bluhbluh-very-important-command'
-      }
-      const result = sut.getMessageType(msg as Message)
-      expect(result).toBeUndefined()
+    it('should log an error', () => {
+      logger.verify(
+        l => l.error(`No handlers were registered for message`, It.isObjectWith({ messageName: 'abc' })),
+        Times.once()
+      )
+    })
+
+    describe('when the same message is handled again', () => {
+      it('should not keep logging the error', () => {
+        handlerRegistry.get('abc')
+        handlerRegistry.get('abc')
+        handlerRegistry.get('abc')
+        logger.verify(
+          l => l.error(`No handlers were registered for message`, It.isObjectWith({ messageName: 'abc' })),
+          Times.once()
+        )
+      })
+    })
+  })
+
+  describe('when getting the list of messages registered with the handler', () => {
+    it('should return the full set as an array', () => {
+      handlerRegistry.register(TestEvent, genericHandler)
+      handlerRegistry.register(TestCommand, genericHandler)
+
+      const registeredMessages = handlerRegistry.getMessageNames();
+      [TestEvent, TestCommand].forEach(messageType => {
+        expect(registeredMessages).toContain(new messageType().$name)
+      })
+    })
+  })
+
+  describe('when getting a message constructor', () => {
+    describe('for a registered message', () => {
+      it('should return a message constructor', () => {
+        handlerRegistry.register(TestEvent, genericHandler)
+        const ctor = handlerRegistry.getMessageConstructor(TestEvent.NAME)
+        expect(ctor).toEqual(TestEvent)
+      })
+    })
+
+    describe('for an unregistered message', () => {
+      it('should return undefined', () => {
+        const ctor = handlerRegistry.getMessageConstructor('abc')
+        expect(ctor).toBeUndefined()
+      })
     })
   })
 

@@ -1,11 +1,20 @@
-import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, HandlerRegistry, BUS_SYMBOLS, MessageSerializer } from '@node-ts/bus-core'
-import { Connection, Channel, Message as RabbitMqMessage, GetMessage } from 'amqplib'
-import { inject, injectable } from 'inversify'
-import { BUS_RABBITMQ_INTERNAL_SYMBOLS, BUS_RABBITMQ_SYMBOLS } from './bus-rabbitmq-symbols'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import {
+  Event,
+  Command,
+  Message,
+  MessageAttributes,
+  MessageAttributeMap
+} from '@node-ts/bus-messages'
+import {
+  Transport,
+  TransportMessage,
+  handlerRegistry,
+  getLogger,
+  getSerializer,
+  MessageSerializer
+} from '@node-ts/bus-core'
+import { Connection, Channel, Message as RabbitMqMessage, connect, GetMessage } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
-import { MessageType } from '@node-ts/bus-core/dist/handler/handler'
 
 export const DEFAULT_MAX_RETRIES = 10
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
@@ -14,7 +23,6 @@ const deadLetterQueue = 'dead-letter'
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
  */
-@injectable()
 export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private connection: Connection
@@ -23,25 +31,17 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private maxRetries: number
 
   constructor (
-    @inject(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
-      private readonly connectionFactory: () => Promise<Connection>,
-    @inject(BUS_RABBITMQ_SYMBOLS.TransportConfiguration)
-      private readonly configuration: RabbitMqTransportConfiguration,
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SYMBOLS.HandlerRegistry)
-      private readonly handlerRegistry: HandlerRegistry,
-    @inject(BUS_SYMBOLS.MessageSerializer)
-      private readonly messageSerializer: MessageSerializer
+    private readonly configuration: RabbitMqTransportConfiguration
   ) {
     this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
   }
 
   async initialize (): Promise<void> {
-    this.logger.info('Initializing RabbitMQ transport')
-    this.connection = await this.connectionFactory()
+    getLogger().info('Initializing RabbitMQ transport')
+    this.connection = await connect(this.configuration.connectionString)
     this.channel = await this.connection.createChannel()
     await this.bindExchangesToQueue()
-    this.logger.info('RabbitMQ transport initialized')
+    getLogger().info('RabbitMQ transport initialized')
   }
 
   async dispose (): Promise<void> {
@@ -59,13 +59,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
-    const serializedPayload = this.messageSerializer.serialize(transportMessage.domainMessage as Message)
+    const serializedPayload = getSerializer().serialize(transportMessage.domainMessage)
     this.channel.sendToQueue(
       deadLetterQueue,
       Buffer.from(serializedPayload),
       rawMessage.properties
     )
-    this.logger.debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue })
+    getLogger().debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue })
   }
 
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
@@ -74,7 +74,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       return undefined
     }
     const payloadStr = rabbitMessage.content.toString('utf8')
-    const payload = this.messageSerializer.deserialize(payloadStr)
+    const payload = MessageSerializer.deserialize(payloadStr)
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string,
@@ -95,7 +95,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    this.logger.debug(
+    getLogger().debug(
       'Deleting message',
       {
         rawMessage: {
@@ -112,17 +112,17 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const attempt = message.raw.fields.deliveryTag
     const meta = { attempt, message: msg, rawMessage: message.raw }
     if (attempt >= this.maxRetries) {
-      this.logger.debug('Message retries failed, sending to dead letter queue', meta)
+      getLogger().debug('Message retries failed, sending to dead letter queue', meta)
       this.channel.reject(message.raw, false)
     } else {
-      this.logger.debug('Returning message', meta)
+      getLogger().debug('Returning message', meta)
       this.channel.nack(message.raw)
     }
   }
 
   private async assertExchange (messageName: string): Promise<void> {
     if (!this.assertedExchanges[messageName]) {
-      this.logger.debug('Asserting exchange', { messageName })
+      getLogger().debug('Asserting exchange', { messageName })
       await this.channel.assertExchange(messageName, 'fanout', { durable: true })
       this.assertedExchanges[messageName] = true
     }
@@ -130,25 +130,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private async bindExchangesToQueue (): Promise<void> {
     await this.createDeadLetterQueue()
-    await this.channel.assertQueue(
-      this.configuration.queueName,
-      { durable: true, deadLetterExchange }
-    )
-    const subscriptionPromises = this.handlerRegistry.messageSubscriptions
-      .map(async subscription => {
+    await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
+    const subscriptionPromises = handlerRegistry.getMessageNames()
+      .map(async messageName => {
+        const exchangeName = messageName
+        await this.assertExchange(messageName)
 
-        let exchangeName: string
-        if (subscription.topicIdentifier) {
-          exchangeName = subscription.topicIdentifier
-        } else if (subscription.messageType) {
-          const messageName = new subscription.messageType().$name
-          exchangeName = messageName
-          await this.assertExchange(messageName)
-        } else {
-          throw new Error('Unable to bind exchange to queue - no topic information provided')
-        }
-
-        this.logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
+        getLogger().debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
       })
 
@@ -167,10 +155,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private async publishMessage (
     message: Message,
-    messageOptions: MessageAttributes = new MessageAttributes()
+    messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): Promise<void> {
     await this.assertExchange(message.$name)
-    const payload = this.messageSerializer.serialize(message)
+    const payload = getSerializer().serialize(message)
     this.channel.publish(message.$name, '', Buffer.from(payload), {
       correlationId: messageOptions.correlationId,
       headers: {

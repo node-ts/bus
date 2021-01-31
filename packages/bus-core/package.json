@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-core",
-  "version": "0.6.4",
+  "version": "1.0.0-alpha.0",
   "description": "A service bus for message-based, distributed node applications",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,27 +14,20 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.3.1",
-    "@types/node": "^12.12.39",
     "autobind-decorator": "^2.4.0",
     "class-transformer": "^0.3.1",
-    "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
     "serialize-error": "^4.1.0",
     "tslib": "^1.11.1"
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.17",
     "@types/faker": "^4.1.5",
+    "@types/node": "^12.12.39",
     "faker": "^4.1.0",
-    "inversify": "^5.0.1",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",
-    "typescript": "^3.3.3"
-  },
-  "peerDependencies": {
-    "@node-ts/logger-core": "^0.0.17",
-    "inversify": ">= 5.0.1"
+    "typescript": "^4.1.2"
   },
   "keywords": [
     "esb",

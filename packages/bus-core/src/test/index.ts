@@ -1,7 +1,6 @@
 export * from './test-command'
 export * from './test-event'
 export * from './test-event-handler'
-export * from './test-container'
 export * from './test-command-handler'
 export * from './test-command-2'
 export * from './test-system-message'
