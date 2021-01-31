@@ -1,3 +1,5 @@
 export * from './test-event'
 export * from './test-command'
 export * from './test-command-handler'
+export * from './test-fail-message'
+export * from './test-fail-message-handler'

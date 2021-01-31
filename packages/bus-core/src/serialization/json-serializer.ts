@@ -3,17 +3,21 @@ import { ClassConstructor } from '../util'
 import { classToPlain, plainToClass, serialize, deserialize } from 'class-transformer'
 
 /**
- * A very unsafe, basic JSON serializer. This will serialize objects to strings, but will
- * deserialize strings into plain objects. These will NOT contain methods or special types,
- * so the usage of this serializer is limited.
+ * A JSON-based serializer that uses `class-transformer` to transform to and from
+ * class instances of an object rather than just their plain types. As a result,
+ * object types can use all of the serialization decorator hints provided by
+ * that library.
  */
 export class JsonSerializer implements Serializer {
-  serialize<T extends object> (obj: T): string {
+  serialize<ObjectType extends object> (obj: ObjectType): string {
     return serialize(obj)
   }
 
-  deserialize<T extends object> (val: string, classConstructor: ClassConstructor<T>): T {
-    return deserialize<T> (classConstructor, val)
+  deserialize<ObjectType extends object> (
+    serialized: string,
+    classConstructor: ClassConstructor<ObjectType>
+  ): ObjectType {
+    return deserialize<ObjectType> (classConstructor, serialized)
   }
 
   toPlain<T extends object> (obj: T): object {

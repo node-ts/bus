@@ -72,3 +72,5 @@ await Bus
   .withTransport(sqsTransport)
   .initialize()
 ```
+
+This will create a localstack instance running and exposing a mock sqs/sns that's compatible with the AWS-SDK. This same environment is used when running integration tests for the `SqsTransport`.

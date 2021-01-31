@@ -16,7 +16,7 @@ export interface TransportMessage<TransportMessageType> {
   domainMessage: Message
 
   /**
-   * The raw message as it was received from the transprot
+   * The raw message as it was received from the transport
    */
   raw: TransportMessageType
 

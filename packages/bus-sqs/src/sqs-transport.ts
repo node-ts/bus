@@ -1,7 +1,7 @@
 import { Command, Event, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
 import { SNS, SQS } from 'aws-sdk'
 import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
-import { Transport, TransportMessage, HandlerRegistry, getLogger } from '@node-ts/bus-core'
+import { Transport, TransportMessage, HandlerRegistry, getLogger, getSerializer } from '@node-ts/bus-core'
 import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
@@ -58,6 +58,24 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.publishMessage(command, messageAttributes)
   }
 
+  async fail (transportMessage: TransportMessage<SQS.Message>): Promise<void> {
+    /*
+      SQS doesn't support forwarding a message to another queue. This approach will copy the message to the dead letter
+      queue and then delete it from the source queue. This changes its message id and other attributes such as receive
+      counts etc.
+
+      This isn't ideal, but the alternative is to flag the message as failed and visible and then NOOP handle it until
+      the redrive policy kicks in. This approach was not preferred due to the additional number of handles that would
+      need to happen.
+    */
+    await this.sqs.sendMessage({
+      QueueUrl: this.sqsConfiguration.deadLetterQueueUrl,
+      MessageBody: transportMessage.raw.Body!,
+      MessageAttributes: transportMessage.raw.MessageAttributes
+    }).promise()
+    await this.deleteMessage(transportMessage)
+  }
+
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
       QueueUrl: this.sqsConfiguration.queueUrl,
@@ -108,10 +126,12 @@ export class SqsTransport implements Transport<SQS.Message> {
         { transportAttributes: snsMessage.MessageAttributes, messageAttributes: attributes}
       )
 
+      const domainMessage = getSerializer().deserialize(snsMessage.Message)
+
       return {
         id: sqsMessage.MessageId,
         raw: sqsMessage,
-        domainMessage: JSON.parse(snsMessage.Message) as Message,
+        domainMessage,
         attributes
       }
     } catch (error) {
@@ -133,13 +153,16 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.makeMessageVisible(message.raw)
   }
 
-  async initialize (handlerRegistry: HandlerRegistry): Promise<void> {
-    await this.assertServiceQueue(handlerRegistry)
+  async initialize (): Promise<void> {
+    await this.assertServiceQueue()
   }
 
-  private async assertServiceQueue (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async assertServiceQueue (): Promise<void> {
     await this.assertSqsQueue(
-      this.sqsConfiguration.deadLetterQueueName
+      this.sqsConfiguration.deadLetterQueueName,
+      {
+        MessageRetentionPeriod: '1209600' // 14 Days
+      }
     )
 
     const serviceQueueAttributes: QueueAttributeMap = {
@@ -154,8 +177,9 @@ export class SqsTransport implements Transport<SQS.Message> {
       serviceQueueAttributes
     )
 
-    await this.subscribeQueueToMessages(handlerRegistry)
+    await this.subscribeQueueToMessages()
     await this.attachPolicyToQueue(this.sqsConfiguration.queueUrl)
+    await this.syncQueueAttributes(this.sqsConfiguration.queueUrl, serviceQueueAttributes)
   }
 
   /**
@@ -215,19 +239,34 @@ export class SqsTransport implements Transport<SQS.Message> {
     const snsMessage: SNS.PublishInput = {
       TopicArn: topicArn,
       Subject: message.$name,
-      Message: JSON.stringify(message),
+      Message: getSerializer().serialize(message),
       MessageAttributes: attributeMap
     }
     getLogger().debug('Sending message to SNS', { snsMessage })
     await this.sns.publish(snsMessage).promise()
   }
 
-  private async subscribeQueueToMessages (handlerRegistry: HandlerRegistry): Promise<void> {
+  private async subscribeQueueToMessages (): Promise<void> {
     const queueArn = this.sqsConfiguration.queueArn
-    const queueSubscriptionPromises = handlerRegistry.getMessageNames()
-      .map(async messageName => {
-        const topicName = this.sqsConfiguration.resolveTopicName(messageName)
-        await this.createSnsTopic(topicName)
+    const queueSubscriptionPromises = HandlerRegistry.messageSubscriptions
+      .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
+      .map(async subscription => {
+        let topicArn: string
+
+        if (subscription.topicIdentifier) {
+          topicArn = subscription.topicIdentifier
+          getLogger().trace(
+            'Assuming supplied topicIdentifier already exists as an sns topic',
+            { topicIdentifier: topicArn }
+          )
+        } else if (subscription.messageType) {
+          const messageCtor = subscription.messageType
+          const topicName = this.sqsConfiguration.resolveTopicName(new messageCtor().$name)
+          await this.createSnsTopic(topicName)
+          topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
+        } else {
+          throw new Error('Unable to subscribe SNS topic to queue - no topic information provided')
+        }
 
         const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
         getLogger().info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })
@@ -252,6 +291,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       Protocol: 'sqs',
       Endpoint: queueArn
     }
+    getLogger().info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
     await this.sns.subscribe(subscribeRequest).promise()
   }
 
@@ -285,6 +325,14 @@ export class SqsTransport implements Transport<SQS.Message> {
 
     getLogger().info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
     await this.sqs.setQueueAttributes(setQueuePolicyRequest).promise()
+  }
+
+  private async syncQueueAttributes (queueUrl: string, attributes: QueueAttributeMap): Promise<void> {
+    // TODO: check equality before making this call to avoid potential API rate limit
+    await this.sqs.setQueueAttributes({
+      QueueUrl: queueUrl,
+      Attributes: attributes
+    }).promise()
   }
 }
 

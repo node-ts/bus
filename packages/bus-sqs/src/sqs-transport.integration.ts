@@ -1,8 +1,11 @@
-import { SqsTransport } from './sqs-transport'
+import { SqsTransport, SQSMessageBody, fromMessageAttributeMap } from './sqs-transport'
 import {
   TestCommand,
   HandleChecker,
-  TestEvent
+  TestEvent,
+  HANDLE_CHECKER,
+  TestFailMessageHandler,
+  TestFailMessage
 } from '../test'
 import { Bus, HandlerContext, Logger } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
@@ -10,8 +13,10 @@ import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
-import { MessageAttributes } from '@node-ts/bus-messages'
 import { EventEmitter } from 'events'
+import { MessageAttributes, Message } from '@node-ts/bus-messages'
+import { TestSystemMessageHandler } from '../test/test-system-message-handler'
+import { TestSystemMessage } from '../test/test-system-message'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -21,7 +26,8 @@ function getEnvVar (key: string): string {
   return value
 }
 
-const resourcePrefix = 'integration'
+// Use a randomize number otherwise aws will disallow recreat just deleted queue
+const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
@@ -31,11 +37,12 @@ const testEventHandlerEmitter = new EventEmitter()
 
 const sqsConfiguration: SqsTransportConfiguration = {
   queueName: `${resourcePrefix}-test`,
-  queueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${resourcePrefix}-test`,
-  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
+  queueUrl: `http://localhost:4576/queue/${resourcePrefix}-test`,
+  queueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
 
   deadLetterQueueName: `${resourcePrefix}-dead-letter`,
-  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
+  deadLetterQueueUrl: `http://localhost:4576/queue/${resourcePrefix}-dead-letter`,
+  deadLetterQueueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
 
   resolveTopicName: (messageName: string) =>
     `${resourcePrefix}-${normalizeMessageName(messageName)}`,
@@ -54,7 +61,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
           "sqs:SendMessage"
         ],
         "Resource": [
-          "arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
+          "arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
         ],
         "Condition": {
           "ArnLike": {
@@ -115,6 +122,11 @@ describe('SqsTransport', () => {
       await Bus.start()
     })
 
+    it('should subscribe the queue to manually provided topics', () => {
+      // Expect sns to exist
+      // Expect it's bound to the queue
+    })
+
     it('should create the service queue', async () => {
       const result = await sqs.listQueues({
         QueueNamePrefix: sqsConfiguration.queueName
@@ -139,8 +151,28 @@ describe('SqsTransport', () => {
       expect(result.Attributes).toBeDefined()
     })
 
+    describe('when a system message is received', () => {
+
+      const message = new TestSystemMessage()
+
+      beforeAll(async () => {
+        await sns.publish({
+          Message: JSON.stringify(message),
+          TopicArn: testSystemMessageTopicArn
+        }).promise()
+      })
+
+      it('should handle the system message', async () => {
+        await sleep(1000 * 8)
+        handleChecker.verify(
+          h => h.check(It.isObjectWith({...message}), It.isAny()),
+          Times.once()
+        )
+      })
+    })
+
     describe('when sending a command', () => {
-      const testCommand = new TestCommand(uuid.v4())
+      const testCommand = new TestCommand(uuid.v4(), new Date())
       const messageOptions: MessageAttributes = {
         correlationId: faker.random.uuid(),
         attributes: {
@@ -170,6 +202,44 @@ describe('SqsTransport', () => {
         while (attempts--  > 0) {
           await new Promise<void>(resolve => testEventHandlerEmitter.on('received', resolve))
         }
+      })
+    })
+
+    describe('when failing a message', () => {
+      const messageToFail = new TestFailMessage(faker.random.uuid())
+      const correlationId = faker.random.uuid()
+      let messageAttributes: MessageAttributes
+      let message: TestFailMessage
+      let receiveCount: number
+      beforeAll(async () => {
+        const deadLetterQueueUrl = `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
+        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
+        await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
+        const result = await sqs.receiveMessage({
+          QueueUrl: deadLetterQueueUrl,
+          WaitTimeSeconds: 5,
+          AttributeNames: ['All']
+        }).promise()
+        if (result.Messages && result.Messages.length === 1) {
+          const transportMessage = result.Messages[0]
+          receiveCount = parseInt(transportMessage.Attributes!.ApproximateReceiveCount, 10)
+          const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
+          message = JSON.parse(rawMessage.Message) as TestFailMessage
+          messageAttributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
+        }
+      })
+
+      it('should forward it to the dead letter queue', () => {
+        expect(message).toBeDefined()
+        expect(message).toMatchObject(messageToFail)
+      })
+
+      it('should only have received the message once', () => {
+        expect(receiveCount).toEqual(1)
+      })
+
+      it('should retain the same message attributes', () => {
+        expect(messageAttributes.correlationId).toEqual(correlationId)
       })
     })
   })

@@ -28,7 +28,7 @@ export interface InMemoryMessage {
  * are kept in memory and hence will be wiped when the application or host restarts.
  *
  * There are however legitimate uses for in-memory queues such as decoupling of non-mission
- * critical code inside of larger applications; so use at your own discresion.
+ * critical code inside of larger applications; so use at your own discretion.
  */
 export class MemoryQueue implements Transport<InMemoryMessage> {
 
@@ -55,6 +55,10 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async send<TCommand extends Command> (command: TCommand, messageOptions?: MessageAttributes): Promise<void> {
     this.addToQueue(command, messageOptions)
+  }
+
+  async fail (): Promise<void> {
+    // TODO
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {

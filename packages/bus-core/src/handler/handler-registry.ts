@@ -21,10 +21,12 @@ type MessageName = string
 export interface HandlerRegistry {
   /**
    * Registers that a function handles a particular message type
-   * @param messageName Name of the message to register, from the `$name` property of the message.
+   * @param resolver A method that determines which messages should be forwarded to the handler
    * @param symbol A unique symbol to identify the binding of the message to the function
    * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
+   * @param topicIdentifier Identifies the topic where the message is sourced from. This topic must exist
+   * before being consumed as the library assumes it's managed externally
    */
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,

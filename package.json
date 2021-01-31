@@ -16,9 +16,9 @@
     "docs:deploy": "./deploy-docs.sh",
     "lint": "lerna run lint",
     "test": "yarn test:unit && yarn test:integration",
-    "test:unit": "jest --collect-coverage \"(src\\/.+\\.|/)spec\\.ts$\"",
+    "test:unit": "dotenv -e test.env -- jest --collect-coverage \"(src\\/.+\\.|/)spec\\.ts$\"",
     "test:unit:watch": "yarn run test:unit --watch",
-    "test:integration": "jest --runInBand \"bus-(core|messages|workflow).*(src\\/.+\\.|/)integration\\.ts$\""
+    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core|messages|workflow).*(src\\/.+\\.|/)integration\\.ts$\""
   },
   "keywords": [
     "typescript",
@@ -49,13 +49,15 @@
   ],
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@types/jest": "^24.0.12",
-    "jest": "^24.7.1",
-    "lerna": "^3.11.0",
+    "@types/jest": "^26.0.4",
+    "dotenv-cli": "^3.2.0",
+    "inversify": "^5.0.1",
+    "jest": "^26.1.0",
+    "lerna": "^3.18.4",
     "reflect-metadata": "^0.1.13",
-    "ts-jest": "^24.0.2",
-    "tslib": "^1.9.3",
-    "typescript": "^3.3.3",
+    "ts-jest": "^26.1.1",
+    "tslib": "^2.0.0",
+    "typescript": "^3.9.6",
     "vuepress": "^1.1.0",
     "vuepress-plugin-sitemap": "^2.1.2"
   }
