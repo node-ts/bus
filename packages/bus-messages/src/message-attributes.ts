@@ -11,7 +11,10 @@ export type StickyAttributes<StickyAttributesType extends MessageAttributeMap> =
  * Options that control the behaviour around how the message is sent and
  * additional information that travels with it.
  */
-export type MessageAttributes<AttributesType extends MessageAttributeMap = MessageAttributeMap, StickyAttributesType extends MessageAttributeMap = MessageAttributeMap> = {
+export type MessageAttributes<
+  AttributesType extends MessageAttributeMap = MessageAttributeMap,
+  StickyAttributesType extends MessageAttributeMap = MessageAttributeMap
+> = {
   /**
    * An identifier that can be used to relate or group messages together.
    * This value is sticky, in that any messages that are sent as a result
