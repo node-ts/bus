@@ -1,4 +1,5 @@
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
+import { TransportMessage } from '../transport'
 
 export enum BusState {
   Stopped = 'stopped',
@@ -10,14 +11,18 @@ export enum BusState {
 export type HookAction = 'send' | 'publish' | 'error'
 
 export type StandardHookCallback = (
-  message: Message, messageAttributes?: MessageAttributes
+  message: Message,
+  messageAttributes?: MessageAttributes
 ) => Promise<void> | void
 
-export type ErrorHookCallback = (
-  message: Message, error: Error, messageAttributes?: MessageAttributes
+export type ErrorHookCallback<TransportMessageType> = (
+  message: Message,
+  error: Error,
+  messageAttributes?: MessageAttributes,
+  rawMessage?: TransportMessage<TransportMessageType>
 ) => Promise<void> | void
 
-export type HookCallback = StandardHookCallback | ErrorHookCallback
+export type HookCallback<TransportMessageType> = StandardHookCallback | ErrorHookCallback<TransportMessageType>
 
 
 export interface Bus {
@@ -60,12 +65,14 @@ export interface Bus {
   stop (): Promise<void>
 
   /**
-   * Registers a @param callback function that is invoked for every instance of @param action occuring
+   * Registers a @param callback function that is invoked for every instance of @param action occurring
+   * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
    */
-  on (action: HookAction, callback: HookCallback): void
+  on<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void
 
   /**
    * Deregisters a @param callback function from firing when an @param action occurs
+   * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
    */
-  off (action: HookAction, callback: HookCallback): void
+  off<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void
 }
