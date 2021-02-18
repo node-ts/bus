@@ -78,7 +78,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
   private async persist (data: TWorkflowData): Promise<void> {
     try {
       await this.persistence.saveWorkflowData(data)
-      this.logger.info('Saving workflow data', { data })
+      this.logger.trace('Saving workflow data', { data })
     } catch (err) {
       this.logger.error('Error persisting workflow data', { err })
       throw err
