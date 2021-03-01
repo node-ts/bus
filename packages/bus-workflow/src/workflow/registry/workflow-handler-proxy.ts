@@ -33,7 +33,7 @@ export abstract class WorkflowHandlerProxy<TMessage extends Message, TWorkflowDa
     this.logger.debug('Workflow data retrieved', { workflowData: workflowDataItems, message })
 
     if (!workflowDataItems.length) {
-      this.logger.info('No existing workflow data found for message. Ignoring.', { message })
+      this.logger.debug('No existing workflow data found for message. Ignoring.', { message })
       return
     }
 
