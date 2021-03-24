@@ -63,6 +63,18 @@ export interface SqsTransportConfiguration {
   queuePolicy: string
 
   /**
+   * The visibility timeout for the queue, in seconds. Valid values: An integer from 0 to 43,200 (12 hours)
+   * @default 30
+   */
+  visibilityTimeout?: number
+
+  /**
+   * The number of times a message is delivered to the source queue before being moved to the dead-letter queue
+   * @default 10
+   */
+  maxReceiveCount?: number
+
+  /**
    * A resolver function that maps a message name to an SNS topic.
    * @param messageName Name of the message to map
    * @returns An SNS topic name where messages of @param messageName are sent. Must be compatible with SNS topic naming

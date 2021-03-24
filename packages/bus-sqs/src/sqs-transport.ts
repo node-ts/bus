@@ -14,7 +14,8 @@ import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
 
-const MAX_RETRY_COUNT = 10
+const DEFAULT_VISIBILITY_TIMEOUT = 30
+const DEFAULT_MAX_RETRY_COUNT = 10
 const MILLISECONDS_IN_SECONDS = 1000
 type Seconds = number
 type Milliseconds = number
@@ -179,8 +180,9 @@ export class SqsTransport implements Transport<SQS.Message> {
     )
 
     const serviceQueueAttributes: QueueAttributeMap = {
+      VisibilityTimeout: `${this.sqsConfiguration.visibilityTimeout || DEFAULT_VISIBILITY_TIMEOUT}`,
       RedrivePolicy: JSON.stringify({
-        maxReceiveCount: MAX_RETRY_COUNT,
+        maxReceiveCount: this.sqsConfiguration.maxReceiveCount || DEFAULT_MAX_RETRY_COUNT,
         deadLetterTargetArn: this.sqsConfiguration.deadLetterQueueArn
       })
     }
