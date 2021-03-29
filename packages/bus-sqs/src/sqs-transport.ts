@@ -17,6 +17,7 @@ export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
 const DEFAULT_VISIBILITY_TIMEOUT = 30
 const DEFAULT_MAX_RETRY_COUNT = 10
 const MILLISECONDS_IN_SECONDS = 1000
+const DEFAULT_WAIT_TIME_SECONDS = 10
 type Seconds = number
 type Milliseconds = number
 
@@ -93,7 +94,7 @@ export class SqsTransport implements Transport<SQS.Message> {
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
       QueueUrl: this.sqsConfiguration.queueUrl,
-      WaitTimeSeconds: 10,
+      WaitTimeSeconds: this.sqsConfiguration.waitTimeSeconds || DEFAULT_WAIT_TIME_SECONDS,
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ['.*'],
       AttributeNames: ['ApproximateReceiveCount']
