@@ -75,6 +75,15 @@ export interface SqsTransportConfiguration {
   maxReceiveCount?: number
 
   /**
+   * The wait time on sqs.receiveMessage, setting it to 0 will essentially turn it to short polling.
+   *
+   * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptable action.
+   *
+   * @default 10
+   */
+  waitTimeSeconds?: number
+
+  /**
    * A resolver function that maps a message name to an SNS topic.
    * @param messageName Name of the message to map
    * @returns An SNS topic name where messages of @param messageName are sent. Must be compatible with SNS topic naming
