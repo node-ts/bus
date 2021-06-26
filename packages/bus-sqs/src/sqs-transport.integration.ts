@@ -13,7 +13,7 @@ import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { EventEmitter } from 'events'
 import { MessageAttributes, Message } from '@node-ts/bus-messages'
-import { testSystemMessageHandler, TestSystemMessageHandler } from '../test/test-system-message-handler'
+import { testSystemMessageHandler } from '../test/test-system-message-handler'
 import { TestSystemMessage } from '../test/test-system-message'
 
 function getEnvVar (key: string): string {
@@ -108,10 +108,13 @@ describe('SqsTransport', () => {
       await Bus.configure()
         // .withLogger(logger.object)
         .withTransport(sqsTransport)
-        .withHandler(TestCommand, ({ attributes: { attributes } }: HandlerContext<TestCommand>) => {
-          testCommandHandlerEmitter.emit('received')
-          handleChecker.object.check(attributes)
-        })
+        .withHandler(
+          TestCommand,
+          ({ attributes: { attributes } }: HandlerContext<TestCommand>) => {
+            testCommandHandlerEmitter.emit('received')
+            handleChecker.object.check(attributes)
+          }
+        )
         .withHandler(TestEvent, async () => {
           testEventHandlerEmitter.emit('received')
           throw new Error()
@@ -119,8 +122,10 @@ describe('SqsTransport', () => {
         .withHandler(
           TestSystemMessage,
           testSystemMessageHandler(handleChecker.object),
-          (m: TestSystemMessage) => m.name === TestSystemMessage.NAME
-          // `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+          {
+            resolveWith: (m: TestSystemMessage) => m.$name === TestSystemMessage.NAME
+            // `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+          }
         )
         .initialize()
       await Bus.start()

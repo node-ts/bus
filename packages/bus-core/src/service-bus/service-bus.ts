@@ -2,7 +2,7 @@ import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { sleep, getLogger} from '../util'
 import { Handler, handlerRegistry } from '../handler'
-import * as serializeError from 'serialize-error'
+import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from './message-handling-context'
 import * as asyncHooks from 'async_hooks'
@@ -86,7 +86,9 @@ export class ServiceBus {
   }
 
   async dispose (): Promise<void> {
-    await this.stop()
+    if (![BusState.Stopped, BusState.Stopped].includes(this.state)) {
+      await this.stop()
+    }
     if (this.transport.dispose) {
       await this.transport.dispose()
     }

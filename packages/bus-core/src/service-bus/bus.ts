@@ -49,18 +49,17 @@ class BusConfiguration {
    * Register a handler for a specific message type. When Bus is initialized it will configure
    * the transport to subscribe to this type of message and upon receipt will forward the message
    * through to the provided message handler
+   * @param messageType Which message will be subscribed to and routed to the handler
+   * @param messageHandler A callback that will be invoked when the message is received
+   * @param customResolver Subscribe to a topic that's created and maintained outside of the application
    */
   withHandler<MessageType extends Message> (
     messageType: ClassConstructor<MessageType>,
-    messageHandler: Handler<MessageType>
-  ): this
-
-
-  withHandler<MessageType extends Message> (
-    messageType: ClassConstructor<MessageType>,
     messageHandler: Handler<MessageType>,
-    resolveWith: ClassConstructor<Message | {}> | ((message: Message | {}) => boolean),
-    topicIdentifier?: string
+    customResolver?: {
+      resolveWith: ((message: Message) => boolean),
+      topicIdentifier?: string
+    }
   ): this
   {
     if (!!serviceBus) {
@@ -69,7 +68,9 @@ class BusConfiguration {
 
     handlerRegistry.register(
       messageType,
-      messageHandler
+      messageHandler,
+      customResolver?.resolveWith,
+      customResolver?.topicIdentifier
     )
     return this
   }
@@ -210,7 +211,10 @@ export class Bus {
    * Stops the Bus and releases any connections from the underlying queue transport
    */
   static async dispose (): Promise<void> {
-    return getServiceBus().dispose()
+    if (serviceBus) {
+      await getServiceBus().dispose()
+      serviceBus = undefined
+    }
   }
 
   /**

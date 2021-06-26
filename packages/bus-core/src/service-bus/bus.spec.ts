@@ -22,12 +22,38 @@ describe('Bus', () => {
       expect(() => config.withPersistence({} as Persistence)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withSerializer({} as Serializer)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withWorkflow({} as Workflow)).toThrowError(BusAlreadyInitialized)
+      await Bus.dispose()
     })
   })
 
-  describe('when configuring bus with an invalid concurrency setting', () => {
+  describe('when configuring bus concurrency', () => {
+    afterEach(async () => Bus.dispose())
+
+    it('should accept a concurrency of 1', () => {
+      Bus.configure().withConcurrency(1)
+    })
+
+    it('should accept a concurrency > 1', () => {
+      Bus.configure().withConcurrency(10)
+    })
+
     it('should throw an error when concurrency < 1', () => {
       expect(() => Bus.configure().withConcurrency(0)).toThrowError()
+    })
+  })
+
+  describe('when disposing the bus', () => {
+    describe('after its been initialized', () => {
+      it('should dispose', async () => {
+        await Bus.configure().initialize()
+        await Bus.dispose()
+      })
+    })
+
+    describe('when it hasn\'t been initialized', () => {
+      it('should ignore the request', async () => {
+        await expect(Bus.dispose()).resolves.toBeUndefined()
+      })
     })
   })
 })

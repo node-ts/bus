@@ -37,8 +37,8 @@
     ],
     "coveragePathIgnorePatterns": [
       ".js",
-      "\/error\/.*",
-      "\/test\/.*"
+      "/error/.*",
+      "/test/.*"
     ],
     "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "testEnvironment": "node",
@@ -49,16 +49,16 @@
   ],
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@types/jest": "^26.0.4",
-    "dotenv-cli": "^3.2.0",
-    "inversify": "^5.0.1",
-    "jest": "^26.1.0",
-    "lerna": "^3.18.4",
+    "@types/jest": "^26.0.23",
+    "dotenv-cli": "^4.0.0",
+    "inversify": "^5.1.1",
+    "jest": "^27.0.5",
+    "lerna": "^4.0.0",
     "reflect-metadata": "^0.1.13",
-    "ts-jest": "^26.1.1",
-    "tslib": "^2.0.0",
-    "typescript": "^3.9.6",
-    "vuepress": "^1.1.0",
-    "vuepress-plugin-sitemap": "^2.1.2"
+    "ts-jest": "^27.0.3",
+    "tslib": "^2.3.0",
+    "typescript": "^4.3.4",
+    "vuepress": "^1.8.2",
+    "vuepress-plugin-sitemap": "^2.3.1"
   }
 }
