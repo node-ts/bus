@@ -72,6 +72,8 @@ const sqsConfiguration: SqsTransportConfiguration = {
 `
 }
 
+jest.setTimeout(20000)
+
 describe('SqsTransport', () => {
   let sqs: SQS
   let sns: SNS
@@ -123,15 +125,20 @@ describe('SqsTransport', () => {
           TestSystemMessage,
           testSystemMessageHandler(handleChecker.object),
           {
-            resolveWith: (m: TestSystemMessage) => m.$name === TestSystemMessage.NAME
-            // `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+            resolveWith: (m: TestSystemMessage) => m.$name === TestSystemMessage.NAME,
+            topicIdentifier: `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
           }
+        )
+        .withHandler(
+          TestFailMessage,
+          async () => Bus.fail()
         )
         .initialize()
       await Bus.start()
     })
 
-    it('should subscribe the queue to manually provided topics', () => {
+    xit('should subscribe the queue to manually provided topics', () => {
+      // TODO
       // Expect sns to exist
       // Expect it's bound to the queue
     })
@@ -217,6 +224,7 @@ describe('SqsTransport', () => {
       let messageAttributes: MessageAttributes
       let message: TestFailMessage
       let receiveCount: number
+
       beforeAll(async () => {
         const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
         await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
