@@ -2,8 +2,11 @@ import { Persistence } from './persistence'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { ClassConstructor, getLogger } from '../../util'
+import { ClassConstructor } from '../../util'
 import { WorkflowStateNotInitialized } from './error'
+import { getLogger } from '../../logger'
+
+const logger = getLogger('@node-ts/bus-core:in-memory-persistence')
 
 interface WorkflowStorage {
   [workflowStateName: string]: WorkflowState[]
@@ -63,7 +66,7 @@ export class InMemoryPersistence implements Persistence {
           workflowState
         )
       } catch (err) {
-        getLogger().error('Unable to update data', { err })
+        logger.error('Unable to update data', { err })
         throw err
       }
     } else {
