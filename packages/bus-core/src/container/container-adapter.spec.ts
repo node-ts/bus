@@ -5,9 +5,9 @@ import { MessageLogger } from '../test/test-event-handler'
 import { TestEvent } from '../../../bus-sqs/test'
 import { ClassConstructor, sleep } from '../util'
 import { TestEvent2 } from '../test'
-import { HandlerContext } from 'bus-core/dist'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
-import { Message } from 'bus-messages/src/message'
+import { HandlerContext } from '../handler'
+import { Message } from '@node-ts/bus-messages'
 
 class UnregisteredClassHandler {
   async handle (_: HandlerContext<TestEvent2>): Promise<void> {
@@ -74,7 +74,6 @@ describe('ContainerAdapter', () => {
           expect(classHandlerNotResolved.reason).toEqual('Container failed to resolve an instance.')
         })
         await Bus.publish(new TestEvent2())
-        await sleep(0)
         await onError
       })
     })
@@ -97,7 +96,6 @@ describe('ContainerAdapter', () => {
           expect(containerNotRegistered.msg).toEqual(event)
         })
         await Bus.publish(event)
-        await sleep(0)
         await onError
       })
     })

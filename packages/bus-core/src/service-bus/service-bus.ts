@@ -10,6 +10,7 @@ import { BusHooks } from './bus-hooks'
 import { ClassHandlerNotResolved, ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
 import { getContainer } from '../container'
 import { getLogger } from '../logger'
+import { workflowRegistry } from '../workflow/registry/workflow-registry'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -101,6 +102,7 @@ export class ServiceBus {
     if (this.transport.dispose) {
       await this.transport.dispose()
     }
+    await workflowRegistry.dispose()
     handlerRegistry.reset()
   }
 

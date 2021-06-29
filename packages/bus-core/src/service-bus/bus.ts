@@ -3,7 +3,7 @@ import { handlerRegistry } from '../handler'
 import { Handler } from '../handler/handler'
 import { Serializer, setSerializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
-import { ClassConstructor, setLogger, Logger } from '../util'
+import { ClassConstructor } from '../util'
 import { ServiceBus } from './service-bus'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
@@ -11,6 +11,9 @@ import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
 import { HookAction, HookCallback } from './bus-hooks'
 import { setContainer } from '../container'
+import { getLogger } from '../logger'
+
+const logger = getLogger('@node-ts/bus-core:bus')
 
 let serviceBus: ServiceBus | undefined
 const getServiceBus = () => {
@@ -37,6 +40,7 @@ class BusConfiguration {
    * Initializes the bus with the provided configuration
    */
   async initialize (): Promise<void> {
+    logger.debug('Initializing bus')
     await workflowRegistry.initialize()
 
     const transport = this.configuredTransport || new MemoryQueue()
@@ -44,6 +48,8 @@ class BusConfiguration {
       await transport.initialize(handlerRegistry)
     }
     serviceBus = new ServiceBus(transport, this.concurrency)
+
+    logger.debug('bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
   }
 
   /**
@@ -58,7 +64,7 @@ class BusConfiguration {
     messageType: ClassConstructor<MessageType>,
     messageHandler: Handler<MessageType>,
     customResolver?: {
-      resolveWith: ((message: Message) => boolean),
+      resolveWith: ((message: MessageType) => boolean),
       topicIdentifier?: string
     }
   ): this
@@ -226,6 +232,7 @@ export class Bus {
       await getServiceBus().dispose()
       serviceBus = undefined
     }
+    setContainer(undefined)
   }
 
   /**

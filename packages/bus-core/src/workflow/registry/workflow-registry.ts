@@ -7,6 +7,7 @@ import { getPersistence } from '../persistence/persistence'
 import { ClassConstructor } from '../../util'
 import { handlerRegistry } from '../../handler/handler-registry'
 import { getLogger } from '../../logger'
+import { PersistenceNotConfigured } from '../persistence/error'
 
 const logger = getLogger('@node-ts/bus-core:workflow-registry')
 
@@ -151,8 +152,15 @@ class WorkflowRegistry {
   }
 
   async dispose (): Promise<void> {
-    if (getPersistence().dispose) {
-      await getPersistence().dispose!()
+    try {
+      if (getPersistence().dispose) {
+        await getPersistence().dispose!()
+      }
+    } catch (error) {
+      if (error instanceof PersistenceNotConfigured) {
+        return
+      }
+      throw error
     }
   }
 
