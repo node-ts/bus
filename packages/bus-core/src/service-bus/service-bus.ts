@@ -1,13 +1,14 @@
 import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep, getLogger} from '../util'
-import { Handler, handlerRegistry } from '../handler'
+import { sleep, getLogger, ClassConstructor} from '../util'
+import { ClassHandler, FunctionHandler, Handler, handlerRegistry } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from './message-handling-context'
 import * as asyncHooks from 'async_hooks'
 import { BusHooks } from './bus-hooks'
-import { FailMessageOutsideHandlingContext } from '../error'
+import { ClassHandlerNotResolved, ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
+import { getContainer } from '../container'
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 export class ServiceBus {
@@ -85,6 +86,10 @@ export class ServiceBus {
     getLogger().info('ServiceBus stopped')
   }
 
+  /**
+   * Stops and disposes all resources allocated to the bus, as well as removing
+   * all handler registrations.
+   */
   async dispose (): Promise<void> {
     if (![BusState.Stopped, BusState.Stopped].includes(this.state)) {
       await this.stop()
@@ -92,6 +97,7 @@ export class ServiceBus {
     if (this.transport.dispose) {
       await this.transport.dispose()
     }
+    handlerRegistry.reset()
   }
 
   get state (): BusState {
@@ -160,7 +166,7 @@ export class ServiceBus {
       return
     }
 
-    const handlersToInvoke = handlers.map(handler => dispatchMessageToHandler(
+    const handlersToInvoke = handlers.map(handler => this.dispatchMessageToHandler(
       message,
       context,
       handler
@@ -184,15 +190,39 @@ export class ServiceBus {
 
     return result
   }
-}
 
-async function dispatchMessageToHandler (
-  message: Message,
-  attributes: MessageAttributes,
-  handler: Handler<Message>
-): Promise<void> {
-  return handler({
-    message,
-    attributes
-  })
+  async dispatchMessageToHandler (
+    message: Message,
+    attributes: MessageAttributes,
+    handler: Handler<Message>
+  ): Promise<void> {
+    // A naive but best guess effort into if a handler is class based and should be resolved from a container
+    const isClassHandler = handler.prototype?.handle && handler.prototype?.constructor?.name
+    if (isClassHandler) {
+      const classHandler = handler as ClassConstructor<ClassHandler<Message>>
+
+      const container = getContainer()
+      if (!container) {
+        throw new ContainerNotRegistered(message, classHandler.constructor.name)
+      }
+      let handlerInstance: ClassHandler<Message> | undefined
+      try {
+        handlerInstance = container.get(classHandler)
+        if (!handlerInstance) {
+          throw new Error('Container failed to resolve an instance.')
+        }
+      } catch (e) {
+        throw new ClassHandlerNotResolved(e.message)
+      }
+
+      return handlerInstance.handle({ message, attributes })
+    } else {
+      const fnHandler = handler as FunctionHandler<Message>
+      return fnHandler({
+        message,
+        attributes
+      })
+    }
+  }
+
 }

@@ -10,6 +10,7 @@ import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
 import { HookAction, HookCallback } from './bus-hooks'
+import { setContainer } from '../container'
 
 let serviceBus: ServiceBus | undefined
 const getServiceBus = () => {
@@ -151,6 +152,16 @@ class BusConfiguration {
     }
 
     this.concurrency = concurrency
+    return this
+  }
+
+  /**
+   * Use a local dependency injection/IoC container to resolve handlers
+   * and workflows.
+   * @param container An adapter to an existing DI container to fetch class instances from
+   */
+  withContainer (container: { get <T>(type: ClassConstructor<T>): T }): this {
+    setContainer(container)
     return this
   }
 }

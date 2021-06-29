@@ -17,7 +17,6 @@ interface Logger {
   fatal (message: string, meta?: object): void
 }
 
-
 let configuredLogger: Logger | undefined
 const defaultLogger = new ConsoleLogger('bus')
 const getLogger = () => configuredLogger || defaultLogger
