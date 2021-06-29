@@ -11,7 +11,7 @@ import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
 import { HookAction, HookCallback } from './bus-hooks'
 import { setContainer } from '../container'
-import { getLogger } from '../logger'
+import { getLogger, LoggerFactory, setLogger } from '../logger'
 
 const logger = getLogger('@node-ts/bus-core:bus')
 
@@ -112,7 +112,7 @@ class BusConfiguration {
   /**
    * Configures Bus to use a different logging provider than the default console logger
    */
-  withLogger (loggerConfiguration: Logger): this {
+  withLogger (loggerConfiguration: LoggerFactory): this {
     if (!!serviceBus) {
       throw new BusAlreadyInitialized()
     }

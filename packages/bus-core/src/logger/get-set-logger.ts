@@ -10,7 +10,10 @@ const defaultLoggerFactory: LoggerFactory = (target: string) => new DebugLogger(
 /**
  * Create or get a logger for a specific target
  */
-export const getLogger = configuredLoggerFactory || defaultLoggerFactory
+export const getLogger = (target: string) => {
+  const logger = configuredLoggerFactory || defaultLoggerFactory
+  return logger(target)
+}
 
 /**
  * Set the logger factory that will be called when getting a logger
