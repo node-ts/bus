@@ -2,9 +2,11 @@ import { Transport } from './transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { handlerRegistry } from '../handler'
-import { getLogger } from '../util'
+import { getLogger } from '../logger'
 
 export const RETRY_LIMIT = 10
+
+const logger = getLogger('@node-ts/bus-core:memory-queue')
 
 export interface InMemoryMessage {
   /**
@@ -45,7 +47,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async dispose (): Promise<void> {
     if (this.queue.length > 0) {
-      getLogger().warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
+      logger.warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
     }
   }
 
@@ -62,11 +64,11 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
-    getLogger().debug('Reading next message', { queueSize: this.queue.length })
+    logger.debug('Reading next message', { queueSize: this.queue.length })
     const availableMessages = this.queue.filter(m => !m.raw.inFlight)
 
     if (availableMessages.length === 0) {
-      getLogger().debug('No messages available in queue')
+      logger.debug('No messages available in queue')
       return undefined
     }
 
@@ -77,9 +79,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async deleteMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
     const messageIndex = this.queue.indexOf(message)
-    getLogger().debug('Deleting message', { queueDepth: this.depth, messageIndex })
+    logger.debug('Deleting message', { queueDepth: this.depth, messageIndex })
     this.queue.splice(messageIndex, 1)
-    getLogger().debug('Message Deleted', { queueDepth: this.depth })
+    logger.debug('Message Deleted', { queueDepth: this.depth })
   }
 
   async returnMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
@@ -87,7 +89,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
     if (message.raw.seenCount >= RETRY_LIMIT) {
       // Message retries exhausted, send to DLQ
-      getLogger().info('Message retry limit exceeded, sending to dead letter queue', { message })
+      logger.info('Message retry limit exceeded, sending to dead letter queue', { message })
       await this.sendToDeadLetterQueue(message)
     } else {
       message.raw.inFlight = false
@@ -111,9 +113,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     if (this.messagesWithHandlers[message.$name]) {
       const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)
-      getLogger().debug('Added message to queue', { message, queueSize: this.queue.length })
+      logger.debug('Added message to queue', { message, queueSize: this.queue.length })
     } else {
-      getLogger().warn('Message was not sent as it has no registered handlers', { message })
+      logger.warn('Message was not sent as it has no registered handlers', { message })
     }
   }
 }

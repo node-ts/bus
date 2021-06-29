@@ -1,7 +1,10 @@
 import { Message } from '@node-ts/bus-messages'
-import { ClassConstructor, getLogger } from '../util'
+import { getLogger } from '../logger'
+import { ClassConstructor } from '../util'
 import { HandlerAlreadyRegistered } from './errors'
 import { Handler } from './handler'
+
+const logger = getLogger('@node-ts/bus-core:handler-registry')
 
 interface RegisteredHandlers {
   messageType: ClassConstructor<Message>
@@ -104,7 +107,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     }
 
     this.registry[messageName].handlers.push(handler)
-    getLogger().info('Handler registered', { messageType: messageName, handler: handler.name })
+    logger.info('Handler registered', { messageType: messageName, handler: handler.name })
   }
 
   get<MessageType extends Message> (messageName: string): Handler<MessageType>[] {
@@ -112,7 +115,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       // No handlers for the given message
       if (!this.unhandledMessages.some(m => m === messageName)) {
         this.unhandledMessages.push(messageName)
-        getLogger().error(
+        logger.error(
           `No handlers were registered for message`,
           {
             messageName,

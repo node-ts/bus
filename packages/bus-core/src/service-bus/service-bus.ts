@@ -1,6 +1,6 @@
 import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep, getLogger, ClassConstructor} from '../util'
+import { sleep, ClassConstructor} from '../util'
 import { ClassHandler, FunctionHandler, Handler, handlerRegistry } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
@@ -9,7 +9,11 @@ import * as asyncHooks from 'async_hooks'
 import { BusHooks } from './bus-hooks'
 import { ClassHandlerNotResolved, ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
 import { getContainer } from '../container'
+import { getLogger } from '../logger'
+
 const EMPTY_QUEUE_SLEEP_MS = 500
+
+const logger = getLogger('@node-ts/bus-core:service-bus')
 
 export class ServiceBus {
 
@@ -27,7 +31,7 @@ export class ServiceBus {
     event: TEvent,
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    getLogger().debug('publish', { event })
+    logger.debug('Publishing event', { event })
     const transportOptions = this.prepareTransportOptions(messageOptions)
     await Promise.all(this.busHooks.publish.map(callback => callback(event, transportOptions)))
     return this.transport.publish(event, transportOptions)
@@ -37,7 +41,7 @@ export class ServiceBus {
     command: TCommand,
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    getLogger().debug('send', { command })
+    logger.debug('Sending command', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
     await Promise.all(this.busHooks.send.map(callback => callback(command, transportOptions)))
     return this.transport.send(command, transportOptions)
@@ -49,7 +53,7 @@ export class ServiceBus {
       throw new FailMessageOutsideHandlingContext()
     }
     const message = context.message
-    getLogger().debug('failing message', { message })
+    logger.debug('failing message', { message })
     return this.transport.fail(message)
   }
 
@@ -59,7 +63,7 @@ export class ServiceBus {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
     this.internalState = BusState.Starting
-    getLogger().info('ServiceBus starting...')
+    logger.info('ServiceBus starting...')
     messageHandlingContext.enable()
 
     this.internalState = BusState.Started
@@ -67,7 +71,7 @@ export class ServiceBus {
       setTimeout(async () => this.applicationLoop(), 0)
     }
 
-    getLogger().info(`ServiceBus started with concurrency ${this.concurrency}`)
+    logger.info(`ServiceBus started with concurrency ${this.concurrency}`)
   }
 
   async stop (): Promise<void> {
@@ -76,14 +80,14 @@ export class ServiceBus {
       throw new Error('Bus must be started before it can be stopped')
     }
     this.internalState = BusState.Stopping
-    getLogger().info('ServiceBus stopping...')
+    logger.info('ServiceBus stopping...')
 
     while (this.runningWorkerCount > 0) {
       await sleep(100)
     }
 
     this.internalState = BusState.Stopped
-    getLogger().info('ServiceBus stopped')
+    logger.info('ServiceBus stopped')
   }
 
   /**
@@ -126,17 +130,17 @@ export class ServiceBus {
       const message = await this.transport.readNextMessage()
 
       if (message) {
-        getLogger().debug('Message read from transport', { message })
+        logger.debug('Message read from transport', { message })
 
         const asyncId = asyncHooks.executionAsyncId()
         try {
           messageHandlingContext.set(asyncId, message)
 
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
-          getLogger().debug('Message dispatched to all handlers', { message })
+          logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
-          getLogger().warn(
+          logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
@@ -154,7 +158,7 @@ export class ServiceBus {
         return true
       }
     } catch (error) {
-      getLogger().error('Failed to receive message from transport', { error: serializeError(error) })
+      logger.error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
   }
@@ -162,7 +166,7 @@ export class ServiceBus {
   private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
     const handlers = handlerRegistry.get(message.$name)
     if (handlers.length === 0) {
-      getLogger().error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
+      logger.error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
       return
     }
 

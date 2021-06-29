@@ -2137,6 +2137,11 @@
   resolved "https://registry.yarnpkg.com/@types/bluebird/-/bluebird-3.5.35.tgz#3964c48372bf62d60616d8673dd77a9719ebac9b"
   integrity sha512-2WeeXK7BuQo7yPI4WGOBum90SzF/f8rqlvpaXx4rjeTmNssGRDHWf7fgDUH90xMB3sUOu716fUK5d+OVx0+ncQ==
 
+"@types/debug@^4.1.5":
+  version "4.1.5"
+  resolved "https://registry.yarnpkg.com/@types/debug/-/debug-4.1.5.tgz#b14efa8852b7768d898906613c23f688713e02cd"
+  integrity sha512-Q1y515GcOdTHgagaVFhHnIFQ38ygs/kmxdNpvpou+raI9UO3YZcHDngBSYKQklcKlvA7iuQlmIKbzvmxcOE9CQ==
+
 "@types/faker@^4.1.5":
   version "4.1.12"
   resolved "https://registry.yarnpkg.com/@types/faker/-/faker-4.1.12.tgz#065d37343677df1aa757c622650bd14666c42602"
@@ -4755,7 +4760,7 @@ debug@2.6.9, debug@^2.2.0, debug@^2.3.3, debug@^2.6.9, debug@~2.6.9:
   dependencies:
     ms "2.0.0"
 
-debug@4, debug@^4.1.0, debug@^4.1.1:
+debug@4, debug@^4.1.0, debug@^4.1.1, debug@^4.3.1:
   version "4.3.1"
   resolved "https://registry.yarnpkg.com/debug/-/debug-4.3.1.tgz#f0d229c505e0c6d8c49ac553d1b13dc183f6b2ee"
   integrity sha512-doEwdvm4PCeK4K3RQN2ZC2BYUBaxwLARCqZmMjtF8a51J2Rb0xpVloFRnCODwqjpwnAoao4pelN8l3RJdv3gRQ==
@@ -6261,6 +6266,11 @@ has-flag@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/has-flag/-/has-flag-4.0.0.tgz#944771fd9c81c81265c4d6941860da06bb59479b"
   integrity sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==
+
+has-flag@^5.0.0:
+  version "5.0.0"
+  resolved "https://registry.yarnpkg.com/has-flag/-/has-flag-5.0.0.tgz#36e12f0b14052d6ffc8007c6f768a87623f6f692"
+  integrity sha512-dmhh9fPE7WRat4yiFvyhXh7LytudXDcE89VEdR3sxfWQKtFPr7jpXip5H402aeFfA36ucqSKecGEapc7N44k+g==
 
 has-symbols@^1.0.1, has-symbols@^1.0.2:
   version "1.0.2"
@@ -11817,6 +11827,13 @@ supports-color@^8.0.0:
   integrity sha512-MpUEN2OodtUzxvKQl72cUF7RQ5EiHsGvSsVG0ia9c5RbWGL2CI4C7EpPS8UTBIplnlzZiNuV56w+FuNxy3ty2Q==
   dependencies:
     has-flag "^4.0.0"
+
+supports-color@^9.0.1:
+  version "9.0.1"
+  resolved "https://registry.yarnpkg.com/supports-color/-/supports-color-9.0.1.tgz#bcc43ff901cb8088d680144ac0b6553d242abd26"
+  integrity sha512-e8HnXOAd61fVNyYRcKoqGNpnpceN/+IbDlWCBVjeqfASq/kbH4JwNj1Y4TFrve+w838Ff4eupPKXtY03zhCBKQ==
+  dependencies:
+    has-flag "^5.0.0"
 
 supports-hyperlinks@^2.0.0:
   version "2.2.0"

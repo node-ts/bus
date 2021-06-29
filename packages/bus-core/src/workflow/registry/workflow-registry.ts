@@ -4,8 +4,11 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import * as uuid from 'uuid'
 import { Workflow, WhenHandler, OnWhenHandler } from '../workflow'
 import { getPersistence } from '../persistence/persistence'
-import { ClassConstructor, getLogger } from '../../util'
+import { ClassConstructor } from '../../util'
 import { handlerRegistry } from '../../handler/handler-registry'
+import { getLogger } from '../../logger'
+
+const logger = getLogger('@node-ts/bus-core:workflow-registry')
 
 const createWorkflowState = <TWorkflowState extends WorkflowState> (workflowStateType: ClassConstructor<TWorkflowState>) => {
   const data = new workflowStateType()
@@ -30,12 +33,12 @@ const dispatchMessageToWorkflow = async (
   })
 
   if (workflowStateOutput && workflowStateOutput.$status === WorkflowStatus.Discard) {
-    getLogger().debug(
+    logger.debug(
       'Workflow step is discarding state changes. State changes will not be persisted',
       { workflowId: immutableWorkflowState.$workflowId, workflowName }
     )
   } else if (workflowStateOutput) {
-    getLogger().debug(
+    logger.debug(
       'Changes detected in workflow state and will be persisted.',
       {
         workflowId: immutableWorkflowState.$workflowId,
@@ -53,23 +56,23 @@ const dispatchMessageToWorkflow = async (
     try {
       await persist(updatedWorkflowState)
     } catch (error) {
-      getLogger().warn(
+      logger.warn(
         'Error persisting workflow state',
         { err: error, workflow: workflowName }
       )
       throw error
     }
   } else {
-    getLogger().trace('No changes detected in workflow state.', { workflowId: immutableWorkflowState.$workflowId })
+    logger.trace('No changes detected in workflow state.', { workflowId: immutableWorkflowState.$workflowId })
   }
 }
 
 const persist = async (data: WorkflowState) => {
   try {
     await getPersistence().saveWorkflowState(data)
-    getLogger().info('Saving workflow state', { data })
+    logger.info('Saving workflow state', { data })
   } catch (err) {
-    getLogger().error('Error persisting workflow state', { err })
+    logger.error('Error persisting workflow state', { err })
     throw err
   }
 }
@@ -112,7 +115,7 @@ class WorkflowRegistry {
    */
   async initialize (): Promise<void> {
     if (this.workflowRegistry.length === 0) {
-      getLogger().info('No workflows registered, skipping this step.')
+      logger.info('No workflows registered, skipping this step.')
       return
     }
 
@@ -121,7 +124,7 @@ class WorkflowRegistry {
     }
 
     this.isInitializing = true
-    getLogger().info('Initializing workflows...')
+    logger.info('Initializing workflows...')
 
     for (const workflow of this.workflowRegistry) {
 
@@ -133,7 +136,7 @@ class WorkflowRegistry {
         ([_, onWhenHandler]) => onWhenHandler.options
       )
       await getPersistence().initializeWorkflow(workflow.stateType, messageWorkflowMappings)
-      getLogger().debug('Workflow initialized', { workflowName: workflow.workflowName })
+      logger.debug('Workflow initialized', { workflowName: workflow.workflowName })
     }
 
     this.workflowRegistry = []
@@ -144,7 +147,7 @@ class WorkflowRegistry {
 
     this.isInitialized = true
     this.isInitializing = false
-    getLogger().info('Workflows initialized')
+    logger.info('Workflows initialized')
   }
 
   async dispose (): Promise<void> {
@@ -193,7 +196,7 @@ class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            getLogger().info('No existing workflow state found for message. Ignoring.', { message })
+            logger.info('No existing workflow state found for message. Ignoring.', { message })
             return
           }
 

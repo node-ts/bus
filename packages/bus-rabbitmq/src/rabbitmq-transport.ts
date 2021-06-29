@@ -20,6 +20,8 @@ export const DEFAULT_MAX_RETRIES = 10
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
 const deadLetterQueue = 'dead-letter'
 
+const logger = getLogger('@node-ts/bus-rabbitmq:rabbitmq-transport')
+
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
  */
@@ -37,11 +39,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async initialize (): Promise<void> {
-    getLogger().info('Initializing RabbitMQ transport')
+    logger.info('Initializing RabbitMQ transport')
     this.connection = await connect(this.configuration.connectionString)
     this.channel = await this.connection.createChannel()
     await this.bindExchangesToQueue()
-    getLogger().info('RabbitMQ transport initialized')
+    logger.info('RabbitMQ transport initialized')
   }
 
   async dispose (): Promise<void> {
@@ -65,7 +67,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       Buffer.from(serializedPayload),
       rawMessage.properties
     )
-    getLogger().debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue })
+    logger.debug('Message failed immediately to dead letter queue', { rawMessage, deadLetterQueue })
   }
 
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
@@ -95,7 +97,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    getLogger().debug(
+    logger.debug(
       'Deleting message',
       {
         rawMessage: {
@@ -112,17 +114,17 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const attempt = message.raw.fields.deliveryTag
     const meta = { attempt, message: msg, rawMessage: message.raw }
     if (attempt >= this.maxRetries) {
-      getLogger().debug('Message retries failed, sending to dead letter queue', meta)
+      logger.debug('Message retries failed, sending to dead letter queue', meta)
       this.channel.reject(message.raw, false)
     } else {
-      getLogger().debug('Returning message', meta)
+      logger.debug('Returning message', meta)
       this.channel.nack(message.raw)
     }
   }
 
   private async assertExchange (messageName: string): Promise<void> {
     if (!this.assertedExchanges[messageName]) {
-      getLogger().debug('Asserting exchange', { messageName })
+      logger.debug('Asserting exchange', { messageName })
       await this.channel.assertExchange(messageName, 'fanout', { durable: true })
       this.assertedExchanges[messageName] = true
     }
@@ -136,7 +138,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         const exchangeName = messageName
         await this.assertExchange(messageName)
 
-        getLogger().debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
+        logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
       })
 

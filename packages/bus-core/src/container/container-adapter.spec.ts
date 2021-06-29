@@ -90,7 +90,7 @@ describe('ContainerAdapter', () => {
     })
 
     describe('and a handler is registered', () => {
-      fit('should throw a ContainerNotRegistered error', async () => {
+      it('should throw a ContainerNotRegistered error', async () => {
         const onError = waitForError(error => {
           expect(error).toBeInstanceOf(ContainerNotRegistered)
           const containerNotRegistered = error as ContainerNotRegistered
