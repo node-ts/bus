@@ -72,6 +72,9 @@ const sqsConfiguration: SqsTransportConfiguration = {
 `
 }
 
+const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
+const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+
 jest.setTimeout(20000)
 
 describe('SqsTransport', () => {
@@ -126,7 +129,7 @@ describe('SqsTransport', () => {
           testSystemMessageHandler(handleChecker.object),
           {
             resolveWith: (m: TestSystemMessage) => m.$name === TestSystemMessage.NAME,
-            topicIdentifier: `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+            topicIdentifier: manualTopicIdentifier
           }
         )
         .withHandler(
@@ -137,10 +140,9 @@ describe('SqsTransport', () => {
       await Bus.start()
     })
 
-    xit('should subscribe the queue to manually provided topics', () => {
-      // TODO
-      // Expect sns to exist
-      // Expect it's bound to the queue
+    fit('should subscribe the queue to manually provided topics', async () => {
+      const subscriptions = await sns.listSubscriptions().promise()
+      expect(subscriptions.Subscriptions.find(s => s.TopicArn === manualTopicIdentifier)).toBeDefined()
     })
 
     it('should create the service queue', async () => {
@@ -211,10 +213,25 @@ describe('SqsTransport', () => {
     describe('when retrying a message', () => {
       it('should retry subsequent requests', async () => {
         await Bus.publish(new TestEvent())
-        let attempts = 3
-        while (attempts--  > 0) {
+        let attempts = 10
+        while (attempts-- > 0) {
           await new Promise<void>(resolve => testEventHandlerEmitter.on('received', resolve))
         }
+
+        // Delete the message out from the DLQ
+        const result = await sqs.receiveMessage({
+          QueueUrl: deadLetterQueueUrl,
+          WaitTimeSeconds: 5,
+          AttributeNames: ['All'],
+        }).promise()
+
+        const dlqMessage = result.Messages![0]
+        await sqs
+          .deleteMessage({
+            QueueUrl: deadLetterQueueUrl,
+            ReceiptHandle: dlqMessage.ReceiptHandle!
+          })
+          .promise()
       })
     })
 
@@ -222,30 +239,31 @@ describe('SqsTransport', () => {
       const messageToFail = new TestFailMessage(faker.random.uuid())
       const correlationId = faker.random.uuid()
       let messageAttributes: MessageAttributes
-      let message: TestFailMessage
+      let deadLetterMessage: TestFailMessage
       let receiveCount: number
 
       beforeAll(async () => {
-        const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
-        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
+        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl })
+
         await Bus.publish(messageToFail, { correlationId })
         const result = await sqs.receiveMessage({
           QueueUrl: deadLetterQueueUrl,
           WaitTimeSeconds: 5,
-          AttributeNames: ['All']
+          AttributeNames: ['All'],
         }).promise()
+
         if (result.Messages && result.Messages.length === 1) {
           const transportMessage = result.Messages[0]
           receiveCount = parseInt(transportMessage.Attributes!.ApproximateReceiveCount, 10)
           const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
-          message = JSON.parse(rawMessage.Message) as TestFailMessage
+          deadLetterMessage = JSON.parse(rawMessage.Message) as TestFailMessage
           messageAttributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
         }
       })
 
       it('should forward it to the dead letter queue', () => {
-        expect(message).toBeDefined()
-        expect(message).toMatchObject(messageToFail)
+        expect(deadLetterMessage).toBeDefined()
+        expect(deadLetterMessage).toMatchObject(messageToFail)
       })
 
       it('should only have received the message once', () => {

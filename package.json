@@ -25,6 +25,7 @@
     "enterprise service bus",
     "distributed system",
     "message bus",
+    "message queue",
     "node"
   ],
   "jest": {
@@ -32,13 +33,15 @@
     "setupFilesAfterEnv": [
       "<rootDir>/test/setup.ts"
     ],
+    "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "transform": {
       "^.+\\.tsx?$": [
         "esbuild-jest",
         {
           "sourcemap": true,
           "loaders": {
-            ".spec.ts": "tsx"
+            ".spec.ts": "tsx",
+            ".integration.ts": "tsx"
           }
         }
       ]
