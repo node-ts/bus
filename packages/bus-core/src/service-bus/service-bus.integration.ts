@@ -2,7 +2,6 @@ import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
 import { Bus, BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
-import { Logger } from '@node-ts/logger-core'
 import { Mock, IMock, Times } from 'typemoq'
 import { HandlerContext } from '../handler'
 import { TestCommand } from '../test/test-command'
@@ -21,7 +20,6 @@ describe('ServiceBus', () => {
 
     await Bus.configure()
       .withTransport(queue)
-      .withLogger(Mock.ofType<Logger>().object)
       .withHandler(TestEvent, handler)
       .initialize()
   })

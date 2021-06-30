@@ -24,7 +24,6 @@
   "devDependencies": {
     "@node-ts/bus-core": "^1.0.0-alpha.0",
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.17",
     "@types/amqplib": "^0.5.11",
     "@types/faker": "^4.1.5",
     "@types/uuid": "^3.4.4",

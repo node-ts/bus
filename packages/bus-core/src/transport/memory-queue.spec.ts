@@ -5,8 +5,7 @@ import { handlerRegistry } from '../handler'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { Mock } from 'typemoq'
-import { Logger, setLogger, sleep } from '../util'
-import { Bus } from '../../dist'
+import { Logger, setLogger } from '../logger'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -23,7 +22,7 @@ describe('MemoryQueue', () => {
   beforeEach(async () => {
     sut = new MemoryQueue()
 
-    setLogger(Mock.ofType<Logger>().object)
+    setLogger(() => Mock.ofType<Logger>().object)
     handlerRegistry.register(TestEvent, () => undefined)
     handlerRegistry.register(TestCommand, () => undefined)
     handlerRegistry.register(TestEvent2, () => undefined)

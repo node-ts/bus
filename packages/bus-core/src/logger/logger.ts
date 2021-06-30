@@ -1,10 +1,7 @@
 /**
- * This is the same logger definition as in @node-ts/logger-core. It's added
- * here for brevity so that @node-ts/logger-core doesn't need to be imported
- * whilst it still has the hard dependency on inversify.
- *
- * Because it's the same shape, duck typing should allow this to be used
- * interchangeably with other packages that consume @node-ts/logger-core
+ * A logging adapter that will be used through the bus library
+ * in cases where it should use a provided logger rather than
+ * the in-built one.
  */
 export interface Logger {
   debug (message: string, meta?: object): void

@@ -2,10 +2,8 @@
 import * as uuid from 'uuid'
 import { completeWorkflow, Workflow } from '../workflow'
 import { Bus } from '../../service-bus'
-import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
 import { InMemoryPersistence } from '../persistence'
-import { Logger } from '@node-ts/logger-core'
-import { Mock } from 'typemoq'
 import { WorkflowStatus } from '../workflow-state'
 import { WorkflowState } from '../workflow-state'
 import { sleep } from '../../util'
@@ -157,7 +155,6 @@ describe('Workflow', () => {
     const inMemoryPersistence = new InMemoryPersistence()
     await Bus
       .configure()
-      .withLogger(Mock.ofType<Logger>().object)
       .withPersistence(inMemoryPersistence)
       .withWorkflow(assignmentWorkflow)
       .initialize()

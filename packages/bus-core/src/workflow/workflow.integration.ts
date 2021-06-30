@@ -1,7 +1,6 @@
 import { InMemoryPersistence } from './persistence'
 import { TestCommand, TestWorkflowState, testWorkflow, TaskRan, FinalTask } from './test'
 import { WorkflowStatus } from './workflow-state'
-import { Logger } from '@node-ts/logger-core'
 import {
   testWorkflowStartedByCompletes,
   TestWorkflowStartedByCompletesData
@@ -27,7 +26,6 @@ describe('Workflow', () => {
 
     await Bus.configure()
       .withPersistence(inMemoryPersistence)
-      .withLogger(Mock.ofType<Logger>().object)
       .withWorkflow(testWorkflow)
       .withWorkflow(testWorkflowStartedByCompletes)
       .withWorkflow(testWorkflowStartedByDiscard)

@@ -4,7 +4,7 @@ import { ClassConstructor } from '../util'
 import { HandlerAlreadyRegistered } from './errors'
 import { Handler } from './handler'
 
-const logger = getLogger('@node-ts/bus-core:handler-registry')
+const logger = () => getLogger('@node-ts/bus-core:handler-registry')
 
 interface RegisteredHandlers {
   messageType: ClassConstructor<Message>
@@ -17,9 +17,9 @@ interface HandlerRegistrations {
 
 export interface HandlerResolver {
   handler: Handler
-  topicIdentifier: string | undefined
-  messageType: ClassConstructor<Message> | undefined
   resolver (message: unknown): boolean
+  messageType: ClassConstructor<Message> | undefined
+  topicIdentifier: string | undefined
 }
 
 type MessageName = string
@@ -41,15 +41,15 @@ export interface HandlerRegistry {
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
-    resolveWith?: (message: TMessage | {}) => boolean,
+    resolveWith?: (message: any) => boolean,
     topicIdentifier?: string
   ): void
 
   /**
    * Gets all registered message handlers for a given message name
-   * @param messageName Name of the message to get handlers for, found in the `$name` property of the message
+   * @param message A message that has been received from the bus
    */
-  get<MessageType extends Message> (messageName: string): Handler<MessageType>[]
+  get<MessageType extends Message> (message: object): Handler<MessageType>[]
 
   /**
    * Retrieves a list of all messages that have handler registrations
@@ -77,17 +77,20 @@ class DefaultHandlerRegistry implements HandlerRegistry {
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
-    resolveWith?: (message: TMessage | {}) => boolean,
+    resolveWith?: (message: TMessage | object) => boolean,
     topicIdentifier?: string
   ): void {
 
-    // TODO provide optional lookup on resolveWith for external messages
-    // this.handlerResolvers.push({
-    //   handler,
-    //   messageType,
-    //   resolver: resolveWith,
-    //   topicIdentifier
-    // })
+    // Provide an optional lookup on resolveWith for external messages
+    if (resolveWith) {
+      this.handlerResolvers.push({
+        handler,
+        messageType,
+        resolver: resolveWith,
+        topicIdentifier
+      })
+    }
+
 
     const messageName = new messageType().$name
 
@@ -107,15 +110,23 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     }
 
     this.registry[messageName].handlers.push(handler)
-    logger.info('Handler registered', { messageType: messageName, handler: handler.name })
+    logger().info('Handler registered', { messageType: messageName, handler: handler.name })
   }
 
-  get<MessageType extends Message> (messageName: string): Handler<MessageType>[] {
-    if (!(messageName in this.registry)) {
-      // No handlers for the given message
-      if (!this.unhandledMessages.some(m => m === messageName)) {
-        this.unhandledMessages.push(messageName)
-        logger.error(
+  get<MessageType extends Message> (message: object | Message): Handler<MessageType>[] {
+    const customHandlers = this.resolveCustomHandlers(message)
+
+    const messageName = '$name' in message
+      ? message.$name
+      : undefined
+
+    const noHandlersForMessage = !customHandlers.length && (!messageName || !(messageName in this.registry))
+    if (noHandlersForMessage) {
+
+      const warnNoHandlersForMessageType = messageName && !this.unhandledMessages.some(m => m === messageName)
+      if (warnNoHandlersForMessageType) {
+        this.unhandledMessages.push(messageName!)
+        logger().error(
           `No handlers were registered for message`,
           {
             messageName,
@@ -123,9 +134,18 @@ class DefaultHandlerRegistry implements HandlerRegistry {
             + ` or that the underlying transport is subscribed to messages that aren't handled and should be removed.`
           })
       }
+
       return []
     }
-    return this.registry[messageName].handlers
+
+    const messageHandlers = messageName && this.registry[messageName]
+      ? this.registry[messageName].handlers
+      : []
+
+    return [
+      ...messageHandlers,
+      ...customHandlers
+    ]
   }
 
   getMessageNames (): string[] {
@@ -141,6 +161,12 @@ class DefaultHandlerRegistry implements HandlerRegistry {
 
   reset (): void {
     this.registry = {}
+  }
+
+  private resolveCustomHandlers<MessageType extends Message> (message: object): Handler<MessageType>[] {
+    return this.handlerResolvers
+      .filter(handlerResolver => handlerResolver.resolver(message))
+      .map(handlerResolver => handlerResolver.handler)
   }
 }
 

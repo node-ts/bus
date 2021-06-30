@@ -1,9 +1,8 @@
 import { MemoryQueue } from '../transport'
-import { Bus, BusState } from './bus'
+import { Bus } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
-import { Logger } from '@node-ts/logger-core'
-import { Mock, IMock, Times } from 'typemoq'
+import { Mock, IMock } from 'typemoq'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -28,7 +27,6 @@ describe('ServiceBus - Concurrency', () => {
 
     await Bus.configure()
       .withTransport(queue)
-      .withLogger(Mock.ofType<Logger>().object)
       .withHandler(TestEvent, handler)
       .withConcurrency(CONCURRENCY)
       .initialize()

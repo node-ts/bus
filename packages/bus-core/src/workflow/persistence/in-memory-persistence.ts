@@ -74,7 +74,7 @@ export class InMemoryPersistence implements Persistence {
     }
   }
 
-   length (workflowStateConstructor: ClassConstructor<WorkflowState>): number {
-    return this.workflowState[workflowStateConstructor.name].length
+  length (workflowStateConstructor: ClassConstructor<WorkflowState>): number {
+    return this.workflowState[workflowStateConstructor.prototype.constructor.NAME].length
   }
 }

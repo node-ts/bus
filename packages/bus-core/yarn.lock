@@ -15,11 +15,6 @@
   resolved "https://registry.yarnpkg.com/@node-ts/code-standards/-/code-standards-0.0.10.tgz#0393a085f0ca0a6d7470d8f7e733b091b2671e0e"
   integrity sha512-6tWLW8r5HV8BGBwGZ6QBFKDpNrGJZfyCd8KkUk+BXAJX/NS/6qw8dxVwjk6atCbSgSxjpp37CjCH9uDRPdLnBA==
 
-"@node-ts/logger-core@^0.0.17":
-  version "0.0.17"
-  resolved "https://registry.yarnpkg.com/@node-ts/logger-core/-/logger-core-0.0.17.tgz#c03e713903054b51d47828c6dd2c402e0c48bbed"
-  integrity sha512-78T/IJ0dYvKox4sclGdkIsiLrMvJwvhLakWX1JGO6wKlLLS82fniLZ8oP959cIlcuK6xwBFV7vUTA4h4cf0hTg==
-
 "@types/faker@^4.1.5":
   version "4.1.5"
   resolved "https://registry.yarnpkg.com/@types/faker/-/faker-4.1.5.tgz#8f620f9c9a67150aa0a32b4e8a407da43fca61d4"

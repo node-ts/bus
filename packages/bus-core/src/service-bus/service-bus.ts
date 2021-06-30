@@ -166,7 +166,7 @@ export class ServiceBus {
   }
 
   private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
-    const handlers = handlerRegistry.get(message.$name)
+    const handlers = handlerRegistry.get(message)
     if (handlers.length === 0) {
       logger.error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
       return
