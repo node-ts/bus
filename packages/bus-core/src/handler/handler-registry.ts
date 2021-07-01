@@ -110,28 +110,28 @@ class DefaultHandlerRegistry implements HandlerRegistry {
         resolver: customResolver.resolveWith,
         topicIdentifier: customResolver.topicIdentifier
       })
-    }
+      logger().info('Handler registered', { messageType: messageType.prototype.constructor.name, handler: handler.name })
+    } else {
+      const messageName = new messageType().$name
 
-
-    const messageName = new messageType().$name
-
-    if (!this.registry[messageName]) {
-      // Register that the message will have subscriptions
-      this.registry[messageName] = {
-        messageType,
-        handlers: []
+      if (!this.registry[messageName]) {
+        // Register that the message will have subscriptions
+        this.registry[messageName] = {
+          messageType,
+          handlers: []
+        }
       }
+
+      const handlerNameAlreadyRegistered = this.registry[messageName].handlers
+        .some(registeredHandler => registeredHandler === handler)
+
+      if (handlerNameAlreadyRegistered) {
+        throw new HandlerAlreadyRegistered(handler.name)
+      }
+
+      this.registry[messageName].handlers.push(handler)
+      logger().info('Handler registered', { messageType: messageName, handler: handler.name })
     }
-
-    const handlerNameAlreadyRegistered = this.registry[messageName].handlers
-      .some(registeredHandler => registeredHandler === handler)
-
-    if (handlerNameAlreadyRegistered) {
-      throw new HandlerAlreadyRegistered(handler.name)
-    }
-
-    this.registry[messageName].handlers.push(handler)
-    logger().info('Handler registered', { messageType: messageName, handler: handler.name })
   }
 
   get<MessageType extends Message> (message: object | Message): Handler<MessageType>[] {

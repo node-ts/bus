@@ -271,7 +271,6 @@ export class SqsTransport implements Transport<SQS.Message> {
         ...externallyManagedTopicArns
       ]
         .map(async topicArn => {
-          logger().info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })
           await this.subscribeToTopic(queueArn, topicArn)
         })
     )

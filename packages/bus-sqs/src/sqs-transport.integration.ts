@@ -143,9 +143,17 @@ describe('SqsTransport', () => {
       await Bus.start()
     })
 
-    fit('should subscribe the queue to manually provided topics', async () => {
-      const subscriptions = await sns.listSubscriptions().promise()
-      expect(subscriptions.Subscriptions.map(s => s.TopicArn)).toContain(manualTopicIdentifier)
+    it('should subscribe the queue to manually provided topics', async () => {
+      const subscriptions: SNS.Subscription[] = []
+      let nextToken = undefined
+      do {
+        const subscriptionPage = await sns.listSubscriptions({ NextToken: nextToken }).promise()
+        subscriptions.push(...subscriptionPage.Subscriptions)
+        nextToken = subscriptionPage.NextToken
+      } while(nextToken)
+      expect(subscriptions.map(s => s.TopicArn)).toContain(manualTopicIdentifier)
+      const topicSubscriptions = subscriptions.filter(s => s.TopicArn === manualTopicIdentifier)
+      expect(topicSubscriptions).toHaveLength(1)
     })
 
     it('should create the service queue', async () => {
@@ -175,15 +183,25 @@ describe('SqsTransport', () => {
     describe('when a system message is received', () => {
 
       const message = new TestSystemMessage()
+      const attrValue = faker.random.uuid()
 
       beforeAll(async () => {
-        await Bus.publish(message, { attributes: { foo: 'bar' }})
+        await sns.publish({
+          Message: JSON.stringify(message),
+          TopicArn: manualTopicIdentifier,
+          MessageAttributes: {
+            'attributes.systemMessage': {
+              DataType: 'String',
+              StringValue: attrValue
+            }
+          }
+        }).promise()
       })
 
       it('should handle the system message', async () => {
-        await sleep(1000 * 8)
+        await sleep(1000)
         handleChecker.verify(
-          h => h.check(It.isObjectWith({ foo: 'bar'})),
+          h => h.check(It.isObjectWith({ systemMessage: attrValue })),
           Times.once()
         )
       })

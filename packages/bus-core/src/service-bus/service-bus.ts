@@ -139,7 +139,6 @@ export class ServiceBus {
           messageHandlingContext.set(asyncId, message)
 
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
-          logger.debug('Message dispatched to all handlers', { message })
           await this.transport.deleteMessage(message)
         } catch (error) {
           logger.warn(
@@ -179,6 +178,7 @@ export class ServiceBus {
     ))
 
     await Promise.all(handlersToInvoke)
+    logger.debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
   }
 
   private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
