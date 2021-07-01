@@ -129,8 +129,10 @@ describe('HandlerRegistry', () => {
       handlerRegistry.register(
         TestCommand,
         CustomHandler,
-        (message) => message.$name === TestCommand2.NAME,
-        'arn:aws:sns:us-east-1:000000000000:s3-object-created'
+        {
+          resolveWith: (message) => message.$name === TestCommand2.NAME,
+          topicIdentifier: 'arn:aws:sns:us-east-1:000000000000:s3-object-created'
+        }
       )
     })
 

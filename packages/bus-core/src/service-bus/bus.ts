@@ -76,8 +76,7 @@ class BusConfiguration {
     handlerRegistry.register(
       messageType,
       messageHandler,
-      customResolver?.resolveWith,
-      customResolver?.topicIdentifier
+      customResolver
     )
     return this
   }

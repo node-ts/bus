@@ -15,6 +15,24 @@ interface HandlerRegistrations {
   [key: string]: RegisteredHandlers
 }
 
+/**
+ * Provide a way for externally managed messages to be handled
+ * by the Bus
+ */
+export interface CustomResolver<MessageType> {
+  /**
+   * A resolver function that will be executed for each read message
+   * to determine if it's to be handled by the handler declaring this resolver
+   */
+  resolveWith: ((message: MessageType) => boolean),
+
+  /**
+   * If provided, will attempt to subscribe the queue to this topic.
+   * If not provided, assumes that the queue will be subscribed to the topic manually.
+   */
+  topicIdentifier?: string
+}
+
 export interface HandlerResolver {
   handler: Handler
   resolver (message: unknown): boolean
@@ -31,18 +49,16 @@ type MessageName = string
 export interface HandlerRegistry {
   /**
    * Registers that a function handles a particular message type
-   * @param resolver A method that determines which messages should be forwarded to the handler
-   * @param symbol A unique symbol to identify the binding of the message to the function
-   * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
-   * @param topicIdentifier Identifies the topic where the message is sourced from. This topic must exist
-   * before being consumed as the library assumes it's managed externally
+   * @param handler The function handler to dispatch messages to as they arrive
+   * @param customResolver An optional custom resolver that will be used instead
+   * of the default @node-ts/bus-messages/Message behaviour in terms of matching
+   * incoming messages to handlers.
    */
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
-    resolveWith?: (message: any) => boolean,
-    topicIdentifier?: string
+    customResolver?: CustomResolver<TMessage>
   ): void
 
   /**
@@ -63,6 +79,12 @@ export interface HandlerRegistry {
   getMessageConstructor<TMessage extends Message> (messageName: string): ClassConstructor<TMessage> | undefined
 
   /**
+   * Retrieves an array of all topic arns that are managed externally but require subscribing to as there are
+   * custom handlers that handle those messages.
+   */
+  getExternallyManagedTopicArns (): string[]
+
+  /**
    * Removes all handlers from the registry
    */
   reset (): void
@@ -77,17 +99,16 @@ class DefaultHandlerRegistry implements HandlerRegistry {
   register<TMessage extends Message> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
-    resolveWith?: (message: TMessage | object) => boolean,
-    topicIdentifier?: string
+    customResolver?: CustomResolver<TMessage>
   ): void {
 
     // Provide an optional lookup on resolveWith for external messages
-    if (resolveWith) {
+    if (customResolver) {
       this.handlerResolvers.push({
         handler,
         messageType,
-        resolver: resolveWith,
-        topicIdentifier
+        resolver: customResolver.resolveWith,
+        topicIdentifier: customResolver.topicIdentifier
       })
     }
 
@@ -159,10 +180,21 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     return this.registry[messageName].messageType as ClassConstructor<T>
   }
 
+  getExternallyManagedTopicArns (): string[] {
+    return this.handlerResolvers
+      .map(resolver => resolver.topicIdentifier)
+      .filter(topicArn => !!topicArn) as string[]
+  }
+
   reset (): void {
     this.registry = {}
   }
 
+  /**
+   * Returns a list of handlers that have been matched via custom resolvers for a message
+   * @param message A message that has been fetched from the bus. Note that this may or may not
+   * adhere to @node-ts/bus-messages/Message contracts, and could be any externally generated message.
+   */
   private resolveCustomHandlers<MessageType extends Message> (message: object): Handler<MessageType>[] {
     return this.handlerResolvers
       .filter(handlerResolver => handlerResolver.resolver(message))

@@ -24,7 +24,7 @@ function getEnvVar (key: string): string {
   return value
 }
 
-// Use a randomize number otherwise aws will disallow recreat just deleted queue
+// Use a randomize number otherwise aws will disallow recreate just deleted queue
 const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
@@ -50,6 +50,7 @@ const sqsConfiguration: SqsTransportConfiguration = {
 
   queuePolicy: `
   {
+
     "Version": "2012-10-17",
     "Statement": [
       {
@@ -73,7 +74,8 @@ const sqsConfiguration: SqsTransportConfiguration = {
 }
 
 const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
-const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${TestSystemMessage.NAME}`
+const manualTopicName = `${resourcePrefix}-test-system-message`
+const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${manualTopicName}`
 
 jest.setTimeout(20000)
 
@@ -82,11 +84,12 @@ describe('SqsTransport', () => {
   let sns: SNS
 
   let handleChecker = Mock.ofType<HandleChecker>()
-  const logger = Mock.ofType<Logger>()
 
   beforeAll(async () => {
     sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
     sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+
+    await sns.createTopic({ Name: manualTopicName }).promise()
   })
 
   afterAll(async () => {
@@ -142,7 +145,7 @@ describe('SqsTransport', () => {
 
     fit('should subscribe the queue to manually provided topics', async () => {
       const subscriptions = await sns.listSubscriptions().promise()
-      expect(subscriptions.Subscriptions.find(s => s.TopicArn === manualTopicIdentifier)).toBeDefined()
+      expect(subscriptions.Subscriptions.map(s => s.TopicArn)).toContain(manualTopicIdentifier)
     })
 
     it('should create the service queue', async () => {

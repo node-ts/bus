@@ -11,7 +11,7 @@ import {
 import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
-const logger = getLogger('@node-ts/bus-sqs:sqs-transport')
+const logger = () => getLogger('@node-ts/bus-sqs:sqs-transport')
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
@@ -100,7 +100,7 @@ export class SqsTransport implements Transport<SQS.Message> {
 
     // Only handle the expected number of messages, anything else just return and retry
     if (result.Messages.length > 1) {
-      logger.error(
+      logger().error(
         'Received more than the expected number of messages',
         { expected: 1, received: result.Messages.length }
       )
@@ -112,7 +112,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     }
 
     const sqsMessage = result.Messages[0]
-    logger.debug('Received message from SQS', { sqsMessage })
+    logger().debug('Received message from SQS', { sqsMessage })
 
     try {
       /*
@@ -123,13 +123,13 @@ export class SqsTransport implements Transport<SQS.Message> {
       const snsMessage = JSON.parse(sqsMessage.Body!) as SQSMessageBody
 
       if (!snsMessage.Message) {
-        logger.warn('Message is not formatted with an SNS envelope and will be discarded', { sqsMessage })
+        logger().warn('Message is not formatted with an SNS envelope and will be discarded', { sqsMessage })
         await this.deleteSqsMessage(sqsMessage)
         return undefined
       }
 
       const attributes = fromMessageAttributeMap(snsMessage.MessageAttributes)
-      logger.debug(
+      logger().debug(
         'Received message attributes',
         { transportAttributes: snsMessage.MessageAttributes, messageAttributes: attributes}
       )
@@ -143,7 +143,7 @@ export class SqsTransport implements Transport<SQS.Message> {
         attributes
       }
     } catch (error) {
-      logger.warn(
+      logger().warn(
         'Could not parse message. Message will be retried, though it\'s likely to end up in the dead letter queue',
         { sqsMessage, error }
       )
@@ -211,7 +211,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     queueName: string,
     queueAttributes?: QueueAttributeMap
   ): Promise<void> {
-    logger.info('Asserting sqs queue...', { queueName, queueAttributes })
+    logger().info('Asserting sqs queue...', { queueName, queueAttributes })
 
     const createQueueRequest: SQS.CreateQueueRequest = {
       QueueName: queueName,
@@ -223,9 +223,9 @@ export class SqsTransport implements Transport<SQS.Message> {
     } catch (err) {
       const error = err as { code: string }
       if (error.code === 'QueueAlreadyExists') {
-        logger.trace('Queue already exists', { queueName })
+        logger().trace('Queue already exists', { queueName })
       } else {
-        logger.error('SQS queue could not be created', { queueName, error })
+        logger().error('SQS queue could not be created', { queueName, error })
         throw err
       }
     }
@@ -239,10 +239,10 @@ export class SqsTransport implements Transport<SQS.Message> {
 
     const topicName = this.sqsConfiguration.resolveTopicName(message.$name)
     const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
-    logger.trace('Publishing message to sns', { message, topicArn })
+    logger().trace('Publishing message to sns', { message, topicArn })
 
     const attributeMap = toMessageAttributeMap(messageAttributes)
-    logger.debug('Resolved message attributes', { attributeMap })
+    logger().debug('Resolved message attributes', { attributeMap })
 
     const snsMessage: SNS.PublishInput = {
       TopicArn: topicArn,
@@ -250,32 +250,46 @@ export class SqsTransport implements Transport<SQS.Message> {
       Message: MessageSerializer.serialize(message),
       MessageAttributes: attributeMap
     }
-    logger.debug('Sending message to SNS', { snsMessage })
+    logger().debug('Sending message to SNS', { snsMessage })
     await this.sns.publish(snsMessage).promise()
   }
 
   private async subscribeQueueToMessages (): Promise<void> {
     const queueArn = this.sqsConfiguration.queueArn
-    const queueSubscriptionPromises = handlerRegistry.getMessageNames()
-      .map(async messageName => {
-        const topicName = this.sqsConfiguration.resolveTopicName(messageName)
-        await this.createSnsTopic(topicName)
 
-        const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
-        logger.info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })
-        await this.subscribeToTopic(queueArn, topicArn)
-      })
+    const busManagedTopicArns = await Promise.all(
+      handlerRegistry.getMessageNames()
+        .map(messageName => this.sqsConfiguration.resolveTopicName(messageName))
+        .map(topicName => this.createSnsTopic(topicName))
+    )
 
-    await Promise.all(queueSubscriptionPromises)
+    const externallyManagedTopicArns = handlerRegistry.getExternallyManagedTopicArns()
+
+    await Promise.all(
+      [
+        ...busManagedTopicArns,
+        ...externallyManagedTopicArns
+      ]
+        .map(async topicArn => {
+          logger().info('Subscribing sqs queue to sns topic', { topicArn, serviceQueueArn: queueArn })
+          await this.subscribeToTopic(queueArn, topicArn)
+        })
+    )
   }
 
-  private async createSnsTopic (topicName: string): Promise<void> {
-    logger.trace('Attempting to create SNS topic if it doesn\'t exist', { topicName })
+  /**
+   * Deterministically creates an SNS topic
+   * @param topicName Name of the topic to create
+   * @returns Target topic arn
+   */
+  private async createSnsTopic (topicName: string): Promise<string> {
+    logger().debug('Attempting to create SNS topic if it doesn\'t exist', { topicName })
     /*
       This action is idempotent, so if the topic exists then this will just return. This
       is preferable to checking `sns.listTopics` first as it can't be run in a transaction.
     */
-    await this.sns.createTopic({ Name: topicName }).promise()
+    const result = await this.sns.createTopic({ Name: topicName }).promise()
+    return result.TopicArn!
   }
 
   private async subscribeToTopic (queueArn: string, topicArn: string): Promise<void> {
@@ -284,7 +298,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       Protocol: 'sqs',
       Endpoint: queueArn
     }
-    logger.info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
+    logger().info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
     await this.sns.subscribe(subscribeRequest).promise()
   }
 
@@ -303,7 +317,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       QueueUrl: this.sqsConfiguration.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!
     }
-    logger.debug('Deleting message from sqs queue', { deleteMessageRequest })
+    logger().debug('Deleting message from sqs queue', { deleteMessageRequest })
     await this.sqs.deleteMessage(deleteMessageRequest).promise()
   }
 
@@ -316,7 +330,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       }
     }
 
-    logger.info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
+    logger().info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
     await this.sqs.setQueueAttributes(setQueuePolicyRequest).promise()
   }
 
