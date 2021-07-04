@@ -2,7 +2,7 @@ import { Message } from '@node-ts/bus-messages'
 import { getLogger } from '../logger'
 import { ClassConstructor } from '../util'
 import { HandlerAlreadyRegistered } from './errors'
-import { Handler } from './handler'
+import { ClassHandler, Handler, isClassHandler } from './handler'
 
 const logger = () => getLogger('@node-ts/bus-core:handler-registry')
 
@@ -83,6 +83,11 @@ export interface HandlerRegistry {
    * custom handlers that handle those messages.
    */
   getExternallyManagedTopicArns (): string[]
+
+  /**
+   * Gets a list of all class based handlers that have been registered
+   */
+  getClassHandlers (): ClassHandler[]
 
   /**
    * Removes all handlers from the registry
@@ -188,6 +193,22 @@ class DefaultHandlerRegistry implements HandlerRegistry {
 
   reset (): void {
     this.registry = {}
+  }
+
+  getClassHandlers (): ClassHandler[] {
+    const customHandlers = this.handlerResolvers
+      .map(handlerResolver => handlerResolver.handler)
+      .filter(isClassHandler) as unknown as ClassHandler[]
+
+    const regularHandlers = Object.values(this.registry)
+      .map(h => h.handlers)
+      .flat()
+      .filter(isClassHandler) as unknown as ClassHandler[]
+
+    return [
+      ...customHandlers,
+      ...regularHandlers
+    ]
   }
 
   /**

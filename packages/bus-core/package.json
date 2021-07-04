@@ -19,7 +19,8 @@
     "debug": "^4.3.1",
     "reflect-metadata": "^0.1.13",
     "serialize-error": "^8.1.0",
-    "tslib": "^1.11.1"
+    "tslib": "^1.11.1",
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
@@ -27,6 +28,7 @@
     "@types/faker": "^4.1.5",
     "@types/node": "^12.12.39",
     "@types/serialize-error": "^4.0.1",
+    "@types/uuid": "^8.3.1",
     "faker": "^4.1.0",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",

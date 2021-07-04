@@ -10,8 +10,9 @@ import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
 import { HookAction, HookCallback } from './bus-hooks'
-import { setContainer } from '../container'
+import { getContainer, setContainer } from '../container'
 import { getLogger, LoggerFactory, setLogger } from '../logger'
+import { ContainerNotRegistered } from '../error'
 
 const logger = getLogger('@node-ts/bus-core:bus')
 
@@ -42,6 +43,12 @@ class BusConfiguration {
   async initialize (): Promise<void> {
     logger.debug('Initializing bus')
     await workflowRegistry.initialize()
+
+    const container = getContainer()
+    const classHandlers = handlerRegistry.getClassHandlers()
+    if (!container && classHandlers.length) {
+      throw new ContainerNotRegistered(classHandlers[0].constructor.name)
+    }
 
     const transport = this.configuredTransport || new MemoryQueue()
     if (transport.initialize) {

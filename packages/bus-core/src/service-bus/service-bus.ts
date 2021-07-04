@@ -1,16 +1,17 @@
 import { Transport } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { sleep, ClassConstructor} from '../util'
-import { ClassHandler, FunctionHandler, Handler, handlerRegistry } from '../handler'
+import { ClassHandler, FunctionHandler, Handler, handlerRegistry, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from './message-handling-context'
 import * as asyncHooks from 'async_hooks'
 import { BusHooks } from './bus-hooks'
-import { ClassHandlerNotResolved, ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
+import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
 import { getContainer } from '../container'
 import { getLogger } from '../logger'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
+import { v4 as generateUuid } from 'uuid'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -32,7 +33,7 @@ export class ServiceBus {
     event: TEvent,
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    logger.debug('Publishing event', { event })
+    logger.debug('Publishing event', { event, messageOptions })
     const transportOptions = this.prepareTransportOptions(messageOptions)
     await Promise.all(this.busHooks.publish.map(callback => callback(event, transportOptions)))
     return this.transport.publish(event, transportOptions)
@@ -42,7 +43,7 @@ export class ServiceBus {
     command: TCommand,
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    logger.debug('Sending command', { command })
+    logger.debug('Sending command', { command, messageOptions })
     const transportOptions = this.prepareTransportOptions(messageOptions)
     await Promise.all(this.busHooks.send.map(callback => callback(command, transportOptions)))
     return this.transport.send(command, transportOptions)
@@ -184,9 +185,11 @@ export class ServiceBus {
   private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
     const handlingContext = messageHandlingContext.get()
 
-    const result: MessageAttributes = {
+    const messageAttributes: MessageAttributes = {
       // The optional operator? decided not to work here
-      correlationId: (handlingContext ? handlingContext.message.attributes.correlationId : undefined) || clientOptions.correlationId,
+      correlationId: clientOptions.correlationId
+        || (handlingContext ? handlingContext.message.attributes.correlationId : undefined)
+        || generateUuid(),
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
         ...(handlingContext ? handlingContext.message.attributes.stickyAttributes : {}),
@@ -194,7 +197,9 @@ export class ServiceBus {
       }
     }
 
-    return result
+    logger.debug('Prepared transport options', { messageAttributes })
+
+    return messageAttributes
   }
 
   async dispatchMessageToHandler (
@@ -202,15 +207,11 @@ export class ServiceBus {
     attributes: MessageAttributes,
     handler: Handler<Message>
   ): Promise<void> {
-    // A naive but best guess effort into if a handler is class based and should be resolved from a container
-    const isClassHandler = handler.prototype?.handle && handler.prototype?.constructor?.name
-    if (isClassHandler) {
+    if (isClassHandler(handler)) {
       const classHandler = handler as ClassConstructor<ClassHandler<Message>>
 
-      const container = getContainer()
-      if (!container) {
-        throw new ContainerNotRegistered(message, classHandler.constructor.name)
-      }
+      // We're sure this exists as initialization assertions make this check
+      const container = getContainer()!
       let handlerInstance: ClassHandler<Message> | undefined
       try {
         handlerInstance = container.get(classHandler)

@@ -1,8 +1,5 @@
-import { Message } from '@node-ts/bus-messages'
-
 export class ContainerNotRegistered extends Error {
   constructor (
-    readonly msg: Message,
     readonly classHandlerName: string
   ) {
     super(

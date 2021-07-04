@@ -15,3 +15,8 @@ export type FunctionHandler<TMessage extends Message> = (context: HandlerContext
 export type Handler<TMessage extends Message = Message> =
   FunctionHandler<TMessage>
   | ClassConstructor<ClassHandler<TMessage>>
+
+/**
+ * A naive but best guess effort into if a handler is class based and should be resolved from a container
+ */
+export const isClassHandler = (handler: Handler) => handler.prototype?.handle && handler.prototype?.constructor?.name
