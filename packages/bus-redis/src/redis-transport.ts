@@ -1,0 +1,132 @@
+import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
+import { Transport, TransportMessage, HandlerRegistry, BUS_SYMBOLS, MessageSerializer } from '@node-ts/bus-core'
+import { inject, injectable } from 'inversify'
+import { BUS_REDIS_INTERNAL_SYMBOLS, BUS_REDIS_SYMBOLS } from './bus-redis-symbols'
+import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import Redis from 'ioredis'
+import { RedisTransportConfiguration } from './redis-transport-configuration'
+
+import  { Job, Queue, Worker } from 'bullmq'
+import * as uuid from 'uuid'
+
+export const DEFAULT_MAX_RETRIES = 10
+
+export type Connection = Redis.Redis
+
+declare type Uuid = string;
+interface Payload {
+  message: string,
+  correlationId: Uuid | undefined
+  attributes: MessageAttributeMap
+  stickyAttributes: MessageAttributeMap
+}
+export type RedisMessage = Job<Payload>
+
+/**
+ * A Redis transport adapter for @node-ts/bus.
+ */
+@injectable()
+export class RedisMqTransport implements Transport<RedisMessage> {
+
+  private connection: Connection
+  private queue: Queue
+  private worker: Worker
+  private maxRetries: number
+  
+  constructor (
+    @inject(BUS_REDIS_INTERNAL_SYMBOLS.RedisFactory)
+      private readonly connectionFactory: () => Promise<Connection>,
+    @inject(BUS_REDIS_SYMBOLS.TransportConfiguration)
+      private readonly configuration: RedisTransportConfiguration,
+    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
+    @inject(BUS_SYMBOLS.HandlerRegistry)
+      private readonly handlerRegistry: HandlerRegistry,
+    @inject(BUS_SYMBOLS.MessageSerializer)
+      private readonly messageSerializer: MessageSerializer
+  ) {
+    this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
+  }
+
+  async initialize (): Promise<void> {
+    this.logger.info('Initializing Redis transport')
+    this.connection = await this.connectionFactory()
+    
+    this.queue = new Queue(this.configuration.queueName, {connection: this.connection, defaultJobOptions: {attempts: this.maxRetries}})
+    this.worker = new Worker(this.configuration.queueName)
+    this.logger.info('Redis transport initialized')
+  }
+
+  async dispose (): Promise<void> {
+    await this.worker.close()
+    await this.queue.close()
+  }
+
+  async publish<TEvent extends Event> (event: TEvent, messageAttributes?: MessageAttributes): Promise<void> {
+    await this.publishMessage(event, messageAttributes)
+  }
+
+  async send<TCommand extends Command> (command: TCommand, messageAttributes?: MessageAttributes): Promise<void> {
+    await this.publishMessage(command, messageAttributes)
+  }
+
+  async fail (transportMessage: TransportMessage<RedisMessage>): Promise<void> {
+    const rawMessage = transportMessage.raw
+    await rawMessage.moveToFailed(new Error('error'), transportMessage.id!)
+    this.logger.debug('Message failed immediately to dead letter queue', { rawMessage })
+  }
+
+  async readNextMessage (): Promise<TransportMessage<RedisMessage> | undefined> {
+    this.logger.debug('...Reading Message')
+    const token = uuid.v4()
+    const job = (await this.worker.getNextJob(token)) as RedisMessage
+    
+    
+    if (job === undefined || !job.data) {
+      return undefined
+    }
+    this.logger.debug('message read', {data: job.data})
+    const { message, ...attributes}: Payload = job.data
+    this.logger.debug('message', {message})
+    this.logger.debug('attributes', attributes)
+    const domainMessage = this.messageSerializer.deserialize(message)
+
+    return {
+      id: token,
+      domainMessage,
+      raw: job,
+      attributes
+    }
+  }
+
+  async deleteMessage (message: TransportMessage<RedisMessage>): Promise<void> {
+    this.logger.debug(
+      'Deleting message',
+      {
+        rawMessage: {
+          ...message.raw,
+          content: message.raw.data
+        }
+      }
+    )
+    await (message.raw as Job).moveToCompleted('success', message.id!)
+  }
+
+  async returnMessage (message: TransportMessage<RedisMessage>): Promise<void> {
+    // bullmq handles retries
+  }
+
+  private async publishMessage (
+    message: Message,
+    messageOptions: MessageAttributes = new MessageAttributes()
+  ): Promise<void> {
+    const payload: Payload = {
+      message: this.messageSerializer.serialize(message),
+      correlationId: messageOptions.correlationId,
+      attributes: messageOptions.attributes,
+      stickyAttributes: messageOptions.stickyAttributes
+    }
+    this.logger.debug('about to publish message')
+    await this.queue.add(message.$name, payload)
+    this.logger.debug('published message')
+  }
+}
