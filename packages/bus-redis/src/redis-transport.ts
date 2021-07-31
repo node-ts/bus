@@ -62,6 +62,7 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   async dispose (): Promise<void> {
     await this.worker.close()
     await this.queue.close()
+    this.connection.disconnect()
     this.logger.info('Redis transport disposed')
   }
 
