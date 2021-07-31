@@ -115,13 +115,13 @@ describe('RedisTransport', () => {
       await purgeQueue()
     })
 
-    it('it should fail after configuration.maxRetries attempts', () => {
+    it('it should attempt to process the message configuration.maxRetries times', () => {
       handleChecker.verify(
         h => h.check(It.is<TestPoisonedMessage>(m => m.id === poisonedMessage.id), It.isAny()),
         Times.exactly(configuration.maxRetries!)
       )
     })
-    it('it should have ended up as a failed job', () => {
+    it('it should have been moved to the failed queue', () => {
       expect(failedMessages).toHaveLength(1)
       console.error(failedMessages[0])
       const deserialisedMessage = JSON.parse(failedMessages[0].data.message)
@@ -151,7 +151,7 @@ describe('RedisTransport', () => {
       await purgeQueue()
     })
 
-    it('job should have been moved to failed', () => {
+    it('is should be moved to the failed queue', () => {
       expect(failedMessages).toHaveLength(1)
     })
     it('there should be no other messages in the other queues', () => {
@@ -161,7 +161,7 @@ describe('RedisTransport', () => {
       expect(waitingCount).toEqual(0)
     })
 
-    it('should retain the same message attributes', () => {
+    it('it should retain the same message attributes', () => {
       expect(failedMessages[0].data.correlationId).toEqual(correlationId)
     })
   })
