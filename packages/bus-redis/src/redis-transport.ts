@@ -104,6 +104,11 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RedisMessage>): Promise<void> {
+    if (await message.raw.isFailed()) {  
+      /* No need to delete its already been moved to the failed queue automatically,
+       * or via this.fail() */ 
+      return
+    }
     this.logger.debug(
       'Deleting message',
       {
@@ -117,7 +122,7 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   }
 
   async returnMessage (message: TransportMessage<RedisMessage>): Promise<void> {
-    const failedJobMessage = `Failed job: ${message.id}. Attempt: ${message.raw.attemptsMade}/${this.maxRetries}`
+    const failedJobMessage = `Failed job: ${message.id}. Attempt: ${message.raw.attemptsMade + 1}/${this.maxRetries}`
     this.logger.debug(failedJobMessage)
     /* Bullmq queues support automatic retry, we simply need to state that it needs to moveToFailed.
     It will check the amount of attempts promote it to the `wait` queue ready for reprocessing
