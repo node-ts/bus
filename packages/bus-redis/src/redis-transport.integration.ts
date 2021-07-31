@@ -6,7 +6,9 @@ import {
   TestPoisonedMessage,
   HANDLE_CHECKER,
   HandleChecker,
-  TestFailMessageHandler
+  TestFailMessageHandler,
+  TestCommand,
+  TestFailMessage
 } from '../test'
 import { BUS_REDIS_SYMBOLS } from './bus-redis-symbols'
 import { BUS_SYMBOLS, ApplicationBootstrap, Bus } from '@node-ts/bus-core'
@@ -15,8 +17,11 @@ import * as faker from 'faker'
 import { TestSystemMessageHandler } from '../test/test-system-message-handler'
 import { Mock, IMock, It, Times } from 'typemoq'
 import { Job } from 'bullmq'
+import * as uuid from 'uuid'
+import { MessageAttributes } from '@node-ts/bus-messages'
+import { TestSystemMessage } from '../test/test-system-message'
 
-jest.setTimeout(20000)
+jest.setTimeout(30000)
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -51,14 +56,15 @@ describe('RedisTransport', () => {
     container = new TestContainer()
     container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
     container.bind(BUS_REDIS_SYMBOLS.TransportConfiguration).toConstantValue(configuration)
+
     bus = container.get(BUS_SYMBOLS.Bus)
     sut = container.get(BUS_SYMBOLS.Transport)
     
-
     bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
+    bootstrap.registerHandler(TestPoisonedMessageHandler)
     bootstrap.registerHandler(TestCommandHandler)
     bootstrap.registerHandler(TestSystemMessageHandler)
-    bootstrap.registerHandler(TestPoisonedMessageHandler)
+    
     bootstrap.registerHandler(TestFailMessageHandler)
 
     await bootstrap.initialize(container)
@@ -67,42 +73,42 @@ describe('RedisTransport', () => {
   afterAll(async () => {
     await bootstrap.dispose()
   })
-  // describe('when sending a command', () => {
-  //   const testCommand = new TestCommand(uuid.v4(), new Date())
-  //   const messageOptions: MessageAttributes = {
-  //     correlationId: faker.random.uuid(),
-  //     attributes: {
-  //       attribute1: 'a',
-  //       attribute2: 1
-  //     },
-  //     stickyAttributes: {
-  //       attribute1: 'b',
-  //       attribute2: 2
-  //     }
-  //   }
+  describe('when sending a command', () => {
+    const testCommand = new TestCommand(uuid.v4(), new Date())
+    const messageOptions: MessageAttributes = {
+      correlationId: faker.random.uuid(),
+      attributes: {
+        attribute1: 'a',
+        attribute2: 1
+      },
+      stickyAttributes: {
+        attribute1: 'b',
+        attribute2: 2
+      }
+    }
 
-  //   beforeEach(async () => {
-  //     await bus.send(testCommand, messageOptions)
-  //   })
-  //   afterEach(async () => {
-  //     await purgeQueue()
-  //   })
+    beforeEach(async () => {
+      await bus.send(testCommand, messageOptions)
+    })
+    afterEach(async () => {
+      await purgeQueue()
+    })
 
-  //   it('should receive and dispatch to the handler', async () => {
-  //     await sleep(1000 * 8)
-  //     handleChecker.verify(
-  //       h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
-  //       Times.once()
-  //     )
-  //   })
-  // })
+    it('should receive and dispatch to the handler', async () => {
+      await sleep(1000 * 8)
+      handleChecker.verify(
+        h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
+        Times.once()
+      )
+    })
+  })
 
   describe('when retrying a poisoned message', () => {
     const poisonedMessage = new TestPoisonedMessage(faker.random.uuid())
     let failedMessages: Job<any,any,string>[]
     beforeAll(async () => {
       await bus.publish(poisonedMessage)
-      await sleep(8000)
+      await sleep(2000)
       failedMessages = await sut['queue'].getFailed()
     })
     afterAll(async () => {
@@ -117,62 +123,64 @@ describe('RedisTransport', () => {
     })
     it(`it should have ended up as a failed job`, () => {
       expect(failedMessages).toHaveLength(1)
-      expect(failedMessages[0].data.id).toEqual(poisonedMessage.id)
+      console.error(failedMessages[0])
+      const deserialisedMessage = JSON.parse(failedMessages[0].data.message)
+      expect(deserialisedMessage.id).toEqual(poisonedMessage.id)
     })
   })
 
-  // describe('when failing a message', () => {
-  //   const failMessage = new TestFailMessage(faker.random.uuid())
-  //   const correlationId = faker.random.uuid()
-  //   let failedMessages: Job<any,any,string>[]
-  //   let completedCount: number
-  //   let delayedCount: number
-  //   let activeCount: number
-  //   let waitingCount: number
+  describe('when failing a message', () => {
+    const failMessage = new TestFailMessage(faker.random.uuid())
+    const correlationId = faker.random.uuid()
+    let failedMessages: Job<any,any,string>[]
+    let completedCount: number
+    let delayedCount: number
+    let activeCount: number
+    let waitingCount: number
 
-  //   beforeAll(async () => {
-  //     await bus.publish(failMessage, new MessageAttributes({ correlationId }))
-  //     await sleep(2000)
-  //     failedMessages = await sut['queue'].getFailed()
-  //     completedCount = await sut['queue'].getCompletedCount()
-  //     delayedCount = await sut['queue'].getDelayedCount()
-  //     activeCount = await sut['queue'].getActiveCount()
-  //     waitingCount = await sut['queue'].getWaitingCount()
-  //   })
-  //   afterAll(async () => {
-  //     await purgeQueue()
-  //   })
+    beforeAll(async () => {
+      await bus.publish(failMessage, new MessageAttributes({ correlationId }))
+      await sleep(2000)
+      failedMessages = await sut['queue'].getFailed()
+      completedCount = await sut['queue'].getCompletedCount()
+      delayedCount = await sut['queue'].getDelayedCount()
+      activeCount = await sut['queue'].getActiveCount()
+      waitingCount = await sut['queue'].getWaitingCount()
+    })
+    afterAll(async () => {
+      await purgeQueue()
+    })
 
-  //   it('job should have been moved to failed', () => {
-  //     expect(failedMessages).toHaveLength(1)
-  //   })
-  //   it('there should be no other messages in the other queues', () => {
-  //     expect(completedCount).toEqual(0)
-  //     expect(delayedCount).toEqual(0)
-  //     expect(activeCount).toEqual(0)
-  //     expect(waitingCount).toEqual(0)
-  //   })
+    it('job should have been moved to failed', () => {
+      expect(failedMessages).toHaveLength(1)
+    })
+    it('there should be no other messages in the other queues', () => {
+      expect(completedCount).toEqual(0)
+      expect(delayedCount).toEqual(0)
+      expect(activeCount).toEqual(0)
+      expect(waitingCount).toEqual(0)
+    })
 
-  //   it('should retain the same message attributes', () => {
-  //     expect(failedMessages[0].data.correlationId).toEqual(correlationId)
-  //   })
-  // })
+    it('should retain the same message attributes', () => {
+      expect(failedMessages[0].data.correlationId).toEqual(correlationId)
+    })
+  })
 
-  // describe('when a system message is received', () => {
+  describe('when a system message is received', () => {
 
-  //   const message = new TestSystemMessage()
+    const message = new TestSystemMessage()
 
-  //   beforeAll(async () => {
-  //     await sut['queue'].add(message.name, message)
-  //   })
+    beforeAll(async () => {
+      await sut['queue'].add(message.name, {message: JSON.stringify(message)})
+    })
 
-  //   it('should handle the system message', async () => {
-  //     await sleep(1000 * 8)
-  //     handleChecker.verify(
-  //       h => h.check(It.isObjectWith({...message}), It.isAny()),
-  //       Times.once()
-  //     )
-  //   })
-  // })
+    it('should handle the system message', async () => {
+      await sleep(1000 * 8)
+      handleChecker.verify(
+        h => h.check(It.isObjectWith({...message}), It.isAny()),
+        Times.once()
+      )
+    })
+  })
 
 })

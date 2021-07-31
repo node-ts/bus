@@ -1,5 +1,5 @@
 import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, HandlerRegistry, BUS_SYMBOLS, MessageSerializer } from '@node-ts/bus-core'
+import { Transport, TransportMessage, BUS_SYMBOLS, MessageSerializer } from '@node-ts/bus-core'
 import { inject, injectable } from 'inversify'
 import { BUS_REDIS_INTERNAL_SYMBOLS, BUS_REDIS_SYMBOLS } from './bus-redis-symbols'
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
@@ -39,8 +39,6 @@ export class RedisMqTransport implements Transport<RedisMessage> {
     @inject(BUS_REDIS_SYMBOLS.TransportConfiguration)
       private readonly configuration: RedisTransportConfiguration,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SYMBOLS.HandlerRegistry)
-      private readonly handlerRegistry: HandlerRegistry,
     @inject(BUS_SYMBOLS.MessageSerializer)
       private readonly messageSerializer: MessageSerializer
   ) {
@@ -50,8 +48,13 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   async initialize (): Promise<void> {
     this.logger.info('Initializing Redis transport')
     this.connection = await this.connectionFactory()
+    this.queue = new Queue(this.configuration.queueName, {
+      connection: this.connection,
+      defaultJobOptions: {
+        attempts: this.maxRetries
+      }
+    })
     
-    this.queue = new Queue(this.configuration.queueName, {connection: this.connection, defaultJobOptions: {attempts: this.maxRetries}})
     this.worker = new Worker(this.configuration.queueName)
     this.logger.info('Redis transport initialized')
   }
@@ -59,6 +62,7 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   async dispose (): Promise<void> {
     await this.worker.close()
     await this.queue.close()
+    this.logger.info('Redis transport disposed')
   }
 
   async publish<TEvent extends Event> (event: TEvent, messageAttributes?: MessageAttributes): Promise<void> {
@@ -69,25 +73,26 @@ export class RedisMqTransport implements Transport<RedisMessage> {
     await this.publishMessage(command, messageAttributes)
   }
 
-  async fail (transportMessage: TransportMessage<RedisMessage>): Promise<void> {
-    const rawMessage = transportMessage.raw
-    await rawMessage.moveToFailed(new Error('error'), transportMessage.id!)
-    this.logger.debug('Message failed immediately to dead letter queue', { rawMessage })
+  async fail (message: TransportMessage<RedisMessage>): Promise<void> {
+    // Override any configured retries
+    message.raw.discard()
+    // Move to failed - with no retries
+    await message
+      .raw
+      .moveToFailed(new Error(`Message: ${message.id} failed immediately when placed on the bus, moving straight to the failed queue`), message.id!)
   }
 
   async readNextMessage (): Promise<TransportMessage<RedisMessage> | undefined> {
-    this.logger.debug('...Reading Message')
+    // Guide on how to manually handle jobs: https://docs.bullmq.io/patterns/manually-fetching-jobs
     const token = uuid.v4()
     const job = (await this.worker.getNextJob(token)) as RedisMessage
-    
     
     if (job === undefined || !job.data) {
       return undefined
     }
-    this.logger.debug('message read', {data: job.data})
+
+    this.logger.debug('Received message from Redis', {redisMessage: job.data})
     const { message, ...attributes}: Payload = job.data
-    this.logger.debug('message', {message})
-    this.logger.debug('attributes', attributes)
     const domainMessage = this.messageSerializer.deserialize(message)
 
     return {
@@ -108,11 +113,16 @@ export class RedisMqTransport implements Transport<RedisMessage> {
         }
       }
     )
-    await (message.raw as Job).moveToCompleted('success', message.id!)
+    await (message.raw as Job).moveToCompleted(undefined, message.id!)
   }
 
   async returnMessage (message: TransportMessage<RedisMessage>): Promise<void> {
-    // bullmq handles retries
+    const failedJobMessage = `Failed job: ${message.id}. Attempt: ${message.raw.attemptsMade}/${this.maxRetries}`
+    this.logger.debug(failedJobMessage)
+    /* Bullmq queues support automatic retry, we simply need to state that it needs to moveToFailed.
+    It will check the amount of attempts promote it to the `wait` queue ready for reprocessing
+    */
+    await message.raw.moveToFailed(new Error(failedJobMessage), message.id!)
   }
 
   private async publishMessage (
@@ -125,8 +135,7 @@ export class RedisMqTransport implements Transport<RedisMessage> {
       attributes: messageOptions.attributes,
       stickyAttributes: messageOptions.stickyAttributes
     }
-    this.logger.debug('about to publish message')
+    this.logger.debug('Sending message to Redis', {payload})
     await this.queue.add(message.$name, payload)
-    this.logger.debug('published message')
   }
 }
