@@ -94,7 +94,7 @@ describe('RedisTransport', () => {
       await purgeQueue()
     })
 
-    it('should receive and dispatch to the handler', async () => {
+    it('it should receive and dispatch to the handler', async () => {
       await sleep(1000 * 8)
       handleChecker.verify(
         h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
@@ -115,13 +115,13 @@ describe('RedisTransport', () => {
       await purgeQueue()
     })
 
-    it(`it should fail after configuration.maxRetries attempts`, () => {
+    it('it should fail after configuration.maxRetries attempts', () => {
       handleChecker.verify(
         h => h.check(It.is<TestPoisonedMessage>(m => m.id === poisonedMessage.id), It.isAny()),
         Times.exactly(configuration.maxRetries!)
       )
     })
-    it(`it should have ended up as a failed job`, () => {
+    it('it should have ended up as a failed job', () => {
       expect(failedMessages).toHaveLength(1)
       console.error(failedMessages[0])
       const deserialisedMessage = JSON.parse(failedMessages[0].data.message)
@@ -174,7 +174,7 @@ describe('RedisTransport', () => {
       await sut['queue'].add(message.name, {message: JSON.stringify(message)})
     })
 
-    it('should handle the system message', async () => {
+    it('it should handle the system message', async () => {
       await sleep(1000 * 8)
       handleChecker.verify(
         h => h.check(It.isObjectWith({...message}), It.isAny()),
