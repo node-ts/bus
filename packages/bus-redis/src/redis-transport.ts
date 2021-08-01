@@ -32,6 +32,7 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   private queue: Queue
   private worker: Worker
   private maxRetries: number
+  private storeCompletedMessages: boolean
   
   constructor (
     @inject(BUS_REDIS_INTERNAL_SYMBOLS.RedisFactory)
@@ -42,7 +43,8 @@ export class RedisMqTransport implements Transport<RedisMessage> {
     @inject(BUS_SYMBOLS.MessageSerializer)
       private readonly messageSerializer: MessageSerializer
   ) {
-    this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
+    this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
+    this.storeCompletedMessages = configuration.storeCompletedMessages ?? false
   }
 
   async initialize (): Promise<void> {
@@ -119,7 +121,10 @@ export class RedisMqTransport implements Transport<RedisMessage> {
         }
       }
     )
-    await (message.raw as Job).moveToCompleted(undefined, message.id!)
+    await message.raw.moveToCompleted(undefined, message.id!)
+    if (!this.storeCompletedMessages) {
+      await message.raw.remove()
+    }
   }
 
   async returnMessage (message: TransportMessage<RedisMessage>): Promise<void> {

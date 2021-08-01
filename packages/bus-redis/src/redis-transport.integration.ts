@@ -31,7 +31,8 @@ export async function sleep (timeoutMs: number): Promise<void> {
 const configuration: RedisTransportConfiguration = {
   queueName: 'node-ts/bus-redis-test',
   connectionString: 'redis://127.0.0.1:6379',
-  maxRetries: 3
+  maxRetries: 3,
+  storeCompletedMessages: true
 }
 
 describe('RedisTransport', () => {
@@ -73,7 +74,11 @@ describe('RedisTransport', () => {
   afterAll(async () => {
     await bootstrap.dispose()
   })
-  describe('when sending a command', () => {
+  const testCases: [string, boolean][] = [
+    ['when sending a command with storeCompletedMessages enabled', true],
+    ['when sending a command with storeCompletedMessages disabled', false]
+  ]
+  describe.each(testCases)('%s', (_, storeCompletedMessages: boolean) => {
     const testCommand = new TestCommand(uuid.v4(), new Date())
     const messageOptions: MessageAttributes = {
       correlationId: faker.random.uuid(),
@@ -87,11 +92,15 @@ describe('RedisTransport', () => {
       }
     }
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+      // Avoiding tearing down the container, favouring just changing the setting for the tests
+      sut['storeCompletedMessages'] = storeCompletedMessages
       await bus.send(testCommand, messageOptions)
     })
-    afterEach(async () => {
+    afterAll(async () => {
       await purgeQueue()
+      // Restoring the setting afterwards
+      sut['storeCompletedMessages'] = configuration.storeCompletedMessages as boolean
     })
 
     it('it should receive and dispatch to the handler', async () => {
@@ -100,6 +109,17 @@ describe('RedisTransport', () => {
         h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
         Times.once()
       )
+    })
+    it('it should receive and dispatch to the handler', async () => {
+      await sleep(1000 * 8)
+      handleChecker.verify(
+        h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
+        Times.once()
+      )
+    })
+    it(`it should${storeCompletedMessages ? '' :' not'} move the completed message to the completed queue`, async () => {
+      const completedCount = await sut['queue'].getCompletedCount()
+      expect(completedCount).toEqual(storeCompletedMessages ? 1 : 0)
     })
   })
 
@@ -121,6 +141,7 @@ describe('RedisTransport', () => {
         Times.exactly(configuration.maxRetries!)
       )
     })
+
     it('it should have been moved to the failed queue', () => {
       expect(failedMessages).toHaveLength(1)
       console.error(failedMessages[0])
@@ -167,12 +188,11 @@ describe('RedisTransport', () => {
   })
 
   describe('when a system message is received', () => {
-
     const message = new TestSystemMessage()
-
     beforeAll(async () => {
       await sut['queue'].add(message.name, {message: JSON.stringify(message)})
     })
+
     afterAll(async () => {
       await purgeQueue()
     })
