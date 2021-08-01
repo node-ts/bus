@@ -165,7 +165,7 @@ describe('RedisTransport', () => {
       await purgeQueue()
     })
 
-    it('is should be moved to the failed queue', () => {
+    it('it should be moved to the failed queue', () => {
       expect(failedMessages).toHaveLength(1)
     })
     it('there should be no other messages in the other queues', () => {
