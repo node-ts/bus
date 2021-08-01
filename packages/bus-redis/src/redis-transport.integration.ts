@@ -104,14 +104,7 @@ describe('RedisTransport', () => {
     })
 
     it('it should receive and dispatch to the handler', async () => {
-      await sleep(1000 * 8)
-      handleChecker.verify(
-        h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
-        Times.once()
-      )
-    })
-    it('it should receive and dispatch to the handler', async () => {
-      await sleep(1000 * 8)
+      await sleep(2000)
       handleChecker.verify(
         h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
         Times.once()
@@ -198,7 +191,7 @@ describe('RedisTransport', () => {
     })
 
     it('it should handle the system message', async () => {
-      await sleep(1000 * 8)
+      await sleep(2000)
       handleChecker.verify(
         h => h.check(It.isObjectWith({...message}), It.isAny()),
         Times.once()
