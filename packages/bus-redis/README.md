@@ -49,3 +49,50 @@ Local development can be done with the aid of docker to run the required infrast
 ```bash
 docker run --name redis -e ALLOW_EMPTY_PASSWORD=yes -p 6379:6379 bitnami/redis
 ```
+
+### Viewing Queues
+To view the queues and replay messages that end are sent to the failed queue, You can make use of [this](https://gitlab.com/ersutton/docker-arena).
+
+For local development, a simple configuration file like this:
+
+```json
+// arena.json
+{
+  "queues": [
+    {
+      "name": "node-ts/bus-redis-test",
+      "hostId": "Integration test queue",
+      "type": "bullmq",
+      "redis": {
+          "port": 6379,
+          "host": "redis"
+      }
+    }
+  ]
+}
+```
+
+Accompanied with a `docker-compose.yml` to assist with networking:
+
+```yml
+# docker-compose.yml
+version: '3'
+
+services:
+  redis:
+    image: bitnami/redis
+    container_name: redis
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - "6379:6379"
+  arena:
+    image: registry.gitlab.com/ersutton/docker-arena:latest
+    container_name: arena
+    links:
+      - redis
+    ports:
+      - "4567:4567"
+    volumes:
+      - "./arena.json:/opt/arena/index.json"
+```
