@@ -29,7 +29,8 @@ container.load(new BusRedisModule())
 const redisConfiguration: RedisTransportConfiguration = {
   queueName: 'accounts-application-queue',
   connectionString: 'redis://127.0.0.1:6379',
-  maxRetries: 3
+  maxRetries: 3,
+
 }
 container.bind(BUS_REDIS_SYMBOLS.TransportConfiguration).toConstantValue(redisConfiguration)
 ```
@@ -38,10 +39,10 @@ container.bind(BUS_REDIS_SYMBOLS.TransportConfiguration).toConstantValue(redisCo
 
 The Redis transport has the following configuration:
 
-*  **queueName** *(required)* The name of the service queue to create and read messages from.
-*  **connectionString** *(required)* A redis formatted connection string that's used to connect to the Redis instance
+* **queueName** *(required)* The name of the service queue to create and read messages from.
+* **connectionString** *(required)* A redis formatted connection string that's used to connect to the Redis instance
 * **maxRetries** *(optional)* The number of attempts to retry failed messages before they're routed to the dead letter queue. *Default: 10*
-
+* **storeCompletedMessages** *(optional)* Whether to move successful messages to the completed queue. *Default: false*
 ## Development
 
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
