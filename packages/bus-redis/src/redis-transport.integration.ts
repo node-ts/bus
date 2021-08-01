@@ -173,6 +173,9 @@ describe('RedisTransport', () => {
     beforeAll(async () => {
       await sut['queue'].add(message.name, {message: JSON.stringify(message)})
     })
+    afterAll(async () => {
+      await purgeQueue()
+    })
 
     it('it should handle the system message', async () => {
       await sleep(1000 * 8)
