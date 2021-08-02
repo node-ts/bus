@@ -1,4 +1,5 @@
 export * from './service-bus/bus'
+export * from './service-bus/bus-hooks'
 export { Transport, TransportMessage } from './transport'
 export * from './handler'
 export * from './serialization'

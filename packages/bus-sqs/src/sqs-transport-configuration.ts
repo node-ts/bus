@@ -1,43 +1,38 @@
 export interface SqsTransportConfiguration {
   /**
-   * The name of the queue that receives incomming messages
+   * The AWS Account Id of the account where queues and topics will be created
+   */
+  awsAccountId: string
+
+  /**
+   * The AWS region to create queues and topics in
+   */
+  awsRegion: string
+
+  /**
+   * The name of the queue that receives incoming messages
    * @example production-application-server
    */
   queueName: string
 
   /**
-   * The URL of the Amazon SQS queue from which messages are received.
-   * Queue URLs and names are case-sensitive
-   * @example https://sqs.us-west-2.amazonaws.com/12345678/production-application-server
-   */
-  queueUrl: string
-
-  /**
-   * The ARN of the service queue where messages are received
-   * @example arn:aws:sqs:us-west-2:12345678:production-application-server
-   */
-  queueArn: string
-
-  /**
-   * Name of the dead letter queue to fail messages to
+   * An optional name of the dead letter queue to fail messages to
+   * @default dead-letter-queue
    * @example production-dead-letter-queue
    */
-  deadLetterQueueName: string
+  deadLetterQueueName?: string
 
   /**
-   * Url of the dead letter queue to fail messages to
-   * @example https://sqs.us-west-2.amazonaws.com/12345678/production-dead-letter-queue
+   * The number of seconds to retain messages in the service and dead letter queues
+   * @default 1209600 (14 days)
    */
-  deadLetterQueueUrl: string
+  messageRetentionPeriod?: number
 
   /**
-   * ARN of the dead letter queue. This queue will be created if it doesn't already exist
-   * @example arn:aws:sqs:us-west-2:12345678:production-dead-letter-queue
-   */
-  deadLetterQueueArn: string
-
-  /**
-   * An SQS policy template that grants access to subscribed SNS topics to send messages to the SQS queue.
+   * An optional custom queue policy to apply to any created SQS queues.
+   * By default a generic policy will be added that grants send permissions to SNS
+   * topics within the same AWS account. This can be further restricted or relaxed by
+   * providing a custom policy.
    * @example
    * {
    *   "Version": "2012-10-17",
@@ -60,23 +55,5 @@ export interface SqsTransportConfiguration {
    *   ]
    * }
    */
-  queuePolicy: string
-
-  /**
-   * A resolver function that maps a message name to an SNS topic.
-   * @param messageName Name of the message to map
-   * @returns An SNS topic name where messages of @param messageName are sent. Must be compatible with SNS topic naming
-   * @example
-   *  resolveTopicName (messageName: string) => `production-${messageName}`
-   */
-  resolveTopicName (messageName: string): string
-
-  /**
-   * A resolver function that maps an SNS topic name to an SNS topic arn
-   * @param topicName Name of the message to map
-   * @returns An SNS topic url where messages are sent
-   * @example
-   *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
-   */
-  resolveTopicArn (topicName: string): string
+  queuePolicy?: string
 }

@@ -5,16 +5,17 @@ import {
   TestEvent,
   TestFailMessage
 } from '../test'
-import { Bus, HandlerContext, Logger, sleep } from '@node-ts/bus-core'
+import { Bus, HandlerContext, sleep } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
 import { EventEmitter } from 'events'
-import { MessageAttributes, Message } from '@node-ts/bus-messages'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { testSystemMessageHandler } from '../test/test-system-message-handler'
 import { TestSystemMessage } from '../test/test-system-message'
+import { resolveQueueUrl, resolveTopicArn, resolveTopicName } from './queue-resolvers'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -25,7 +26,8 @@ function getEnvVar (key: string): string {
 }
 
 // Use a randomize number otherwise aws will disallow recreate just deleted queue
-const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
+// const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
+const resourcePrefix = `integration-bus-sqs-1`
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
@@ -34,46 +36,13 @@ const testCommandHandlerEmitter = new EventEmitter()
 const testEventHandlerEmitter = new EventEmitter()
 
 const sqsConfiguration: SqsTransportConfiguration = {
+  awsRegion: AWS_REGION,
+  awsAccountId: AWS_ACCOUNT_ID,
   queueName: `${resourcePrefix}-test`,
-  queueUrl: `http://localhost:4566/queue/${resourcePrefix}-test`,
-  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
-
   deadLetterQueueName: `${resourcePrefix}-dead-letter`,
-  deadLetterQueueUrl: `http://localhost:4566/queue/${resourcePrefix}-dead-letter`,
-  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
-
-  resolveTopicName: (messageName: string) =>
-    `${resourcePrefix}-${normalizeMessageName(messageName)}`,
-
-  resolveTopicArn: (topicName: string) =>
-    `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`,
-
-  queuePolicy: `
-  {
-
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Principal": "*",
-        "Effect": "Allow",
-        "Action": [
-          "sqs:SendMessage"
-        ],
-        "Resource": [
-          "arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
-        ],
-        "Condition": {
-          "ArnLike": {
-            "aws:SourceArn": "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
-          }
-        }
-      }
-    ]
-  }
-`
 }
 
-const deadLetterQueueUrl = `http://localhost:4566/queue/${sqsConfiguration.deadLetterQueueName}`
+const deadLetterQueueUrl = `https://sqs.us-west-2.amazonaws.com/878533832201/${sqsConfiguration.deadLetterQueueName}`
 const manualTopicName = `${resourcePrefix}-test-system-message`
 const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${manualTopicName}`
 
@@ -86,8 +55,10 @@ describe('SqsTransport', () => {
   let handleChecker = Mock.ofType<HandleChecker>()
 
   beforeAll(async () => {
-    sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
-    sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+    // sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+    // sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+    sqs = new SQS()
+    sns = new SNS()
 
     await sns.createTopic({ Name: manualTopicName }).promise()
   })
@@ -97,7 +68,7 @@ describe('SqsTransport', () => {
     jest.setTimeout(15000)
     await Bus.dispose()
     await sqs.purgeQueue({
-      QueueUrl: sqsConfiguration.queueUrl
+      QueueUrl: resolveQueueUrl(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, normalizeMessageName(sqsConfiguration.queueName))
     }).promise()
     // await sqs.deleteQueue({
     //   QueueUrl: sqsConfiguration.queueUrl
@@ -174,7 +145,7 @@ describe('SqsTransport', () => {
 
     it('should subscribe the queue to all message topics', async () => {
       const result = await sns.getTopicAttributes({
-        TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
+        TopicArn: resolveTopicArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, resolveTopicName(TestCommand.NAME))
       }).promise()
 
       expect(result.Attributes).toBeDefined()

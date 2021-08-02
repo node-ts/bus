@@ -92,7 +92,7 @@ class BusConfiguration {
    * Register a workflow definition so that all of the messages it depends on will be subscribed to
    * and forwarded to the handlers inside the workflow
    */
-  withWorkflow<TWorkflowState extends WorkflowState> (workflow: Workflow<TWorkflowState>): this {
+  withWorkflow<TWorkflowState extends WorkflowState> (workflow: ClassConstructor<Workflow<TWorkflowState>>): this {
     if (!!serviceBus) {
       throw new BusAlreadyInitialized()
     }

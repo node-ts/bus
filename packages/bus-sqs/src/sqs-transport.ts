@@ -10,11 +10,14 @@ import {
 } from '@node-ts/bus-core'
 import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
+import { generatePolicy } from './generate-policy'
+import { normalizeMessageName, resolveDeadLetterQueueName, resolveQueueArn, resolveQueueUrl, resolveTopicArn, resolveTopicName } from './queue-resolvers'
 
 const logger = () => getLogger('@node-ts/bus-sqs:sqs-transport')
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
+const DEFAULT_MESSAGE_RETENTION: Seconds = 1209600
 
 const MAX_RETRY_COUNT = 10
 const MILLISECONDS_IN_SECONDS = 1000
@@ -40,9 +43,6 @@ export interface SQSMessageBody {
   MessageAttributes: SqsMessageAttributes
 }
 
-/**
- * An AWS SQS Transport adapter for @node-ts/bus
- */
 export class SqsTransport implements Transport<SQS.Message> {
 
   /**
@@ -51,11 +51,31 @@ export class SqsTransport implements Transport<SQS.Message> {
    */
   private registeredMessages: MessageRegistry = {}
 
+  private readonly queueUrl: string
+  private readonly queueArn: string
+  private readonly deadLetterQueueName: string
+  private readonly deadLetterQueueUrl: string
+  private readonly deadLetterQueueArn: string
+
+  /**
+   * An AWS SQS Transport adapter for @node-ts/bus
+   * @param sqsConfiguration Settings to use when resolving queues and topics
+   * @param sqs A preconfigured SQS service to use instead of the default
+   * @param sns A preconfigured SNS service to use instead of the default
+   */
   constructor (
     private readonly sqsConfiguration: SqsTransportConfiguration,
     private readonly sqs: SQS = new SQS(),
     private readonly sns: SNS = new SNS()
   ) {
+    this.queueUrl = resolveQueueUrl(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, sqsConfiguration.queueName)
+    this.queueArn = resolveQueueArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, sqsConfiguration.queueName)
+
+    this.deadLetterQueueName = sqsConfiguration.deadLetterQueueName
+      ? normalizeMessageName(sqsConfiguration.deadLetterQueueName)
+      : resolveDeadLetterQueueName()
+    this.deadLetterQueueUrl = resolveQueueUrl(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, this.deadLetterQueueName)
+    this.deadLetterQueueArn = resolveQueueArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, this.deadLetterQueueName)
   }
 
   async publish<EventType extends Event> (event: EventType, messageAttributes?: MessageAttributes): Promise<void> {
@@ -77,7 +97,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       need to happen.
     */
     await this.sqs.sendMessage({
-      QueueUrl: this.sqsConfiguration.deadLetterQueueUrl,
+      QueueUrl: this.deadLetterQueueUrl,
       MessageBody: transportMessage.raw.Body!,
       MessageAttributes: transportMessage.raw.MessageAttributes
     }).promise()
@@ -86,7 +106,7 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
-      QueueUrl: this.sqsConfiguration.queueUrl,
+      QueueUrl: this.queueUrl,
       WaitTimeSeconds: 10,
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ['.*'],
@@ -167,16 +187,17 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async assertServiceQueue (): Promise<void> {
     await this.assertSqsQueue(
-      this.sqsConfiguration.deadLetterQueueName,
+      this.deadLetterQueueName,
       {
-        MessageRetentionPeriod: '1209600' // 14 Days
+        MessageRetentionPeriod: (this.sqsConfiguration.messageRetentionPeriod || DEFAULT_MESSAGE_RETENTION).toString()
       }
     )
 
     const serviceQueueAttributes: QueueAttributeMap = {
+      MessageRetentionPeriod: (this.sqsConfiguration.messageRetentionPeriod || DEFAULT_MESSAGE_RETENTION).toString(),
       RedrivePolicy: JSON.stringify({
         maxReceiveCount: MAX_RETRY_COUNT,
-        deadLetterTargetArn: this.sqsConfiguration.deadLetterQueueArn
+        deadLetterTargetArn: this.deadLetterQueueArn
       })
     }
 
@@ -186,8 +207,8 @@ export class SqsTransport implements Transport<SQS.Message> {
     )
 
     await this.subscribeQueueToMessages()
-    await this.attachPolicyToQueue(this.sqsConfiguration.queueUrl)
-    await this.syncQueueAttributes(this.sqsConfiguration.queueUrl, serviceQueueAttributes)
+    await this.attachPolicyToQueue(this.queueUrl, this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion)
+    await this.syncQueueAttributes(this.queueUrl, serviceQueueAttributes)
   }
 
   /**
@@ -197,8 +218,8 @@ export class SqsTransport implements Transport<SQS.Message> {
   private async assertSnsTopic (message: Message): Promise<void> {
     const messageName = message.$name
     if (!this.registeredMessages[messageName]) {
-      const snsTopicName = this.sqsConfiguration.resolveTopicName(messageName)
-      const snsTopicArn = this.sqsConfiguration.resolveTopicArn(messageName)
+      const snsTopicName = resolveTopicName(messageName)
+      const snsTopicArn = resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, messageName)
       await this.createSnsTopic(snsTopicName)
       this.registeredMessages[messageName] = snsTopicArn
     }
@@ -237,8 +258,8 @@ export class SqsTransport implements Transport<SQS.Message> {
   ): Promise<void> {
     await this.assertSnsTopic(message)
 
-    const topicName = this.sqsConfiguration.resolveTopicName(message.$name)
-    const topicArn = this.sqsConfiguration.resolveTopicArn(topicName)
+    const topicName = resolveTopicName(message.$name)
+    const topicArn = resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, topicName)
     logger().trace('Publishing message to sns', { message, topicArn })
 
     const attributeMap = toMessageAttributeMap(messageAttributes)
@@ -255,11 +276,9 @@ export class SqsTransport implements Transport<SQS.Message> {
   }
 
   private async subscribeQueueToMessages (): Promise<void> {
-    const queueArn = this.sqsConfiguration.queueArn
-
     const busManagedTopicArns = await Promise.all(
       handlerRegistry.getMessageNames()
-        .map(messageName => this.sqsConfiguration.resolveTopicName(messageName))
+        .map(messageName => resolveTopicName(messageName))
         .map(topicName => this.createSnsTopic(topicName))
     )
 
@@ -271,7 +290,7 @@ export class SqsTransport implements Transport<SQS.Message> {
         ...externallyManagedTopicArns
       ]
         .map(async topicArn => {
-          await this.subscribeToTopic(queueArn, topicArn)
+          await this.subscribeToTopic(this.queueArn, topicArn)
         })
     )
   }
@@ -303,7 +322,7 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async makeMessageVisible (sqsMessage: SQS.Message): Promise<void> {
     const changeVisibilityRequest: SQS.ChangeMessageVisibilityRequest = {
-      QueueUrl: this.sqsConfiguration.queueUrl,
+      QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!,
       VisibilityTimeout: calculateVisibilityTimeout(sqsMessage)
     }
@@ -313,15 +332,15 @@ export class SqsTransport implements Transport<SQS.Message> {
 
   private async deleteSqsMessage (sqsMessage: SQS.Message): Promise<void> {
     const deleteMessageRequest: SQS.DeleteMessageRequest = {
-      QueueUrl: this.sqsConfiguration.queueUrl,
+      QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!
     }
     logger().debug('Deleting message from sqs queue', { deleteMessageRequest })
     await this.sqs.deleteMessage(deleteMessageRequest).promise()
   }
 
-  private async attachPolicyToQueue (queueUrl: string): Promise<void> {
-    const policy = this.sqsConfiguration.queuePolicy
+  private async attachPolicyToQueue (queueUrl: string, awsAccountId: string, awsRegion: string): Promise<void> {
+    const policy = this.sqsConfiguration.queuePolicy || generatePolicy(awsAccountId, awsRegion)
     const setQueuePolicyRequest: SQS.SetQueueAttributesRequest = {
       QueueUrl: queueUrl,
       Attributes: {

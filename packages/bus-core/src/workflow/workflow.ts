@@ -1,100 +1,88 @@
+import { Message } from '@node-ts/bus-messages'
+import { HandlerContext } from 'src/handler'
 import { ClassConstructor } from '../util'
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowState, WorkflowStatus } from './workflow-state'
 import { WorkflowAlreadyHandlesMessage, WorkflowAlreadyStartedByMessage } from './error'
-import { HandlerContext } from '../handler'
+import { MessageWorkflowMapping } from './message-workflow-mapping'
+import { WorkflowState } from './workflow-state'
 
-export type HandlerReturnType<State> = Promise<Partial<State>>
-  | Partial<State>
-  | Promise<void>
-  | void
+export type WorkflowHandler<TMessage extends Message, WorkflowStateType extends WorkflowState> =
+  (context?: HandlerContext<TMessage>, workflowState?: WorkflowStateType) => void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
 
-export type WorkflowConstructor<
-  TWorkflowState extends WorkflowState,
-  TWorkflow extends Workflow<TWorkflowState> = Workflow<TWorkflowState>
-> = ClassConstructor<TWorkflow>
+export type WhenHandler<WorkflowStateType extends WorkflowState, WorkflowType extends Workflow<WorkflowStateType>> =
+  (workflow: WorkflowType) => WorkflowHandler<Message, WorkflowStateType>
 
+export type OnWhenHandler<WorkflowStateType extends WorkflowState = WorkflowState, WorkflowType extends Workflow<WorkflowStateType> = Workflow<WorkflowStateType>> = {
+  workflowCtor: ClassConstructor<Workflow<WorkflowState>>
+  workflowHandler: WhenHandler<WorkflowStateType, WorkflowType>
+  customLookup: MessageWorkflowMapping | undefined
+}
 
 /**
- * A handler that accepts a message as part of a running workflow
+ * A workflow configuration that describes how to map incoming messages to handlers within the workflow.
  */
-export type WhenHandler<MessageType extends Message, State extends WorkflowState> = (
-  parameters: {
-    message: MessageType,
-    attributes: MessageAttributes,
-    state: Readonly<State>
-  }
-) => HandlerReturnType<State>
+export class WorkflowMapper<WorkflowStateType extends WorkflowState, WorkflowType extends Workflow<WorkflowStateType> = Workflow<WorkflowStateType>> {
 
-interface WhenOptions<MessageType extends Message, State extends WorkflowState> {
-  mapsTo: keyof State & string
-  // tslint:disable-next-line:prefer-method-signature Avoid unbound this
-  lookup: (context: HandlerContext<MessageType>) => string | undefined
-}
-
-export const completeWorkflow = <State>(state?: Partial<State>): Partial<State> => {
-  return {
-    ...state,
-    $status: WorkflowStatus.Complete
-  } as {} as Partial<State> // TODO naughty
-}
-
-export interface OnWhenHandler {
-  handler: WhenHandler<Message, WorkflowState>
-  options: WhenOptions<Message, WorkflowState>
-}
-
-export class Workflow <State extends WorkflowState = WorkflowState> {
-
-  readonly state: State & WorkflowState
   readonly onStartedBy = new Map<
     ClassConstructor<Message>,
-    WhenHandler<Message, State & WorkflowState>
+    {
+      workflowCtor: ClassConstructor<Workflow<WorkflowState>>
+      workflowHandler: WhenHandler<WorkflowStateType, WorkflowType>
+    }
   >()
-  readonly onWhen = new Map<ClassConstructor<Message>, OnWhenHandler>()
+  readonly onWhen = new Map<
+    ClassConstructor<Message>,
+    OnWhenHandler<WorkflowStateType, WorkflowType>
+  >()
+  private workflowStateType: ClassConstructor<WorkflowStateType> | undefined
 
-  private constructor (
-    readonly workflowName: string,
-    readonly stateType: ClassConstructor<State>
+  constructor (
+    private readonly workflow: ClassConstructor<Workflow<WorkflowState>>
   ) {
   }
 
-  static configure<TWorkflowState extends WorkflowState> (name: string, workflowStateType: ClassConstructor<TWorkflowState>) {
-    return new Workflow<TWorkflowState>(name, workflowStateType)
+  get workflowStateCtor (): ClassConstructor<WorkflowStateType> | undefined {
+    return this.workflowStateType
   }
 
-  /**
-   * Declare which message will start a new instance of the workflow running.
-   * @param message The message type that will start a new workflow instance
-   * @param handler A message handler that will be passed the message after the workflow starts
-   */
-  startedBy<MessageType extends Message>  (
-    message: ClassConstructor<MessageType>,
-    handler: WhenHandler<MessageType, State & WorkflowState>
-  ): this {
-    if (this.onStartedBy.has(message)) {
-      throw new WorkflowAlreadyStartedByMessage(this.workflowName, message)
-    }
-    this.onStartedBy.set(message, handler)
+  withState (workflowStateType: ClassConstructor<WorkflowStateType>): this {
+    this.workflowStateType = workflowStateType
     return this
   }
 
-  when<MessageType extends Message> (
+  startedBy<MessageType extends Message>(
     message: ClassConstructor<MessageType>,
-    options: WhenOptions<MessageType, State & WorkflowState>,
-    handler: WhenHandler<MessageType, State & WorkflowState>
+    workflowHandler: (workflow: WorkflowType) => WorkflowHandler<MessageType, WorkflowStateType>
   ): this {
-    if (this.onWhen.has(message)) {
-      throw new WorkflowAlreadyHandlesMessage(this.workflowName, message)
+    if (this.onStartedBy.has(message)) {
+      throw new WorkflowAlreadyStartedByMessage(this.workflow.name, message)
     }
-
-    this.onWhen.set(
+    this.onStartedBy.set(
       message,
       {
-        handler,
-        options: options as WhenOptions<MessageType, WorkflowState>
+        workflowHandler,
+        workflowCtor: this.workflow
       }
     )
     return this
   }
+
+  when<MessageType extends Message>(
+    message: ClassConstructor<MessageType>,
+    workflowHandler: (workflow: WorkflowType) => WorkflowHandler<MessageType, WorkflowStateType>,
+    customLookup?: MessageWorkflowMapping
+  ): this {
+    if (this.onWhen.has(message)) {
+      throw new WorkflowAlreadyHandlesMessage(this.workflow.name, message)
+    }
+    this.onWhen.set(message, {
+      workflowHandler,
+      workflowCtor: this.workflow,
+      customLookup
+    })
+    return this
+  }
+}
+
+export abstract class Workflow<WorkflowStateType extends WorkflowState> {
+  abstract configureWorkflow (mapper: WorkflowMapper<WorkflowStateType, Workflow<WorkflowStateType>>): void
 }

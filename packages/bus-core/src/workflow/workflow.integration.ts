@@ -1,5 +1,5 @@
 import { InMemoryPersistence } from './persistence'
-import { TestCommand, TestWorkflowState, testWorkflow, TaskRan, FinalTask } from './test'
+import { TestCommand, TestWorkflowState, TestWorkflow, TaskRan, FinalTask } from './test'
 import { WorkflowStatus } from './workflow-state'
 import {
   testWorkflowStartedByCompletes,
@@ -9,7 +9,6 @@ import {
   testWorkflowStartedByDiscard,
   TestWorkflowStartedByDiscardData
 } from './test/test-workflow-startedby-discard'
-import { Mock } from 'typemoq'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { Bus } from '../service-bus'
 import { sleep } from '../util'
@@ -26,9 +25,9 @@ describe('Workflow', () => {
 
     await Bus.configure()
       .withPersistence(inMemoryPersistence)
-      .withWorkflow(testWorkflow)
-      .withWorkflow(testWorkflowStartedByCompletes)
-      .withWorkflow(testWorkflowStartedByDiscard)
+      .withWorkflow(TestWorkflow)
+      // .withWorkflow(testWorkflowStartedByCompletes)
+      // .withWorkflow(testWorkflowStartedByDiscard)
       .initialize()
 
     await Bus.start()
