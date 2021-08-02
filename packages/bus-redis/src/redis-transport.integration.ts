@@ -60,12 +60,12 @@ describe('RedisTransport', () => {
 
     bus = container.get(BUS_SYMBOLS.Bus)
     sut = container.get(BUS_SYMBOLS.Transport)
-    
+
     bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
     bootstrap.registerHandler(TestPoisonedMessageHandler)
     bootstrap.registerHandler(TestCommandHandler)
     bootstrap.registerHandler(TestSystemMessageHandler)
-    
+
     bootstrap.registerHandler(TestFailMessageHandler)
 
     await bootstrap.initialize(container)
