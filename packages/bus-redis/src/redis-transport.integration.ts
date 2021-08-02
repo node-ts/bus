@@ -31,8 +31,7 @@ export async function sleep (timeoutMs: number): Promise<void> {
 const configuration: RedisTransportConfiguration = {
   queueName: 'node-ts/bus-redis-test',
   connectionString: 'redis://127.0.0.1:6379',
-  maxRetries: 3,
-  storeCompletedMessages: true
+  maxRetries: 3
 }
 
 describe('RedisTransport', () => {
@@ -74,11 +73,8 @@ describe('RedisTransport', () => {
   afterAll(async () => {
     await bootstrap.dispose()
   })
-  const testCases: [string, boolean][] = [
-    ['when sending a command with storeCompletedMessages enabled', true],
-    ['when sending a command with storeCompletedMessages disabled', false]
-  ]
-  describe.each(testCases)('%s', (_, storeCompletedMessages: boolean) => {
+
+  describe('when sending a command', () => {
     const testCommand = new TestCommand(uuid.v4(), new Date())
     const messageOptions: MessageAttributes = {
       correlationId: faker.random.uuid(),
@@ -93,14 +89,10 @@ describe('RedisTransport', () => {
     }
 
     beforeAll(async () => {
-      // Avoiding tearing down the container, favouring just changing the setting for the tests
-      sut['storeCompletedMessages'] = storeCompletedMessages
       await bus.send(testCommand, messageOptions)
     })
     afterAll(async () => {
       await purgeQueue()
-      // Restoring the setting afterwards
-      sut['storeCompletedMessages'] = configuration.storeCompletedMessages as boolean
     })
 
     it('it should receive and dispatch to the handler', async () => {
@@ -110,9 +102,9 @@ describe('RedisTransport', () => {
         Times.once()
       )
     })
-    it(`it should${storeCompletedMessages ? '' :' not'} move the completed message to the completed queue`, async () => {
+    it(`it should not move the completed message to the completed queue`, async () => {
       const completedCount = await sut['queue'].getCompletedCount()
-      expect(completedCount).toEqual(storeCompletedMessages ? 1 : 0)
+      expect(completedCount).toEqual(0)
     })
   })
 

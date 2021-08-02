@@ -17,13 +17,6 @@ export interface RedisTransportConfiguration {
   connectionString: string
 
   /**
-   * bullMQ has multiple queues as shown in their architecture docs here: https://docs.bullmq.io/guide/architecture
-   * If you would like to move successful jobs to the completed queue, set this setting to true
-   * @default false
-   */
-  storeCompletedMessages?: boolean
-
-  /**
    * The maximum number of attempts to retry a failed message before routing it to the dead letter queue.
    * @default 10
    */
