@@ -1,6 +1,6 @@
 import { ContainerModule } from 'inversify'
 import { BUS_REDIS_INTERNAL_SYMBOLS, BUS_REDIS_SYMBOLS } from './bus-redis-symbols'
-import { RedisMqTransport } from './redis-transport'
+import { RedisMessage, RedisMqTransport } from './redis-transport'
 import { bindLogger } from '@node-ts/logger-core'
 import { RedisTransportConfiguration } from './redis-transport-configuration'
 import { BUS_SYMBOLS, Transport } from '@node-ts/bus-core'
@@ -14,9 +14,8 @@ export class BusRedisModule extends ContainerModule {
         .inSingletonScope()
       bindLogger(bind, RedisMqTransport)
 
-      rebind<Transport<{}>>(BUS_SYMBOLS.Transport)
-        .to(RedisMqTransport)
-        .inSingletonScope()
+      rebind<Transport<RedisMessage>>(BUS_SYMBOLS.Transport)
+        .toDynamicValue(c => c.container.get<RedisMqTransport>(BUS_REDIS_INTERNAL_SYMBOLS.RedisTransport))
 
       bind(BUS_REDIS_INTERNAL_SYMBOLS.RedisFactory)
         .toFactory(c => async () => {
