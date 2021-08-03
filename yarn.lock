@@ -1895,6 +1895,26 @@
     call-me-maybe "^1.0.1"
     glob-to-regexp "^0.3.0"
 
+"@node-ts/bus-core@^0.1.4":
+  version "0.1.18"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-core/-/bus-core-0.1.18.tgz#a859c4b91aeb7804dfa830126f95d71af8b30bc8"
+  integrity sha512-X+0/pxdHYxZPlkAk9h2EAnE8J37TawOuLqxqhj/xXVRmhTw/h3N2t+5ebl2C/OnDw8dVichDO0BgkLbVaaHf2w==
+  dependencies:
+    "@node-ts/bus-messages" "^0.1.4"
+    "@types/node" "^11.13.8"
+    autobind-decorator "^2.4.0"
+    class-transformer "^0.2.0"
+    inversify "^5.0.1"
+    reflect-metadata "^0.1.13"
+    tslib "^1.9.3"
+
+"@node-ts/bus-messages@^0.1.4":
+  version "0.1.10"
+  resolved "https://registry.yarnpkg.com/@node-ts/bus-messages/-/bus-messages-0.1.10.tgz#1c3943016ea66d273524e948e137c9ebac9e00f5"
+  integrity sha512-+y5zFAtC0NfnBXpbJpt2HXwf3PfS77OktkzxhC5QzNWMEljGcqzPe48RH+VVGBCVbsN3oxnkHd1J7pcOP21RtA==
+  dependencies:
+    tslib "^1.9.3"
+
 "@node-ts/code-standards@^0.0.10":
   version "0.0.10"
   resolved "https://registry.yarnpkg.com/@node-ts/code-standards/-/code-standards-0.0.10.tgz#0393a085f0ca0a6d7470d8f7e733b091b2671e0e"
@@ -2130,6 +2150,11 @@
   version "12.12.6"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-12.12.6.tgz#a47240c10d86a9a57bb0c633f0b2e0aea9ce9253"
   integrity sha512-FjsYUPzEJdGXjwKqSpE0/9QEh6kzhTAeObA54rn6j3rR4C/mzpI9L0KNfoeASSPMMdxIsoJuCLDWcM/rVjIsSA==
+
+"@types/node@^11.13.8":
+  version "11.15.54"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-11.15.54.tgz#59ed60e7b0d56905a654292e8d73275034eb6283"
+  integrity sha512-1RWYiq+5UfozGsU6MwJyFX6BtktcT10XRjvcAQmskCtMcW3tPske88lM/nHv7BQG1w9KBXI1zPGuu5PnNCX14g==
 
 "@types/node@^12.12.39":
   version "12.19.15"
@@ -3762,6 +3787,11 @@ circular-json@^0.3.1:
   version "0.3.3"
   resolved "https://registry.yarnpkg.com/circular-json/-/circular-json-0.3.3.tgz#815c99ea84f6809529d2f45791bdf82711352d66"
   integrity sha512-UZK3NBx2Mca+b5LsG7bY183pHWt5Y1xts4P3Pz7ENTwGVnJOUWbRb3ocjvX7hx9tq/yTAdclXm9sZ38gNuem4A==
+
+class-transformer@^0.2.0:
+  version "0.2.3"
+  resolved "https://registry.yarnpkg.com/class-transformer/-/class-transformer-0.2.3.tgz#598c92ca71dcca73f91ccb875d74a3847ccfa32d"
+  integrity sha512-qsP+0xoavpOlJHuYsQJsN58HXSl8Jvveo+T37rEvCEeRfMWoytAyR0Ua/YsFgpM6AZYZ/og2PJwArwzJl1aXtQ==
 
 class-transformer@^0.3.1:
   version "0.3.1"
@@ -12548,9 +12578,9 @@ write-pkg@^3.1.0:
     write-json-file "^2.2.0"
 
 ws@^7.2.3:
-  version "7.3.1"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-7.3.1.tgz#d0547bf67f7ce4f12a72dfe31262c68d7dc551c8"
-  integrity sha512-D3RuNkynyHmEJIpD2qrgVkc9DQ23OrN/moAwZX4L8DfvszsJxpjQuUq3LMx6HoYji9fbIOBY18XWBsAux1ZZUA==
+  version "7.5.3"
+  resolved "https://registry.yarnpkg.com/ws/-/ws-7.5.3.tgz#160835b63c7d97bfab418fc1b8a9fced2ac01a74"
+  integrity sha512-kQ/dHIzuLrS6Je9+uv81ueZomEwH0qVYstcAQ4/Z93K8zeko9gtAbttJWzoC5ukqXY1PpoouV3+VSOqEAFt5wg==
 
 xml-name-validator@^3.0.0:
   version "3.0.0"
