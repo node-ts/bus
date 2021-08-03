@@ -107,7 +107,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
       const timeoutToken = setTimeout(() => {
         unsubscribeEmitter()
-        resolve()
+        resolve(undefined)
       }, RECEIVE_TIMEOUT_MS)
 
       const nextMessage = getNextMessage()

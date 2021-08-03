@@ -5,14 +5,14 @@ import { BUS_REDIS_INTERNAL_SYMBOLS, BUS_REDIS_SYMBOLS } from './bus-redis-symbo
 import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
 import Redis from 'ioredis'
 import { RedisTransportConfiguration } from './redis-transport-configuration'
-
-import  { Job, Queue, Worker } from 'bullmq'
+import { Job, Queue, Worker } from 'bullmq'
 import * as uuid from 'uuid'
 
 export const DEFAULT_MAX_RETRIES = 10
 export type Connection = Redis.Redis
 
-declare type Uuid = string;
+declare type Uuid = string
+
 interface Payload {
   message: string,
   correlationId: Uuid | undefined
@@ -93,18 +93,25 @@ export class RedisMqTransport implements Transport<RedisMessage> {
     await message
       .raw
       .job
-      .moveToFailed(new Error(`Message: ${message.id} failed immediately when placed on the bus, moving straight to the failed queue`), message.raw.token)
+      .moveToFailed(
+        new Error(
+          `Message: ${message.id} failed immediately when placed on the bus,`
+            + ` moving straight to the failed queue`
+        ), message.raw.token
+      )
   }
 
   async readNextMessage (): Promise<TransportMessage<RedisMessage> | undefined> {
     // Guide on how to manually handle jobs: https://docs.bullmq.io/patterns/manually-fetching-jobs
 
-    /* token is not a unique identifier for the message, but a way of identifying that this worker,
-    has a lock on this job */
+    /*
+      token is not a unique identifier for the message, but a way of identifying that this worker
+      has a lock on this job
+    */
     const token = uuid.v4()
-    const job = (await this.worker.getNextJob(token)) as Job<Payload>
+    const job = (await this.worker.getNextJob(token)) as Job<Payload> | undefined
 
-    if (job === undefined || !job.data) {
+    if (!job || !job.data) {
       return undefined
     }
 
@@ -139,7 +146,8 @@ export class RedisMqTransport implements Transport<RedisMessage> {
   }
 
   async returnMessage (message: TransportMessage<RedisMessage>): Promise<void> {
-    const failedJobMessage = `Failed job: ${message.id}. Attempt: ${message.raw.job.attemptsMade + 1}/${this.maxRetries}`
+    const failedJobMessage =
+      `Failed job: ${message.id}. Attempt: ${message.raw.job.attemptsMade + 1}/${this.maxRetries}`
     this.logger.debug(failedJobMessage)
     /* Bullmq queues support automatic retry, we simply need to state that it needs to moveToFailed.
     It will check the amount of attempts promote it to the `wait` queue ready for reprocessing
