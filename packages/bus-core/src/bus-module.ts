@@ -18,7 +18,7 @@ export class BusModule extends ContainerModule {
 
   constructor () {
     super(bind => {
-      bind<SessionScopeBinder>(BUS_INTERNAL_SYMBOLS.SessionScopeBinder).toConstantValue(defaultSessionScopeBinder)
+      bind(BUS_INTERNAL_SYMBOLS.SessionScopeBinder).toConstantValue(defaultSessionScopeBinder)
       defaultSessionScopeBinder(bind)
       bindLogger(bind, ServiceBus)
 

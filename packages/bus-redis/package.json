@@ -1,14 +1,14 @@
 {
-  "name": "@node-ts/bus-sqs",
-  "description": "An AWS SQS transport adapter for @node-ts/bus-core.",
-  "version": "0.5.10",
+  "name": "@node-ts/bus-redis",
+  "description": "A redis transport adapter for @node-ts/bus-core.",
+  "version": "0.1.1",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc --project tsconfig.json --declaration",
+    "build": "tsc --project tsconfig.json",
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
     "lint:fix": "yarn lint --fix"
   },
@@ -17,18 +17,18 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.3.2",
-    "aws-sdk": "^2.437.0",
+    "bullmq": "^1.40.1",
+    "ioredis": "^4.27.7",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
     "@node-ts/bus-core": "^0.6.6",
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.15",
-    "@types/amqplib": "^0.5.11",
+    "@node-ts/logger-core": "^0.0.13",
     "@types/faker": "^4.1.5",
+    "@types/ioredis": "^4.26.6",
     "@types/uuid": "^3.4.4",
-    "class-transformer": "^0.3.1",
     "faker": "^4.1.0",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13",
@@ -43,7 +43,7 @@
   },
   "keywords": [
     "esb",
-    "SQS",
+    "redis",
     "typescript",
     "enterprise integration patterns",
     "bus",
