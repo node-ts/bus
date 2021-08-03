@@ -1,4 +1,5 @@
-import { completeWorkflow, Workflow } from '../workflow'
+import { HandlerContext } from '../../handler'
+import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowState } from '../workflow-state'
 import { TestCommand } from './test-command'
 
@@ -10,6 +11,20 @@ export class TestWorkflowStartedByCompletesData extends WorkflowState {
 /**
  * A test case where the workflow is completed in the StartedBy handler
  */
-export const testWorkflowStartedByCompletes = Workflow
-  .configure('testWorkflowStartedByCompletes', TestWorkflowStartedByCompletesData)
-  .startedBy(TestCommand, ({ message: { property1 } }) => completeWorkflow({ property1 }))
+export class TestWorkflowStartedByCompletes extends Workflow<TestWorkflowStartedByCompletesData> {
+
+  configureWorkflow (mapper: WorkflowMapper<TestWorkflowStartedByCompletesData, TestWorkflowStartedByCompletes>): void {
+    mapper
+      .withState(TestWorkflowStartedByCompletesData)
+      .startedBy(TestCommand, 'complete')
+  }
+
+  /**
+   * Completes the workflow immediately and save a final state
+   */
+  complete ({ message }: HandlerContext<TestCommand>) {
+    return this.completeWorkflow({
+      property1: message.property1
+    })
+  }
+}

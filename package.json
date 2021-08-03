@@ -17,8 +17,8 @@
     "lint": "lerna run lint",
     "test": "yarn test:unit --collect-coverage && yarn test:integration --collect-coverage",
     "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
-    "test:unit:watch": "yarn run test:unit --watch",
-    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core|sqs).*(src\\/.+\\.|/)integration\\.ts$\""
+    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core|sqs).*(src\\/.+\\.|/)integration\\.ts$\"",
+    "test:watch": "dotenv -e test.env -- jest --watch"
   },
   "keywords": [
     "typescript",

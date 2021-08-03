@@ -2,11 +2,11 @@ import { InMemoryPersistence } from './persistence'
 import { TestCommand, TestWorkflowState, TestWorkflow, TaskRan, FinalTask } from './test'
 import { WorkflowStatus } from './workflow-state'
 import {
-  testWorkflowStartedByCompletes,
+  TestWorkflowStartedByCompletes,
   TestWorkflowStartedByCompletesData
 } from './test/test-workflow-startedby-completes'
 import {
-  testWorkflowStartedByDiscard,
+  TestWorkflowStartedByDiscard,
   TestWorkflowStartedByDiscardData
 } from './test/test-workflow-startedby-discard'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -26,8 +26,8 @@ describe('Workflow', () => {
     await Bus.configure()
       .withPersistence(inMemoryPersistence)
       .withWorkflow(TestWorkflow)
-      // .withWorkflow(testWorkflowStartedByCompletes)
-      // .withWorkflow(testWorkflowStartedByDiscard)
+      .withWorkflow(TestWorkflowStartedByCompletes)
+      .withWorkflow(TestWorkflowStartedByDiscard)
       .initialize()
 
     await Bus.start()
@@ -122,15 +122,16 @@ describe('Workflow', () => {
     }
 
     it('should persist the workflow as completed', async () => {
-      const workflowState = await getPersistence().getWorkflowState<TestWorkflowStartedByCompletesData, TestCommand>(
-        TestWorkflowStartedByCompletesData,
-        propertyMapping,
-        command,
-        messageOptions,
-        true
-      )
-
+      const workflowState = await getPersistence()
+        .getWorkflowState<TestWorkflowStartedByCompletesData, TestCommand>(
+          TestWorkflowStartedByCompletesData,
+          propertyMapping,
+          command,
+          messageOptions,
+          true
+        )
       expect(workflowState).toHaveLength(1)
+
       const data = workflowState[0]
       expect(data.$status).toEqual(WorkflowStatus.Complete)
     })

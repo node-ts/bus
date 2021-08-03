@@ -210,4 +210,17 @@ describe('ServiceBus', () => {
       })
     })
   })
+
+  describe('when sending a message with sticky attributes', () => {
+    describe('which results in another message being sent', () => {
+      it('should attach sticky attributes', () => {
+        expect(true).toEqual(false)
+      })
+    })
+    describe('which results in another message being sent within a promise', () => {
+      it('should attach sticky attributes', () => {
+        expect(true).toEqual(false)
+      })
+    })
+  })
 })

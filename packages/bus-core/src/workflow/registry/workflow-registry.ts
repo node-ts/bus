@@ -1,15 +1,16 @@
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import * as uuid from 'uuid'
-import { Workflow, WhenHandler, OnWhenHandler, WorkflowMapper } from '../workflow'
+import { Workflow, WhenHandler, OnWhenHandler, WorkflowMapper, WorkflowHandler } from '../workflow'
 import { getPersistence } from '../persistence/persistence'
 import { ClassConstructor } from '../../util'
 import { handlerRegistry } from '../../handler/handler-registry'
 import { getLogger } from '../../logger'
 import { PersistenceNotConfigured } from '../persistence/error'
 import { WorkflowAlreadyInitialized } from '../error'
-import { HandlerContext } from 'src/handler'
+import { HandlerContext } from '../../handler'
+import { messageHandlingContext } from '../../message-handling-context'
 
 const logger = getLogger('@node-ts/bus-core:workflow-registry')
 
@@ -20,20 +21,34 @@ const createWorkflowState = <TWorkflowState extends WorkflowState> (workflowStat
   return data
 }
 
+/**
+ * Creates a new handling context for a single workflow. This is used so
+ * that the `$workflowId` is attached to outgoing messages in sticky
+ * attributes. This allows message chains to be automatically mapped
+ * back to the workflow if handled.
+ */
+const startWorkflowHandlingContext = (workflowState: WorkflowState) => {
+  const handlingContext = messageHandlingContext.get()!.message
+  const workflowHandlingContext = JSON.parse(JSON.stringify(handlingContext)) as typeof handlingContext
+  workflowHandlingContext.attributes.stickyAttributes.workflowId = workflowState.$workflowId
+  messageHandlingContext.set(workflowHandlingContext)
+}
+
+const endWorkflowHandlingContext = () => messageHandlingContext.destroy()
+
 const dispatchMessageToWorkflow = async (
   context: HandlerContext<Message>,
   workflowCtor: ClassConstructor<Workflow<WorkflowState>>,
   workflowState: WorkflowState,
   workflowStateConstructor: ClassConstructor<WorkflowState>,
-  workflowHandler: WhenHandler<WorkflowState, Workflow<WorkflowState>>
+  workflowHandler: keyof Workflow<WorkflowState>
 ) => {
   const immutableWorkflowState = Object.freeze({...workflowState})
+  const workflow = new workflowCtor()
+  const handler = workflow[workflowHandler] as Function
+  const workflowStateOutput = await handler.bind(workflow)(context, immutableWorkflowState)
 
   const workflowName = workflowCtor.prototype.name
-
-  const handler = workflowHandler(new workflowCtor())
-  const workflowStateOutput = await handler(context, immutableWorkflowState)
-
   if (workflowStateOutput && workflowStateOutput.$status === WorkflowStatus.Discard) {
     logger.debug(
       'Workflow step is discarding state changes. State changes will not be persisted',
@@ -188,20 +203,26 @@ class WorkflowRegistry {
         async (context) => {
           const workflowState = createWorkflowState(mapper.workflowStateCtor!)
           const immutableWorkflowState = Object.freeze({...workflowState})
-          const handler = options.workflowHandler(new options.workflowCtor())
-          const result = await handler(context, immutableWorkflowState)
-          if (result) {
-            await getPersistence().saveWorkflowState({
-              ...workflowState,
-              ...result
-            })
+          startWorkflowHandlingContext(immutableWorkflowState)
+          try {
+            const workflow = new options.workflowCtor()
+            const handler = workflow[options.workflowHandler as keyof Workflow<WorkflowState>] as Function
+            const result = await handler.bind(workflow)(context, immutableWorkflowState)
+            if (result) {
+              await getPersistence().saveWorkflowState({
+                ...workflowState,
+                ...result
+              })
+            }
+          } finally {
+            endWorkflowHandlingContext()
           }
         }
     ))
   }
 
   private registerFnHandles (
-    mapper: WorkflowMapper<WorkflowState>,
+    mapper: WorkflowMapper<WorkflowState, Workflow<WorkflowState>>,
     workflowCtor: ClassConstructor<Workflow<WorkflowState>>
   ): void {
     mapper.onWhen.forEach((handler, messageConstructor) => {
@@ -225,13 +246,20 @@ class WorkflowRegistry {
             return
           }
 
-          const workflowHandlers = workflowState.map(state => dispatchMessageToWorkflow(
-            context,
-            workflowCtor,
-            state,
-            mapper.workflowStateCtor!,
-            handler.workflowHandler
-          ))
+          const workflowHandlers = workflowState.map(async state => {
+            try {
+              startWorkflowHandlingContext(state)
+              await dispatchMessageToWorkflow(
+                context,
+                workflowCtor,
+                state,
+                mapper.workflowStateCtor!,
+                handler.workflowHandler
+              )
+            } finally {
+              endWorkflowHandlingContext()
+            }
+          })
 
           await Promise.all(workflowHandlers)
         }

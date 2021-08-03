@@ -1,4 +1,4 @@
-import { Workflow } from '../workflow'
+import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowState } from '../workflow-state'
 import { TestCommand } from './test-command'
 
@@ -10,6 +10,15 @@ export class TestWorkflowStartedByDiscardData extends WorkflowState {
 /**
  * A test case where the workflow is completes during startup without persisting state
  */
-export const testWorkflowStartedByDiscard = Workflow
-  .configure('testWorkflowStartedByDiscard', TestWorkflowStartedByDiscardData)
-  .startedBy(TestCommand, () => undefined)
+export class TestWorkflowStartedByDiscard extends Workflow<TestWorkflowStartedByDiscardData> {
+  configureWorkflow (mapper: WorkflowMapper<TestWorkflowStartedByDiscardData, TestWorkflowStartedByDiscard>): void {
+    mapper
+      .withState(TestWorkflowStartedByDiscardData)
+      .startedBy(TestCommand, 'discard')
+  }
+
+  discard () {
+    return this.discardWorkflow()
+  }
+
+}

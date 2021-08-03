@@ -4,8 +4,7 @@ import { sleep, ClassConstructor} from '../util'
 import { ClassHandler, FunctionHandler, Handler, handlerRegistry, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
-import { messageHandlingContext } from './message-handling-context'
-import * as asyncHooks from 'async_hooks'
+import { messageHandlingContext } from '../message-handling-context'
 import { BusHooks } from './bus-hooks'
 import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
 import { getContainer } from '../container'
@@ -135,9 +134,8 @@ export class ServiceBus {
       if (message) {
         logger.debug('Message read from transport', { message })
 
-        const asyncId = asyncHooks.executionAsyncId()
         try {
-          messageHandlingContext.set(asyncId, message)
+          messageHandlingContext.set(message)
 
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           await this.transport.deleteMessage(message)
@@ -155,7 +153,7 @@ export class ServiceBus {
           await this.transport.returnMessage(message)
           return false
         } finally {
-          messageHandlingContext.destroy(asyncId)
+          messageHandlingContext.destroy()
         }
         return true
       }

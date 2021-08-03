@@ -1,4 +1,4 @@
-import * as asyncHooks from 'async_hooks'
+import asyncHooks from 'async_hooks'
 import { TransportMessage } from '../transport'
 
 interface HandlingContext {
@@ -17,6 +17,7 @@ interface HandlingContext {
 const handlingContexts = new Map<number, HandlingContext>()
 
 const init = (asyncId: number, _: string, triggerAsyncId: number) => {
+  // Ensures that child promises inherit the same context as their parent
   if (handlingContexts.has(triggerAsyncId)) {
     const context = handlingContexts.get(triggerAsyncId)!
     context.childAsyncIds.push(asyncId)
@@ -37,23 +38,28 @@ const hooks = asyncHooks.createHook({
 
 /**
  * This is an internal coordinator that tracks the execution context for
- * a message handling operation across multiple nested promises/callbacks.
+ * a message handling operation across multiple nested promises/callbacks as a way
+ * of providing a type of thread local storage (TLS).
  *
  * It's primarily used to allow Bus.send/Bus.publish to propagate sticky attributes
- * and correlation ids.
+ * and correlation ids in parallel handling contexts.
  */
 export const messageHandlingContext = {
-  set: (asyncId: number, message: TransportMessage<unknown>) => {
+  /**
+   * Sets a new handling context for the current execution async id. Child asyncs should
+   * only call this if they want to create a new context with themselves at the root.
+   */
+  set: (message: TransportMessage<unknown>) =>
     handlingContexts.set(
-      asyncId,
+      asyncHooks.executionAsyncId(),
       {
         childAsyncIds: [],
         message
       }
-    )
-  },
+    ),
   get: () => handlingContexts.get(asyncHooks.executionAsyncId()),
-  destroy: (asyncId: number) => {
+  destroy: () => {
+    const asyncId = asyncHooks.executionAsyncId()
     const context = handlingContexts.get(asyncId)
     if (!context) {
       return
