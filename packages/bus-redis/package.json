@@ -1,0 +1,59 @@
+{
+  "name": "@node-ts/bus-redis",
+  "description": "A redis transport adapter for @node-ts/bus-core.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "repository": "github:node-ts/bus.git",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.json",
+    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
+    "lint:fix": "yarn lint --fix"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@node-ts/bus-messages": "^0.3.1",
+    "bullmq": "^1.40.1",
+    "tslib": "^1.9.3",
+    "uuid": "^3.3.2"
+  },
+  "devDependencies": {
+    "@node-ts/bus-core": "^0.1.4",
+    "@node-ts/code-standards": "^0.0.10",
+    "@node-ts/logger-core": "^0.0.13",
+    "@types/faker": "^4.1.5",
+    "@types/uuid": "^3.4.4",
+    "@types/ioredis": "^4.26.6",
+    "faker": "^4.1.0",
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13",
+    "typemoq": "^2.1.0",
+    "typescript": "^3.3.3"
+  },
+  "peerDependencies": {
+    "@node-ts/bus-core": "^0.1.4",
+    "@node-ts/logger-core": "^0.0.13",
+    "inversify": "^5.0.1",
+    "reflect-metadata": "^0.1.13"
+  },
+  "keywords": [
+    "esb",
+    "redis",
+    "typescript",
+    "enterprise integration patterns",
+    "bus",
+    "messaging",
+    "microservices",
+    "distributed systems",
+    "framework",
+    "enterprise framework",
+    "CQRS",
+    "ES",
+    "NServiceBus",
+    "Mule ESB"
+  ]
+}
