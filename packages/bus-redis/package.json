@@ -16,7 +16,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-core": "0.6.5",
     "@node-ts/bus-messages": "^0.3.1",
     "bullmq": "^1.40.1",
     "tslib": "^1.9.3",
