@@ -41,7 +41,7 @@ export interface RedisMessage {
  * A Redis transport adapter for @node-ts/bus.
  */
 @injectable()
-export class RedisMqTransport implements Transport<RedisMessage> {
+export class RedisTransport implements Transport<RedisMessage> {
 
   private connection: Connection
   private queue: Queue
