@@ -8,7 +8,7 @@
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc --project tsconfig.json",
+    "build": "tsc --project tsconfig.json --declaration",
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
     "lint:fix": "yarn lint --fix"
   },
