@@ -8,7 +8,7 @@
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc --project tsconfig.json",
+    "build": "tsc --project tsconfig.json --declaration",
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
     "lint:fix": "yarn lint --fix"
   },
@@ -36,7 +36,7 @@
     "typescript": "^4.3.5"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^0.6.5",
+    "@node-ts/bus-core": "^0.6.6",
     "@node-ts/logger-core": "^0.0.13",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13"

@@ -15,8 +15,7 @@ export class BusRabbitMqModule extends ContainerModule {
       bindLogger(bind, RabbitMqTransport)
 
       rebind<Transport<{}>>(BUS_SYMBOLS.Transport)
-        .to(RabbitMqTransport)
-        .inSingletonScope()
+        .toDynamicValue(c => c.container.get<RabbitMqTransport>(BUS_RABBITMQ_INTERNAL_SYMBOLS.RabbitMqTransport))
 
       bind(BUS_RABBITMQ_INTERNAL_SYMBOLS.AmqpFactory)
         .toFactory(c => async () => {
