@@ -5,8 +5,10 @@ import { sleep } from '../util'
 import { Mock, IMock, Times, It } from 'typemoq'
 import { HandlerContext } from '../handler'
 import { TestCommand } from '../test/test-command'
+import { TestEvent2 } from '../test/test-event-2'
 import { ContainerNotRegistered } from '../error'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { EventEmitter } from 'stream'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -213,13 +215,26 @@ describe('ServiceBus', () => {
 
   describe('when sending a message with sticky attributes', () => {
     describe('which results in another message being sent', () => {
-      it('should attach sticky attributes', () => {
-        expect(true).toEqual(false)
-      })
-    })
-    describe('which results in another message being sent within a promise', () => {
-      it('should attach sticky attributes', () => {
-        expect(true).toEqual(false)
+      it('should attach sticky attributes', async () => {
+        await Bus.dispose()
+
+        const events = new EventEmitter()
+        await Bus.configure()
+          .withHandler(TestCommand, async () => await Bus.send(new TestEvent2()))
+          .withHandler(TestEvent2, async () => Bus.send(new TestEvent()))
+          .withHandler(TestEvent, async ({ attributes: { stickyAttributes } }: HandlerContext<TestEvent>) => { events.emit('event', stickyAttributes) })
+          .initialize()
+
+        await Bus.start()
+
+        const stickyAttributes = { test: 'attribute' }
+        const eventReceived = new Promise(resolve => events.on('event', resolve))
+        await Bus.send(new TestCommand(), { stickyAttributes })
+
+        const actualStickyAttributes = await eventReceived
+        expect(actualStickyAttributes).toEqual(stickyAttributes)
+
+        await Bus.dispose()
       })
     })
   })

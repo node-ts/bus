@@ -1,19 +1,28 @@
 import { TestWorkflowState } from './test-workflow-state'
-import { Bus, completeWorkflow, Workflow } from '@node-ts/bus-core'
+import { Bus, HandlerContext, Workflow, WorkflowMapper } from '@node-ts/bus-core'
 import { TestCommand } from './test-command'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
 
-export const testWorkflow = Workflow
-  .configure('testWorkflow', TestWorkflowState)
-  .startedBy(TestCommand, async ({ message: { property1 }}) => {
+export class TestWorkflow extends Workflow<TestWorkflowState> {
+
+  configureWorkflow(mapper: WorkflowMapper<TestWorkflowState, TestWorkflow>): void {
+    mapper
+      .withState(TestWorkflowState)
+      .startedBy(TestCommand, 'sendRunTask')
+      .when(TaskRan, 'complete', { lookup: ({ message }) => message.value, mapsTo: 'property1' })
+  }
+
+  async sendRunTask ({ message: { property1 } }: HandlerContext<TestCommand>): Promise<Partial<TestWorkflowState>> {
     await Bus.send(new RunTask(property1!))
     return {
       property1
     }
-  })
-  .when(
-    TaskRan,
-    { lookup: ({ message }) => message.value, mapsTo: 'property1' },
-    ({ message: { value }}) => completeWorkflow({ eventValue: value })
-  )
+  }
+
+  complete ({ message: { value } }: HandlerContext<TaskRan>): Partial<TestWorkflowState> {
+    return this.completeWorkflow({
+      eventValue: value
+    })
+  }
+}

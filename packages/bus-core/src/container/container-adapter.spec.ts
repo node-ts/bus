@@ -80,23 +80,24 @@ describe('ContainerAdapter', () => {
   })
 
   describe('when no adapter is installed', () => {
-    beforeEach(async () => {
-      await Bus
-        .configure()
-        .withHandler(TestEvent, TestEventClassHandler)
-        .initialize()
-      await Bus.start()
+    describe('and no class handlers are registered', () => {
+      it('should initialize without errors', async () => {
+        await Bus.configure().initialize()
+        await Bus.dispose()
+      })
     })
 
     describe('and a handler is registered', () => {
       it('should throw a ContainerNotRegistered error', async () => {
-        const onError = waitForError(error => {
+        try {
+          await Bus
+            .configure()
+            .withHandler(TestEvent, TestEventClassHandler)
+            .initialize()
+          fail('Bus initialization should throw a ContainerNotRegistered error')
+        } catch (error) {
           expect(error).toBeInstanceOf(ContainerNotRegistered)
-          const containerNotRegistered = error as ContainerNotRegistered
-          expect(containerNotRegistered.msg).toEqual(event)
-        })
-        await Bus.publish(event)
-        await onError
+        }
       })
     })
   })

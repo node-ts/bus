@@ -238,6 +238,7 @@ export class Bus {
       await getServiceBus().dispose()
       serviceBus = undefined
     }
+    handlerRegistry.reset()
     setContainer(undefined)
   }
 

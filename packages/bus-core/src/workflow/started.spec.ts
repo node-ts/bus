@@ -1,14 +1,15 @@
 // tslint:disable:max-classes-per-file variable-name no-console
 import * as uuid from 'uuid'
-import { completeWorkflow, Workflow } from '../workflow'
-import { Bus } from '../../service-bus'
+import { Workflow, WorkflowMapper } from './workflow'
+import { Bus } from '../service-bus'
 import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
-import { InMemoryPersistence } from '../persistence'
-import { WorkflowStatus } from '../workflow-state'
-import { WorkflowState } from '../workflow-state'
-import { sleep } from '../../util'
-import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { getPersistence } from '../persistence/persistence'
+import { InMemoryPersistence } from './persistence'
+import { WorkflowStatus } from './workflow-state'
+import { WorkflowState } from './workflow-state'
+import { sleep } from '../util'
+import { MessageWorkflowMapping } from './message-workflow-mapping'
+import { getPersistence } from './persistence/persistence'
+import { HandlerContext } from '../handler'
 
 class AssignmentCreated extends Event {
   $name = 'my-app/accounts/assignment-created'
@@ -98,53 +99,55 @@ export class AssignmentWorkflowState extends WorkflowState {
   assigneeId: string
 }
 
-export const assignmentWorkflow = Workflow
-  .configure('assignment', AssignmentWorkflowState)
-  .startedBy(
-    AssignmentCreated,
-    ({ message }) => ({ assignmentId: message.assignmentId })
-  )
-  .when(
-    AssignmentAssigned,
-    {
-      lookup: ({ message }) => message.assignmentId,
-      mapsTo: 'assignmentId'
-    },
-    async ({ message }) => {
-      const bundleId = uuid.v4()
-      const createAssignmentBundle = new CreateAssignmentBundle(
-        message.assignmentId,
-        bundleId
-      )
-      await Bus.send(createAssignmentBundle)
-      return { bundleId, assigneeId: message.assigneeId }
-    }
-  )
-  .when(
-    AssignmentReassigned,
-    {
-      lookup: ({ attributes: { correlationId }}) => correlationId,
-      mapsTo: '$workflowId'
-    },
-    async ({ message, state: workflowState }) => {
-      const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
-      await Bus.send(notifyAssignmentAssigned)
+class AssignmentWorkflow extends Workflow<AssignmentWorkflowState> {
 
-      const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
-        workflowState.assignmentId,
-        message.unassignedUserId
-      )
-      await Bus.send(notifyAssignmentReassigned)
+  configureWorkflow(mapper: WorkflowMapper<AssignmentWorkflowState, AssignmentWorkflow>): void {
+
+    mapper
+      .withState(AssignmentWorkflowState)
+      .startedBy(AssignmentCreated, 'assignmentCreated')
+      .when(AssignmentAssigned, 'sendCreateAssignment', { lookup: ({ message }) => message.assignmentId, mapsTo: 'assignmentId' })
+      .when(AssignmentReassigned, 'sendNotification', { lookup: ({ attributes: { correlationId }}) => correlationId, mapsTo: '$workflowId' })
+      .when(AssignmentCompleted, 'complete', { lookup: ({ message }) => message.assignmentId, mapsTo: 'assignmentId' })
+  }
+
+  assignmentCreated ({ message }: HandlerContext<AssignmentCreated>): Partial<AssignmentWorkflowState> {
+    return {
+      assignmentId: message.assignmentId
     }
-  )
-  .when(
-    AssignmentCompleted,
-    {
-      lookup: ({ message }) => message.assignmentId,
-      mapsTo: 'assignmentId'
-    },
-    async () => completeWorkflow()
-  )
+  }
+
+  async sendCreateAssignment ({ message }: HandlerContext<AssignmentAssigned>): Promise<Partial<AssignmentWorkflowState>> {
+    const bundleId = uuid.v4()
+    const createAssignmentBundle = new CreateAssignmentBundle(
+      message.assignmentId,
+      bundleId
+    )
+    await Bus.send(createAssignmentBundle)
+    return { bundleId, assigneeId: message.assigneeId }
+  }
+
+  async sendNotification (
+    { message }: HandlerContext<AssignmentReassigned>,
+    workflowState: AssignmentWorkflowState
+  ): Promise<void> {
+    const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
+    await Bus.send(notifyAssignmentAssigned)
+
+    const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
+      workflowState.assignmentId,
+      message.unassignedUserId
+    )
+    await Bus.send(notifyAssignmentReassigned)
+  }
+
+  complete (): Partial<AssignmentWorkflowState> {
+    return this.completeWorkflow()
+  }
+}
+
+export const assignmentWorkflow = Workflow
+
 
 describe('Workflow', () => {
   const event = new AssignmentCreated('abc')
@@ -156,7 +159,7 @@ describe('Workflow', () => {
     await Bus
       .configure()
       .withPersistence(inMemoryPersistence)
-      .withWorkflow(assignmentWorkflow)
+      .withWorkflow(AssignmentWorkflow)
       .initialize()
 
     await Bus.send(event)

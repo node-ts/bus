@@ -1,4 +1,4 @@
-import asyncHooks from 'async_hooks'
+import * as asyncHooks from 'async_hooks'
 import { TransportMessage } from '../transport'
 
 interface HandlingContext {
