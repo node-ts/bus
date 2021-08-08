@@ -2,16 +2,17 @@ import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
 import { Bus, BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
-import { Mock, IMock, Times } from 'typemoq'
+import { Mock, IMock, Times, It } from 'typemoq'
 import { HandlerContext, SystemMessageMissingResolver } from '../handler'
 import { TestCommand } from '../test/test-command'
 import { TestEvent2 } from '../test/test-event-2'
-import { ContainerNotRegistered } from '../error'
+import { ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { EventEmitter } from 'stream'
 import { TestSystemMessage } from '../test/test-system-message'
 import { Command } from '@node-ts/bus-messages'
 import { toTransportMessage } from '../transport/memory-queue'
+import { Logger } from '../logger'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -284,6 +285,107 @@ describe('ServiceBus', () => {
       expect(actualSystemMessage).toEqual(systemMessage)
 
       await Bus.dispose()
+    })
+  })
+
+  describe('when a failure occurs when receiving the next message from the transport', () => {
+    it('should log the error', async () => {
+      const logger = Mock.ofType<Logger>()
+      const queue = Mock.ofType<MemoryQueue>()
+      const events = new EventEmitter()
+      await Bus.configure()
+        .withTransport(queue.object)
+        .withLogger(() => logger.object)
+        .initialize()
+      await Bus.start()
+
+      queue
+        .setup(q => q.readNextMessage())
+        .callback(async () => {
+          await Bus.stop()
+          events.emit('event')
+        })
+        .throws(new Error())
+
+      await new Promise<void>(resolve => events.on('event', resolve))
+
+      logger.verify(
+        l => l.error(`Failed to receive message from transport`, It.isAny()),
+        Times.once()
+      )
+      await Bus.dispose()
+    })
+  })
+
+  describe('when there are no handlers for the incoming message', () => {
+    it('should log an error', async () => {
+      const logger = Mock.ofType<Logger>()
+      const queue = Mock.ofType<MemoryQueue>()
+      const events = new EventEmitter()
+      await Bus.configure()
+        .withTransport(queue.object)
+        .withLogger(() => logger.object)
+        .initialize()
+      await Bus.start()
+
+      queue
+        .setup(q => q.readNextMessage())
+        .returns(async () => ({ domainMessage: new TestCommand() } as any))
+
+      queue
+        .setup(q => q.readNextMessage())
+        .callback(() => events.emit('event'))
+        .returns(async () => undefined)
+
+      await new Promise<void>(resolve => events.on('event', resolve))
+
+      logger.verify(
+        l => l.error(`No handlers registered for message. Message will be discarded`, It.isAny()),
+        Times.once()
+      )
+      await Bus.dispose()
+    })
+  })
+
+  describe('when failing a message', () => {
+    describe('when there is no message handling context', () => {
+      it('should throw a FailMessageOutsideHandlingContext error', async () => {
+        try {
+          await Bus.configure().initialize()
+          await Bus.fail()
+          fail('Expected FailMessageOutsideHandlingContext to have been thrown')
+        } catch (error) {
+          expect(error).toBeInstanceOf(FailMessageOutsideHandlingContext)
+        } finally {
+          await Bus.dispose()
+        }
+      })
+    })
+
+    describe('when there is a message handling context', () => {
+      it('should fail the message on the transport', async () => {
+        await Bus.dispose()
+
+        const events = new EventEmitter()
+
+        const queue = new MemoryQueue()
+        const queueMock = jest.spyOn(queue, 'fail')
+        await Bus.configure()
+          .withTransport(queue)
+          .withHandler(TestCommand, async () => {
+            await Bus.fail()
+            events.emit('event')
+          })
+          .initialize()
+
+        await Bus.start()
+        const messageFailed = new Promise<void>(resolve => events.on('event', resolve))
+        await Bus.send(new TestCommand())
+        await messageFailed
+
+        expect(queueMock).toHaveBeenCalled()
+        await Bus.dispose()
+      })
     })
   })
 })

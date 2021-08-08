@@ -82,7 +82,7 @@ export interface HandlerRegistry {
    * Retrieves an array of all topic arns that are managed externally but require subscribing to as there are
    * custom handlers that handle those messages.
    */
-  getExternallyManagedTopicArns (): string[]
+  getExternallyManagedTopicIdentifiers (): string[]
 
   /**
    * Gets a list of all class based handlers that have been registered
@@ -190,7 +190,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     return this.registry[messageName].messageType as ClassConstructor<T>
   }
 
-  getExternallyManagedTopicArns (): string[] {
+  getExternallyManagedTopicIdentifiers (): string[] {
     return this.handlerResolvers
       .map(resolver => resolver.topicIdentifier)
       .filter(topicArn => !!topicArn) as string[]

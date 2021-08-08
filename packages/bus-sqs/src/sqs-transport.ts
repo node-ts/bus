@@ -282,7 +282,7 @@ export class SqsTransport implements Transport<SQS.Message> {
         .map(topicName => this.createSnsTopic(topicName))
     )
 
-    const externallyManagedTopicArns = handlerRegistry.getExternallyManagedTopicArns()
+    const externallyManagedTopicArns = handlerRegistry.getExternallyManagedTopicIdentifiers()
 
     await Promise.all(
       [

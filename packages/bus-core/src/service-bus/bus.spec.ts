@@ -1,9 +1,10 @@
 import { Bus } from './bus'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
 import { TestEvent } from '../test'
-import { Persistence, Workflow } from '../workflow'
+import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { Serializer } from '../serialization'
 import { Logger } from '../logger'
+import { Transport } from '../transport'
 
 describe('Bus', () => {
   describe('when getting the service bus prior to initialization', () => {
@@ -21,7 +22,8 @@ describe('Bus', () => {
       expect(() => config.withLogger(() => ({} as Logger))).toThrowError(BusAlreadyInitialized)
       expect(() => config.withPersistence({} as Persistence)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withSerializer({} as Serializer)).toThrowError(BusAlreadyInitialized)
-      expect(() => config.withWorkflow({} as Workflow)).toThrowError(BusAlreadyInitialized)
+      expect(() => config.withTransport({} as Transport)).toThrowError(BusAlreadyInitialized)
+      expect(() => config.withWorkflow({} as any)).toThrowError(BusAlreadyInitialized)
       await Bus.dispose()
     })
   })

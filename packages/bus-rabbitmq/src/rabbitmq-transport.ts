@@ -137,7 +137,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
     const subscriptionPromises = handlerRegistry
       .getMessageNames()
-      .concat(handlerRegistry.getExternallyManagedTopicArns())
+      .concat(handlerRegistry.getExternallyManagedTopicIdentifiers())
       .map(async topicIdentifier => {
         const exchangeName = topicIdentifier
         await this.assertExchange(exchangeName)

@@ -15,9 +15,9 @@
     "docs:build": "vuepress build && cp .vuepress/google* docs",
     "docs:deploy": "./deploy-docs.sh",
     "lint": "lerna run lint",
-    "test": "yarn test:unit --collect-coverage && yarn test:integration --collect-coverage",
+    "test": "dotenv -e test.env -- jest --collect-coverage",
     "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
-    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core|sqs).*(src\\/.+\\.|/)integration\\.ts$\"",
+    "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core|sqs|rabbitmq).*(src\\/.+\\.|/)integration\\.ts$\"",
     "test:watch": "dotenv -e test.env -- jest --watch"
   },
   "keywords": [
@@ -32,6 +32,13 @@
     "testTimeout": 5000,
     "setupFilesAfterEnv": [
       "<rootDir>/test/setup.ts"
+    ],
+    "collectCoverageFrom": [
+      "**/*.ts",
+      "!**/node_modules/**",
+      "!**/vendor/**",
+      "!**/dist/**",
+      "!**/bus-messages/**"
     ],
     "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "transform": {

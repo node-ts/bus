@@ -156,7 +156,7 @@ describe('SqsTransport', () => {
       })
 
       it('should handle the system message', async () => {
-        await sleep(1000)
+        await sleep(5000)
         handleChecker.verify(
           h => h.check(It.isObjectWith({ systemMessage: attrValue })),
           Times.once()

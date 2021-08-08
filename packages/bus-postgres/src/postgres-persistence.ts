@@ -224,7 +224,7 @@ export class PostgresPersistence implements Persistence {
     } else {
       logger.debug('Updating existing workflow state', { tableName, workflowId, oldVersion, newVersion })
 
-      // This is an exsiting workflow, so update teh data
+      // This is an existing workflow, so update the data
       const result = await this.postgres.query(`
         update
           ${tableName}
