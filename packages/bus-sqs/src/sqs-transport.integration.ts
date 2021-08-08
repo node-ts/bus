@@ -39,14 +39,14 @@ const sqsConfiguration: SqsTransportConfiguration = {
   awsRegion: AWS_REGION,
   awsAccountId: AWS_ACCOUNT_ID,
   queueName: `${resourcePrefix}-test`,
-  deadLetterQueueName: `${resourcePrefix}-dead-letter`,
+  deadLetterQueueName: `${resourcePrefix}-dead-letter`
 }
 
-const deadLetterQueueUrl = `https://sqs.us-west-2.amazonaws.com/878533832201/${sqsConfiguration.deadLetterQueueName}`
+let deadLetterQueueUrl: string
 const manualTopicName = `${resourcePrefix}-test-system-message`
 const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${manualTopicName}`
 
-jest.setTimeout(20000)
+jest.setTimeout(15000)
 
 describe('SqsTransport', () => {
   let sqs: SQS
@@ -55,37 +55,26 @@ describe('SqsTransport', () => {
   let handleChecker = Mock.ofType<HandleChecker>()
 
   beforeAll(async () => {
-    // sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
-    // sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
-    sqs = new SQS()
-    sns = new SNS()
+    sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+    sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+
+    deadLetterQueueUrl = `${sqs.endpoint.href}${process.env.AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
 
     await sns.createTopic({ Name: manualTopicName }).promise()
   })
 
   afterAll(async () => {
-    // tslint:disable-next-line:no-magic-numbers A timeout > 10s which is the default sqs receive timeout
-    jest.setTimeout(15000)
     await Bus.dispose()
-    await sqs.purgeQueue({
-      QueueUrl: resolveQueueUrl(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, normalizeMessageName(sqsConfiguration.queueName))
-    }).promise()
-    // await sqs.deleteQueue({
-    //   QueueUrl: sqsConfiguration.queueUrl
-    // }).promise()
-    // await sqs.deleteQueue({
-    //   QueueUrl: `https://sqs.${AWS_REGION}.amazonaws.com/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
-    // }).promise()
-    // await sns.deleteTopic({
-    //   TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-    // }).promise()
+    const appQueueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, normalizeMessageName(sqsConfiguration.queueName))
+    await sqs.purgeQueue({ QueueUrl: appQueueUrl }).promise()
+    await sqs.deleteQueue({ QueueUrl: appQueueUrl }).promise()
+    await sqs.deleteQueue({ QueueUrl: deadLetterQueueUrl }).promise()
   })
 
   describe('when the transport has been initialized', () => {
     beforeAll(async () => {
       const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
       await Bus.configure()
-        // .withLogger(logger.object)
         .withTransport(sqsTransport)
         .withHandler(
           TestCommand,
@@ -106,11 +95,9 @@ describe('SqsTransport', () => {
             topicIdentifier: manualTopicIdentifier
           }
         )
-        .withHandler(
-          TestFailMessage,
-          async () => Bus.fail()
-        )
+        .withHandler(TestFailMessage, async () => Bus.fail())
         .initialize()
+
       await Bus.start()
     })
 
@@ -152,7 +139,6 @@ describe('SqsTransport', () => {
     })
 
     describe('when a system message is received', () => {
-
       const message = new TestSystemMessage()
       const attrValue = faker.random.uuid()
 
@@ -204,11 +190,15 @@ describe('SqsTransport', () => {
 
     describe('when retrying a message', () => {
       it('should retry subsequent requests', async () => {
+        let attempts = 5
         await Bus.publish(new TestEvent())
-        let attempts = 10
-        while (attempts-- > 0) {
-          await new Promise<void>(resolve => testEventHandlerEmitter.on('received', resolve))
-        }
+        await new Promise<void>(resolve => {
+          testEventHandlerEmitter.on('received', () => {
+            if (--attempts === 0) {
+              resolve()
+            }
+          })
+        })
 
         // Delete the message out from the DLQ
         const result = await sqs.receiveMessage({
@@ -235,7 +225,7 @@ describe('SqsTransport', () => {
       let receiveCount: number
 
       beforeAll(async () => {
-        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl })
+        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
 
         await Bus.publish(messageToFail, { correlationId })
         const result = await sqs.receiveMessage({

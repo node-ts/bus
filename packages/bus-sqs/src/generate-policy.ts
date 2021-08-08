@@ -4,19 +4,14 @@ export const generatePolicy = (awsAccountId: string, awsRegion: string) => `
   "Statement": [
     {
       "Sid": "node-ts-bus-topic-subscriptions",
-      "Principal": "*",
+      "Principal": {
+        "AWS": ["${awsAccountId}"]
+      },
       "Effect": "Allow",
-      "Action": [
-        "sqs:SendMessage"
-      ],
+      "Action": ["sqs:SendMessage"],
       "Resource": [
         "arn:aws:sqs:${awsRegion}:${awsAccountId}:*"
-      ],
-      "Condition": {
-        "ArnLike": {
-          "aws:SourceArn": "arn:aws:sns:${awsRegion}:${awsAccountId}:*"
-        }
-      }
+      ]
     }
   ]
 }

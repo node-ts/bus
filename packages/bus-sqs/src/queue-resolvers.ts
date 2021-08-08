@@ -5,8 +5,8 @@ export const resolveTopicName = (messageName: string) =>
   normalizeMessageName(messageName)
 export const resolveTopicArn = (awsAccountId: string, awsRegion: string, topicName: string) =>
   `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
-export const resolveQueueUrl = (awsAccountId: string, awsRegion: string, queueName: string) =>
-  `https://sqs.${awsRegion}.amazonaws.com/${awsAccountId}/${queueName}`
+export const resolveQueueUrl = (href: string, awsAccountId: string, queueName: string) =>
+  `${href}${awsAccountId}/${queueName}`
 export const resolveQueueArn = (awsAccountId: string, awsRegion: string, queueName: string) =>
   `arn:aws:sqs:${awsRegion}:${awsAccountId}:${queueName}`
 export const resolveDeadLetterQueueName = () =>

@@ -68,13 +68,13 @@ export class SqsTransport implements Transport<SQS.Message> {
     private readonly sqs: SQS = new SQS(),
     private readonly sns: SNS = new SNS()
   ) {
-    this.queueUrl = resolveQueueUrl(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, sqsConfiguration.queueName)
+    this.queueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, sqsConfiguration.queueName)
     this.queueArn = resolveQueueArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, sqsConfiguration.queueName)
 
     this.deadLetterQueueName = sqsConfiguration.deadLetterQueueName
       ? normalizeMessageName(sqsConfiguration.deadLetterQueueName)
       : resolveDeadLetterQueueName()
-    this.deadLetterQueueUrl = resolveQueueUrl(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, this.deadLetterQueueName)
+    this.deadLetterQueueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, this.deadLetterQueueName)
     this.deadLetterQueueArn = resolveQueueArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, this.deadLetterQueueName)
   }
 
@@ -353,11 +353,14 @@ export class SqsTransport implements Transport<SQS.Message> {
   }
 
   private async syncQueueAttributes (queueUrl: string, attributes: QueueAttributeMap): Promise<void> {
-    // TODO: check equality before making this call to avoid potential API rate limit
-    await this.sqs.setQueueAttributes({
-      QueueUrl: queueUrl,
-      Attributes: attributes
-    }).promise()
+    // Check equality first to avoid potential API rate limit
+    const existingAttributes = await this.sqs.getQueueAttributes({ QueueUrl: queueUrl }).promise()
+    if (existingAttributes.Attributes !== attributes) {
+      await this.sqs.setQueueAttributes({
+        QueueUrl: queueUrl,
+        Attributes: attributes
+      }).promise()
+    }
   }
 }
 
