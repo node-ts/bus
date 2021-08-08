@@ -120,12 +120,12 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 }
 
-function toTransportMessage (
+export const toTransportMessage = (
   message: Message,
   messageOptions: MessageAttributes,
   isProcessing: boolean
-): TransportMessage<InMemoryMessage> {
-  return {
+): TransportMessage<InMemoryMessage> =>
+  ({
     id: undefined,
     domainMessage: message,
     attributes: messageOptions,
@@ -134,5 +134,4 @@ function toTransportMessage (
       payload: message,
       inFlight: isProcessing
     }
-  }
-}
+  })

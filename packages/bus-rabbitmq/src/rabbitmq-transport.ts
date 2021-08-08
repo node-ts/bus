@@ -15,6 +15,7 @@ import {
 } from '@node-ts/bus-core'
 import { Connection, Channel, Message as RabbitMqMessage, connect, GetMessage } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
+import uuid from 'uuid'
 
 export const DEFAULT_MAX_RETRIES = 10
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
@@ -41,6 +42,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   async initialize (): Promise<void> {
     logger.info('Initializing RabbitMQ transport')
     this.connection = await connect(this.configuration.connectionString)
+
     this.channel = await this.connection.createChannel()
     await this.bindExchangesToQueue()
     logger.info('RabbitMQ transport initialized')
@@ -89,7 +91,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
 
     return {
-      id: undefined,
+      id: rabbitMessage.properties.messageId,
       domainMessage: payload,
       raw: rabbitMessage,
       attributes
@@ -122,21 +124,23 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
   }
 
-  private async assertExchange (messageName: string): Promise<void> {
-    if (!this.assertedExchanges[messageName]) {
-      logger.debug('Asserting exchange', { messageName })
-      await this.channel.assertExchange(messageName, 'fanout', { durable: true })
-      this.assertedExchanges[messageName] = true
+  private async assertExchange (topicIdentifier: string): Promise<void> {
+    if (!this.assertedExchanges[topicIdentifier]) {
+      logger.debug('Asserting exchange', { messageName: topicIdentifier })
+      await this.channel.assertExchange(topicIdentifier, 'fanout', { durable: true })
+      this.assertedExchanges[topicIdentifier] = true
     }
   }
 
   private async bindExchangesToQueue (): Promise<void> {
     await this.createDeadLetterQueue()
     await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
-    const subscriptionPromises = handlerRegistry.getMessageNames()
-      .map(async messageName => {
-        const exchangeName = messageName
-        await this.assertExchange(messageName)
+    const subscriptionPromises = handlerRegistry
+      .getMessageNames()
+      .concat(handlerRegistry.getExternallyManagedTopicArns())
+      .map(async topicIdentifier => {
+        const exchangeName = topicIdentifier
+        await this.assertExchange(exchangeName)
 
         logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
@@ -163,6 +167,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payload = getSerializer().serialize(message)
     this.channel.publish(message.$name, '', Buffer.from(payload), {
       correlationId: messageOptions.correlationId,
+      messageId: uuid.v4(),
       headers: {
         attributes: messageOptions.attributes ? JSON.stringify(messageOptions.attributes) : undefined,
         stickyAttributes: messageOptions.stickyAttributes ? JSON.stringify(messageOptions.stickyAttributes) : undefined

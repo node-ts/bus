@@ -2,13 +2,16 @@ import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
 import { Bus, BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
-import { Mock, IMock, Times, It } from 'typemoq'
-import { HandlerContext } from '../handler'
+import { Mock, IMock, Times } from 'typemoq'
+import { HandlerContext, SystemMessageMissingResolver } from '../handler'
 import { TestCommand } from '../test/test-command'
 import { TestEvent2 } from '../test/test-event-2'
 import { ContainerNotRegistered } from '../error'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { EventEmitter } from 'stream'
+import { TestSystemMessage } from '../test/test-system-message'
+import { Command } from '@node-ts/bus-messages'
+import { toTransportMessage } from '../transport/memory-queue'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -236,6 +239,51 @@ describe('ServiceBus', () => {
 
         await Bus.dispose()
       })
+    })
+  })
+
+  describe('when handling messages originating from an external system', () => {
+    it('should fail when a custom resolver is not provided', async () => {
+      await Bus.dispose()
+
+      try {
+        await Bus.configure()
+          .withHandler(TestSystemMessage, async () => undefined)
+          .initialize()
+        fail('Registry should throw an SystemMessageMissingResolver error')
+      } catch (error) {
+        console.log(error)
+        expect(error).toBeInstanceOf(SystemMessageMissingResolver)
+      }
+    })
+
+    it('should handle the external message', async () => {
+      await Bus.dispose()
+
+      const events = new EventEmitter()
+      const queue = new MemoryQueue()
+      await Bus.configure()
+        .withTransport(queue)
+        .withHandler(
+          TestSystemMessage,
+          async ({ message }: HandlerContext<TestSystemMessage>) => { events.emit('event', message) },
+          {
+            resolveWith: m => m.name === TestSystemMessage.NAME
+          }
+        )
+        .initialize()
+
+      await Bus.start()
+
+      const systemMessageReceived = new Promise(resolve => events.on('event', resolve))
+      const systemMessage = new TestSystemMessage()
+      const transportSystemMessage = toTransportMessage(systemMessage as unknown as Command, { attributes: {}, stickyAttributes: {}}, false)
+      queue['queue'].push(transportSystemMessage)
+
+      const actualSystemMessage = await systemMessageReceived
+      expect(actualSystemMessage).toEqual(systemMessage)
+
+      await Bus.dispose()
     })
   })
 })

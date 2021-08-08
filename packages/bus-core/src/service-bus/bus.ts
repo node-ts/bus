@@ -67,7 +67,7 @@ class BusConfiguration {
    * @param messageHandler A callback that will be invoked when the message is received
    * @param customResolver Subscribe to a topic that's created and maintained outside of the application
    */
-  withHandler<MessageType extends Message> (
+  withHandler<MessageType extends (Message | object)> (
     messageType: ClassConstructor<MessageType>,
     messageHandler: Handler<MessageType>,
     customResolver?: {

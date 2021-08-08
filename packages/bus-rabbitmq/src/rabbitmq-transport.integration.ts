@@ -1,11 +1,22 @@
 import { RabbitMqTransport } from './rabbitmq-transport'
-import { TestEvent, TestCommand, testCommandHandler, TestPoisonedMessage, TestFailMessage } from '../test'
+import {
+  TestEvent,
+  TestCommand,
+  testCommandHandler,
+  TestPoisonedMessage,
+  TestFailMessage,
+  TestPoisonedMessageHandler,
+  TestSystemMessage,
+  HandleChecker
+} from '../test'
 import { Connection, Channel, Message as RabbitMqMessage, connect, ConsumeMessage } from 'amqplib'
-import { TransportMessage, Bus, Logger } from '@node-ts/bus-core'
+import { TransportMessage, Bus, Logger, HandlerContext } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as faker from 'faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { It, Mock, Times } from 'typemoq'
+import { IMock, It, Mock, Times } from 'typemoq'
+import uuid from 'uuid'
+import { EventEmitter } from 'stream'
 
 export async function sleep (timeoutMs: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, timeoutMs))
@@ -21,16 +32,33 @@ describe('RabbitMqTransport', () => {
   let rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: Connection
   let channel: Channel
+  let handleChecker: IMock<HandleChecker>
 
   beforeAll(async () => {
     await Bus.configure()
       .withTransport(rabbitMqTransport)
-      .withLogger(Mock.ofType<Logger>().object)
+      .withLogger(() => Mock.ofType<Logger>().object)
+      .withContainer({
+        get: _ => new TestPoisonedMessageHandler(handleChecker.object) as any
+      })
       .withHandler(TestCommand, testCommandHandler)
+      .withHandler(TestPoisonedMessage, TestPoisonedMessageHandler)
+      .withHandler(TestFailMessage, async () => Bus.fail())
+      .withHandler<TestSystemMessage>(
+        TestSystemMessage,
+        async ({ message, attributes }: HandlerContext<TestSystemMessage>) => handleChecker.object.check(message, attributes),
+        {
+          resolveWith: m => m.name === TestSystemMessage.NAME,
+          topicIdentifier: TestSystemMessage.NAME
+        }
+      )
       .initialize()
 
     connection = await connect(configuration.connectionString)
     channel = await connection.createChannel()
+    handleChecker = Mock.ofType<HandleChecker>()
+
+    await Bus.start()
   })
 
   afterAll(async () => {
@@ -63,23 +91,26 @@ describe('RabbitMqTransport', () => {
       const poisonedMessage = new TestPoisonedMessage(faker.random.uuid())
       beforeAll(async () => {
         jest.setTimeout(10000)
-        await Bus.publish(poisonedMessage)
-        await new Promise<void>(resolve => {
-          const consumerTag = faker.random.uuid()
-          channel.consume('dead-letter', msg => {
-            if (!msg) {
-              return
-            }
+        const events = new EventEmitter()
+        const consumerTag = faker.random.uuid()
+        channel.consume('dead-letter', msg => {
+          if (!msg) {
+            return
+          }
 
-            channel.ack(msg)
-            channel.cancel(consumerTag)
+          channel.ack(msg)
+          channel.cancel(consumerTag)
 
-            const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
-            if (message.id === poisonedMessage.id) {
-              resolve()
-            }
-          }, { consumerTag})
-        })
+          const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
+
+          if (message.id === poisonedMessage.id) {
+            events.emit('event', message)
+          }
+        }, { consumerTag})
+
+        const messageFailed = new Promise<void>(resolve => events.on('event', resolve))
+        await Bus.publish(poisonedMessage),
+        await messageFailed
       })
 
       it(`it should fail after configuration.maxRetries attempts`, () => {
@@ -108,12 +139,12 @@ describe('RabbitMqTransport', () => {
 
     describe('when sending a system message', () => {
       const command = new TestSystemMessage()
-      const channelName = command.name
+      const channelName = TestSystemMessage.NAME
 
       beforeAll(async () => {
         jest.setTimeout(10000)
-        channel.publish(channelName, '', Buffer.from(JSON.stringify(command)))
-        await sleep(5000)
+        channel.publish(channelName, '', Buffer.from(JSON.stringify(command)), { messageId: uuid.v4() })
+        await sleep(2000)
       })
 
       afterAll(async () => {
@@ -122,7 +153,7 @@ describe('RabbitMqTransport', () => {
 
       it('should handle system messages', async () => {
         handleChecker.verify(
-          h => h.check(It.is<TestSystemMessage>(m => m.name === command.name), It.isAny()),
+          h => h.check(It.is<TestSystemMessage>(m => m.name === TestSystemMessage.NAME), It.isAny()),
           Times.once()
         )
       })
@@ -194,7 +225,7 @@ describe('RabbitMqTransport', () => {
               channel.ack(msg)
               channel.cancel(consumerTag)
 
-              const message = JSON.parse(msg.content.toString()) as TestPoisonedMessage
+              const message = JSON.parse(msg.content.toString()) as TestFailMessage
               if (message.id === failMessage.id) {
                 deadLetter = message
                 rawDeadLetter = msg
@@ -218,6 +249,5 @@ describe('RabbitMqTransport', () => {
         expect(rawDeadLetter.properties.correlationId).toEqual(correlationId)
       })
     })
-
   })
 })

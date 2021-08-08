@@ -1,13 +1,13 @@
 import { Message } from '@node-ts/bus-messages'
 import { getLogger } from '../logger'
 import { ClassConstructor } from '../util'
-import { HandlerAlreadyRegistered } from './errors'
-import { ClassHandler, Handler, isClassHandler } from './handler'
+import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './errors'
+import { ClassHandler, Handler, isClassHandler, MessageBase } from './handler'
 
 const logger = () => getLogger('@node-ts/bus-core:handler-registry')
 
 interface RegisteredHandlers {
-  messageType: ClassConstructor<Message>
+  messageType: ClassConstructor<MessageBase>
   handlers: Handler[]
 }
 
@@ -36,7 +36,7 @@ export interface CustomResolver<MessageType> {
 export interface HandlerResolver {
   handler: Handler
   resolver (message: unknown): boolean
-  messageType: ClassConstructor<Message> | undefined
+  messageType: ClassConstructor<MessageBase> | undefined
   topicIdentifier: string | undefined
 }
 
@@ -55,7 +55,7 @@ export interface HandlerRegistry {
    * of the default @node-ts/bus-messages/Message behaviour in terms of matching
    * incoming messages to handlers.
    */
-  register<TMessage extends Message> (
+  register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
     customResolver?: CustomResolver<TMessage>
@@ -101,7 +101,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
   private unhandledMessages: MessageName[] = []
   private handlerResolvers: HandlerResolver[] = []
 
-  register<TMessage extends Message> (
+  register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
     customResolver?: CustomResolver<TMessage>
@@ -117,7 +117,12 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       })
       logger().info('Handler registered', { messageType: messageType.prototype.constructor.name, handler: handler.name })
     } else {
-      const messageName = new messageType().$name
+
+      const message = new messageType()
+      if (!('$name' in message)) {
+        throw new SystemMessageMissingResolver(messageType)
+      }
+      const messageName = message.$name
 
       if (!this.registry[messageName]) {
         // Register that the message will have subscriptions
@@ -139,7 +144,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     }
   }
 
-  get<MessageType extends Message> (message: object | Message): Handler<MessageType>[] {
+  get<MessageType extends MessageBase> (message: object | Message): Handler<MessageType>[] {
     const customHandlers = this.resolveCustomHandlers(message)
 
     const messageName = '$name' in message
