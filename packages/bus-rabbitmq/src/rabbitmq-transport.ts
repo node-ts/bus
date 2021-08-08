@@ -36,7 +36,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   constructor (
     private readonly configuration: RabbitMqTransportConfiguration
   ) {
-    this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
+    this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
   }
 
   async initialize (): Promise<void> {
@@ -91,7 +91,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     }
 
     return {
-      id: rabbitMessage.properties.messageId,
+      id: rabbitMessage.properties.messageId as string,
       domainMessage: payload,
       raw: rabbitMessage,
       attributes

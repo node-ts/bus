@@ -13,8 +13,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.3.1",
-    "autobind-decorator": "^2.4.0",
+    "@node-ts/bus-messages": "^0.3.2",
     "class-transformer": "^0.3.1",
     "debug": "^4.3.1",
     "reflect-metadata": "^0.1.13",
@@ -26,13 +25,13 @@
     "@node-ts/code-standards": "^0.0.10",
     "@types/debug": "^4.1.5",
     "@types/faker": "^4.1.5",
-    "@types/node": "^12.12.39",
+    "@types/node": "^14.14.31",
     "@types/serialize-error": "^4.0.1",
     "@types/uuid": "^8.3.1",
     "faker": "^4.1.0",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",
-    "typescript": "^4.1.2"
+    "typescript": "^4.1.5"
   },
   "keywords": [
     "esb",

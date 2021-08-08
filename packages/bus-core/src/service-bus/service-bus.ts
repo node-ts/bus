@@ -111,7 +111,6 @@ export class ServiceBus {
   }
 
   on = this.busHooks.on.bind(this.busHooks)
-
   off = this.busHooks.off.bind(this.busHooks)
 
   private async applicationLoop (): Promise<void> {

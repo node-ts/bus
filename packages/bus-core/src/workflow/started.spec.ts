@@ -102,7 +102,6 @@ export class AssignmentWorkflowState extends WorkflowState {
 class AssignmentWorkflow extends Workflow<AssignmentWorkflowState> {
 
   configureWorkflow(mapper: WorkflowMapper<AssignmentWorkflowState, AssignmentWorkflow>): void {
-
     mapper
       .withState(AssignmentWorkflowState)
       .startedBy(AssignmentCreated, 'assignmentCreated')
@@ -152,7 +151,7 @@ export const assignmentWorkflow = Workflow
 describe('Workflow', () => {
   const event = new AssignmentCreated('abc')
 
-  const CONSUME_TIMEOUT = 500
+  const CONSUME_TIMEOUT = 2000
 
   beforeAll(async () => {
     const inMemoryPersistence = new InMemoryPersistence()

@@ -56,4 +56,43 @@ export interface SqsTransportConfiguration {
    * }
    */
   queuePolicy?: string
+
+  /**
+   * The visibility timeout for the queue, in seconds. Valid values: An integer from 0 to 43,200 (12 hours)
+   * @default 30
+   */
+   visibilityTimeout?: number
+
+   /**
+    * The number of times a message is delivered to the source queue before being moved to the dead-letter queue
+    * @default 10
+    */
+   maxReceiveCount?: number
+
+   /**
+    * The wait time on sqs.receiveMessage, setting it to 0 will essentially turn it to short polling.
+    *
+    * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptable action.
+    *
+    * @default 10
+    */
+   waitTimeSeconds?: number
+
+   /**
+    * A resolver function that maps a message name to an SNS topic.
+    * @param messageName Name of the message to map
+    * @returns An SNS topic name where messages of @param messageName are sent. Must be compatible with SNS topic naming
+    * @example
+    *  resolveTopicName (messageName: string) => `production-${messageName}`
+    */
+   resolveTopicName (messageName: string): string
+
+   /**
+    * A resolver function that maps an SNS topic name to an SNS topic arn
+    * @param topicName Name of the message to map
+    * @returns An SNS topic url where messages are sent
+    * @example
+    *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
+    */
+   resolveTopicArn (topicName: string): string
 }

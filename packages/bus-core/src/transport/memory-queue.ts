@@ -3,10 +3,16 @@ import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-message
 import { TransportMessage } from './transport-message'
 import { handlerRegistry } from '../handler'
 import { getLogger } from '../logger'
+import { EventEmitter } from 'stream'
 
 export const RETRY_LIMIT = 10
 
 const logger = getLogger('@node-ts/bus-core:memory-queue')
+
+/**
+ * How long to wait for the next message
+ */
+ export const RECEIVE_TIMEOUT_MS = 1000
 
 export interface InMemoryMessage {
   /**
@@ -35,6 +41,7 @@ export interface InMemoryMessage {
 export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
+  private queuePushed: EventEmitter = new EventEmitter()
   private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
 
@@ -64,17 +71,42 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
-    logger.debug('Reading next message', { queueSize: this.queue.length })
-    const availableMessages = this.queue.filter(m => !m.raw.inFlight)
+    logger.debug('Reading next message', { depth: this.depth, numberMessagesVisible: this.numberMessagesVisible })
+    return new Promise<TransportMessage<InMemoryMessage> | undefined>(resolve => {
+      const onMessageEmitted = () => {
+        unsubscribeEmitter()
+        clearTimeout(timeoutToken)
+        resolve(getNextMessage())
+      }
+      this.queuePushed.on('pushed', onMessageEmitted)
+      const unsubscribeEmitter = () => this.queuePushed.off('pushed', onMessageEmitted)
 
-    if (availableMessages.length === 0) {
-      logger.debug('No messages available in queue')
-      return undefined
-    }
+      // Immediately returns the next available message, or undefined if none are available
+      const getNextMessage = () => {
+        const availableMessages = this.queue.filter(m => !m.raw.inFlight)
+        if (availableMessages.length === 0) {
+          logger.debug('No messages available in queue')
+          return
+        }
 
-    const message = availableMessages[0]
-    message.raw.inFlight = true
-    return message
+        const message = availableMessages[0]
+        message.raw.inFlight = true
+        return message
+      }
+
+      const timeoutToken = setTimeout(() => {
+        unsubscribeEmitter()
+        resolve(undefined)
+      }, RECEIVE_TIMEOUT_MS)
+
+      const nextMessage = getNextMessage()
+      if (nextMessage) {
+        unsubscribeEmitter()
+        clearTimeout(timeoutToken)
+        resolve(nextMessage)
+      }
+      // Else wait for the timeout (empty return) or emitted event to return
+    })
   }
 
   async deleteMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
@@ -96,13 +128,24 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
-  get depth (): number {
+  /**
+   * Gets the queue depth, which is the number of messages both queued and in flight
+   */
+   get depth (): number {
     return this.queue.length
   }
 
   get deadLetterQueueDepth (): number {
     return this.deadLetterQueue.length
   }
+
+  /**
+   * Gets the number of messages in the queue, excluding those in flight
+   */
+  get numberMessagesVisible (): number {
+    return this.queue.filter(m => !m.raw.inFlight).length
+  }
+
 
   private async sendToDeadLetterQueue (message: TransportMessage<InMemoryMessage>): Promise<void> {
     this.deadLetterQueue.push(message)

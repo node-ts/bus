@@ -11,7 +11,14 @@ import {
 import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { generatePolicy } from './generate-policy'
-import { normalizeMessageName, resolveDeadLetterQueueName, resolveQueueArn, resolveQueueUrl, resolveTopicArn, resolveTopicName } from './queue-resolvers'
+import {
+  normalizeMessageName,
+  resolveDeadLetterQueueName,
+  resolveQueueArn,
+  resolveQueueUrl,
+  resolveTopicArn,
+  resolveTopicName
+} from './queue-resolvers'
 
 const logger = () => getLogger('@node-ts/bus-sqs:sqs-transport')
 
@@ -19,8 +26,10 @@ export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
 const DEFAULT_MESSAGE_RETENTION: Seconds = 1209600
 
-const MAX_RETRY_COUNT = 10
+const DEFAULT_VISIBILITY_TIMEOUT = 30
+const DEFAULT_MAX_RETRY_COUNT = 10
 const MILLISECONDS_IN_SECONDS = 1000
+const DEFAULT_WAIT_TIME_SECONDS = 10
 type Seconds = number
 type Milliseconds = number
 
@@ -69,13 +78,25 @@ export class SqsTransport implements Transport<SQS.Message> {
     private readonly sns: SNS = new SNS()
   ) {
     this.queueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, sqsConfiguration.queueName)
-    this.queueArn = resolveQueueArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, sqsConfiguration.queueName)
+    this.queueArn = resolveQueueArn(
+      sqsConfiguration.awsAccountId,
+      sqsConfiguration.awsRegion,
+      sqsConfiguration.queueName
+    )
 
     this.deadLetterQueueName = sqsConfiguration.deadLetterQueueName
       ? normalizeMessageName(sqsConfiguration.deadLetterQueueName)
       : resolveDeadLetterQueueName()
-    this.deadLetterQueueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, this.deadLetterQueueName)
-    this.deadLetterQueueArn = resolveQueueArn(sqsConfiguration.awsAccountId, sqsConfiguration.awsRegion, this.deadLetterQueueName)
+    this.deadLetterQueueUrl = resolveQueueUrl(
+      sqs.endpoint.href,
+      sqsConfiguration.awsAccountId,
+      this.deadLetterQueueName
+    )
+    this.deadLetterQueueArn = resolveQueueArn(
+      sqsConfiguration.awsAccountId,
+      sqsConfiguration.awsRegion,
+      this.deadLetterQueueName
+    )
   }
 
   async publish<EventType extends Event> (event: EventType, messageAttributes?: MessageAttributes): Promise<void> {
@@ -107,7 +128,7 @@ export class SqsTransport implements Transport<SQS.Message> {
   async readNextMessage (): Promise<TransportMessage<SQS.Message> | undefined> {
     const receiveRequest: SQS.ReceiveMessageRequest = {
       QueueUrl: this.queueUrl,
-      WaitTimeSeconds: 10,
+      WaitTimeSeconds: this.sqsConfiguration.waitTimeSeconds || DEFAULT_WAIT_TIME_SECONDS,
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ['.*'],
       AttributeNames: ['ApproximateReceiveCount']
@@ -194,9 +215,9 @@ export class SqsTransport implements Transport<SQS.Message> {
     )
 
     const serviceQueueAttributes: QueueAttributeMap = {
-      MessageRetentionPeriod: (this.sqsConfiguration.messageRetentionPeriod || DEFAULT_MESSAGE_RETENTION).toString(),
+      VisibilityTimeout: `${this.sqsConfiguration.visibilityTimeout || DEFAULT_VISIBILITY_TIMEOUT}`,
       RedrivePolicy: JSON.stringify({
-        maxReceiveCount: MAX_RETRY_COUNT,
+        maxReceiveCount: this.sqsConfiguration.maxReceiveCount ?? DEFAULT_MAX_RETRY_COUNT,
         deadLetterTargetArn: this.deadLetterQueueArn
       })
     }
@@ -219,7 +240,11 @@ export class SqsTransport implements Transport<SQS.Message> {
     const messageName = message.$name
     if (!this.registeredMessages[messageName]) {
       const snsTopicName = resolveTopicName(messageName)
-      const snsTopicArn = resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, messageName)
+      const snsTopicArn = resolveTopicArn(
+        this.sqsConfiguration.awsAccountId,
+        this.sqsConfiguration.awsRegion,
+        messageName
+      )
       await this.createSnsTopic(snsTopicName)
       this.registeredMessages[messageName] = snsTopicArn
     }
