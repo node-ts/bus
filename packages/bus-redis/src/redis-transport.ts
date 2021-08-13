@@ -43,7 +43,8 @@ export interface RedisMessage {
 @injectable()
 export class RedisMqTransport implements Transport<RedisMessage> {
 
-  private connection: Connection
+  private queueConnection: Connection
+  private workerConnection: Connection
   private queue: Queue
   private worker: Worker
   private maxRetries: number
@@ -62,19 +63,21 @@ export class RedisMqTransport implements Transport<RedisMessage> {
 
   async initialize (): Promise<void> {
     this.logger.info('Initializing Redis transport')
-    this.connection = await this.connectionFactory()
+    this.queueConnection = await this.connectionFactory()
+    this.workerConnection = await this.connectionFactory()
     this.queue = new Queue(this.configuration.queueName, {
-      connection: this.connection
+      connection: this.queueConnection
     })
 
-    this.worker = new Worker(this.configuration.queueName)
+    this.worker = new Worker(this.configuration.queueName, undefined, {connection: this.workerConnection})
     this.logger.info('Redis transport initialized')
   }
 
   async dispose (): Promise<void> {
     await this.worker.close()
     await this.queue.close()
-    this.connection.disconnect()
+    this.queueConnection.disconnect()
+    this.workerConnection.disconnect()
     this.logger.info('Redis transport disposed')
   }
 
