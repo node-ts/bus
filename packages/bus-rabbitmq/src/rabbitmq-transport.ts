@@ -21,6 +21,9 @@ export const DEFAULT_MAX_RETRIES = 10
 const deadLetterExchange = '@node-ts/bus-rabbitmq/dead-letter-exchange'
 const deadLetterQueue = 'dead-letter'
 
+const retryExchange = (serviceQueueName: string) => `${serviceQueueName}-exchange`
+const retryQueue = (serviceQueueName: string) => `${serviceQueueName}-retry`
+
 const logger = getLogger('@node-ts/bus-rabbitmq:rabbitmq-transport')
 
 /**
@@ -81,14 +84,14 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payload = MessageSerializer.deserialize(payloadStr)
 
     const attributes: MessageAttributes = {
-      correlationId: rabbitMessage.properties.correlationId as string,
+      correlationId: rabbitMessage.properties.correlationId as string | undefined,
       attributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.attributes
         ? JSON.parse(rabbitMessage.properties.headers.attributes as string) as MessageAttributeMap
         : {},
       stickyAttributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.stickyAttributes
         ? JSON.parse(rabbitMessage.properties.headers.stickyAttributes as string) as MessageAttributeMap
         : {}
-    }
+    } as any
 
     return {
       id: rabbitMessage.properties.messageId as string,
@@ -115,7 +118,8 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const msg = JSON.parse(message.raw.content.toString())
     const attempt = message.raw.fields.deliveryTag
     const meta = { attempt, message: msg, rawMessage: message.raw }
-    if (attempt >= this.maxRetries) {
+
+    if (attempt > this.maxRetries) {
       logger.debug('Message retries failed, sending to dead letter queue', meta)
       this.channel.reject(message.raw, false)
     } else {
@@ -134,7 +138,15 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private async bindExchangesToQueue (): Promise<void> {
     await this.createDeadLetterQueue()
-    await this.channel.assertQueue(this.configuration.queueName, { durable: true, deadLetterExchange })
+    await this.createRetryQueue()
+
+    await this.channel.assertQueue(
+      this.configuration.queueName,
+      {
+        durable: true,
+        deadLetterExchange: retryExchange(this.configuration.queueName)
+      }
+    )
     const subscriptionPromises = handlerRegistry
       .getMessageNames()
       .concat(handlerRegistry.getExternallyManagedTopicIdentifiers())
@@ -147,6 +159,32 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       })
 
     await Promise.all(subscriptionPromises)
+  }
+
+
+  /**
+   * RabbitMQ doesn't have a concept of retries, and messages are immutable (including headers)
+   * so one way to achieve retries is to fail messages to a retry queue that uses a short ttl.
+   *
+   * The downside to this approach is the message is requeued at the end of the service queue, so
+   * it doesn't act as a traditional retry mechanism and can cause issues for queues with large
+   * message depth and FIFO-esque processing.
+   */
+  private async createRetryQueue (): Promise<void> {
+    await this.channel.assertExchange(retryExchange(this.configuration.queueName), 'direct', { durable: true })
+    await this.channel.assertQueue(
+      retryQueue(this.configuration.queueName),
+      { arguments: {
+        'x-message-ttl': 1,
+        'x-dead-letter-exchange': this.configuration.queueName,
+        'x-dead-letter-routing-key': 'retry*'
+      }}
+    )
+    await this.channel.bindQueue(
+      retryQueue(this.configuration.queueName),
+      retryExchange(this.configuration.queueName),
+      ''
+    )
   }
 
   /**

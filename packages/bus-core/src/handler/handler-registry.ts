@@ -221,7 +221,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
    * @param message A message that has been fetched from the bus. Note that this may or may not
    * adhere to @node-ts/bus-messages/Message contracts, and could be any externally generated message.
    */
-  private resolveCustomHandlers<MessageType extends Message> (message: object): Handler<MessageType>[] {
+  private resolveCustomHandlers<MessageType extends MessageBase> (message: object): Handler<MessageType>[] {
     return this.handlerResolvers
       .filter(handlerResolver => handlerResolver.resolver(message))
       .map(handlerResolver => handlerResolver.handler)

@@ -1,8 +1,7 @@
-import { Message } from '@node-ts/bus-messages'
-import * as faker from 'faker'
+import * as uuid from 'uuid'
 
-export class TestSystemMessage extends Message {
-  static NAME = `integration-${faker.random.uuid()}`
+export class TestSystemMessage {
+  static NAME = `integration-${uuid.v4()}`
   readonly $name = TestSystemMessage.NAME
   readonly $version: number = 0
 }
