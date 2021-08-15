@@ -1,9 +1,6 @@
-export interface RedisTransportConfiguration {
-  /**
-   * Name of the queue that the bus will receive messages from, and bind exchanges to
-   */
-  queueName: string
+import { TransportConfiguration } from '@node-ts/bus-core'
 
+export interface RedisTransportConfiguration extends TransportConfiguration {
   /**
    * The redis connection string to use to connect to the redis instance
    * The following is the equivalent of:

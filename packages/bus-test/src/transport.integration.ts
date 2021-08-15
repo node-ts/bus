@@ -70,64 +70,64 @@ export const transportTests = (
       await Bus.start()
     })
 
-    // describe('when a system message is received', () => {
-    //   const attrValue = uuid.v4()
+    describe('when a system message is received', () => {
+      const attrValue = uuid.v4()
 
-    //   beforeAll(async () => publishSystemMessage(attrValue))
+      beforeAll(async () => publishSystemMessage(attrValue))
 
-    //   it('should handle the system message', async () => {
-    //     await new Promise<void>(resolve => testSystemMessageHandlerEmitter.on('event', resolve))
-    //     handleChecker.verify(
-    //       h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>({ attributes: { systemMessage: attrValue } })),
-    //       Times.once()
-    //     )
-    //   })
-    // })
+      it('should handle the system message', async () => {
+        await new Promise<void>(resolve => testSystemMessageHandlerEmitter.on('event', resolve))
+        handleChecker.verify(
+          h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>({ attributes: { systemMessage: attrValue } })),
+          Times.once()
+        )
+      })
+    })
 
-    // describe('when sending a command', () => {
-    //   const testCommand = new TestCommand(uuid.v4(), new Date())
-    //   const messageOptions: MessageAttributes = {
-    //     correlationId: uuid.v4(),
-    //     attributes: {
-    //       attribute1: 'a',
-    //       attribute2: 1
-    //     },
-    //     stickyAttributes: {
-    //       attribute1: 'b',
-    //       attribute2: 2
-    //     }
-    //   }
+    describe('when sending a command', () => {
+      const testCommand = new TestCommand(uuid.v4(), new Date())
+      const messageOptions: MessageAttributes = {
+        correlationId: uuid.v4(),
+        attributes: {
+          attribute1: 'a',
+          attribute2: 1
+        },
+        stickyAttributes: {
+          attribute1: 'b',
+          attribute2: 2
+        }
+      }
 
-    //   it('should receive and dispatch to the handler', async () => {
-    //     await Bus.send(testCommand, messageOptions)
-    //     await new Promise(resolve => testCommandHandlerEmitter.on('received', resolve))
-    //     handleChecker.verify(
-    //       h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>(messageOptions)),
-    //       Times.once()
-    //     )
-    //   })
-    // })
+      it('should receive and dispatch to the handler', async () => {
+        await Bus.send(testCommand, messageOptions)
+        await new Promise(resolve => testCommandHandlerEmitter.on('received', resolve))
+        handleChecker.verify(
+          h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>(messageOptions)),
+          Times.once()
+        )
+      })
+    })
 
-    // describe('when publishing an event', () => {
-    //   const testEvent = new TestEvent()
-    //   const messageOptions: MessageAttributes = {
-    //     correlationId: uuid.v4(),
-    //     attributes: {
-    //       foo: 'bar'
-    //     },
-    //     stickyAttributes: {
-    //     }
-    //   }
+    describe('when publishing an event', () => {
+      const testEvent = new TestEvent()
+      const messageOptions: MessageAttributes = {
+        correlationId: uuid.v4(),
+        attributes: {
+          foo: 'bar'
+        },
+        stickyAttributes: {
+        }
+      }
 
-    //   it('should receive and dispatch to the handler', async () => {
-    //     await Bus.publish(testEvent, messageOptions)
-    //     await new Promise(resolve => testEventHandlerEmitter.on('received', resolve))
-    //     handleChecker.verify(
-    //       h => h.check(It.isAnyObject(TestEvent), It.isObjectWith<MessageAttributes>(messageOptions)),
-    //       Times.once()
-    //     )
-    //   })
-    // })
+      it('should receive and dispatch to the handler', async () => {
+        await Bus.publish(testEvent, messageOptions)
+        await new Promise(resolve => testEventHandlerEmitter.on('received', resolve))
+        handleChecker.verify(
+          h => h.check(It.isAnyObject(TestEvent), It.isObjectWith<MessageAttributes>(messageOptions)),
+          Times.once()
+        )
+      })
+    })
 
     describe('when handing a poisoned message', () => {
       const poisonedMessage = new TestPoisonedMessage(uuid.v4())
@@ -137,7 +137,6 @@ export const transportTests = (
         await Bus.publish(poisonedMessage)
         await new Promise<void>(resolve => {
           testPoisonedMessageHandlerEmitter.on('received', attempts => {
-            console.log('andrew', attempts)
             if (attempts >= 10) {
               resolve()
             }
@@ -145,7 +144,6 @@ export const transportTests = (
         })
 
         deadMessages = await readAllFromDeadLetterQueue()
-        console.log('got dead messages', deadMessages)
       })
 
       it('should retry processing of the message then fail to the dead letter queue', () => {
@@ -155,35 +153,35 @@ export const transportTests = (
       })
     })
 
-    // describe('when failing a message', () => {
-    //   const messageToFail = new TestFailMessage(uuid.v4())
-    //   const correlationId = uuid.v4()
-    //   let deadLetterQueueMessages: { message: Message, attributes: MessageAttributes }[]
+    describe('when failing a message', () => {
+      const messageToFail = new TestFailMessage(uuid.v4())
+      const correlationId = uuid.v4()
+      let deadLetterQueueMessages: { message: Message, attributes: MessageAttributes }[]
 
-    //   beforeAll(async () => {
-    //     await Bus.publish(messageToFail, { correlationId })
-    //     deadLetterQueueMessages = await readAllFromDeadLetterQueue()
-    //   })
+      beforeAll(async () => {
+        await Bus.publish(messageToFail, { correlationId })
+        deadLetterQueueMessages = await readAllFromDeadLetterQueue()
+      })
 
-    //   it('should forward it to the dead letter queue', () => {
-    //     const deadLetterMessage = deadLetterQueueMessages
-    //       .find(msg => msg.message.$name === messageToFail.$name)
-    //     expect(deadLetterMessage).toBeDefined()
-    //     expect(deadLetterMessage!.message).toMatchObject(messageToFail)
-    //   })
+      it('should forward it to the dead letter queue', () => {
+        const deadLetterMessage = deadLetterQueueMessages
+          .find(msg => msg.message.$name === messageToFail.$name)
+        expect(deadLetterMessage).toBeDefined()
+        expect(deadLetterMessage!.message).toMatchObject(messageToFail)
+      })
 
-    //   it('should only have received the message once', () => {
-    //     const receiveCount = deadLetterQueueMessages
-    //       .filter(msg => msg.message.$name === messageToFail.$name)
-    //       .length
-    //     expect(receiveCount).toEqual(1)
-    //   })
+      it('should only have received the message once', () => {
+        const receiveCount = deadLetterQueueMessages
+          .filter(msg => msg.message.$name === messageToFail.$name)
+          .length
+        expect(receiveCount).toEqual(1)
+      })
 
-    //   it('should retain the same message attributes', () => {
-    //     const deadLetterMessage = deadLetterQueueMessages
-    //       .find(msg => msg.message.$name === messageToFail.$name)
-    //     expect(deadLetterMessage?.attributes.correlationId).toEqual(correlationId)
-    //   })
-    // })
+      it('should retain the same message attributes', () => {
+        const deadLetterMessage = deadLetterQueueMessages
+          .find(msg => msg.message.$name === messageToFail.$name)
+        expect(deadLetterMessage?.attributes.correlationId).toEqual(correlationId)
+      })
+    })
   })
 }

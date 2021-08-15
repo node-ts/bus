@@ -1,4 +1,6 @@
-export interface SqsTransportConfiguration {
+import { TransportConfiguration } from '@node-ts/bus-core'
+
+export interface SqsTransportConfiguration extends TransportConfiguration {
   /**
    * The AWS Account Id of the account where queues and topics will be created
    */
@@ -8,19 +10,6 @@ export interface SqsTransportConfiguration {
    * The AWS region to create queues and topics in
    */
   awsRegion: string
-
-  /**
-   * The name of the queue that receives incoming messages
-   * @example production-application-server
-   */
-  queueName: string
-
-  /**
-   * An optional name of the dead letter queue to fail messages to
-   * @default dead-letter-queue
-   * @example production-dead-letter-queue
-   */
-  deadLetterQueueName?: string
 
   /**
    * The number of seconds to retain messages in the service and dead letter queues
