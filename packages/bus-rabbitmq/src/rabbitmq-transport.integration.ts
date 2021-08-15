@@ -6,10 +6,6 @@ import { Message, MessageAttributeMap, MessageAttributes } from '@node-ts/bus-me
 import uuid from 'uuid'
 import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
 
-export async function sleep (timeoutMs: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, timeoutMs))
-}
-
 const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',
   deadLetterQueueName: '@node-ts/bus-rabbitmq-test-dead-letter',
@@ -17,9 +13,9 @@ const configuration: RabbitMqTransportConfiguration = {
   maxRetries: 10
 }
 
-jest.setTimeout(10000)
-
 describe('RabbitMqTransport', () => {
+  jest.setTimeout(10000)
+
   let rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: Connection
   let channel: Channel

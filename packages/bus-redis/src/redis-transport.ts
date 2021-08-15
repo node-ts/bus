@@ -18,6 +18,7 @@ interface Payload {
   attributes: MessageAttributeMap
   stickyAttributes: MessageAttributeMap
 }
+
 export interface RedisMessage {
   /**
    * A BullMQ Job is the message on the queue.

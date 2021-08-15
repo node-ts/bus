@@ -1,4 +1,4 @@
-import { Bus, HandlerContext, Transport, sleep } from '@node-ts/bus-core'
+import { Bus, HandlerContext, Transport } from '@node-ts/bus-core'
 import { HandleChecker, TestCommand, TestEvent, TestFailMessage, TestPoisonedMessage } from './helpers'
 import { EventEmitter } from 'stream'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -84,7 +84,7 @@ export const transportTests = (
       })
     })
 
-    describe('when sending a command', () => {
+    fdescribe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4(), new Date())
       const messageOptions: MessageAttributes = {
         correlationId: uuid.v4(),
