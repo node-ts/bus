@@ -57,20 +57,27 @@ export class RedisMqTransport implements Transport<QueueMessage> {
     this.connection = new Redis(this.configuration.connectionString)
     // Subscribe this queue to listen to all messages in the HandlerRegistry
     await this.subscribeToMessagesOfInterest()
-    this.queue = new ModestQueue(this.configuration.queueName, this.configuration.connectionString, this.configuration.visibilityTimeout || 30000, this.maxRetries, this.configuration.withScheduler)
+    this.queue = new ModestQueue({
+      queueName:this.configuration.queueName,
+      connectionString:this.configuration.connectionString,
+      visibilityTimeout:this.configuration.visibilityTimeout ?? 30000,
+      maxAttempts: 3,
+      withScheduler: this.configuration.withScheduler
+    })
     await this.queue.initialize()
 
     this.logger.info('Redis transport initialized')
   }
   async subscribeToMessagesOfInterest():Promise<void> {
     const queueSubscriptionPromises = this.handlerRegistry.messageSubscriptions
-      .filter(subscription => !!subscription.messageType || !!subscription.topicIdentifier)
+      .filter(subscription => !!subscription.messageType)
       .map(async subscription => {
         if (subscription.messageType) {
           const messageCtor = subscription.messageType
+          console.error(subscription)
           return this.connection.sadd(`${this.subscriptionsKeyPrefix}${new messageCtor().$name}`, this.configuration.queueName)
         } else {
-          throw new Error('Unable to messageType to this queue')
+          throw new Error(`Unable to messageType to this queue: ${subscription}`)
         }
       })
     this.logger.info('Subscribe queue to messages in HandlerRegistry')
@@ -109,6 +116,8 @@ export class RedisMqTransport implements Transport<QueueMessage> {
 
     this.logger.debug('Received message from Redis', {redisMessage: maybeMessage.message})
     const { message, ...attributes}: Payload = JSON.parse(maybeMessage.message)
+    console.error('ed!')
+    console.error(message)
     const domainMessage = this.messageSerializer.deserialize(message)
 
     return {
@@ -136,8 +145,7 @@ export class RedisMqTransport implements Transport<QueueMessage> {
     const failedJobMessage =
       `Failed job: ${message.id}. Attempt: ${message.raw.metadata.currentAttempt}/${this.maxRetries}`
     this.logger.debug(failedJobMessage)
-    /* modest-queue supports automatic retry, we simply need to state that it failed.
-    */
+    // modest-queue supports automatic retry, we simply need to state that it failed.
     await this.queue.messageFailed(message.raw)
   }
 
@@ -155,8 +163,8 @@ export class RedisMqTransport implements Transport<QueueMessage> {
     const serializedPayload = JSON.stringify(payload)
     const queues = await this.getQueuesSubscribedToMessage(message)
     await Promise.all(queues.map(async queueName => {
-      const queue = new ModestQueue(queueName, this.configuration.connectionString, undefined, undefined, false)
-      await queue.initialize(this.connection)
+      const queue = new ModestQueue({queueName, connection: this.connection, withScheduler: false})
+      await queue.initialize()
       await queue.publish(serializedPayload)
       await queue.dispose()
     }))
