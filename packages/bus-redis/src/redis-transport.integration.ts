@@ -1,4 +1,4 @@
-import { RedisMqTransport } from './redis-transport'
+import { RedisTransport } from './redis-transport'
 import {
   TestContainer,
   TestCommandHandler,
@@ -35,7 +35,7 @@ const configuration: RedisTransportConfiguration = {
 
 describe('RedisTransport', () => {
   let bus: Bus
-  let sut: RedisMqTransport
+  let sut: RedisTransport
   let container: TestContainer
   let bootstrap: ApplicationBootstrap
   let handleChecker: IMock<HandleChecker>

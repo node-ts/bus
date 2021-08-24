@@ -24,7 +24,7 @@ interface Payload {
  * A Redis transport adapter for @node-ts/bus.
  */
 @injectable()
-export class RedisMqTransport implements Transport<QueueMessage> {
+export class RedisTransport implements Transport<QueueMessage> {
   private queue: ModestQueue
   private maxRetries: number
 

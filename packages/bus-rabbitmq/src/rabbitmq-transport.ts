@@ -33,7 +33,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     @inject(BUS_SYMBOLS.MessageSerializer)
       private readonly messageSerializer: MessageSerializer
   ) {
-    this.maxRetries = configuration.maxRetries || DEFAULT_MAX_RETRIES
+    this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
   }
 
   async initialize (): Promise<void> {

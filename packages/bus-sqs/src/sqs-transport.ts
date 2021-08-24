@@ -183,7 +183,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     const serviceQueueAttributes: QueueAttributeMap = {
       VisibilityTimeout: `${this.sqsConfiguration.visibilityTimeout || DEFAULT_VISIBILITY_TIMEOUT}`,
       RedrivePolicy: JSON.stringify({
-        maxReceiveCount: this.sqsConfiguration.maxReceiveCount || DEFAULT_MAX_RETRY_COUNT,
+        maxReceiveCount: this.sqsConfiguration.maxReceiveCount ?? DEFAULT_MAX_RETRY_COUNT,
         deadLetterTargetArn: this.sqsConfiguration.deadLetterQueueArn
       })
     }

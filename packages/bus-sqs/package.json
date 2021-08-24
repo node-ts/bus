@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-sqs",
   "description": "An AWS SQS transport adapter for @node-ts/bus-core.",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -36,7 +36,7 @@
     "typescript": "^4.3.5"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^0.6.5",
+    "@node-ts/bus-core": "^0.6.6",
     "@node-ts/logger-core": "^0.0.13",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13"

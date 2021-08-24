@@ -36,12 +36,12 @@ const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
 
 const sqsConfiguration: SqsTransportConfiguration = {
   queueName: `${resourcePrefix}-test`,
-  queueUrl: `http://localhost:4576/queue/${resourcePrefix}-test`,
-  queueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
+  queueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${resourcePrefix}-test`,
+  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
 
   deadLetterQueueName: `${resourcePrefix}-dead-letter`,
-  deadLetterQueueUrl: `http://localhost:4576/queue/${resourcePrefix}-dead-letter`,
-  deadLetterQueueArn: `arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
+  deadLetterQueueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${resourcePrefix}-dead-letter`,
+  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
 
   resolveTopicName: (messageName: string) =>
     `${resourcePrefix}-${normalizeMessageName(messageName)}`,
@@ -49,27 +49,12 @@ const sqsConfiguration: SqsTransportConfiguration = {
   resolveTopicArn: (topicName: string) =>
     `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`,
 
-  queuePolicy: `
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Principal": "*",
-        "Effect": "Allow",
-        "Action": [
-          "sqs:SendMessage"
-        ],
-        "Resource": [
-          "arn:aws:sqs:elasticmq:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
-        ],
-        "Condition": {
-          "ArnLike": {
-            "aws:SourceArn": "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-*"
-          }
-        }
-      }
-    ]
-  }
+    queuePolicy: `
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+      ]
+    }
 `
 }
 
@@ -91,12 +76,12 @@ describe('SqsTransport', () => {
     container
       .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sns)
       .toConstantValue(new SNS({
-        endpoint: 'http://localhost:4575'
+        endpoint: 'http://localhost:4566'
       }))
     container
       .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
       .toConstantValue(new SQS({
-        endpoint: 'http://localhost:4576'
+        endpoint: 'http://localhost:4566'
       }))
     sut = container.get(BUS_SYMBOLS.Transport)
     sqs = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
@@ -124,7 +109,7 @@ describe('SqsTransport', () => {
         QueueUrl: sqsConfiguration.queueUrl
       }).promise(),
       sqs.deleteQueue({
-        QueueUrl: `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
+        QueueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
       }).promise(),
       sns.deleteTopic({
         TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
@@ -224,7 +209,7 @@ describe('SqsTransport', () => {
       let message: TestFailMessage
       let receiveCount: number
       beforeAll(async () => {
-        const deadLetterQueueUrl = `http://localhost:4576/queue/${sqsConfiguration.deadLetterQueueName}`
+        const deadLetterQueueUrl = `http://localhost:4566/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
         await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
         await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
         const result = await sqs.receiveMessage({
