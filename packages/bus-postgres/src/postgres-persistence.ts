@@ -20,21 +20,15 @@ const WORKFLOW_DATA_FIELD_NAME = 'data'
 
 export class PostgresPersistence implements Persistence {
 
-  private constructor (
-    private readonly postgres: Pool,
-    private readonly configuration: PostgresConfiguration
+  constructor (
+    private readonly configuration: PostgresConfiguration,
+    private readonly postgres: Pool = new Pool(configuration.connection)
   ) {
-  }
-
-  static configure (configuration: PostgresConfiguration): PostgresPersistence {
-    return new PostgresPersistence(
-      new Pool(configuration.connection),
-      configuration
-    )
   }
 
   async initialize (): Promise<void> {
     logger.info('Initializing postgres persistence...')
+    await this.postgres.connect()
     await this.ensureSchemaExists(this.configuration.schemaName)
     logger.info('Postgres persistence initialized')
   }
@@ -67,7 +61,7 @@ export class PostgresPersistence implements Persistence {
     logger.debug('Getting workflow state', { workflowStateName: workflowStateConstructor.name })
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
-    const matcherValue = messageMap.lookup({ message, attributes })
+    const matcherValue = messageMap.lookup(message, attributes)
 
     const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.mapsTo}'`
     const query = `

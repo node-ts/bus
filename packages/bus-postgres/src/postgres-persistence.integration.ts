@@ -23,7 +23,7 @@ describe('PostgresPersistence', () => {
     await postgres.connect()
     await postgres.query('create schema if not exists ' + configuration.schemaName)
 
-    sut = PostgresPersistence.configure(configuration)
+    sut = new PostgresPersistence(configuration, postgres)
     await Bus
       .configure()
       .withLogger(() => Mock.ofType<Logger>().object)

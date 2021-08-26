@@ -27,15 +27,13 @@ export type HookCallback<TransportMessageType> = StandardHookCallback | ErrorHoo
  * @example BusHooks<InMemoryMessage>
  * @example BusHooks<SQS.Message>
  */
-export class BusHooks<TransportMessageType = unknown> {
+export class BusHooks<TransportMessageType = any> {
   private messageHooks: { [key: string]: HookCallback<TransportMessageType>[] } = {
     send: [],
     publish: [],
     error: []
   }
 
-  on (action: Extract<HookAction, 'error'>, callback: ErrorHookCallback<TransportMessageType>): void
-  on (action: Exclude<HookAction, 'error'>, callback: StandardHookCallback): void
   on (action: HookAction, callback: HookCallback<TransportMessageType>): void {
     this.messageHooks[action].push(callback)
   }

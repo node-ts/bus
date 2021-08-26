@@ -16,7 +16,7 @@ const EMPTY_QUEUE_SLEEP_MS = 500
 
 const logger = () => getLogger('@node-ts/bus-core:service-bus')
 
-export class ServiceBus {
+export class BusInstance {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
@@ -61,10 +61,10 @@ export class ServiceBus {
   async start (): Promise<void> {
     const startedStates = [BusState.Started, BusState.Starting]
     if (startedStates.includes(this.state)) {
-      throw new Error('ServiceBus must be stopped before it can be started')
+      throw new Error('Bus must be stopped before it can be started')
     }
     this.internalState = BusState.Starting
-    logger().info('ServiceBus starting...')
+    logger().info('Bus starting...')
     messageHandlingContext.enable()
 
     this.internalState = BusState.Started
@@ -72,7 +72,7 @@ export class ServiceBus {
       setTimeout(async () => this.applicationLoop(), 0)
     }
 
-    logger().info(`ServiceBus started with concurrency ${this.concurrency}`)
+    logger().info(`Bus started with concurrency ${this.concurrency}`)
   }
 
   async stop (): Promise<void> {
@@ -81,14 +81,14 @@ export class ServiceBus {
       throw new Error('Bus must be started before it can be stopped')
     }
     this.internalState = BusState.Stopping
-    logger().info('ServiceBus stopping...')
+    logger().info('Bus stopping...')
 
     while (this.runningWorkerCount > 0) {
       await sleep(100)
     }
 
     this.internalState = BusState.Stopped
-    logger().info('ServiceBus stopped')
+    logger().info('Bus stopped')
   }
 
   /**
@@ -110,8 +110,8 @@ export class ServiceBus {
     return this.internalState
   }
 
-  on = this.busHooks.on.bind(this.busHooks)
-  off = this.busHooks.off.bind(this.busHooks)
+  on: BusHooks['on'] = this.busHooks.on.bind(this.busHooks)
+  off: BusHooks['off'] = this.busHooks.off.bind(this.busHooks)
 
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
@@ -219,13 +219,13 @@ export class ServiceBus {
         throw new ClassHandlerNotResolved(e.message)
       }
 
-      return handlerInstance.handle({ message, attributes })
+      return handlerInstance.handle(message, attributes)
     } else {
       const fnHandler = handler as FunctionHandler<Message>
-      return fnHandler({
+      return fnHandler(
         message,
         attributes
-      })
+      )
     }
   }
 

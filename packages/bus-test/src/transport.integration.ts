@@ -1,4 +1,4 @@
-import { Bus, HandlerContext, Transport } from '@node-ts/bus-core'
+import { Bus, Transport } from '@node-ts/bus-core'
 import { HandleChecker, TestCommand, TestEvent, TestFailMessage, TestPoisonedMessage } from './helpers'
 import { EventEmitter } from 'stream'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -36,14 +36,14 @@ export const transportTests = (
         .withTransport(transport)
         .withHandler(
           TestCommand,
-          ({ message, attributes }: HandlerContext<TestCommand>) => {
+          (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testCommandHandlerEmitter.emit('received')
           }
         )
         .withHandler(
           TestEvent,
-          ({ message, attributes }: HandlerContext<TestEvent>) => {
+          (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testEventHandlerEmitter.emit('received')
           }
@@ -55,7 +55,7 @@ export const transportTests = (
         })
         .withHandler(
           TestSystemMessage,
-          async ({ message, attributes }: HandlerContext<TestSystemMessage>) => {
+          async (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testSystemMessageHandlerEmitter.emit('event')
           },
@@ -84,7 +84,7 @@ export const transportTests = (
       })
     })
 
-    fdescribe('when sending a command', () => {
+    describe('when sending a command', () => {
       const testCommand = new TestCommand(uuid.v4(), new Date())
       const messageOptions: MessageAttributes = {
         correlationId: uuid.v4(),

@@ -17,7 +17,7 @@ import { Logger } from '../logger'
 const event = new TestEvent()
 type Callback = () => void;
 
-describe('ServiceBus', () => {
+describe('BusInstance', () => {
   describe('when the bus is configured correctly', () => {
     let queue: MemoryQueue
     let callback: IMock<Callback>

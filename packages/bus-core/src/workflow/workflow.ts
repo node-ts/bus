@@ -1,15 +1,14 @@
-import { Message } from '@node-ts/bus-messages'
-import { HandlerContext } from '../handler'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor } from '../util'
 import { WorkflowAlreadyHandlesMessage, WorkflowAlreadyStartedByMessage } from './error'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
 
-export type WorkflowHandler<TMessage extends Message, WorkflowStateType extends WorkflowState> =
-  (context?: HandlerContext<TMessage>, workflowState?: WorkflowStateType) => void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
+export type WorkflowHandler<TMessage extends Message, TMessageAttributes extends MessageAttributes, WorkflowStateType extends WorkflowState> =
+  (message?: TMessage, attributes?: TMessageAttributes, workflowState?: WorkflowStateType) => void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
 
 export type WhenHandler<WorkflowStateType extends WorkflowState, WorkflowType extends Workflow<WorkflowStateType>> =
-  (workflow: WorkflowType) => WorkflowHandler<Message, WorkflowStateType>
+  (workflow: WorkflowType) => WorkflowHandler<Message, MessageAttributes, WorkflowStateType>
 
 type KeyOfType<T, U> = {[P in keyof T]: T[P] extends U ? P: never}[keyof T]
 

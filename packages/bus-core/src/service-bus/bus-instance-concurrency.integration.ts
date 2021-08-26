@@ -7,7 +7,7 @@ import { Mock, IMock } from 'typemoq'
 const event = new TestEvent()
 type Callback = () => void;
 
-describe('ServiceBus - Concurrency', () => {
+describe('BusInstance - Concurrency', () => {
   let queue: MemoryQueue
   let callback: IMock<Callback>
   let handleCount = 0

@@ -4,7 +4,7 @@ import { Handler } from '../handler/handler'
 import { Serializer, setSerializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor } from '../util'
-import { ServiceBus } from './service-bus'
+import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
@@ -16,14 +16,7 @@ import { ContainerNotRegistered } from '../error'
 
 const logger = getLogger('@node-ts/bus-core:bus')
 
-let serviceBus: ServiceBus | undefined
-const getServiceBus = () => {
-  if (!serviceBus) {
-    throw new BusNotInitialized()
-  }
-
-  return serviceBus
-}
+let busInstance: BusInstance | undefined
 
 export enum BusState {
   Starting = 'starting',
@@ -32,7 +25,7 @@ export enum BusState {
   Stopped = 'stopped'
 }
 
-class BusConfiguration {
+export class BusBootstrap {
 
   private configuredTransport: Transport | undefined
   private concurrency = 1
@@ -54,9 +47,9 @@ class BusConfiguration {
     if (transport.initialize) {
       await transport.initialize(handlerRegistry)
     }
-    serviceBus = new ServiceBus(transport, this.concurrency)
+    busInstance = new BusInstance(transport, this.concurrency)
 
-    logger.debug('bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
+    logger.debug('Bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
   }
 
   /**
@@ -76,7 +69,7 @@ class BusConfiguration {
     }
   ): this
   {
-    if (!!serviceBus) {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -93,7 +86,7 @@ class BusConfiguration {
    * and forwarded to the handlers inside the workflow
    */
   withWorkflow<TWorkflowState extends WorkflowState> (workflow: ClassConstructor<Workflow<TWorkflowState>>): this {
-    if (!!serviceBus) {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -107,7 +100,7 @@ class BusConfiguration {
    * Configures Bus to use a different transport than the default MemoryQueue
    */
   withTransport (transportConfiguration: Transport): this {
-    if (!!serviceBus) {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -119,7 +112,7 @@ class BusConfiguration {
    * Configures Bus to use a different logging provider than the default console logger
    */
   withLogger (loggerConfiguration: LoggerFactory): this {
-    if (!!serviceBus) {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -133,7 +126,7 @@ class BusConfiguration {
    * properties are a strong type
    */
   withSerializer (serializerConfiguration: Serializer): this {
-    if (!!serviceBus) {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -146,7 +139,7 @@ class BusConfiguration {
    * This is used to persist workflow data and is unused if not using workflows.
    */
   withPersistence (persistence: Persistence): this {
-    if (!!serviceBus) {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -183,20 +176,33 @@ export class Bus {
   }
 
   /**
+   * Gets the singleton instance of the Bus. This should only be used for testing when
+   * mocking out the Bus. All other consumption should be made via the public static methods
+   * available on Bus, eg: `Bus.publish()`, `Bus.send()` etc.
+   */
+  static getInstance() {
+    if (!busInstance) {
+      throw new BusNotInitialized()
+    }
+
+    return busInstance
+  }
+
+  /**
    * Configures the Bus prior to use
    */
-  static configure (): BusConfiguration {
-    if (!!serviceBus) {
+  static configure (): BusBootstrap {
+    if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
-    return new BusConfiguration()
+    return new BusBootstrap()
   }
 
   /**
    * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
    */
   static async publish<EventType extends Event> (event: EventType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
-    return getServiceBus().publish(event, messageOptions)
+    return Bus.getInstance().publish(event, messageOptions)
   }
 
   /**
@@ -204,7 +210,7 @@ export class Bus {
    * process it and perform the requested action.
    */
   static async send<CommandType extends Command> (command: CommandType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
-    return getServiceBus().send(command, messageOptions)
+    return Bus.getInstance().send(command, messageOptions)
   }
 
   /**
@@ -213,30 +219,30 @@ export class Bus {
    * same service instance will still process it.
    */
   static async fail (): Promise<void> {
-    return getServiceBus().fail()
+    return Bus.getInstance().fail()
   }
 
   /**
    * For applications that handle messages, start reading messages off the underlying queue and process them.
    */
   static async start (): Promise<void> {
-    return getServiceBus().start()
+    return Bus.getInstance().start()
   }
 
   /**
    * For applications that handle messages, stop reading messages from the underlying queue.
    */
   static async stop (): Promise<void> {
-    return getServiceBus().stop()
+    return Bus.getInstance().stop()
   }
 
   /**
    * Stops the Bus and releases any connections from the underlying queue transport
    */
   static async dispose (): Promise<void> {
-    if (serviceBus) {
-      await getServiceBus().dispose()
-      serviceBus = undefined
+    if (busInstance) {
+      await Bus.getInstance().dispose()
+      busInstance = undefined
     }
     handlerRegistry.reset()
     setContainer(undefined)
@@ -246,7 +252,7 @@ export class Bus {
    * Get the current message handling state of the Bus
    */
   static get state(): BusState {
-    return getServiceBus().state
+    return Bus.getInstance().state
   }
 
   /**
@@ -254,7 +260,7 @@ export class Bus {
    * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
    */
   static on<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void {
-    return getServiceBus().on(action, callback)
+    return Bus.getInstance().on(action, callback)
   }
 
   /**
@@ -262,6 +268,6 @@ export class Bus {
    * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
    */
   static off<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void {
-    return getServiceBus().off(action, callback)
+    return Bus.getInstance().off(action, callback)
   }
 }
