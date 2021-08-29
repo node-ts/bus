@@ -57,8 +57,12 @@ export interface HandlerRegistry {
    */
   register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
+    handler: Handler<TMessage>
+  ): void
+
+  registerCustom<TMessage extends MessageBase> (
     handler: Handler<TMessage>,
-    customResolver?: CustomResolver<TMessage>
+    customResolver: CustomResolver<TMessage>
   ): void
 
   /**
@@ -101,47 +105,47 @@ class DefaultHandlerRegistry implements HandlerRegistry {
   private unhandledMessages: MessageName[] = []
   private handlerResolvers: HandlerResolver[] = []
 
+  registerCustom<TMessage extends MessageBase> (
+    handler: Handler<TMessage>,
+    customResolver: CustomResolver<TMessage>
+  ): void {
+    this.handlerResolvers.push({
+      handler,
+      messageType: undefined,
+      resolver: customResolver.resolveWith,
+      topicIdentifier: customResolver.topicIdentifier
+    })
+    logger().info('Custom handler registered', { handler: handler.name })
+  }
+
   register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
-    customResolver?: CustomResolver<TMessage>
   ): void {
 
-    // Provide an optional lookup on resolveWith for external messages
-    if (customResolver) {
-      this.handlerResolvers.push({
-        handler,
-        messageType,
-        resolver: customResolver.resolveWith,
-        topicIdentifier: customResolver.topicIdentifier
-      })
-      logger().info('Handler registered', { messageType: messageType.prototype.constructor.name, handler: handler.name })
-    } else {
-
-      const message = new messageType()
-      if (!('$name' in message)) {
-        throw new SystemMessageMissingResolver(messageType)
-      }
-      const messageName = message.$name
-
-      if (!this.registry[messageName]) {
-        // Register that the message will have subscriptions
-        this.registry[messageName] = {
-          messageType,
-          handlers: []
-        }
-      }
-
-      const handlerNameAlreadyRegistered = this.registry[messageName].handlers
-        .some(registeredHandler => registeredHandler === handler)
-
-      if (handlerNameAlreadyRegistered) {
-        throw new HandlerAlreadyRegistered(handler.name)
-      }
-
-      this.registry[messageName].handlers.push(handler)
-      logger().info('Handler registered', { messageType: messageName, handler: handler.name })
+    const message = new messageType()
+    if (!('$name' in message)) {
+      throw new SystemMessageMissingResolver(messageType)
     }
+    const messageName = message.$name
+
+    if (!this.registry[messageName]) {
+      // Register that the message will have subscriptions
+      this.registry[messageName] = {
+        messageType,
+        handlers: []
+      }
+    }
+
+    const handlerNameAlreadyRegistered = this.registry[messageName].handlers
+      .some(registeredHandler => registeredHandler === handler)
+
+    if (handlerNameAlreadyRegistered) {
+      throw new HandlerAlreadyRegistered(handler.name)
+    }
+
+    this.registry[messageName].handlers.push(handler)
+    logger().info('Handler registered', { messageType: messageName, handler: handler.name })
   }
 
   get<MessageType extends MessageBase> (message: object | Message): Handler<MessageType>[] {

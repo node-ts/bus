@@ -62,8 +62,23 @@ export class BusBootstrap {
    */
   withHandler<MessageType extends (Message | object)> (
     messageType: ClassConstructor<MessageType>,
+    messageHandler: Handler<MessageType>
+  ): this
+  {
+    if (!!busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    handlerRegistry.register(
+      messageType,
+      messageHandler
+    )
+    return this
+  }
+
+  withCustomHandler<MessageType extends (Message | object)> (
     messageHandler: Handler<MessageType>,
-    customResolver?: {
+    customResolver: {
       resolveWith: ((message: MessageType) => boolean),
       topicIdentifier?: string
     }
@@ -73,8 +88,7 @@ export class BusBootstrap {
       throw new BusAlreadyInitialized()
     }
 
-    handlerRegistry.register(
-      messageType,
+    handlerRegistry.registerCustom(
       messageHandler,
       customResolver
     )
