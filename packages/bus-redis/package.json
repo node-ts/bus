@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^0.3.2",
-    "modest-queue": "^0.1.3",
+    "modest-queue": "^0.3.0",
     "ioredis": "^4.27.7",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
