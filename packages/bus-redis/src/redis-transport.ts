@@ -62,7 +62,8 @@ export class RedisTransport implements Transport<QueueMessage> {
       connectionString: this.configuration.connectionString,
       visibilityTimeout: this.configuration.visibilityTimeout ?? 30000,
       maxAttempts: 3,
-      withScheduler: this.configuration.withScheduler
+      withScheduler: this.configuration.withScheduler,
+      withDelayedScheduler: false
     })
     await this.queue.initialize()
 
@@ -160,7 +161,7 @@ export class RedisTransport implements Transport<QueueMessage> {
     const serializedPayload = JSON.stringify(payload)
     const queues = await this.getQueuesSubscribedToMessage(message)
     await Promise.all(queues.map(async queueName => {
-      const queue = new ModestQueue({queueName, connection: this.connection, withScheduler: false})
+      const queue = new ModestQueue({queueName, connection: this.connection, withScheduler: false, withDelayedScheduler: false})
       await queue.initialize()
       await queue.publish(serializedPayload)
       await queue.dispose()
