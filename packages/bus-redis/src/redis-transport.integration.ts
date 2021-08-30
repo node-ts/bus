@@ -19,6 +19,7 @@ import { Mock, IMock, It, Times } from 'typemoq'
 import * as uuid from 'uuid'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestSystemMessage } from '../test/test-system-message'
+import { QueueStats } from 'modest-queue'
 
 jest.setTimeout(30000)
 
@@ -93,7 +94,7 @@ describe('RedisTransport', () => {
     })
     it(`it should not move the completed message to the completed queue`, async () => {
       const completedCount = await sut['queue'].queueStats()
-      expect(completedCount).toEqual({dlq: 0, inflight: 0, queue:0})
+      expect(completedCount).toEqual({dlq: 0, inflight: 0, queue:0, delayed: 0})
     })
   })
 
@@ -116,18 +117,14 @@ describe('RedisTransport', () => {
 
     it('it should have been moved to the dead letter queue', async () => {
       const queueStats = await sut['queue'].queueStats()
-      expect(queueStats).toEqual({dlq: 1, inflight: 0, queue:0})
+      expect(queueStats).toEqual({dlq: 1, inflight: 0, queue:0, delayed: 0})
     })
   })
 
   describe('when failing a message', () => {
     const failMessage = new TestFailMessage(faker.random.uuid())
     const correlationId = faker.random.uuid()
-    let queueStats: {
-      queue: number
-      dlq: number
-      inflight: number
-    }
+    let queueStats: QueueStats
 
     beforeAll(async () => {
       await bus.publish(failMessage, new MessageAttributes({ correlationId }))
@@ -139,7 +136,7 @@ describe('RedisTransport', () => {
     })
 
     it('it should be moved to the dead letter queue', () => {
-      expect(queueStats).toEqual({dlq: 1, inflight: 0, queue:0})
+      expect(queueStats).toEqual({dlq: 1, inflight: 0, queue:0, delayed: 0})
     })
   })
 
