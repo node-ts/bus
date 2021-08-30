@@ -58,9 +58,9 @@ export class RedisTransport implements Transport<QueueMessage> {
     // Subscribe this queue to listen to all messages in the HandlerRegistry
     await this.subscribeToMessagesOfInterest()
     this.queue = new ModestQueue({
-      queueName:this.configuration.queueName,
-      connectionString:this.configuration.connectionString,
-      visibilityTimeout:this.configuration.visibilityTimeout ?? 30000,
+      queueName: this.configuration.queueName,
+      connectionString: this.configuration.connectionString,
+      visibilityTimeout: this.configuration.visibilityTimeout ?? 30000,
       maxAttempts: 3,
       withScheduler: this.configuration.withScheduler
     })
@@ -74,7 +74,6 @@ export class RedisTransport implements Transport<QueueMessage> {
       .map(async subscription => {
         if (subscription.messageType) {
           const messageCtor = subscription.messageType
-          console.error(subscription)
           return this.connection.sadd(`${this.subscriptionsKeyPrefix}${new messageCtor().$name}`, this.configuration.queueName)
         } else {
           throw new Error(`Unable to messageType to this queue: ${subscription}`)
@@ -116,8 +115,6 @@ export class RedisTransport implements Transport<QueueMessage> {
 
     this.logger.debug('Received message from Redis', {redisMessage: maybeMessage.message})
     const { message, ...attributes}: Payload = JSON.parse(maybeMessage.message)
-    console.error('ed!')
-    console.error(message)
     const domainMessage = this.messageSerializer.deserialize(message)
 
     return {
