@@ -24,7 +24,7 @@ export interface RedisTransportConfiguration {
 
   /**
    * The time taken before a message has been deemed to have failed or stalled. Once this time has been exceeded
-   * the message will be re-added to the queue.
+   * the message will be re-added to the end of the queue.
    * @default 30000 (30 seconds)
    */
   visibilityTimeout?: number

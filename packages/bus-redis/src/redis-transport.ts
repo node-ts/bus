@@ -61,7 +61,7 @@ export class RedisTransport implements Transport<QueueMessage> {
       queueName: this.configuration.queueName,
       connectionString: this.configuration.connectionString,
       visibilityTimeout: this.configuration.visibilityTimeout ?? 30000,
-      maxAttempts: 3,
+      maxAttempts: this.configuration.maxRetries ?? DEFAULT_MAX_RETRIES,
       withScheduler: this.configuration.withScheduler,
       withDelayedScheduler: false
     })
@@ -69,24 +69,7 @@ export class RedisTransport implements Transport<QueueMessage> {
 
     this.logger.info('Redis transport initialized')
   }
-  async subscribeToMessagesOfInterest():Promise<void> {
-    const queueSubscriptionPromises = this.handlerRegistry.messageSubscriptions
-      .filter(subscription => !!subscription.messageType)
-      .map(async subscription => {
-        if (subscription.messageType) {
-          const messageCtor = subscription.messageType
-          return this.connection.sadd(`${this.subscriptionsKeyPrefix}${new messageCtor().$name}`, this.configuration.queueName)
-        } else {
-          throw new Error(`Unable to messageType to this queue: ${subscription}`)
-        }
-      })
-    this.logger.info('Subscribe queue to messages in HandlerRegistry')
-    await Promise.all(queueSubscriptionPromises)
-  }
 
-  async getQueuesSubscribedToMessage<TEvent extends Event>(event: TEvent): Promise<string[]> {
-    return this.connection.smembers(`${this.subscriptionsKeyPrefix}${event.$name}`)
-  }
 
   async dispose (): Promise<void> {
     await this.queue.dispose()
@@ -146,7 +129,37 @@ export class RedisTransport implements Transport<QueueMessage> {
     // modest-queue supports automatic retry, we simply need to state that it failed.
     await this.queue.messageFailed(message.raw)
   }
-
+  /**
+   * Associate @see this.queueName with the handlerRegistry's messageSubscriptions. In this way, if another redis-transport
+   * publishes a message this queue would also get the message.
+   */
+  private async subscribeToMessagesOfInterest():Promise<void> {
+    const queueSubscriptionPromises = this.handlerRegistry.messageSubscriptions
+      .filter(subscription => !!subscription.messageType)
+      .map(async subscription => {
+        if (subscription.messageType) {
+          const messageCtor = subscription.messageType
+          return this.connection.sadd(`${this.subscriptionsKeyPrefix}${new messageCtor().$name}`, this.configuration.queueName)
+        } else {
+          throw new Error(`Unable to messageType to this queue: ${subscription}`)
+        }
+      })
+    this.logger.info('Subscribe queue to messages in HandlerRegistry')
+    await Promise.all(queueSubscriptionPromises)
+  }
+  /**
+   * Finds all queues that have handlers subscribed to this message type. @see this.publishMessage must publish this message to all
+   * those queues.
+   */
+  private async getQueuesSubscribedToMessage<TEvent extends Event>(event: TEvent): Promise<string[]> {
+    return this.connection.smembers(`${this.subscriptionsKeyPrefix}${event.$name}`)
+  }
+  /**
+   * Serializes the message, appending the MessageAttributes. Publishes to all queues that need
+   * have MessageHandlers for this message.$name
+   * @param message
+   * @param messageOptions
+   */
   private async publishMessage (
     message: Message,
     messageOptions: MessageAttributes = new MessageAttributes()
@@ -160,11 +173,26 @@ export class RedisTransport implements Transport<QueueMessage> {
     this.logger.debug('Sending message to Redis', {payload})
     const serializedPayload = JSON.stringify(payload)
     const queues = await this.getQueuesSubscribedToMessage(message)
-    await Promise.all(queues.map(async queueName => {
+    await Promise.all(queues.map(queue => this.publishMessageToQueue(serializedPayload, queue)))
+  }
+
+  /**
+   * Attempts to publish the message to all queues that have message handlers that are interested in this message
+   * @param payload - the serialised payload to place on the queue
+   * @param queueName - the name of the redis queue to publish to
+   * @param attempt - we try to publish the message to the queue 3 times, logging an error if it fails.
+   */
+  private async publishMessageToQueue(payload: string, queueName: string, attempt = 0): Promise<void> {
+    if (attempt >= 3) {
+      this.logger.error('Failed to publish message to Transport Queue', {queueName, payload})
+    }
+    try {
       const queue = new ModestQueue({queueName, connection: this.connection, withScheduler: false, withDelayedScheduler: false})
       await queue.initialize()
-      await queue.publish(serializedPayload)
+      await queue.publish(payload)
       await queue.dispose()
-    }))
+    } catch (e) {
+      return this.publishMessageToQueue(payload, queueName, attempt++)
+    }
   }
 }
