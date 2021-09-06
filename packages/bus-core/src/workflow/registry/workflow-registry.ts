@@ -10,6 +10,7 @@ import { getLogger } from '../../logger'
 import { PersistenceNotConfigured } from '../persistence/error'
 import { WorkflowAlreadyInitialized } from '../error'
 import { messageHandlingContext } from '../../message-handling-context'
+import { getContainer } from '../../container'
 
 const logger = getLogger('@node-ts/bus-core:workflow-registry')
 
@@ -43,8 +44,12 @@ const dispatchMessageToWorkflow = async (
   workflowStateConstructor: ClassConstructor<WorkflowState>,
   workflowHandler: keyof Workflow<WorkflowState>
 ) => {
+  const container = getContainer()
+  const workflow = container
+    ? container.get(workflowCtor)
+    : new workflowCtor()
+
   const immutableWorkflowState = Object.freeze({...workflowState})
-  const workflow = new workflowCtor()
   const handler = workflow[workflowHandler] as Function
   const workflowStateOutput = await handler.bind(workflow)(message, attributes, immutableWorkflowState)
 
@@ -205,7 +210,10 @@ class WorkflowRegistry {
           const immutableWorkflowState = Object.freeze({...workflowState})
           startWorkflowHandlingContext(immutableWorkflowState)
           try {
-            const workflow = new options.workflowCtor()
+            const container = getContainer()
+            const workflow = container
+              ? container.get(options.workflowCtor)
+              : new options.workflowCtor()
             const handler = workflow[options.workflowHandler as keyof Workflow<WorkflowState>] as Function
             const result = await handler.bind(workflow)(context, immutableWorkflowState)
             if (result) {

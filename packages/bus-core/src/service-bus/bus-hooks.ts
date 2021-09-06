@@ -1,25 +1,51 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { TransportMessage } from '../transport'
+import { Command, Event, Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Handler } from '../handler'
+import { Transport, TransportMessage } from '../transport'
 
 export type HookAction = 'send' | 'publish' | 'error'
 
-export type StandardHookCallback = (
-  message: Message,
+export type BeforeSendCallback = (
+  command: Command,
   messageAttributes?: MessageAttributes
 ) => Promise<void> | void
 
-export type ErrorHookCallback<TransportMessageType> = (
+export type BeforePublishCallback = (
+  event: Event,
+  messageAttributes?: MessageAttributes
+) => Promise<void> | void
+
+export type AfterReceiveCallback<TransportMessageType> = (
+  transportMessage: TransportMessageType
+) => Promise<void> | void
+
+export type BeforeDispatchCallback = (
+  message: Message,
+  attributes: MessageAttributes,
+  handlers: Handler[]
+) => Promise<void> | void
+
+export type AfterDispatchCallback = (
+  message: Message,
+  attributes: MessageAttributes,
+) => Promise<void> | void
+
+export type OnErrorCallback<TransportMessageType> = (
   message: Message,
   error: Error,
   messageAttributes?: MessageAttributes,
   rawMessage?: TransportMessage<TransportMessageType>
 ) => Promise<void> | void
 
-export type HookCallback<TransportMessageType> = StandardHookCallback | ErrorHookCallback<TransportMessageType>
-
+type HookCallback<TransportMessageType> =
+  BeforeSendCallback
+  | BeforePublishCallback
+  | AfterReceiveCallback<TransportMessageType>
+  | BeforeDispatchCallback
+  | AfterDispatchCallback
+  | OnErrorCallback<TransportMessageType>
 
 /**
- * A singleton repository for all hook events registered with the Bus. This persists across scope boundaries
+ * A repository for all hook events registered with a BusInstance. This persists across scope boundaries
  * so that Bus instances that are scoped to a message handling context still have access to the global set
  * of registered hooks
  *
@@ -28,32 +54,36 @@ export type HookCallback<TransportMessageType> = StandardHookCallback | ErrorHoo
  * @example BusHooks<SQS.Message>
  */
 export class BusHooks<TransportMessageType = any> {
-  private messageHooks: { [key: string]: HookCallback<TransportMessageType>[] } = {
-    send: [],
-    publish: [],
-    error: []
+  readonly messageHooks: { [key: string]: HookCallback<TransportMessageType>[] } = {
+    beforeSend: [],
+    beforePublish: [],
+    onError: [],
+    afterReceive: [],
+    beforeDispatch: [],
+    afterDispatch: [],
   }
 
-  on (action: HookAction, callback: HookCallback<TransportMessageType>): void {
-    this.messageHooks[action].push(callback)
+  get beforeSend (): BeforeSendCallback[] {
+    return this.messageHooks.beforeSend as BeforeSendCallback[]
   }
 
-  off (action: HookAction, callback: HookCallback<TransportMessageType>): void {
-    const index = this.messageHooks[action].indexOf(callback)
-    if (index >= 0) {
-      this.messageHooks[action].splice(index, 1)
-    }
+  get beforePublish (): BeforePublishCallback[] {
+    return this.messageHooks.publish as BeforePublishCallback[]
   }
 
-  get send (): StandardHookCallback[] {
-    return this.messageHooks.send as StandardHookCallback[]
+  get onError (): OnErrorCallback<TransportMessageType>[] {
+    return this.messageHooks.error as OnErrorCallback<TransportMessageType>[]
   }
 
-  get publish (): StandardHookCallback[] {
-    return this.messageHooks.publish as StandardHookCallback[]
+  get afterReceive (): AfterReceiveCallback<TransportMessageType>[] {
+    return this.messageHooks.afterReceive as AfterReceiveCallback<TransportMessageType>[]
   }
 
-  get error (): ErrorHookCallback<TransportMessageType>[] {
-    return this.messageHooks.error as ErrorHookCallback<TransportMessageType>[]
+  get beforeDispatch (): BeforeDispatchCallback[] {
+    return this.messageHooks.beforeDispatch as BeforeDispatchCallback[]
+  }
+
+  get afterDispatch (): AfterDispatchCallback[] {
+    return this.messageHooks.afterDispatch as AfterDispatchCallback[]
   }
 }

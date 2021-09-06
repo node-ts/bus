@@ -9,7 +9,7 @@ import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized, BusNotInitialized } from './error'
-import { HookAction, HookCallback } from './bus-hooks'
+import { BusHooks, OnErrorCallback, BeforePublishCallback, BeforeSendCallback, AfterReceiveCallback, BeforeDispatchCallback, AfterDispatchCallback } from './bus-hooks'
 import { getContainer, setContainer } from '../container'
 import { getLogger, LoggerFactory, setLogger } from '../logger'
 import { ContainerNotRegistered } from '../error'
@@ -25,10 +25,11 @@ export enum BusState {
   Stopped = 'stopped'
 }
 
-export class BusBootstrap {
+export class BusConfiguration {
 
   private configuredTransport: Transport | undefined
   private concurrency = 1
+  private busHooks = new BusHooks()
 
   /**
    * Initializes the bus with the provided configuration
@@ -47,7 +48,11 @@ export class BusBootstrap {
     if (transport.initialize) {
       await transport.initialize(handlerRegistry)
     }
-    busInstance = new BusInstance(transport, this.concurrency)
+    busInstance = new BusInstance(
+      transport,
+      this.concurrency,
+      this.busHooks
+    )
 
     logger.debug('Bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
   }
@@ -183,6 +188,60 @@ export class BusBootstrap {
     setContainer(container)
     return this
   }
+
+  /**
+   * A hook that is invoked when Bus.send() is called
+   * @param callback A callback to execute when the hook is invoked
+   */
+  beforeSend (callback: BeforeSendCallback): this {
+    this.busHooks.messageHooks.beforeSend.push(callback)
+    return this
+  }
+
+  /**
+   * A hook that is invoked when Bus.publish() is called
+   * @param callback A callback to execute when the hook is invoked
+   */
+  beforePublish (callback: BeforePublishCallback): this {
+    this.busHooks.messageHooks.beforePublish.push(callback)
+    return this
+  }
+
+  /**
+   * A hook that is invoked when Bus.publish() is called
+   * @param callback A callback to execute when the hook is invoked
+   */
+  onError<TransportMessageType> (callback: OnErrorCallback<TransportMessageType>): this {
+    this.busHooks.messageHooks.onError.push(callback)
+    return this
+  }
+
+  /**
+   * A hook that is invoked after a message has been received from the transport
+   * @param callback A callback to execute when the hook is invoked
+   */
+  afterReceive<TransportMessageType> (callback: AfterReceiveCallback<TransportMessageType>): this {
+    this.busHooks.messageHooks.afterReceive.push(callback)
+    return this
+  }
+
+  /**
+   * A hook that is invoked before a message is dispatched to handlers
+   * @param callback A callback to execute when the hook is invoked
+   */
+  beforeDispatch (callback: BeforeDispatchCallback): this {
+    this.busHooks.messageHooks.beforeDispatch.push(callback)
+    return this
+  }
+
+  /**
+   * A hook that is invoked after a message has been dispatched to handlers
+   * @param callback A callback to execute when the hook is invoked
+   */
+  afterDispatch (callback: AfterDispatchCallback): this {
+    this.busHooks.messageHooks.afterDispatch.push(callback)
+    return this
+  }
 }
 
 export class Bus {
@@ -205,11 +264,11 @@ export class Bus {
   /**
    * Configures the Bus prior to use
    */
-  static configure (): BusBootstrap {
+  static configure (): BusConfiguration {
     if (!!busInstance) {
       throw new BusAlreadyInitialized()
     }
-    return new BusBootstrap()
+    return new BusConfiguration()
   }
 
   /**
@@ -267,21 +326,5 @@ export class Bus {
    */
   static get state(): BusState {
     return Bus.getInstance().state
-  }
-
-  /**
-   * Registers a @param callback function that is invoked for every instance of @param action occurring
-   * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
-   */
-  static on<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void {
-    return Bus.getInstance().on(action, callback)
-  }
-
-  /**
-   * Deregisters a @param callback function from firing when an @param action occurs
-   * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
-   */
-  static off<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void {
-    return Bus.getInstance().off(action, callback)
   }
 }

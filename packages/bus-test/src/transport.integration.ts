@@ -53,8 +53,7 @@ export const transportTests = (
           testPoisonedMessageHandlerEmitter.emit('received', poisonedMessageReceiptAttempts)
           throw new Error()
         })
-        .withHandler(
-          TestSystemMessage,
+        .withCustomHandler(
           async (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testSystemMessageHandlerEmitter.emit('event')

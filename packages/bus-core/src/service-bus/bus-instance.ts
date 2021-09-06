@@ -20,11 +20,11 @@ export class BusInstance {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
-  private busHooks = new BusHooks()
 
   constructor (
     private readonly transport: Transport<{}>,
-    private readonly concurrency: number
+    private readonly concurrency: number,
+    private readonly busHooks: BusHooks
   ) {
   }
 
@@ -34,7 +34,7 @@ export class BusInstance {
   ): Promise<void> {
     logger().debug('Publishing event', { event, messageOptions })
     const transportOptions = this.prepareTransportOptions(messageOptions)
-    await Promise.all(this.busHooks.publish.map(callback => callback(event, transportOptions)))
+    await Promise.all(this.busHooks.beforePublish.map(callback => callback(event, transportOptions)))
     return this.transport.publish(event, transportOptions)
   }
 
@@ -44,7 +44,7 @@ export class BusInstance {
   ): Promise<void> {
     logger().debug('Sending command', { command, messageOptions })
     const transportOptions = this.prepareTransportOptions(messageOptions)
-    await Promise.all(this.busHooks.send.map(callback => callback(command, transportOptions)))
+    await Promise.all(this.busHooks.beforeSend.map(callback => callback(command, transportOptions)))
     return this.transport.send(command, transportOptions)
   }
 
@@ -110,9 +110,6 @@ export class BusInstance {
     return this.internalState
   }
 
-  on: BusHooks['on'] = this.busHooks.on.bind(this.busHooks)
-  off: BusHooks['off'] = this.busHooks.off.bind(this.busHooks)
-
   private async applicationLoop (): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {
@@ -129,6 +126,11 @@ export class BusInstance {
   private async handleNextMessage (): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
+      if (this.busHooks.afterReceive.length) {
+        await Promise.all(
+          this.busHooks.afterReceive.map(callback => callback(message))
+        )
+      }
 
       if (message) {
         logger().debug('Message read from transport', { message })
@@ -138,12 +140,20 @@ export class BusInstance {
 
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           await this.transport.deleteMessage(message)
+
+          if (this.busHooks.afterDispatch) {
+            await Promise.all(
+              this.busHooks.afterDispatch.map(callback =>
+                callback(message.domainMessage, message.attributes)
+              )
+            )
+          }
         } catch (error) {
           logger().warn(
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
-          await Promise.all(this.busHooks.error.map(callback => callback(
+          await Promise.all(this.busHooks.onError.map(callback => callback(
             message.domainMessage as Message,
             (error as Error),
             message.attributes,
@@ -162,7 +172,7 @@ export class BusInstance {
     return false
   }
 
-  private async dispatchMessageToHandlers (message: Message, context: MessageAttributes): Promise<void> {
+  private async dispatchMessageToHandlers (message: Message, messageAttributes: MessageAttributes): Promise<void> {
     const handlers = handlerRegistry.get(message)
     if (handlers.length === 0) {
       logger().error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
@@ -171,9 +181,21 @@ export class BusInstance {
 
     const handlersToInvoke = handlers.map(handler => this.dispatchMessageToHandler(
       message,
-      context,
+      messageAttributes,
       handler
     ))
+
+    if (this.busHooks.beforeDispatch) {
+      await Promise.all(
+        this.busHooks.beforeDispatch.map(callback =>
+          callback(
+            message,
+            messageAttributes,
+            handlers
+          )
+        )
+      )
+    }
 
     await Promise.all(handlersToInvoke)
     logger().debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
