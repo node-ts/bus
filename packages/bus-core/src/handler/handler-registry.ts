@@ -109,6 +109,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     handler: Handler<TMessage>,
     customResolver: CustomResolver<TMessage>
   ): void {
+    logger().debug('Registering custom handler', { handler: handler.name })
     this.handlerResolvers.push({
       handler,
       messageType: undefined,
@@ -122,6 +123,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
   ): void {
+    logger().debug('Registering handler', { handler: handler.name })
 
     const message = new messageType()
     if (!('$name' in message)) {
@@ -149,6 +151,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
   }
 
   get<MessageType extends MessageBase> (message: object | Message): Handler<MessageType>[] {
+    logger().debug('Getting handlers for message', { msg: message })
     const customHandlers = this.resolveCustomHandlers(message)
 
     const messageName = '$name' in message
@@ -170,6 +173,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
           })
       }
 
+      logger().debug('No handlers found for message', { msg: message })
       return []
     }
 
@@ -177,10 +181,19 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       ? this.registry[messageName].handlers
       : []
 
-    return [
+    logger().debug(
+      'Found handlers for message',
+      {
+        msg: message,
+        numMessageHandlers: messageHandlers.length,
+        numCustomHandlers: customHandlers.length
+      }
+    )
+    const result = [
       ...messageHandlers,
       ...customHandlers
     ]
+    return result
   }
 
   getMessageNames (): string[] {

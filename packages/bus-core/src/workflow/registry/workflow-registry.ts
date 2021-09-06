@@ -12,12 +12,13 @@ import { WorkflowAlreadyInitialized } from '../error'
 import { messageHandlingContext } from '../../message-handling-context'
 import { getContainer } from '../../container'
 
-const logger = getLogger('@node-ts/bus-core:workflow-registry')
+const logger = () => getLogger('@node-ts/bus-core:workflow-registry')
 
 const createWorkflowState = <TWorkflowState extends WorkflowState> (workflowStateType: ClassConstructor<TWorkflowState>) => {
   const data = new workflowStateType()
   data.$status = WorkflowStatus.Running
   data.$workflowId = uuid.v4()
+  logger().debug('Created new workflow state', { workflowId: data.$workflowId, workflowStateType })
   return data
 }
 
@@ -28,6 +29,7 @@ const createWorkflowState = <TWorkflowState extends WorkflowState> (workflowStat
  * back to the workflow if handled.
  */
 const startWorkflowHandlingContext = (workflowState: WorkflowState) => {
+  logger().debug('Starting new workflow handling context', { workflowState })
   const handlingContext = messageHandlingContext.get()!.message
   const workflowHandlingContext = JSON.parse(JSON.stringify(handlingContext)) as typeof handlingContext
   workflowHandlingContext.attributes.stickyAttributes.workflowId = workflowState.$workflowId
@@ -44,6 +46,7 @@ const dispatchMessageToWorkflow = async (
   workflowStateConstructor: ClassConstructor<WorkflowState>,
   workflowHandler: keyof Workflow<WorkflowState>
 ) => {
+  logger().debug('Dispatching message to workflow', { msg: message, workflow: workflowCtor })
   const container = getContainer()
   const workflow = container
     ? container.get(workflowCtor)
@@ -51,16 +54,16 @@ const dispatchMessageToWorkflow = async (
 
   const immutableWorkflowState = Object.freeze({...workflowState})
   const handler = workflow[workflowHandler] as Function
-  const workflowStateOutput = await handler.bind(workflow)(message, attributes, immutableWorkflowState)
+  const workflowStateOutput = await handler.bind(workflow)(immutableWorkflowState, message, attributes)
 
   const workflowName = workflowCtor.prototype.name
   if (workflowStateOutput && workflowStateOutput.$status === WorkflowStatus.Discard) {
-    logger.debug(
+    logger().debug(
       'Workflow step is discarding state changes. State changes will not be persisted',
       { workflowId: immutableWorkflowState.$workflowId, workflowName }
     )
   } else if (workflowStateOutput) {
-    logger.debug(
+    logger().debug(
       'Changes detected in workflow state and will be persisted.',
       {
         workflowId: immutableWorkflowState.$workflowId,
@@ -78,27 +81,31 @@ const dispatchMessageToWorkflow = async (
     try {
       await persist(updatedWorkflowState)
     } catch (error) {
-      logger.warn(
+      logger().warn(
         'Error persisting workflow state',
         { err: error, workflow: workflowName }
       )
       throw error
     }
   } else {
-    logger.trace('No changes detected in workflow state.', { workflowId: immutableWorkflowState.$workflowId })
+    logger().trace('No changes detected in workflow state.', { workflowId: immutableWorkflowState.$workflowId })
   }
 }
 
 const persist = async (data: WorkflowState) => {
   try {
     await getPersistence().saveWorkflowState(data)
-    logger.info('Saving workflow state', { data })
+    logger().info('Workflow state saved', { data })
   } catch (err) {
-    logger.error('Error persisting workflow state', { err })
+    logger().error('Error persisting workflow state', { err })
     throw err
   }
 }
 
+/**
+ * A default lookup that will match a workflow by its id with the workflowId
+ * stored in the sticky attributes
+ */
 const workflowLookup: MessageWorkflowMapping = {
   lookup: (_, attributes) => attributes.stickyAttributes.workflowId as string | undefined,
   mapsTo: '$workflowId'
@@ -118,6 +125,7 @@ class WorkflowRegistry {
   private isInitializing = false
 
   async register (workflow: ClassConstructor<Workflow<WorkflowState>>): Promise<void> {
+    logger().debug('Registering workflow', { workflow })
     if (this.isInitialized) {
       throw new Error(
         `Attempted to register workflow (${workflow.prototype.constructor.name}) after workflows have been initialized`
@@ -132,6 +140,7 @@ class WorkflowRegistry {
     }
 
     this.workflowRegistry.push(workflow)
+    logger().info('Workflow registered', { workflow: workflow.prototype.constructor.name })
   }
 
   /**
@@ -143,7 +152,7 @@ class WorkflowRegistry {
    */
   async initialize (): Promise<void> {
     if (this.workflowRegistry.length === 0) {
-      logger.info('No workflows registered, skipping this step.')
+      logger().info('No workflows registered, skipping this step.')
       return
     }
 
@@ -151,10 +160,11 @@ class WorkflowRegistry {
       throw new WorkflowAlreadyInitialized()
     }
 
+    logger().info('Initializing workflows...', { numWorkflows: this.workflowRegistry.length })
     this.isInitializing = true
-    logger.info('Initializing workflows...')
 
     for (const WorkflowCtor of this.workflowRegistry) {
+      logger().debug('Initializing workflow', { workflow: WorkflowCtor.prototype.constructor.name })
 
       const workflowInstance = new WorkflowCtor()
       const mapper = new WorkflowMapper(WorkflowCtor)
@@ -172,21 +182,23 @@ class WorkflowRegistry {
         ([_, onWhenHandler]) => onWhenHandler.customLookup || workflowLookup
       )
       await getPersistence().initializeWorkflow(mapper.workflowStateCtor!, messageWorkflowMappings)
-      logger.debug('Workflow initialized', { workflowName: WorkflowCtor.prototype.name })
+      logger().debug('Workflow initialized', { workflowName: WorkflowCtor.prototype.name })
     }
 
     this.workflowRegistry = []
 
     if (getPersistence().initialize) {
+      logger().info('Initializing persistence...')
       await getPersistence().initialize!()
     }
 
     this.isInitialized = true
     this.isInitializing = false
-    logger.info('Workflows initialized')
+    logger().info('Workflows initialized')
   }
 
   async dispose (): Promise<void> {
+    logger().debug('Disposing workflow registry')
     try {
       if (getPersistence().dispose) {
         await getPersistence().dispose!()
@@ -202,10 +214,20 @@ class WorkflowRegistry {
   private registerFnStartedBy (
     mapper: WorkflowMapper<any, any>
   ): void {
+    logger().debug(
+      'Registering started by handlers for workflow',
+      {
+        numHandlers: mapper.onStartedBy.size
+      }
+    )
     mapper.onStartedBy.forEach((options, messageConstructor) =>
       handlerRegistry.register(
         messageConstructor,
-        async (context) => {
+        async (message, messageAttributes) => {
+          logger().debug(
+            'Starting new workflow instance',
+            { workflow: options.workflowCtor, msg: message }
+          )
           const workflowState = createWorkflowState(mapper.workflowStateCtor!)
           const immutableWorkflowState = Object.freeze({...workflowState})
           startWorkflowHandlingContext(immutableWorkflowState)
@@ -215,7 +237,13 @@ class WorkflowRegistry {
               ? container.get(options.workflowCtor)
               : new options.workflowCtor()
             const handler = workflow[options.workflowHandler as keyof Workflow<WorkflowState>] as Function
-            const result = await handler.bind(workflow)(context, immutableWorkflowState)
+            const result = await handler.bind(workflow)(immutableWorkflowState, message, messageAttributes)
+
+            logger().debug(
+              'Finished handling for new workflow',
+              { workflow: options.workflowCtor, msg: message, workflowState: result }
+            )
+
             if (result) {
               await getPersistence().saveWorkflowState({
                 ...workflowState,
@@ -233,6 +261,14 @@ class WorkflowRegistry {
     mapper: WorkflowMapper<WorkflowState, Workflow<WorkflowState>>,
     workflowCtor: ClassConstructor<Workflow<WorkflowState>>
   ): void {
+    logger().debug(
+      'Registering handles for workflow',
+      {
+        workflow: workflowCtor,
+        numHandlers: mapper.onWhen.size
+      }
+    )
+
     mapper.onWhen.forEach((handler, messageConstructor) => {
       // TODO implement outbound tagging of workflowId to stickyAttributes
       const messageMapping = handler.customLookup || workflowLookup
@@ -240,6 +276,7 @@ class WorkflowRegistry {
       handlerRegistry.register(
         messageConstructor,
         async (message, attributes) => {
+          logger().debug('Getting workflow state for message handler', { msg: message, workflow: workflowCtor })
           const workflowState = await getPersistence().getWorkflowState<WorkflowState, Message>(
             mapper.workflowStateCtor!,
             messageMapping,
@@ -249,7 +286,7 @@ class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            logger.info('No existing workflow state found for message. Ignoring.', { message })
+            logger().info('No existing workflow state found for message. Ignoring.', { message })
             return
           }
 

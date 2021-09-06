@@ -68,11 +68,11 @@ export class BusHooks<TransportMessageType = any> {
   }
 
   get beforePublish (): BeforePublishCallback[] {
-    return this.messageHooks.publish as BeforePublishCallback[]
+    return this.messageHooks.beforePublish as BeforePublishCallback[]
   }
 
   get onError (): OnErrorCallback<TransportMessageType>[] {
-    return this.messageHooks.error as OnErrorCallback<TransportMessageType>[]
+    return this.messageHooks.onError as OnErrorCallback<TransportMessageType>[]
   }
 
   get afterReceive (): AfterReceiveCallback<TransportMessageType>[] {
