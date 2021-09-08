@@ -9,6 +9,7 @@
     "src/**/test"
   ],
   "compilerOptions": {
+    "lib": ["ES2020"],
     "outDir": "./dist",
     "baseUrl": "./",
     // bullmq types are busted

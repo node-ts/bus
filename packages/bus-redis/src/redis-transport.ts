@@ -173,7 +173,16 @@ export class RedisTransport implements Transport<QueueMessage> {
     this.logger.debug('Sending message to Redis', {payload})
     const serializedPayload = JSON.stringify(payload)
     const queues = await this.getQueuesSubscribedToMessage(message)
-    await Promise.all(queues.map(queue => this.publishMessageToQueue(serializedPayload, queue)))
+    const queuePublishResults = await Promise.allSettled(queues.map(queue => this.publishMessageToQueue(serializedPayload, queue)))
+    const queuesThatFailedPublish = queuePublishResults
+      .map((queuePublishResult, index) => ({status: queuePublishResult.status, index}))
+      .filter(queuePublishResultWithIndex => queuePublishResultWithIndex.status === 'rejected')
+    if (queuesThatFailedPublish.length) {
+      // some of the queues that needed to have this message failed to be published to
+      const failedQueues = queues
+        .filter((_, index) => queuesThatFailedPublish.find(queueThatFailedPublish => queueThatFailedPublish.index === index))
+        throw new Error(`Failed to publish message: ${serializedPayload} to the following queues: ${failedQueues.join(', ')}`)
+    }
   }
 
   /**
@@ -184,7 +193,7 @@ export class RedisTransport implements Transport<QueueMessage> {
    */
   private async publishMessageToQueue(payload: string, queueName: string, attempt = 0): Promise<void> {
     if (attempt >= 3) {
-      this.logger.error('Failed to publish message to Transport Queue', {queueName, payload})
+      throw new Error('Failed to publish message to Transport Queue')
     }
     try {
       const queue = new ModestQueue({queueName, connection: this.connection, withScheduler: false, withDelayedScheduler: false})
