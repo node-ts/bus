@@ -30,7 +30,7 @@ export interface RedisTransportConfiguration {
   visibilityTimeout?: number
 
   /**
-   * The scheduler is a worker that checks messages if any messages have exceeded thy
+   * The scheduler is a worker that checks messages if any messages have exceeded the
    * visibility timeout. If they have, the are re added to the queue. It might be more performant to have only a few of these
    * running.
    * @default true

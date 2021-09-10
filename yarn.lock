@@ -8445,10 +8445,10 @@ mkdirp@^0.5.0, mkdirp@^0.5.1, mkdirp@^0.5.3, mkdirp@^0.5.5, mkdirp@~0.5.1:
   dependencies:
     minimist "^1.2.5"
 
-modest-queue@^0.4.0:
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/modest-queue/-/modest-queue-0.4.0.tgz#917d264c1ff2d59594f7a6ab32b900d9d23090bd"
-  integrity sha512-k+fpy1yDqLg2XIbzajOm+xoM7cz89k/Sffa1RX7umgKE4jpgKVkgbkkl1f5oFFiPR4SJk42Jq7qmPAM60L/u9w==
+modest-queue@^0.4.1:
+  version "0.4.1"
+  resolved "https://registry.yarnpkg.com/modest-queue/-/modest-queue-0.4.1.tgz#2a21e7f1e9bdf807ca00ed16f01c0a9349aaa1f8"
+  integrity sha512-SLkGUr3qTrxKk7Rd6WzojKzn09gb8DH3WV92DKLHyioNgkfPdmB+Xi/yfbVaLVP6V/xhZswODljwSg8ktp4KeA==
   dependencies:
     class-transformer "^0.4.0"
     ioredis "^4.27.7"
