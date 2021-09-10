@@ -92,7 +92,7 @@ describe('RedisTransport', () => {
         Times.once()
       )
     })
-    it(`it should not move the completed message to the completed queue`, async () => {
+    it(`The queue stats should be empty as all messages have been completed`, async () => {
       const completedCount = await sut['queue'].queueStats()
       expect(completedCount).toEqual({dlq: 0, inflight: 0, queue:0, delayed: 0})
     })
