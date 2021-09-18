@@ -1,6 +1,5 @@
 export * from './service-bus/bus'
 export * from './service-bus/bus-instance'
-export * from './service-bus/bus-hooks'
 export {
   Transport,
   TransportMessage,

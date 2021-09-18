@@ -3,7 +3,8 @@ import { Mock, IMock, It, Times } from 'typemoq'
 import { TestEvent, testEventHandler, MessageLogger, TestCommand, TestCommand2 } from '../test'
 import { HandlerAlreadyRegistered } from './errors'
 import { defaultLoggerFactory, Logger, setLogger } from '../logger'
-import { Handler, HandlerContext } from './handler'
+import { Handler } from './handler'
+import { Message } from '@node-ts/bus-messages'
 
 describe('HandlerRegistry', () => {
 
@@ -59,7 +60,7 @@ describe('HandlerRegistry', () => {
   })
 
   describe('when getting a handler for a message with no registered handlers', () => {
-    let handlers: Handler[]
+    let handlers: Handler<Message>[]
     const unregisteredMessage = { $name: 'unregistered-message' }
     beforeEach(() => {
       handlers = handlerRegistry.get(unregisteredMessage)
@@ -120,14 +121,13 @@ describe('HandlerRegistry', () => {
 
   describe('when registering a message handler using a custom resolver', () => {
     class CustomHandler {
-      async handle (_: HandlerContext<TestCommand2>): Promise<void> {
+      async handle (_: TestCommand2): Promise<void> {
         // ...
       }
     }
 
     beforeAll(async () => {
-      handlerRegistry.register(
-        TestCommand,
+      handlerRegistry.registerCustom(
         CustomHandler,
         {
           resolveWith: (message) => message.$name === TestCommand2.NAME,

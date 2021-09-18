@@ -1,4 +1,4 @@
-import { HandlerContext } from '../handler'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestEvent } from './test-event'
 import { MessageLogger } from './test-event-handler'
 
@@ -9,7 +9,7 @@ export class TestEventClassHandler {
   ) {
   }
 
-  async handle ({ message, attributes }: HandlerContext<TestEvent>): Promise<void> {
+  async handle (message: TestEvent, attributes: MessageAttributes): Promise<void> {
     this.messageLogger.log(message)
     this.messageLogger.log(attributes)
   }

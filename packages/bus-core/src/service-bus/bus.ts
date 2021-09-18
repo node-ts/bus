@@ -1,4 +1,4 @@
-import { Command, Event, Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Message } from '@node-ts/bus-messages'
 import { handlerRegistry } from '../handler'
 import { Handler } from '../handler/handler'
 import { Serializer, setSerializer } from '../serialization'
@@ -8,15 +8,12 @@ import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { workflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
-import { BusAlreadyInitialized, BusNotInitialized } from './error'
-import { BusHooks, OnErrorCallback, BeforePublishCallback, BeforeSendCallback, AfterReceiveCallback, BeforeDispatchCallback, AfterDispatchCallback } from './bus-hooks'
+import { BusAlreadyInitialized } from './error'
 import { getContainer, setContainer } from '../container'
 import { getLogger, LoggerFactory, setLogger } from '../logger'
 import { ContainerNotRegistered } from '../error'
 
 const logger = getLogger('@node-ts/bus-core:bus')
-
-let busInstance: BusInstance | undefined
 
 export enum BusState {
   Starting = 'starting',
@@ -29,13 +26,18 @@ export class BusConfiguration {
 
   private configuredTransport: Transport | undefined
   private concurrency = 1
-  private busHooks = new BusHooks()
+  private busInstance: BusInstance | undefined
 
   /**
    * Initializes the bus with the provided configuration
    */
-  async initialize (): Promise<void> {
+  async initialize (): Promise<BusInstance> {
     logger.debug('Initializing bus')
+
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     await workflowRegistry.initialize()
 
     const container = getContainer()
@@ -48,13 +50,14 @@ export class BusConfiguration {
     if (transport.initialize) {
       await transport.initialize(handlerRegistry)
     }
-    busInstance = new BusInstance(
+    this.busInstance = new BusInstance(
       transport,
-      this.concurrency,
-      this.busHooks
+      this.concurrency
     )
 
     logger.debug('Bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
+
+    return this.busInstance
   }
 
   /**
@@ -70,7 +73,7 @@ export class BusConfiguration {
     messageHandler: Handler<MessageType>
   ): this
   {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -89,7 +92,7 @@ export class BusConfiguration {
     }
   ): this
   {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -105,7 +108,7 @@ export class BusConfiguration {
    * and forwarded to the handlers inside the workflow
    */
   withWorkflow<TWorkflowState extends WorkflowState> (workflow: ClassConstructor<Workflow<TWorkflowState>>): this {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -119,7 +122,7 @@ export class BusConfiguration {
    * Configures Bus to use a different transport than the default MemoryQueue
    */
   withTransport (transportConfiguration: Transport): this {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -131,7 +134,7 @@ export class BusConfiguration {
    * Configures Bus to use a different logging provider than the default console logger
    */
   withLogger (loggerConfiguration: LoggerFactory): this {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -145,7 +148,7 @@ export class BusConfiguration {
    * properties are a strong type
    */
   withSerializer (serializerConfiguration: Serializer): this {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -158,7 +161,7 @@ export class BusConfiguration {
    * This is used to persist workflow data and is unused if not using workflows.
    */
   withPersistence (persistence: Persistence): this {
-    if (!!busInstance) {
+    if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
@@ -188,60 +191,6 @@ export class BusConfiguration {
     setContainer(container)
     return this
   }
-
-  /**
-   * A hook that is invoked when Bus.send() is called
-   * @param callback A callback to execute when the hook is invoked
-   */
-  beforeSend (callback: BeforeSendCallback): this {
-    this.busHooks.messageHooks.beforeSend.push(callback)
-    return this
-  }
-
-  /**
-   * A hook that is invoked when Bus.publish() is called
-   * @param callback A callback to execute when the hook is invoked
-   */
-  beforePublish (callback: BeforePublishCallback): this {
-    this.busHooks.messageHooks.beforePublish.push(callback)
-    return this
-  }
-
-  /**
-   * A hook that is invoked when Bus.publish() is called
-   * @param callback A callback to execute when the hook is invoked
-   */
-  onError<TransportMessageType> (callback: OnErrorCallback<TransportMessageType>): this {
-    this.busHooks.messageHooks.onError.push(callback)
-    return this
-  }
-
-  /**
-   * A hook that is invoked after a message has been received from the transport
-   * @param callback A callback to execute when the hook is invoked
-   */
-  afterReceive<TransportMessageType> (callback: AfterReceiveCallback<TransportMessageType>): this {
-    this.busHooks.messageHooks.afterReceive.push(callback)
-    return this
-  }
-
-  /**
-   * A hook that is invoked before a message is dispatched to handlers
-   * @param callback A callback to execute when the hook is invoked
-   */
-  beforeDispatch (callback: BeforeDispatchCallback): this {
-    this.busHooks.messageHooks.beforeDispatch.push(callback)
-    return this
-  }
-
-  /**
-   * A hook that is invoked after a message has been dispatched to handlers
-   * @param callback A callback to execute when the hook is invoked
-   */
-  afterDispatch (callback: AfterDispatchCallback): this {
-    this.busHooks.messageHooks.afterDispatch.push(callback)
-    return this
-  }
 }
 
 export class Bus {
@@ -249,82 +198,9 @@ export class Bus {
   }
 
   /**
-   * Gets the singleton instance of the Bus. This should only be used for testing when
-   * mocking out the Bus. All other consumption should be made via the public static methods
-   * available on Bus, eg: `Bus.publish()`, `Bus.send()` etc.
-   */
-  static getInstance() {
-    if (!busInstance) {
-      throw new BusNotInitialized()
-    }
-
-    return busInstance
-  }
-
-  /**
    * Configures the Bus prior to use
    */
   static configure (): BusConfiguration {
-    if (!!busInstance) {
-      throw new BusAlreadyInitialized()
-    }
     return new BusConfiguration()
-  }
-
-  /**
-   * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
-   */
-  static async publish<EventType extends Event> (event: EventType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
-    return Bus.getInstance().publish(event, messageOptions)
-  }
-
-  /**
-   * Sends a command onto the bus. There should be exactly one subscriber of this command type who can
-   * process it and perform the requested action.
-   */
-  static async send<CommandType extends Command> (command: CommandType, messageOptions?: Partial<MessageAttributes>): Promise<void> {
-    return Bus.getInstance().send(command, messageOptions)
-  }
-
-  /**
-   * Immediately fail the message of the current receive context and deliver it to the dead letter queue
-   * (if configured). It will not be retried Any processing of the message by a different handler on the
-   * same service instance will still process it.
-   */
-  static async fail (): Promise<void> {
-    return Bus.getInstance().fail()
-  }
-
-  /**
-   * For applications that handle messages, start reading messages off the underlying queue and process them.
-   */
-  static async start (): Promise<void> {
-    return Bus.getInstance().start()
-  }
-
-  /**
-   * For applications that handle messages, stop reading messages from the underlying queue.
-   */
-  static async stop (): Promise<void> {
-    return Bus.getInstance().stop()
-  }
-
-  /**
-   * Stops the Bus and releases any connections from the underlying queue transport
-   */
-  static async dispose (): Promise<void> {
-    if (busInstance) {
-      await Bus.getInstance().dispose()
-      busInstance = undefined
-    }
-    handlerRegistry.reset()
-    setContainer(undefined)
-  }
-
-  /**
-   * Get the current message handling state of the Bus
-   */
-  static get state(): BusState {
-    return Bus.getInstance().state
   }
 }

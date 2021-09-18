@@ -1,11 +1,10 @@
-import { Transport } from '../transport'
+import { Transport, TransportMessage } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep, ClassConstructor} from '../util'
+import { sleep, ClassConstructor, TypedEmitter} from '../util'
 import { ClassHandler, FunctionHandler, Handler, handlerRegistry, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from '../message-handling-context'
-import { BusHooks } from './bus-hooks'
 import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
 import { getContainer } from '../container'
 import { getLogger } from '../logger'
@@ -18,13 +17,31 @@ const logger = () => getLogger('@node-ts/bus-core:service-bus')
 
 export class BusInstance {
 
+  readonly beforeSend = new TypedEmitter<{ command: Command, attributes: MessageAttributes }>()
+  readonly beforePublish = new TypedEmitter<{ event: Event, attributes: MessageAttributes }>()
+  readonly onError = new TypedEmitter<{
+    message: Message,
+    error: Error,
+    attributes?: MessageAttributes,
+    rawMessage?: TransportMessage<unknown>
+  }>()
+  readonly afterReceive = new TypedEmitter<TransportMessage<unknown>>()
+  readonly beforeDispatch = new TypedEmitter<{
+    message: Message,
+    attributes: MessageAttributes,
+    handlers: Handler[]
+  }>()
+  readonly afterDispatch = new TypedEmitter<{
+    message: Message,
+    attributes: MessageAttributes
+  }>()
+
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
 
   constructor (
     private readonly transport: Transport<{}>,
-    private readonly concurrency: number,
-    private readonly busHooks: BusHooks
+    private readonly concurrency: number
   ) {
   }
 
@@ -33,9 +50,9 @@ export class BusInstance {
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
     logger().debug('Publishing event', { event, messageOptions })
-    const transportOptions = this.prepareTransportOptions(messageOptions)
-    await Promise.all(this.busHooks.beforePublish.map(callback => callback(event, transportOptions)))
-    return this.transport.publish(event, transportOptions)
+    const attributes = this.prepareTransportOptions(messageOptions)
+    this.beforePublish.emit({ event, attributes })
+    return this.transport.publish(event, attributes)
   }
 
   async send<TCommand extends Command> (
@@ -43,9 +60,9 @@ export class BusInstance {
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
     logger().debug('Sending command', { command, messageOptions })
-    const transportOptions = this.prepareTransportOptions(messageOptions)
-    await Promise.all(this.busHooks.beforeSend.map(callback => callback(command, transportOptions)))
-    return this.transport.send(command, transportOptions)
+    const attributes = this.prepareTransportOptions(messageOptions)
+    this.beforeSend.emit({ command, attributes })
+    return this.transport.send(command, attributes)
   }
 
   async fail (): Promise<void> {
@@ -126,14 +143,10 @@ export class BusInstance {
   private async handleNextMessage (): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
-      if (this.busHooks.afterReceive.length) {
-        await Promise.all(
-          this.busHooks.afterReceive.map(callback => callback(message))
-        )
-      }
 
       if (message) {
         logger().debug('Message read from transport', { message })
+        this.afterReceive.emit(message)
 
         try {
           messageHandlingContext.set(message)
@@ -141,24 +154,21 @@ export class BusInstance {
           await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
           await this.transport.deleteMessage(message)
 
-          if (this.busHooks.afterDispatch) {
-            await Promise.all(
-              this.busHooks.afterDispatch.map(callback =>
-                callback(message.domainMessage, message.attributes)
-              )
-            )
-          }
+          this.afterDispatch.emit({
+            message: message.domainMessage,
+            attributes: message.attributes
+          })
         } catch (error) {
           logger().warn(
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
-          await Promise.all(this.busHooks.onError.map(callback => callback(
-            message.domainMessage as Message,
-            (error as Error),
-            message.attributes,
-            message
-          )))
+          this.onError.emit({
+            message: message.domainMessage,
+            error,
+            attributes: message.attributes,
+            rawMessage: message
+          })
           await this.transport.returnMessage(message)
           return false
         } finally {
@@ -185,17 +195,11 @@ export class BusInstance {
       handler
     ))
 
-    if (this.busHooks.beforeDispatch) {
-      await Promise.all(
-        this.busHooks.beforeDispatch.map(callback =>
-          callback(
-            message,
-            messageAttributes,
-            handlers
-          )
-        )
-      )
-    }
+    this.beforeDispatch.emit({
+      message,
+      attributes: messageAttributes,
+      handlers
+    })
 
     await Promise.all(handlersToInvoke)
     logger().debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
@@ -250,5 +254,4 @@ export class BusInstance {
       )
     }
   }
-
 }

@@ -1,36 +1,27 @@
 import { Bus } from './bus'
-import { BusAlreadyInitialized, BusNotInitialized } from './error'
+import { BusAlreadyInitialized } from './error'
 import { TestEvent } from '../test'
-import { Persistence, Workflow, WorkflowState } from '../workflow'
+import { Persistence } from '../workflow'
 import { Serializer } from '../serialization'
 import { Logger } from '../logger'
 import { Transport } from '../transport'
 
 describe('Bus', () => {
-  describe('when getting the service bus prior to initialization', () => {
-    it('should throw a BusNotInitialized error', async () => {
-      await expect(Bus.publish(new TestEvent())).rejects.toBeInstanceOf(BusNotInitialized)
-    })
-  })
-
   describe('when configuring Bus after initialization', () => {
     it('should reject', async () => {
       const config = Bus.configure()
-      await config.initialize()
-      expect(() => Bus.configure()).toThrowError(BusAlreadyInitialized)
+      const bus = await config.initialize()
       expect(() => config.withHandler(TestEvent, () => undefined)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withLogger(() => ({} as Logger))).toThrowError(BusAlreadyInitialized)
       expect(() => config.withPersistence({} as Persistence)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withSerializer({} as Serializer)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withTransport({} as Transport)).toThrowError(BusAlreadyInitialized)
       expect(() => config.withWorkflow({} as any)).toThrowError(BusAlreadyInitialized)
-      await Bus.dispose()
+      await bus.dispose()
     })
   })
 
   describe('when configuring bus concurrency', () => {
-    afterEach(async () => Bus.dispose())
-
     it('should accept a concurrency of 1', () => {
       Bus.configure().withConcurrency(1)
     })
@@ -47,14 +38,8 @@ describe('Bus', () => {
   describe('when disposing the bus', () => {
     describe('after its been initialized', () => {
       it('should dispose', async () => {
-        await Bus.configure().initialize()
-        await Bus.dispose()
-      })
-    })
-
-    describe('when it hasn\'t been initialized', () => {
-      it('should ignore the request', async () => {
-        await expect(Bus.dispose()).resolves.toBeUndefined()
+        const bus = await Bus.configure().initialize()
+        await bus.dispose()
       })
     })
   })
