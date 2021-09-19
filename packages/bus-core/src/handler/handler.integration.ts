@@ -1,12 +1,12 @@
 import { TestEvent } from '../test/test-event'
-import { Bus } from '../service-bus'
+import { Bus, BusInstance } from '../service-bus'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestCommand } from '../test/test-command'
 import { Mock, Times, It } from 'typemoq'
 import { ClassConstructor, sleep } from '../util'
 import { MessageLogger, TestCommand2, testEventHandler } from '../test'
 import * as faker from 'faker'
-import { Handler, HandlerContext } from './handler'
+import { Handler } from './handler'
 import { TestCommand3 } from '../test/test-command-3'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { EventEmitter } from 'stream'
@@ -29,22 +29,22 @@ describe('Handler', () => {
   describe('for a correctly configured instance', () => {
     const messageLogger = Mock.ofType<MessageLogger>()
     const events = new EventEmitter()
+    let bus: BusInstance
 
     // Sticky attributes should propagate during Bus.send
-    const command2Handler: Handler<TestCommand2> = async ({ attributes: { correlationId } }) => {
-      await Bus.send(new TestCommand3())
+    const command2Handler: Handler<TestCommand2> = async (_: TestCommand2, { correlationId }) => {
+      await bus.send(new TestCommand3())
       messageLogger.object.log({ name: 'command2Handler', correlationId })
       events.emit('command2Handler')
     }
-    const command3Handler = (messageLogger: MessageLogger) => async ({ attributes: { stickyAttributes, correlationId } }: HandlerContext<TestCommand3>) => {
+    const command3Handler = (messageLogger: MessageLogger) => async (_: TestCommand3, { stickyAttributes, correlationId }: MessageAttributes) => {
       messageLogger.log(stickyAttributes.value)
       messageLogger.log({ name: 'command3Handler', correlationId })
       events.emit('command3Handler')
     }
 
     beforeAll(async () => {
-
-      await Bus.configure()
+      bus = await Bus.configure()
         .withConcurrency(2)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
@@ -57,15 +57,15 @@ describe('Handler', () => {
         .withHandler(TestCommand3, command3Handler(messageLogger.object))
         .initialize()
 
-      await Bus.start()
-      await Bus.publish(event)
-      await Bus.publish(event, attributes)
-      await Bus.send(command)
+      await bus.start()
+      await bus.publish(event)
+      await bus.publish(event, attributes)
+      await bus.send(command)
 
       await sleep(1)
     })
 
-    afterAll(async () => Bus.stop())
+    afterAll(async () => bus.dispose())
 
     describe('when a handled message is received', () => {
       it('should dispatch to the registered handler', () => {
@@ -109,8 +109,8 @@ describe('Handler', () => {
             }
           })
         })
-        await Bus.send(command2, attributes1)
-        await Bus.send(command2, attributes2)
+        await bus.send(command2, attributes1)
+        await bus.send(command2, attributes2)
         await messagesHandled
 
         messageLogger.verify(
@@ -143,7 +143,7 @@ describe('Handler', () => {
         const messageHandled = new Promise<void>(resolve => {
           events.on('command3Handler', resolve)
         })
-        await Bus.send(command2, attributes)
+        await bus.send(command2, attributes)
         await messageHandled
 
         messageLogger.verify(
@@ -163,7 +163,7 @@ describe('Handler', () => {
         const command2 = new TestCommand2()
 
         const messageHandled = new Promise<void>(resolve => events.on('command3Handler', resolve))
-        await Bus.send(command2)
+        await bus.send(command2)
         await messageHandled
       })
 

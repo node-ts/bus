@@ -3,31 +3,33 @@ import { Bus, BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
 import { Mock, IMock, Times, It } from 'typemoq'
-import { HandlerContext, SystemMessageMissingResolver } from '../handler'
+import { SystemMessageMissingResolver } from '../handler'
 import { TestCommand } from '../test/test-command'
 import { TestEvent2 } from '../test/test-event-2'
 import { ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { EventEmitter } from 'stream'
 import { TestSystemMessage } from '../test/test-system-message'
-import { Command } from '@node-ts/bus-messages'
+import { Command, MessageAttributes } from '@node-ts/bus-messages'
 import { toTransportMessage } from '../transport/memory-queue'
 import { Logger } from '../logger'
+import { BusInstance } from './bus-instance'
 
 const event = new TestEvent()
 type Callback = () => void;
 
 describe('BusInstance', () => {
   describe('when the bus is configured correctly', () => {
+    let bus: BusInstance
     let queue: MemoryQueue
     let callback: IMock<Callback>
-    const handler = async (_: HandlerContext<TestEvent>) => callback.object()
+    const handler = async (_: TestEvent) => callback.object()
 
     beforeAll(async () => {
       queue = new MemoryQueue()
       callback = Mock.ofType<Callback>()
 
-      await Bus.configure()
+      bus = await Bus.configure()
         .withTransport(queue)
         .withHandler(TestEvent, handler)
         .initialize()
@@ -35,16 +37,16 @@ describe('BusInstance', () => {
 
     describe('when starting the service bus', () => {
       it('should complete into a started state', async () => {
-        await Bus.start()
-        expect(Bus.state).toEqual(BusState.Started)
-        await Bus.stop()
+        await bus.start()
+        expect(bus.state).toEqual(BusState.Started)
+        await bus.stop()
       })
 
       describe('and then the bus is started again', () => {
         it('should throw an error', async () => {
-          await Bus.start()
-          await expect(Bus.start()).rejects.toThrowError()
-          await Bus.stop()
+          await bus.start()
+          await expect(bus.start()).rejects.toThrowError()
+          await bus.stop()
         })
       })
     })
@@ -52,22 +54,22 @@ describe('BusInstance', () => {
     describe('when stopping the service bus', () => {
       describe('when its started', () => {
         it('should stop the bus', async () => {
-          await Bus.start()
-          await Bus.stop()
-          expect(Bus.state).toEqual(BusState.Stopped)
+          await bus.start()
+          await bus.stop()
+          expect(bus.state).toEqual(BusState.Stopped)
         })
       })
 
       describe('when its not started', () => {
         it('should throw an error', async () => {
-          await expect(Bus.stop()).rejects.toThrowError()
+          await expect(bus.stop()).rejects.toThrowError()
         })
       })
     })
 
     describe('when a message is successfully handled from the queue', () => {
-      beforeEach(async () => Bus.start())
-      afterEach(async () => Bus.stop())
+      beforeEach(async () => bus.start())
+      afterEach(async () => bus.stop())
 
       it('should delete the message from the queue', async () => {
         callback.reset()
@@ -75,7 +77,7 @@ describe('BusInstance', () => {
           .setup(c => c())
           .callback(() => undefined)
           .verifiable(Times.once())
-        await Bus.publish(event)
+        await bus.publish(event)
         await sleep(10)
 
         expect(queue.depth).toEqual(0)
@@ -84,8 +86,8 @@ describe('BusInstance', () => {
     })
 
     describe('when a handled message throws an Error', () => {
-      beforeEach(async () => Bus.start())
-      afterEach(async () => Bus.stop())
+      beforeEach(async () => bus.start())
+      afterEach(async () => bus.stop())
 
       it('should return the message for retry', async () => {
         callback.reset()
@@ -99,7 +101,7 @@ describe('BusInstance', () => {
           })
           .verifiable(Times.exactly(2))
 
-        await Bus.publish(event)
+        await bus.publish(event)
         await sleep(2000)
 
         callback.verifyAll()
@@ -122,8 +124,8 @@ describe('BusInstance', () => {
         const errorCallback = jest.fn()
         setupErroneousCallback()
 
-        Bus.on('error', errorCallback)
-        await Bus.publish(event)
+        bus.onError.on(errorCallback)
+        await bus.publish(event)
         await sleep(2000)
 
         callback.verifyAll()
@@ -140,24 +142,24 @@ describe('BusInstance', () => {
         }
 
         expect(errorCallback).toHaveBeenCalledTimes(1)
-        expect(errorCallback).toHaveBeenCalledWith(
-          event,
-          expect.any(Error),
+        expect(errorCallback).toHaveBeenCalledWith({
+          message: event,
+          error: expect.any(Error),
           /*
             We can't use expect.any() here because
             messageAttributes wasn't deserialized during transport.
           */
-          expect.objectContaining({
+          attributes: expect.objectContaining({
             correlationId: expect.stringContaining('-'),
             attributes: expect.anything(),
             stickyAttributes: expect.anything()
           }),
-          expect.objectContaining({
+          rawMessage: expect.objectContaining({
             ...expectedTransportMessage,
             attributes: expect.anything()
           })
-        )
-        Bus.off('error', errorCallback)
+        })
+        bus.onError.off(errorCallback)
       })
     })
 
@@ -166,14 +168,17 @@ describe('BusInstance', () => {
       const command = new TestCommand()
 
       beforeAll(async () => {
-        Bus.on('send', sendCallback)
-        await Bus.send(command, { correlationId: 'a' })
-        Bus.off('send', sendCallback)
-        await Bus.send(command, { correlationId: 'a' })
+        bus.beforeSend.on(sendCallback)
+        await bus.send(command, { correlationId: 'a' })
+        bus.beforeSend.off(sendCallback)
+        await bus.send(command, { correlationId: 'a' })
       })
 
       it('should trigger the hook once when send() is called', async () => {
-        expect(sendCallback).toHaveBeenCalledWith(command, expect.objectContaining({ correlationId: 'a' }))
+        expect(sendCallback).toHaveBeenCalledWith({
+          command,
+          attributes: expect.objectContaining({ correlationId: 'a' })
+        })
       })
 
       it('should only trigger the callback once before its removed', () => {
@@ -186,14 +191,17 @@ describe('BusInstance', () => {
       const evt = new TestEvent()
 
       beforeAll(async () => {
-        Bus.on('publish', publishCallback)
-        await Bus.publish(evt, { correlationId: 'b' })
-        Bus.off('publish', publishCallback)
-        await Bus.publish(evt, { correlationId: 'b' })
+        bus.beforePublish.on(publishCallback)
+        await bus.publish(evt, { correlationId: 'b' })
+        bus.beforePublish.off(publishCallback)
+        await bus.publish(evt, { correlationId: 'b' })
       })
 
       it('should trigger the hook once when publish() is called', async () => {
-        expect(publishCallback).toHaveBeenCalledWith(evt, expect.objectContaining({ correlationId: 'b' }))
+        expect(publishCallback).toHaveBeenCalledWith({
+          event: evt,
+          attributes: expect.objectContaining({ correlationId: 'b' })
+        })
       })
 
       it('should only trigger the callback once before its removed', () => {
@@ -204,9 +212,6 @@ describe('BusInstance', () => {
 
   describe('when a class handler is used', () => {
     describe('without registering a container', () => {
-      beforeAll(async () => {
-        await Bus.dispose()
-      })
       it('should throw a ContainerNotRegistered error', async () => {
         await expect(Bus.configure()
           .withConcurrency(1)
@@ -219,34 +224,30 @@ describe('BusInstance', () => {
 
   describe('when sending a message with sticky attributes', () => {
     describe('which results in another message being sent', () => {
-      it('should attach sticky attributes', async () => {
-        await Bus.dispose()
-
+      fit('should attach sticky attributes', async () => {
         const events = new EventEmitter()
-        await Bus.configure()
-          .withHandler(TestCommand, async () => await Bus.send(new TestEvent2()))
-          .withHandler(TestEvent2, async () => Bus.send(new TestEvent()))
-          .withHandler(TestEvent, async ({ attributes: { stickyAttributes } }: HandlerContext<TestEvent>) => { events.emit('event', stickyAttributes) })
+        const bus = await Bus.configure()
+          .withHandler(TestCommand, async () => await bus.send(new TestEvent2()))
+          .withHandler(TestEvent2, async () => bus.send(new TestEvent()))
+          .withHandler(TestEvent, async (_: TestEvent, { stickyAttributes }: MessageAttributes) => { events.emit('event', stickyAttributes) })
           .initialize()
 
-        await Bus.start()
+        await bus.start()
 
         const stickyAttributes = { test: 'attribute' }
         const eventReceived = new Promise(resolve => events.on('event', resolve))
-        await Bus.send(new TestCommand(), { stickyAttributes })
+        await bus.send(new TestCommand(), { stickyAttributes })
 
         const actualStickyAttributes = await eventReceived
         expect(actualStickyAttributes).toEqual(stickyAttributes)
 
-        await Bus.dispose()
+        await bus.dispose()
       })
     })
   })
 
   describe('when handling messages originating from an external system', () => {
     it('should fail when a custom resolver is not provided', async () => {
-      await Bus.dispose()
-
       try {
         await Bus.configure()
           .withHandler(TestSystemMessage, async () => undefined)
@@ -259,22 +260,19 @@ describe('BusInstance', () => {
     })
 
     it('should handle the external message', async () => {
-      await Bus.dispose()
-
       const events = new EventEmitter()
       const queue = new MemoryQueue()
-      await Bus.configure()
+      const bus = await Bus.configure()
         .withTransport(queue)
-        .withHandler(
-          TestSystemMessage,
-          async ({ message }: HandlerContext<TestSystemMessage>) => { events.emit('event', message) },
+        .withCustomHandler(
+          async (message: TestSystemMessage) => { events.emit('event', message) },
           {
             resolveWith: m => m.name === TestSystemMessage.NAME
           }
         )
         .initialize()
 
-      await Bus.start()
+      await bus.start()
 
       const systemMessageReceived = new Promise(resolve => events.on('event', resolve))
       const systemMessage = new TestSystemMessage()
@@ -284,7 +282,7 @@ describe('BusInstance', () => {
       const actualSystemMessage = await systemMessageReceived
       expect(actualSystemMessage).toEqual(systemMessage)
 
-      await Bus.dispose()
+      await bus.dispose()
     })
   })
 
@@ -293,16 +291,16 @@ describe('BusInstance', () => {
       const logger = Mock.ofType<Logger>()
       const queue = Mock.ofType<MemoryQueue>()
       const events = new EventEmitter()
-      await Bus.configure()
+      const bus = await Bus.configure()
         .withTransport(queue.object)
         .withLogger(() => logger.object)
         .initialize()
-      await Bus.start()
+      await bus.start()
 
       queue
         .setup(q => q.readNextMessage())
         .callback(async () => {
-          await Bus.stop()
+          await bus.stop()
           events.emit('event')
         })
         .throws(new Error())
@@ -313,7 +311,7 @@ describe('BusInstance', () => {
         l => l.error(`Failed to receive message from transport`, It.isAny()),
         Times.once()
       )
-      await Bus.dispose()
+      await bus.dispose()
     })
   })
 
@@ -322,11 +320,11 @@ describe('BusInstance', () => {
       const logger = Mock.ofType<Logger>()
       const queue = Mock.ofType<MemoryQueue>()
       const events = new EventEmitter()
-      await Bus.configure()
+      const bus = await Bus.configure()
         .withTransport(queue.object)
         .withLogger(() => logger.object)
         .initialize()
-      await Bus.start()
+      await bus.start()
 
       queue
         .setup(q => q.readNextMessage())
@@ -343,48 +341,47 @@ describe('BusInstance', () => {
         l => l.error(`No handlers registered for message. Message will be discarded`, It.isAny()),
         Times.once()
       )
-      await Bus.dispose()
+      await bus.dispose()
     })
   })
 
   describe('when failing a message', () => {
     describe('when there is no message handling context', () => {
       it('should throw a FailMessageOutsideHandlingContext error', async () => {
+        let bus: BusInstance
         try {
           await Bus.configure().initialize()
-          await Bus.fail()
+          await bus.fail()
           fail('Expected FailMessageOutsideHandlingContext to have been thrown')
         } catch (error) {
           expect(error).toBeInstanceOf(FailMessageOutsideHandlingContext)
         } finally {
-          await Bus.dispose()
+          await bus.dispose()
         }
       })
     })
 
     describe('when there is a message handling context', () => {
       it('should fail the message on the transport', async () => {
-        await Bus.dispose()
-
         const events = new EventEmitter()
 
         const queue = new MemoryQueue()
         const queueMock = jest.spyOn(queue, 'fail')
-        await Bus.configure()
+        const bus = await Bus.configure()
           .withTransport(queue)
           .withHandler(TestCommand, async () => {
-            await Bus.fail()
+            await bus.fail()
             events.emit('event')
           })
           .initialize()
 
-        await Bus.start()
+        await bus.start()
         const messageFailed = new Promise<void>(resolve => events.on('event', resolve))
-        await Bus.send(new TestCommand())
+        await bus.send(new TestCommand())
         await messageFailed
 
         expect(queueMock).toHaveBeenCalled()
-        await Bus.dispose()
+        await bus.dispose()
       })
     })
   })
