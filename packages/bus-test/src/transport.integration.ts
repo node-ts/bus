@@ -1,4 +1,4 @@
-import { Bus, Transport } from '@node-ts/bus-core'
+import { Bus, BusInstance, Transport } from '@node-ts/bus-core'
 import { HandleChecker, TestCommand, TestEvent, TestFailMessage, TestPoisonedMessage } from './helpers'
 import { EventEmitter } from 'stream'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -29,10 +29,11 @@ export const transportTests = (
   const testSystemMessageHandlerEmitter = new EventEmitter()
   const handleChecker = Mock.ofType<HandleChecker>()
   let poisonedMessageReceiptAttempts = 0
+  let bus: BusInstance
 
   return describe('when the transport has been initialized', () => {
     beforeAll(async () => {
-      await Bus.configure()
+      bus = await Bus.configure()
         .withTransport(transport)
         .withHandler(
           TestCommand,
@@ -63,11 +64,13 @@ export const transportTests = (
             topicIdentifier: systemMessageTopicIdentifier
           }
         )
-        .withHandler(TestFailMessage, async () => Bus.fail())
+        .withHandler(TestFailMessage, async () => bus.fail())
         .initialize()
 
-      await Bus.start()
+      await bus.start()
     })
+
+    afterAll(async () => bus.dispose())
 
     describe('when a system message is received', () => {
       const attrValue = uuid.v4()
@@ -98,7 +101,7 @@ export const transportTests = (
       }
 
       it('should receive and dispatch to the handler', async () => {
-        await Bus.send(testCommand, messageOptions)
+        await bus.send(testCommand, messageOptions)
         await new Promise(resolve => testCommandHandlerEmitter.on('received', resolve))
         handleChecker.verify(
           h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>(messageOptions)),
@@ -119,7 +122,7 @@ export const transportTests = (
       }
 
       it('should receive and dispatch to the handler', async () => {
-        await Bus.publish(testEvent, messageOptions)
+        await bus.publish(testEvent, messageOptions)
         await new Promise(resolve => testEventHandlerEmitter.on('received', resolve))
         handleChecker.verify(
           h => h.check(It.isAnyObject(TestEvent), It.isObjectWith<MessageAttributes>(messageOptions)),
@@ -133,7 +136,7 @@ export const transportTests = (
       let deadMessages: { message: Message, attributes: MessageAttributes}[]
 
       beforeAll(async () => {
-        await Bus.publish(poisonedMessage)
+        await bus.publish(poisonedMessage)
         await new Promise<void>(resolve => {
           testPoisonedMessageHandlerEmitter.on('received', attempts => {
             if (attempts >= 10) {
@@ -158,7 +161,7 @@ export const transportTests = (
       let deadLetterQueueMessages: { message: Message, attributes: MessageAttributes }[]
 
       beforeAll(async () => {
-        await Bus.publish(messageToFail, { correlationId })
+        await bus.publish(messageToFail, { correlationId })
         deadLetterQueueMessages = await readAllFromDeadLetterQueue()
       })
 
