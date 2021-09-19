@@ -54,7 +54,7 @@ const dispatchMessageToWorkflow = async (
 
   const immutableWorkflowState = Object.freeze({...workflowState})
   const handler = workflow[workflowHandler] as Function
-  const workflowStateOutput = await handler.bind(workflow)(immutableWorkflowState, message, attributes)
+  const workflowStateOutput = await handler.bind(workflow)(message, immutableWorkflowState, attributes)
 
   const workflowName = workflowCtor.prototype.name
   if (workflowStateOutput && workflowStateOutput.$status === WorkflowStatus.Discard) {
@@ -237,7 +237,7 @@ class WorkflowRegistry {
               ? container.get(options.workflowCtor)
               : new options.workflowCtor()
             const handler = workflow[options.workflowHandler as keyof Workflow<WorkflowState>] as Function
-            const result = await handler.bind(workflow)(immutableWorkflowState, message, messageAttributes)
+            const result = await handler.bind(workflow)(message, immutableWorkflowState, messageAttributes)
 
             logger().debug(
               'Finished handling for new workflow',

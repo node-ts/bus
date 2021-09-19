@@ -3,6 +3,7 @@ import { Bus } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
 import { Mock, IMock } from 'typemoq'
+import { BusInstance } from './bus-instance'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -13,6 +14,7 @@ describe('BusInstance - Concurrency', () => {
   let handleCount = 0
   const resolutions: ((_: unknown) => void)[] = []
   const CONCURRENCY = 2
+  let bus: BusInstance
 
   const handler = async () => {
     handleCount++
@@ -25,24 +27,24 @@ describe('BusInstance - Concurrency', () => {
     queue = new MemoryQueue()
     callback = Mock.ofType<Callback>()
 
-    await Bus.configure()
+    bus =await Bus.configure()
       .withTransport(queue)
       .withHandler(TestEvent, handler)
       .withConcurrency(CONCURRENCY)
       .initialize()
-    await Bus.start()
+    await bus.start()
   })
 
-  afterAll(async () => Bus.stop())
+  afterAll(async () => bus.stop())
 
   describe('when starting the bus with concurrent handlers', () => {
     beforeAll(async () => {
       // These should be handled immediately
-      await Bus.publish(event)
-      await Bus.publish(event)
+      await bus.publish(event)
+      await bus.publish(event)
 
       // This should be handled when the next worker becomes available
-      await Bus.publish(event)
+      await bus.publish(event)
       await sleep(100)
     })
 

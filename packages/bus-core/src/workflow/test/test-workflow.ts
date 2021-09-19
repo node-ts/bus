@@ -4,26 +4,31 @@ import { TestCommand } from './test-command'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
 import { FinalTask } from './final-task'
-import { Bus } from '../../service-bus'
-import { HandlerContext } from '../../handler'
+import { BusInstance } from '../../service-bus'
 
 export class TestWorkflow extends Workflow<TestWorkflowState> {
+
+  constructor (
+    private bus: BusInstance
+  ) {
+    super()
+  }
 
   configureWorkflow (mapper: WorkflowMapper<TestWorkflowState, TestWorkflow>): void {
     mapper
       .withState(TestWorkflowState)
       .startedBy(TestCommand, 'step1')
-      .when(TaskRan, 'step2', { lookup: ({ message }) => message.value, mapsTo: 'property1' })
+      .when(TaskRan, 'step2', { lookup: message => message.value, mapsTo: 'property1' })
       .when(FinalTask, 'step3') // Maps on workflow id
   }
 
-  async step1 ({ message: { property1 } }: HandlerContext<TestCommand>) {
-    await Bus.send(new RunTask(property1!))
+  async step1 ({ property1 }: TestCommand) {
+    await this.bus.send(new RunTask(property1!))
     return { property1 }
   }
 
-  async step2 ({ message: { value } }: HandlerContext<TaskRan>, state: TestWorkflowState) {
-    await Bus.send(new FinalTask())
+  async step2 ({ value }: TaskRan, state: TestWorkflowState) {
+    await this.bus.send(new FinalTask())
     return { ...state, property1: value }
   }
 

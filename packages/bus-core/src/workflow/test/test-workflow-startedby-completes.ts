@@ -1,4 +1,3 @@
-import { HandlerContext } from '../../handler'
 import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowState } from '../workflow-state'
 import { TestCommand } from './test-command'
@@ -22,7 +21,7 @@ export class TestWorkflowStartedByCompletes extends Workflow<TestWorkflowStarted
   /**
    * Completes the workflow immediately and save a final state
    */
-  complete ({ message }: HandlerContext<TestCommand>) {
+  complete (message: TestCommand) {
     return this.completeWorkflow({
       property1: message.property1
     })

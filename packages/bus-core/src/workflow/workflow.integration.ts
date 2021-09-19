@@ -10,38 +10,44 @@ import {
   TestWorkflowStartedByDiscardData
 } from './test/test-workflow-startedby-discard'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { Bus } from '../service-bus'
-import { sleep } from '../util'
+import { Bus, BusInstance } from '../service-bus'
+import { ClassConstructor, sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { getPersistence } from './persistence/persistence'
 
 describe('Workflow', () => {
   const command = new TestCommand('abc')
   const CONSUME_TIMEOUT = 500
+  let bus: BusInstance
 
   beforeAll(async () => {
 
     const inMemoryPersistence = new InMemoryPersistence()
 
-    await Bus.configure()
+    bus = await Bus.configure()
       .withPersistence(inMemoryPersistence)
+      .withContainer({
+        get <T>(workflowType: ClassConstructor<T>) {
+          return new workflowType(bus)
+        }
+      })
       .withWorkflow(TestWorkflow)
       .withWorkflow(TestWorkflowStartedByCompletes)
       .withWorkflow(TestWorkflowStartedByDiscard)
       .initialize()
 
-    await Bus.start()
-    await Bus.send(command)
+    await bus.start()
+    await bus.send(command)
     await sleep(CONSUME_TIMEOUT)
   })
 
   afterAll(async () => {
-    await Bus.dispose()
+    await bus.dispose()
   })
 
   describe('when a message that starts a workflow is received', () => {
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
-      lookup: ({ message }) => message.property1,
+      lookup: message => message.property1,
       mapsTo: 'property1'
     }
     let workflowState: TestWorkflowState[]
@@ -69,7 +75,7 @@ describe('Workflow', () => {
       let nextWorkflowState: TestWorkflowState[]
 
       beforeAll(async () => {
-        await Bus.publish(event)
+        await bus.publish(event)
         await sleep(CONSUME_TIMEOUT)
 
         nextWorkflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
@@ -90,7 +96,7 @@ describe('Workflow', () => {
         let finalWorkflowState: TestWorkflowState[]
 
         beforeAll(async () => {
-          await Bus.publish(
+          await bus.publish(
             finalTask,
             { correlationId: nextWorkflowState[0].$workflowId }
           )
@@ -117,7 +123,7 @@ describe('Workflow', () => {
   describe('when a workflow is completed in a StartedBy handler', () => {
     const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> = {
-      lookup: ({ message }) => message.property1,
+      lookup: message => message.property1,
       mapsTo: 'property1'
     }
 
@@ -140,7 +146,7 @@ describe('Workflow', () => {
   describe('when a StartedBy handler returns undefined', () => {
     const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
     const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> = {
-      lookup: ({ message }) => message.property1,
+      lookup: message => message.property1,
       mapsTo: 'property1'
     }
 
