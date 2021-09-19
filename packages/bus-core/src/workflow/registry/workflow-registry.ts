@@ -10,7 +10,7 @@ import { getLogger } from '../../logger'
 import { PersistenceNotConfigured } from '../persistence/error'
 import { WorkflowAlreadyInitialized } from '../error'
 import { messageHandlingContext } from '../../message-handling-context'
-import { getContainer } from '../../container'
+import { ContainerAdapter } from '../../container'
 
 const logger = () => getLogger('@node-ts/bus-core:workflow-registry')
 
@@ -44,10 +44,10 @@ const dispatchMessageToWorkflow = async (
   workflowCtor: ClassConstructor<Workflow<WorkflowState>>,
   workflowState: WorkflowState,
   workflowStateConstructor: ClassConstructor<WorkflowState>,
-  workflowHandler: keyof Workflow<WorkflowState>
+  workflowHandler: keyof Workflow<WorkflowState>,
+  container: ContainerAdapter | undefined
 ) => {
   logger().debug('Dispatching message to workflow', { msg: message, workflow: workflowCtor })
-  const container = getContainer()
   const workflow = container
     ? container.get(workflowCtor)
     : new workflowCtor()
@@ -118,7 +118,7 @@ const workflowLookup: MessageWorkflowMapping = {
  *   - what messages are handled by each workflow
  * This registry is also responsible for dispatching messages to workflows as they are received.
  */
-class WorkflowRegistry {
+export class WorkflowRegistry {
 
   private workflowRegistry: ClassConstructor<Workflow<WorkflowState>>[] = []
   private isInitialized = false
@@ -150,7 +150,7 @@ class WorkflowRegistry {
    *
    * This should be called once as the application is starting.
    */
-  async initialize (): Promise<void> {
+  async initialize (container: ContainerAdapter | undefined): Promise<void> {
     if (this.workflowRegistry.length === 0) {
       logger().info('No workflows registered, skipping this step.')
       return
@@ -174,8 +174,8 @@ class WorkflowRegistry {
         throw new Error('Workflow state not provided. Use .withState()')
       }
 
-      this.registerFnStartedBy(mapper)
-      this.registerFnHandles(mapper, WorkflowCtor)
+      this.registerFnStartedBy(mapper, container)
+      this.registerFnHandles(mapper, WorkflowCtor, container)
 
       const messageWorkflowMappings: MessageWorkflowMapping[] = Array.from<[ClassConstructor<Message>, OnWhenHandler], MessageWorkflowMapping>(
         mapper.onWhen,
@@ -212,7 +212,8 @@ class WorkflowRegistry {
   }
 
   private registerFnStartedBy (
-    mapper: WorkflowMapper<any, any>
+    mapper: WorkflowMapper<any, any>,
+    container: ContainerAdapter | undefined
   ): void {
     logger().debug(
       'Registering started by handlers for workflow',
@@ -232,7 +233,6 @@ class WorkflowRegistry {
           const immutableWorkflowState = Object.freeze({...workflowState})
           startWorkflowHandlingContext(immutableWorkflowState)
           try {
-            const container = getContainer()
             const workflow = container
               ? container.get(options.workflowCtor)
               : new options.workflowCtor()
@@ -259,7 +259,8 @@ class WorkflowRegistry {
 
   private registerFnHandles (
     mapper: WorkflowMapper<WorkflowState, Workflow<WorkflowState>>,
-    workflowCtor: ClassConstructor<Workflow<WorkflowState>>
+    workflowCtor: ClassConstructor<Workflow<WorkflowState>>,
+    container: ContainerAdapter | undefined
   ): void {
     logger().debug(
       'Registering handles for workflow',
@@ -299,7 +300,8 @@ class WorkflowRegistry {
                 workflowCtor,
                 state,
                 mapper.workflowStateCtor!,
-                handler.workflowHandler
+                handler.workflowHandler,
+                container
               )
             } finally {
               endWorkflowHandlingContext()
@@ -312,5 +314,3 @@ class WorkflowRegistry {
     })
   }
 }
-
-export const workflowRegistry = new WorkflowRegistry()

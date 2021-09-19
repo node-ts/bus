@@ -164,6 +164,9 @@ describe('Workflow', () => {
     bus = await Bus
       .configure()
       .withPersistence(inMemoryPersistence)
+      .withContainer({
+        get: type => new type(bus)
+      })
       .withWorkflow(AssignmentWorkflow)
       .initialize()
 
@@ -194,7 +197,7 @@ describe('Workflow', () => {
         )
     })
 
-    fit('should start a new workflow', () => {
+    it('should start a new workflow', () => {
       expect(workflowState).toHaveLength(1)
       const data = workflowState[0]
       expect(data).toMatchObject({ assignmentId: event.assignmentId, $version: 0 })
@@ -208,13 +211,14 @@ describe('Workflow', () => {
         await bus.publish(assignmentAssigned)
         await sleep(CONSUME_TIMEOUT)
 
-        startedWorkflowState = await getPersistence().getWorkflowState(
-          AssignmentWorkflowState,
-          propertyMapping,
-          assignmentAssigned,
-          messageOptions,
-          true
-        )
+        startedWorkflowState = await getPersistence()
+          .getWorkflowState(
+            AssignmentWorkflowState,
+            propertyMapping,
+            assignmentAssigned,
+            messageOptions,
+            true
+          )
       })
 
       it('should handle that message', () => {
@@ -230,19 +234,18 @@ describe('Workflow', () => {
         beforeAll(async () => {
           await bus.publish(
             assignmentReassigned,
-            {
-              correlationId: startedWorkflowState[0].$workflowId
-            }
+            { correlationId: startedWorkflowState[0].$workflowId }
           )
           await sleep(CONSUME_TIMEOUT)
 
-          nextWorkflowState = await getPersistence().getWorkflowState(
-            AssignmentWorkflowState,
-            propertyMapping,
-            assignmentAssigned,
-            messageOptions,
-            true
-          )
+          nextWorkflowState = await getPersistence()
+            .getWorkflowState(
+              AssignmentWorkflowState,
+              propertyMapping,
+              assignmentAssigned,
+              messageOptions,
+              true
+            )
         })
 
         it('should handle that message', () => {

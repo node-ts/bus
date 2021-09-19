@@ -6,10 +6,10 @@ import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor } from '../util'
 import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
-import { workflowRegistry } from '../workflow/registry/workflow-registry'
+import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized } from './error'
-import { getContainer, setContainer } from '../container'
+import { ContainerAdapter } from '../container'
 import { getLogger, LoggerFactory, setLogger } from '../logger'
 import { ContainerNotRegistered } from '../error'
 
@@ -27,6 +27,8 @@ export class BusConfiguration {
   private configuredTransport: Transport | undefined
   private concurrency = 1
   private busInstance: BusInstance | undefined
+  private container: ContainerAdapter | undefined
+  private workflowRegistry = new WorkflowRegistry()
 
   /**
    * Initializes the bus with the provided configuration
@@ -38,11 +40,10 @@ export class BusConfiguration {
       throw new BusAlreadyInitialized()
     }
 
-    await workflowRegistry.initialize()
+    await this.workflowRegistry.initialize(this.container)
 
-    const container = getContainer()
     const classHandlers = handlerRegistry.getClassHandlers()
-    if (!container && classHandlers.length) {
+    if (!this.container && classHandlers.length) {
       throw new ContainerNotRegistered(classHandlers[0].constructor.name)
     }
 
@@ -52,7 +53,9 @@ export class BusConfiguration {
     }
     this.busInstance = new BusInstance(
       transport,
-      this.concurrency
+      this.concurrency,
+      this.workflowRegistry,
+      this.container
     )
 
     logger.debug('Bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
@@ -112,7 +115,7 @@ export class BusConfiguration {
       throw new BusAlreadyInitialized()
     }
 
-    workflowRegistry.register(
+    this.workflowRegistry.register(
       workflow
     )
     return this
@@ -188,7 +191,7 @@ export class BusConfiguration {
    * @param container An adapter to an existing DI container to fetch class instances from
    */
   withContainer (container: { get <T>(type: ClassConstructor<T>): T }): this {
-    setContainer(container)
+    this.container = container
     return this
   }
 }

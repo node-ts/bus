@@ -1,9 +1,5 @@
 import { ClassConstructor } from '../util'
 
-let configuredContainer: ContainerAdapter | undefined
-export const getContainer = () => configuredContainer
-export const setContainer = (container: ContainerAdapter | undefined) => configuredContainer = container
-
 /**
  * An adapter so that resolvers can use a local DI/IoC container
  * to resolve class based handlers and workflows

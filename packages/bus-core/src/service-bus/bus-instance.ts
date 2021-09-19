@@ -6,9 +6,9 @@ import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from '../message-handling-context'
 import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
-import { getContainer } from '../container'
+import { ContainerAdapter } from '../container'
 import { getLogger } from '../logger'
-import { workflowRegistry } from '../workflow/registry/workflow-registry'
+import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { v4 as generateUuid } from 'uuid'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
@@ -41,7 +41,9 @@ export class BusInstance {
 
   constructor (
     private readonly transport: Transport<{}>,
-    private readonly concurrency: number
+    private readonly concurrency: number,
+    private readonly workflowRegistry: WorkflowRegistry,
+    private readonly container: ContainerAdapter | undefined
   ) {
   }
 
@@ -119,7 +121,7 @@ export class BusInstance {
     if (this.transport.dispose) {
       await this.transport.dispose()
     }
-    await workflowRegistry.dispose()
+    await this.workflowRegistry.dispose()
     handlerRegistry.reset()
   }
 
@@ -233,11 +235,9 @@ export class BusInstance {
     if (isClassHandler(handler)) {
       const classHandler = handler as ClassConstructor<ClassHandler<Message>>
 
-      // We're sure this exists as initialization assertions make this check
-      const container = getContainer()!
       let handlerInstance: ClassHandler<Message> | undefined
       try {
-        handlerInstance = container.get(classHandler)
+        handlerInstance = this.container!.get(classHandler)
         if (!handlerInstance) {
           throw new Error('Container failed to resolve an instance.')
         }

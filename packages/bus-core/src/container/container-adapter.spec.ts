@@ -16,18 +16,17 @@ class UnregisteredClassHandler {
 const waitForError = (
   bus: BusInstance,
   onError: (error: Error) => void) => new Promise<void>((resolve, reject) => {
-    const callback = (_: Message, error: Error) => {
+    const callback = ({ error }) => {
       try {
         onError(error)
         resolve()
       } catch (e) {
         reject(e)
       } finally {
-        bus.off('')
-        bus.off('error', callback)
+        bus.onError.off(callback)
       }
     }
-    bus.on('error', callback)
+    bus.onError.on(callback)
 })
 
 describe('ContainerAdapter', () => {
@@ -41,7 +40,6 @@ describe('ContainerAdapter', () => {
   }
 
   afterEach(async () => {
-    await bus.dispose()
     messageLogger.reset()
   })
 
@@ -60,6 +58,10 @@ describe('ContainerAdapter', () => {
       await bus.start()
     })
 
+    afterEach(async () => {
+      await bus.dispose()
+    })
+
     describe('and a handler is registered', () => {
       it('should route the message to the class based handler', async () => {
         await bus.publish(event)
@@ -69,7 +71,7 @@ describe('ContainerAdapter', () => {
     })
 
     describe('and a handler is not registered', () => {
-      fit('should throw a ClassHandlerNotResolved error', async () => {
+      it('should throw a ClassHandlerNotResolved error', async () => {
         const onError = waitForError(bus, error => {
           expect(error).toBeInstanceOf(ClassHandlerNotResolved)
           const classHandlerNotResolved = error as ClassHandlerNotResolved
@@ -91,14 +93,17 @@ describe('ContainerAdapter', () => {
 
     describe('and a handler is registered', () => {
       it('should throw a ContainerNotRegistered error', async () => {
+        let bus: BusInstance
         try {
-          await Bus
+          bus = await Bus
             .configure()
             .withHandler(TestEvent, TestEventClassHandler)
             .initialize()
           fail('Bus initialization should throw a ContainerNotRegistered error')
         } catch (error) {
           expect(error).toBeInstanceOf(ContainerNotRegistered)
+        } finally {
+          await bus?.dispose()
         }
       })
     })
