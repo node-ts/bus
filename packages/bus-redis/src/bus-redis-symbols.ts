@@ -3,6 +3,5 @@ export const BUS_REDIS_SYMBOLS = {
 }
 
 export const BUS_REDIS_INTERNAL_SYMBOLS = {
-  RedisTransport: Symbol.for('node-ts/bus-redis/redis-transport'),
-  RedisFactory: Symbol.for('node-ts/bus-redis/redis')
+  RedisTransport: Symbol.for('node-ts/bus-redis/redis-transport')
 }
