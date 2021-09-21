@@ -2,11 +2,9 @@ import { Persistence } from './persistence'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { ClassConstructor } from '../../util'
+import { ClassConstructor, CoreDependencies } from '../../util'
 import { WorkflowStateNotInitialized } from './error'
-import { getLogger } from '../../logger'
-
-const logger = getLogger('@node-ts/bus-core:in-memory-persistence')
+import { Logger } from '../../logger'
 
 interface WorkflowStorage {
   [workflowStateName: string]: WorkflowState[]
@@ -20,6 +18,13 @@ interface WorkflowStorage {
 export class InMemoryPersistence implements Persistence {
 
   private workflowState: WorkflowStorage = {}
+  private logger: Logger
+
+  constructor (
+    private coreDependencies: CoreDependencies
+  ) {
+    this.logger = this.coreDependencies.loggerFactory('@node-ts/bus-core:in-memory-persistence')
+  }
 
   async initializeWorkflow<TWorkflowState extends WorkflowState> (
     workflowStateConstructor: ClassConstructor<TWorkflowState>,
@@ -66,7 +71,7 @@ export class InMemoryPersistence implements Persistence {
           workflowState
         )
       } catch (err) {
-        logger.error('Unable to update data', { err })
+        this.logger.error('Unable to update data', { err })
         throw err
       }
     } else {

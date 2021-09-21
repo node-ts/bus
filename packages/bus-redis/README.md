@@ -42,57 +42,12 @@ The Redis transport has the following configuration:
 * **queueName** *(required)* The name of the service queue to create and read messages from.
 * **connectionString** *(required)* A redis formatted connection string that's used to connect to the Redis instance
 * **maxRetries** *(optional)* The number of attempts to retry failed messages before they're routed to the dead letter queue. *Default: 10*
+* **visibilityTimeout** *(optional)* The time taken before a message has been deemed to have failed or stalled. Once this time has been exceeded the message will be re-added to queue. *Default: 30000*
+* **withScheduler** *(optional)* The scheduler is a worker that checks messages if any messages have exceeded the visibility timeout. If they have, the are re added to the queue. It might be more performant to have only a few of these running. *Default: true*
 ## Development
 
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
 
 ```bash
 docker run --name redis -e ALLOW_EMPTY_PASSWORD=yes -p 6379:6379 bitnami/redis
-```
-
-### Viewing Queues
-To view the queues and replay messages that end are sent to the failed queue, You can make use of [this](https://gitlab.com/ersutton/docker-arena).
-
-For local development, a simple configuration file like this:
-
-```json
-// arena.json
-{
-  "queues": [
-    {
-      "name": "node-ts/bus-redis-test",
-      "hostId": "Integration test queue",
-      "type": "bullmq",
-      "redis": {
-          "port": 6379,
-          "host": "redis"
-      }
-    }
-  ]
-}
-```
-
-Accompanied with a `docker-compose.yml` to assist with networking:
-
-```yml
-# docker-compose.yml
-version: '3'
-
-services:
-  redis:
-    image: bitnami/redis
-    container_name: redis
-    environment:
-      - ALLOW_EMPTY_PASSWORD=yes
-    ports:
-      - "6379:6379"
-  arena:
-    image: registry.gitlab.com/ersutton/docker-arena:latest
-    container_name: arena
-    links:
-      - redis
-    ports:
-      - "4567:4567"
-    volumes:
-      - "./arena.json:/opt/arena/index.json"
 ```

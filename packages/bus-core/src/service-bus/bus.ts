@@ -1,19 +1,18 @@
 import { Message } from '@node-ts/bus-messages'
-import { handlerRegistry } from '../handler'
+import { DefaultHandlerRegistry } from '../handler'
 import { Handler } from '../handler/handler'
-import { Serializer, setSerializer } from '../serialization'
+import { JsonSerializer, Serializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
-import { ClassConstructor } from '../util'
+import { ClassConstructor, CoreDependencies } from '../util'
 import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized } from './error'
 import { ContainerAdapter } from '../container'
-import { getLogger, LoggerFactory, setLogger } from '../logger'
+import { defaultLoggerFactory, LoggerFactory } from '../logger'
 import { ContainerNotRegistered } from '../error'
-
-const logger = getLogger('@node-ts/bus-core:bus')
+import { MessageSerializer } from 'src/serialization/message-serializer'
 
 export enum BusState {
   Starting = 'starting',
@@ -29,36 +28,47 @@ export class BusConfiguration {
   private busInstance: BusInstance | undefined
   private container: ContainerAdapter | undefined
   private workflowRegistry = new WorkflowRegistry()
+  private handlerRegistry = new DefaultHandlerRegistry()
+  private loggerFactory: LoggerFactory = defaultLoggerFactory
+  private serializer = new JsonSerializer()
 
   /**
    * Initializes the bus with the provided configuration
    */
   async initialize (): Promise<BusInstance> {
+    const logger = this.loggerFactory('@node-ts/bus-core:bus')
     logger.debug('Initializing bus')
 
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    await this.workflowRegistry.initialize(this.container)
+    const coreDependencies: CoreDependencies = {
+      container: this.container,
+      handlerRegistry: this.handlerRegistry,
+      loggerFactory: this.loggerFactory,
+      serializer: this.serializer,
+      messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry)
+    }
+    await this.workflowRegistry.initialize(this.loggerFactory, this.handlerRegistry, this.container)
 
-    const classHandlers = handlerRegistry.getClassHandlers()
+    const classHandlers = this.handlerRegistry.getClassHandlers()
     if (!this.container && classHandlers.length) {
       throw new ContainerNotRegistered(classHandlers[0].constructor.name)
     }
 
-    const transport = this.configuredTransport || new MemoryQueue()
+    const transport = this.configuredTransport || new MemoryQueue(coreDependencies)
     if (transport.initialize) {
-      await transport.initialize(handlerRegistry)
+      await transport.initialize(this.handlerRegistry)
     }
     this.busInstance = new BusInstance(
       transport,
       this.concurrency,
       this.workflowRegistry,
-      this.container
+      coreDependencies
     )
 
-    logger.debug('Bus initialized', { registeredMessages: handlerRegistry.getMessageNames() })
+    logger.debug('Bus initialized', { registeredMessages: this.handlerRegistry.getMessageNames() })
 
     return this.busInstance
   }
@@ -80,7 +90,7 @@ export class BusConfiguration {
       throw new BusAlreadyInitialized()
     }
 
-    handlerRegistry.register(
+    this.handlerRegistry.register(
       messageType,
       messageHandler
     )
@@ -99,7 +109,7 @@ export class BusConfiguration {
       throw new BusAlreadyInitialized()
     }
 
-    handlerRegistry.registerCustom(
+    this.handlerRegistry.registerCustom(
       messageHandler,
       customResolver
     )
@@ -136,12 +146,12 @@ export class BusConfiguration {
   /**
    * Configures Bus to use a different logging provider than the default console logger
    */
-  withLogger (loggerConfiguration: LoggerFactory): this {
+  withLogger (loggerFactory: LoggerFactory): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    setLogger(loggerConfiguration)
+    this.loggerFactory = loggerFactory
     return this
   }
 
@@ -150,12 +160,12 @@ export class BusConfiguration {
    * transforming messages to/from a serialized representation, as well as ensuring all object
    * properties are a strong type
    */
-  withSerializer (serializerConfiguration: Serializer): this {
+  withSerializer (serializer: Serializer): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    setSerializer(serializerConfiguration)
+    this.serializer = serializer
     return this
   }
 

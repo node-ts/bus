@@ -1,13 +1,11 @@
 import { Transport } from './transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
-import { handlerRegistry } from '../handler'
-import { getLogger } from '../logger'
 import { EventEmitter } from 'stream'
+import { CoreDependencies } from 'src/util'
+import { Logger } from 'src/logger'
 
 export const RETRY_LIMIT = 10
-
-const logger = getLogger('@node-ts/bus-core:memory-queue')
 
 /**
  * How long to wait for the next message
@@ -44,17 +42,24 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   private queuePushed: EventEmitter = new EventEmitter()
   private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
+  private logger: Logger
+
+  constructor (
+    private readonly coreDependencies: CoreDependencies
+  ) {
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:memory-queue')
+  }
 
   async initialize (): Promise<void> {
     this.messagesWithHandlers = {}
-    handlerRegistry
+    this.coreDependencies.handlerRegistry
       .getMessageNames()
       .forEach(messageName => this.messagesWithHandlers[messageName] = {})
   }
 
   async dispose (): Promise<void> {
     if (this.queue.length > 0) {
-      logger.warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
+      this.logger.warn('Memory queue being shut down, all messages will be lost.', { queueSize: this.queue.length})
     }
   }
 
@@ -71,7 +76,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
-    logger.debug('Reading next message', { depth: this.depth, numberMessagesVisible: this.numberMessagesVisible })
+    this.logger.debug('Reading next message', { depth: this.depth, numberMessagesVisible: this.numberMessagesVisible })
     return new Promise<TransportMessage<InMemoryMessage> | undefined>(resolve => {
       const onMessageEmitted = () => {
         unsubscribeEmitter()
@@ -85,7 +90,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
       const getNextMessage = () => {
         const availableMessages = this.queue.filter(m => !m.raw.inFlight)
         if (availableMessages.length === 0) {
-          logger.debug('No messages available in queue')
+          this.logger.debug('No messages available in queue')
           return
         }
 
@@ -111,9 +116,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async deleteMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
     const messageIndex = this.queue.indexOf(message)
-    logger.debug('Deleting message', { queueDepth: this.depth, messageIndex })
+    this.logger.debug('Deleting message', { queueDepth: this.depth, messageIndex })
     this.queue.splice(messageIndex, 1)
-    logger.debug('Message Deleted', { queueDepth: this.depth })
+    this.logger.debug('Message Deleted', { queueDepth: this.depth })
   }
 
   async returnMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
@@ -121,7 +126,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
     if (message.raw.seenCount >= RETRY_LIMIT) {
       // Message retries exhausted, send to DLQ
-      logger.info('Message retry limit exceeded, sending to dead letter queue', { message })
+      this.logger.info('Message retry limit exceeded, sending to dead letter queue', { message })
       await this.sendToDeadLetterQueue(message)
     } else {
       message.raw.inFlight = false
@@ -156,9 +161,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     if (this.messagesWithHandlers[message.$name]) {
       const transportMessage = toTransportMessage(message, messageOptions, false)
       this.queue.push(transportMessage)
-      logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
     } else {
-      logger.warn('Message was not sent as it has no registered handlers', { message })
+      this.logger.warn('Message was not sent as it has no registered handlers', { message })
     }
   }
 }

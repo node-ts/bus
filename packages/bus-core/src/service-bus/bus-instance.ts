@@ -1,19 +1,16 @@
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep, ClassConstructor, TypedEmitter} from '../util'
-import { ClassHandler, FunctionHandler, Handler, handlerRegistry, isClassHandler } from '../handler'
+import { sleep, ClassConstructor, TypedEmitter, CoreDependencies} from '../util'
+import { ClassHandler, FunctionHandler, Handler, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from '../message-handling-context'
 import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
-import { ContainerAdapter } from '../container'
-import { getLogger } from '../logger'
-import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { v4 as generateUuid } from 'uuid'
+import { WorkflowRegistry } from 'src/workflow/registry'
+import { Logger } from '../logger'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
-
-const logger = () => getLogger('@node-ts/bus-core:service-bus')
 
 export class BusInstance {
 
@@ -38,20 +35,23 @@ export class BusInstance {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+  private logger: Logger
 
   constructor (
     private readonly transport: Transport<{}>,
     private readonly concurrency: number,
     private readonly workflowRegistry: WorkflowRegistry,
-    private readonly container: ContainerAdapter | undefined
+    private readonly coreDependencies: CoreDependencies
   ) {
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:service-bus')
+
   }
 
   async publish<TEvent extends Event> (
     event: TEvent,
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    logger().debug('Publishing event', { event, messageOptions })
+    this.logger.debug('Publishing event', { event, messageOptions })
     const attributes = this.prepareTransportOptions(messageOptions)
     this.beforePublish.emit({ event, attributes })
     return this.transport.publish(event, attributes)
@@ -61,7 +61,7 @@ export class BusInstance {
     command: TCommand,
     messageOptions: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    logger().debug('Sending command', { command, messageOptions })
+    this.logger.debug('Sending command', { command, messageOptions })
     const attributes = this.prepareTransportOptions(messageOptions)
     this.beforeSend.emit({ command, attributes })
     return this.transport.send(command, attributes)
@@ -73,7 +73,7 @@ export class BusInstance {
       throw new FailMessageOutsideHandlingContext()
     }
     const message = context.message
-    logger().debug('Failing message', { message })
+    this.logger.debug('Failing message', { message })
     return this.transport.fail(message)
   }
 
@@ -83,7 +83,7 @@ export class BusInstance {
       throw new Error('Bus must be stopped before it can be started')
     }
     this.internalState = BusState.Starting
-    logger().info('Bus starting...')
+    this.logger.info('Bus starting...')
     messageHandlingContext.enable()
 
     this.internalState = BusState.Started
@@ -91,7 +91,7 @@ export class BusInstance {
       setTimeout(async () => this.applicationLoop(), 0)
     }
 
-    logger().info(`Bus started with concurrency ${this.concurrency}`)
+    this.logger.info(`Bus started with concurrency ${this.concurrency}`)
   }
 
   async stop (): Promise<void> {
@@ -100,14 +100,14 @@ export class BusInstance {
       throw new Error('Bus must be started before it can be stopped')
     }
     this.internalState = BusState.Stopping
-    logger().info('Bus stopping...')
+    this.logger.info('Bus stopping...')
 
     while (this.runningWorkerCount > 0) {
       await sleep(100)
     }
 
     this.internalState = BusState.Stopped
-    logger().info('Bus stopped')
+    this.logger.info('Bus stopped')
   }
 
   /**
@@ -122,7 +122,7 @@ export class BusInstance {
       await this.transport.dispose()
     }
     await this.workflowRegistry.dispose()
-    handlerRegistry.reset()
+    this.coreDependencies.handlerRegistry.reset()
   }
 
   get state (): BusState {
@@ -147,7 +147,7 @@ export class BusInstance {
       const message = await this.transport.readNextMessage()
 
       if (message) {
-        logger().debug('Message read from transport', { message })
+        this.logger.debug('Message read from transport', { message })
         this.afterReceive.emit(message)
 
         try {
@@ -161,7 +161,7 @@ export class BusInstance {
             attributes: message.attributes
           })
         } catch (error) {
-          logger().warn(
+          this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
             { message, error: serializeError(error) }
           )
@@ -179,15 +179,15 @@ export class BusInstance {
         return true
       }
     } catch (error) {
-      logger().error('Failed to receive message from transport', { error: serializeError(error) })
+      this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
   }
 
   private async dispatchMessageToHandlers (message: Message, messageAttributes: MessageAttributes): Promise<void> {
-    const handlers = handlerRegistry.get(message)
+    const handlers = this.coreDependencies.handlerRegistry.get(this.coreDependencies.loggerFactory, message)
     if (handlers.length === 0) {
-      logger().error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
+      this.logger.error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
       return
     }
 
@@ -204,7 +204,7 @@ export class BusInstance {
     })
 
     await Promise.all(handlersToInvoke)
-    logger().debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
+    this.logger.debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
   }
 
   private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
@@ -222,7 +222,7 @@ export class BusInstance {
       }
     }
 
-    logger().debug('Prepared transport options', { messageAttributes })
+    this.logger.debug('Prepared transport options', { messageAttributes })
 
     return messageAttributes
   }
@@ -237,7 +237,7 @@ export class BusInstance {
 
       let handlerInstance: ClassHandler<Message> | undefined
       try {
-        handlerInstance = this.container!.get(classHandler)
+        handlerInstance = this.coreDependencies.container!.get(classHandler)
         if (!handlerInstance) {
           throw new Error('Container failed to resolve an instance.')
         }

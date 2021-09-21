@@ -1,10 +1,8 @@
 import { Message } from '@node-ts/bus-messages'
-import { getLogger } from '../logger'
+import { LoggerFactory } from '../logger'
 import { ClassConstructor } from '../util'
 import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './errors'
 import { ClassHandler, Handler, isClassHandler, MessageBase } from './handler'
-
-const logger = () => getLogger('@node-ts/bus-core:handler-registry')
 
 interface RegisteredHandlers {
   messageType: ClassConstructor<MessageBase>
@@ -69,7 +67,7 @@ export interface HandlerRegistry {
    * Gets all registered message handlers for a given message name
    * @param message A message that has been received from the bus
    */
-  get<MessageType extends Message> (message: object): Handler<MessageType>[]
+  get<MessageType extends Message> (loggerFactory: LoggerFactory, message: object): Handler<MessageType>[]
 
   /**
    * Retrieves a list of all messages that have handler registrations
@@ -99,7 +97,7 @@ export interface HandlerRegistry {
   reset (): void
 }
 
-class DefaultHandlerRegistry implements HandlerRegistry {
+export class DefaultHandlerRegistry implements HandlerRegistry {
 
   private registry: HandlerRegistrations = {}
   private unhandledMessages: MessageName[] = []
@@ -109,22 +107,18 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     handler: Handler<TMessage>,
     customResolver: CustomResolver<TMessage>
   ): void {
-    logger().debug('Registering custom handler', { handler: handler.name })
     this.handlerResolvers.push({
       handler,
       messageType: undefined,
       resolver: customResolver.resolveWith,
       topicIdentifier: customResolver.topicIdentifier
     })
-    logger().info('Custom handler registered', { handler: handler.name })
   }
 
   register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
     handler: Handler<TMessage>,
   ): void {
-    logger().debug('Registering handler', { handler: handler.name })
-
     const message = new messageType()
     if (!('$name' in message)) {
       throw new SystemMessageMissingResolver(messageType)
@@ -147,11 +141,11 @@ class DefaultHandlerRegistry implements HandlerRegistry {
     }
 
     this.registry[messageName].handlers.push(handler)
-    logger().info('Handler registered', { messageType: messageName, handler: handler.name })
   }
 
-  get<MessageType extends MessageBase> (message: object | Message): Handler<MessageType>[] {
-    logger().debug('Getting handlers for message', { msg: message })
+  get<MessageType extends MessageBase> (loggerFactory: LoggerFactory, message: object | Message): Handler<MessageType>[] {
+    const logger = loggerFactory('@node-ts/bus-core:handler-registry')
+    logger.debug('Getting handlers for message', { msg: message })
     const customHandlers = this.resolveCustomHandlers(message)
 
     const messageName = '$name' in message
@@ -164,7 +158,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       const warnNoHandlersForMessageType = messageName && !this.unhandledMessages.some(m => m === messageName)
       if (warnNoHandlersForMessageType) {
         this.unhandledMessages.push(messageName!)
-        logger().error(
+        logger.error(
           `No handlers were registered for message`,
           {
             messageName,
@@ -173,7 +167,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
           })
       }
 
-      logger().debug('No handlers found for message', { msg: message })
+      logger.debug('No handlers found for message', { msg: message })
       return []
     }
 
@@ -181,7 +175,7 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       ? this.registry[messageName].handlers
       : []
 
-    logger().debug(
+    logger.debug(
       'Found handlers for message',
       {
         msg: message,
@@ -244,5 +238,3 @@ class DefaultHandlerRegistry implements HandlerRegistry {
       .map(handlerResolver => handlerResolver.handler)
   }
 }
-
-export const handlerRegistry: HandlerRegistry = new DefaultHandlerRegistry()

@@ -1,10 +1,10 @@
-import { handlerRegistry } from './handler-registry'
 import { Mock, IMock, It, Times } from 'typemoq'
 import { TestEvent, testEventHandler, MessageLogger, TestCommand, TestCommand2 } from '../test'
 import { HandlerAlreadyRegistered } from './errors'
 import { defaultLoggerFactory, Logger, setLogger } from '../logger'
 import { Handler } from './handler'
 import { Message } from '@node-ts/bus-messages'
+import { DefaultHandlerRegistry } from './handler-registry'
 
 describe('HandlerRegistry', () => {
 
@@ -14,6 +14,7 @@ describe('HandlerRegistry', () => {
   const handler = testEventHandler(messageLoggerMock.object)
   const messageType = TestEvent
   const genericHandler = () => undefined
+  const handlerRegistry = new DefaultHandlerRegistry()
 
   beforeAll(() => {
     logger = Mock.ofType<Logger>()
