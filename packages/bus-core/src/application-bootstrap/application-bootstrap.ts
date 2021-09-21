@@ -26,6 +26,7 @@ export class ApplicationBootstrap {
     }
     this.logger.info('Initializing bus application...')
     this.handlerRegistry.bindHandlersToContainer(container)
+    await this.connectTransport()
     await this.initializeTransport()
     await this.bus.start()
     this.isInitialized = true
@@ -40,7 +41,7 @@ export class ApplicationBootstrap {
       throw new Error('A send-only bus cannot have registered handlers')
     }
     this.logger.info('Initializing send only bus application...')
-    await this.initializeTransport()
+    await this.connectTransport()
     this.isInitialized = true
     this.logger.info('Send only bus application initialized')
   }
@@ -56,6 +57,10 @@ export class ApplicationBootstrap {
 
     if (this.transport.dispose) {
       await this.transport.dispose()
+    }
+
+    if (this.transport.disconnect) {
+      await this.transport.disconnect()
     }
 
     this.logger.info('Bus application disposed')
@@ -81,6 +86,12 @@ export class ApplicationBootstrap {
       prototype.$message,
       prototype.$topicIdentifier
     )
+  }
+
+  private async connectTransport (): Promise<void> {
+    if (this.transport.connect) {
+      await this.transport.connect()
+    }
   }
 
   private async initializeTransport (): Promise<void> {

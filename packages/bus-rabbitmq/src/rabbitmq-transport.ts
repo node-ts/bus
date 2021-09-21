@@ -36,15 +36,20 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
   }
 
-  async initialize (): Promise<void> {
-    this.logger.info('Initializing RabbitMQ transport')
+  async connect (): Promise<void> {
+    this.logger.info('Connecting to RabbitMQ...')
     this.connection = await this.connectionFactory()
     this.channel = await this.connection.createChannel()
+    this.logger.info('Connected to RabbitMQ')
+  }
+
+  async initialize (): Promise<void> {
+    this.logger.info('Initializing RabbitMQ transport')
     await this.bindExchangesToQueue()
     this.logger.info('RabbitMQ transport initialized')
   }
 
-  async dispose (): Promise<void> {
+  async disconnect (): Promise<void> {
     await this.channel.close()
     await this.connection.close()
   }
