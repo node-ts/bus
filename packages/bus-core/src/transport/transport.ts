@@ -1,4 +1,5 @@
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
+import { CoreDependencies } from 'src/util'
 import { HandlerRegistry } from '../handler'
 import { TransportMessage } from './transport-message'
 
@@ -58,6 +59,14 @@ export interface Transport<TransportMessageType = {}> {
    * @param message The message to be returned to the queue for reprocessing
    */
   returnMessage (message: TransportMessage<TransportMessageType>): Promise<void>
+
+  /**
+   * An optional function that is called before startup that will provide core dependencies
+   * to the transport. This can be used to fetch loggers, registries etc that are used
+   * in initialization steps
+   * @param coreDependencies
+   */
+  prepare (coreDependencies: CoreDependencies): void
 
   /**
    * An optional function that will be called on startup. This gives a chance for the transport

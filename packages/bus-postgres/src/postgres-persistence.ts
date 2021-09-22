@@ -1,7 +1,7 @@
 import {
   ClassConstructor,
-  getLogger,
-  getSerializer,
+  CoreDependencies,
+  Logger,
   MessageWorkflowMapping,
   Persistence,
   WorkflowState
@@ -11,8 +11,6 @@ import { Pool } from 'pg'
 import { PostgresConfiguration } from './postgres-configuration'
 import { WorkflowStateNotFound } from './error'
 
-const logger = getLogger('@node-ts/bus-persistence:postgres-persistence')
-
 /**
  * The name of the field that stores workflow state as JSON in the database row.
  */
@@ -20,23 +18,31 @@ const WORKFLOW_DATA_FIELD_NAME = 'data'
 
 export class PostgresPersistence implements Persistence {
 
+  private coreDependencies: CoreDependencies
+  private logger: Logger
+
   constructor (
     private readonly configuration: PostgresConfiguration,
     private readonly postgres: Pool = new Pool(configuration.connection)
   ) {
   }
 
+  prepare (coreDependencies: CoreDependencies): void {
+    this.coreDependencies = coreDependencies
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-persistence:postgres-persistence')
+  }
+
   async initialize (): Promise<void> {
-    logger.info('Initializing postgres persistence...')
+    this.logger.info('Initializing postgres persistence...')
     await this.postgres.connect()
     await this.ensureSchemaExists(this.configuration.schemaName)
-    logger.info('Postgres persistence initialized')
+    this.logger.info('Postgres persistence initialized')
   }
 
   async dispose (): Promise<void> {
-    logger.info('Disposing postgres persistence...')
+    this.logger.info('Disposing postgres persistence...')
     await this.postgres.end()
-    logger.info('Postgres persistence disposed')
+    this.logger.info('Postgres persistence disposed')
   }
 
   async initializeWorkflow<WorkflowStateType extends WorkflowState> (
@@ -44,7 +50,7 @@ export class PostgresPersistence implements Persistence {
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
     const workflowStateName = new workflowStateConstructor().$name
-    logger.info('Initializing workflow', { workflowState: workflowStateName })
+    this.logger.info('Initializing workflow', { workflowState: workflowStateName })
 
     const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
     await this.ensureTableExists(tableName)
@@ -58,7 +64,7 @@ export class PostgresPersistence implements Persistence {
     attributes: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowStateType[]> {
-    logger.debug('Getting workflow state', { workflowStateName: workflowStateConstructor.name })
+    this.logger.debug('Getting workflow state', { workflowStateName: workflowStateConstructor.name })
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName, this.configuration.schemaName)
     const matcherValue = messageMap.lookup(message, attributes)
@@ -74,27 +80,27 @@ export class PostgresPersistence implements Persistence {
         and (${workflowStateField}) is not null
         and (${workflowStateField}::text) = $1
     `
-    logger.debug('Querying workflow state', { query })
+    this.logger.debug('Querying workflow state', { query })
 
     const results = await this.postgres.query(
       query,
       [matcherValue]
     )
 
-    logger.debug('Got workflow state', { resultsCount: results.rows.length })
+    this.logger.debug('Got workflow state', { resultsCount: results.rows.length })
 
     const rows = results.rows as [{ [WORKFLOW_DATA_FIELD_NAME]: WorkflowStateType | undefined }]
 
     return rows
       .map(row => row[WORKFLOW_DATA_FIELD_NAME])
       .filter(workflowState => workflowState !== undefined)
-      .map(workflowState => getSerializer().toClass(workflowState!, workflowStateConstructor))
+      .map(workflowState => this.coreDependencies.serializer.toClass(workflowState!, workflowStateConstructor))
   }
 
   async saveWorkflowState<WorkflowStateType extends WorkflowState> (
     workflowState: WorkflowStateType
   ): Promise<void> {
-    logger.debug(
+    this.logger.debug(
       'Saving workflow state',
       { workflowStateName: workflowState.$name, id: workflowState.$workflowId }
     )
@@ -103,7 +109,7 @@ export class PostgresPersistence implements Persistence {
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
     const plainWorkflowState = {
-      ...getSerializer().toPlain(workflowState),
+      ...this.coreDependencies.serializer.toPlain(workflowState),
       $version: newVersion
     }
 
@@ -118,7 +124,7 @@ export class PostgresPersistence implements Persistence {
 
   private async ensureSchemaExists (schema: string): Promise<void> {
     const sql = `create schema if not exists ${schema};`
-    logger.debug('Ensuring workflow schema exists', { sql })
+    this.logger.debug('Ensuring workflow schema exists', { sql })
     await this.postgres.query(sql)
   }
 
@@ -130,7 +136,7 @@ export class PostgresPersistence implements Persistence {
         ${WORKFLOW_DATA_FIELD_NAME} jsonb not null
       );
     `
-    logger.debug('Ensuring postgres table for workflow state exists', { sql })
+    this.logger.debug('Ensuring postgres table for workflow state exists', { sql })
     await this.postgres.query(sql)
   }
 
@@ -164,7 +170,7 @@ export class PostgresPersistence implements Persistence {
         END
         $$;
       `
-      logger.debug('Ensuring secondary index exists', { createSecondaryIndex })
+      this.logger.debug('Ensuring secondary index exists', { createSecondaryIndex })
       await this.postgres.query(createSecondaryIndex)
     })
 
@@ -185,7 +191,7 @@ export class PostgresPersistence implements Persistence {
       END
       $$;
     `
-    logger.debug('Ensuring primary index exists', { createPrimaryIndexSql })
+    this.logger.debug('Ensuring primary index exists', { createPrimaryIndexSql })
     await this.postgres.query(createPrimaryIndexSql)
   }
 
@@ -197,7 +203,7 @@ export class PostgresPersistence implements Persistence {
     newVersion: number
   ): Promise<void> {
     if (oldVersion === 0) {
-      logger.debug('Inserting new workflow state', { tableName, workflowId, oldVersion, newVersion })
+      this.logger.debug('Inserting new workflow state', { tableName, workflowId, oldVersion, newVersion })
 
       // This is a new workflow, so just insert the data
       await this.postgres.query(`
@@ -213,10 +219,10 @@ export class PostgresPersistence implements Persistence {
         [
           workflowId,
           newVersion,
-          getSerializer().serialize(plainWorkflowState)
+          this.coreDependencies.serializer.serialize(plainWorkflowState)
         ])
     } else {
-      logger.debug('Updating existing workflow state', { tableName, workflowId, oldVersion, newVersion })
+      this.logger.debug('Updating existing workflow state', { tableName, workflowId, oldVersion, newVersion })
 
       // This is an existing workflow, so update the data
       const result = await this.postgres.query(`
@@ -230,7 +236,7 @@ export class PostgresPersistence implements Persistence {
           and version = $4;`,
         [
           newVersion,
-          getSerializer().serialize(plainWorkflowState),
+          this.coreDependencies.serializer.serialize(plainWorkflowState),
           workflowId,
           oldVersion
         ]

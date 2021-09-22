@@ -1,6 +1,5 @@
 import { Event, Command, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
-import { Transport, TransportMessage, MessageSerializer, HandlerRegistry } from '@node-ts/bus-core'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
+import { Transport, TransportMessage, MessageSerializer, HandlerRegistry, Logger, CoreDependencies } from '@node-ts/bus-core'
 import Redis from 'ioredis'
 import { RedisTransportConfiguration } from './redis-transport-configuration'
 import { ModestQueue, Message as QueueMessage } from 'modest-queue'
@@ -25,6 +24,8 @@ const defaultVisibilityTimeout = 30000
 export class RedisTransport implements Transport<QueueMessage> {
   private queue: ModestQueue
   private maxRetries: number
+  private coreDependencies: CoreDependencies
+  private logger: Logger
 
   /**
    * Where we store the subscription keys. When a message is published on the bus
@@ -44,12 +45,16 @@ export class RedisTransport implements Transport<QueueMessage> {
    */
   constructor (
     private readonly configuration: RedisTransportConfiguration,
-    private readonly logger: Logger,
     private readonly messageSerializer: MessageSerializer,
     private readonly handlerRegistry: HandlerRegistry
   ) {
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
     this.subscriptionsKeyPrefix = 'node-ts:bus-redis:subscriptions:'
+  }
+
+  prepare (coreDependencies: CoreDependencies): void {
+    this.coreDependencies = coreDependencies
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-redis:redis-transport')
   }
 
   async connect (): Promise<void> {
@@ -142,7 +147,7 @@ export class RedisTransport implements Transport<QueueMessage> {
    * In this way, if another redis-transport publishes a message this queue would also get the message.
    */
   private async subscribeToMessagesOfInterest (): Promise<void> {
-    const queueSubscriptionPromises = this.handlerRegistry.messageSubscriptions
+    const queueSubscriptionPromises = this.coreDependencies.handlerRegistry.get().messageSubscriptions
       .filter(subscription => !!subscription.messageType)
       .map(async subscription => {
         if (subscription.messageType) {
@@ -158,6 +163,7 @@ export class RedisTransport implements Transport<QueueMessage> {
     this.logger.info('Subscribe queue to messages in HandlerRegistry')
     await Promise.all(queueSubscriptionPromises)
   }
+
   /**
    * Finds all queues that have handlers subscribed to this message type. @see this.publishMessage must
    * publish this message to all those queues.
@@ -176,7 +182,7 @@ export class RedisTransport implements Transport<QueueMessage> {
     messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): Promise<void> {
     const payload: Payload = {
-      message: MessageSerializer.serialize(message),
+      message: this.coreDependencies.messageSerializer.serialize(message),
       correlationId: messageOptions.correlationId,
       attributes: messageOptions.attributes,
       stickyAttributes: messageOptions.stickyAttributes

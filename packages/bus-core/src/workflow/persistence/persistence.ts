@@ -1,7 +1,7 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { WorkflowState } from '../workflow-state'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { ClassConstructor } from '../../util'
+import { ClassConstructor, CoreDependencies } from '../../util'
 import { PersistenceNotConfigured } from './error'
 
 let configuredPersistence: Persistence | undefined
@@ -19,6 +19,14 @@ export const getPersistence = (): Persistence => {
  * Infrastructure that provides the ability to persist workflow state for long running processes
  */
 export interface Persistence {
+  /**
+   * An optional function that is called before startup that will provide core dependencies
+   * to the persistence. This can be used to fetch loggers etc that are used
+   * in initialization steps
+   * @param coreDependencies
+   */
+  prepare (coreDependencies: CoreDependencies): void
+
   /**
    * If provided, initializes the persistence implementation. This is where database connections are
    * started.

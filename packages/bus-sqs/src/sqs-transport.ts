@@ -4,9 +4,8 @@ import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
 import {
   Transport,
   TransportMessage,
-  getLogger,
-  handlerRegistry,
-  MessageSerializer
+  CoreDependencies,
+  Logger
 } from '@node-ts/bus-core'
 import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
@@ -19,8 +18,6 @@ import {
   resolveTopicArn,
   resolveTopicName
 } from './queue-resolvers'
-
-const logger = () => getLogger('@node-ts/bus-sqs:sqs-transport')
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
@@ -65,6 +62,8 @@ export class SqsTransport implements Transport<SQS.Message> {
   private readonly deadLetterQueueName: string
   private readonly deadLetterQueueUrl: string
   private readonly deadLetterQueueArn: string
+  private coreDependencies: CoreDependencies
+  private logger: Logger
 
   /**
    * An AWS SQS Transport adapter for @node-ts/bus
@@ -97,6 +96,11 @@ export class SqsTransport implements Transport<SQS.Message> {
       sqsConfiguration.awsRegion,
       this.deadLetterQueueName
     )
+  }
+
+  prepare (coreDependencies: CoreDependencies): void {
+    this.coreDependencies = coreDependencies
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-sqs:sqs-transport')
   }
 
   async publish<EventType extends Event> (event: EventType, messageAttributes?: MessageAttributes): Promise<void> {
@@ -139,9 +143,9 @@ export class SqsTransport implements Transport<SQS.Message> {
       return undefined
     }
 
-    // Only handle the expected number of messages, anything else just return and retry
+    // Only handle the expected snumber of messages, anything else just return and retry
     if (result.Messages.length > 1) {
-      logger().error(
+      this.logger.error(
         'Received more than the expected number of messages',
         { expected: 1, received: result.Messages.length }
       )
@@ -153,7 +157,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     }
 
     const sqsMessage = result.Messages[0]
-    logger().debug('Received message from SQS', { sqsMessage })
+    this.logger.debug('Received message from SQS', { sqsMessage })
 
     try {
       /*
@@ -164,18 +168,18 @@ export class SqsTransport implements Transport<SQS.Message> {
       const snsMessage = JSON.parse(sqsMessage.Body!) as SQSMessageBody
 
       if (!snsMessage.Message) {
-        logger().warn('Message is not formatted with an SNS envelope and will be discarded', { sqsMessage })
+        this.logger.warn('Message is not formatted with an SNS envelope and will be discarded', { sqsMessage })
         await this.deleteSqsMessage(sqsMessage)
         return undefined
       }
 
       const attributes = fromMessageAttributeMap(snsMessage.MessageAttributes)
-      logger().debug(
+      this.logger.debug(
         'Received message attributes',
         { transportAttributes: snsMessage.MessageAttributes, messageAttributes: attributes}
       )
 
-      const domainMessage = MessageSerializer.deserialize(snsMessage.Message)
+      const domainMessage = this.coreDependencies.messageSerializer.deserialize(snsMessage.Message)
 
       return {
         id: sqsMessage.MessageId,
@@ -184,7 +188,7 @@ export class SqsTransport implements Transport<SQS.Message> {
         attributes
       }
     } catch (error) {
-      logger().warn(
+      this.logger.warn(
         'Could not parse message. Message will be retried, though it\'s likely to end up in the dead letter queue',
         { sqsMessage, error }
       )
@@ -257,7 +261,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     queueName: string,
     queueAttributes?: QueueAttributeMap
   ): Promise<void> {
-    logger().info('Asserting sqs queue...', { queueName, queueAttributes })
+    this.logger.info('Asserting sqs queue...', { queueName, queueAttributes })
 
     const createQueueRequest: SQS.CreateQueueRequest = {
       QueueName: queueName,
@@ -269,9 +273,9 @@ export class SqsTransport implements Transport<SQS.Message> {
     } catch (err) {
       const error = err as { code: string }
       if (error.code === 'QueueAlreadyExists') {
-        logger().trace('Queue already exists', { queueName })
+        this.logger.trace('Queue already exists', { queueName })
       } else {
-        logger().error('SQS queue could not be created', { queueName, error })
+        this.logger.error('SQS queue could not be created', { queueName, error })
         throw err
       }
     }
@@ -285,29 +289,29 @@ export class SqsTransport implements Transport<SQS.Message> {
 
     const topicName = resolveTopicName(message.$name)
     const topicArn = resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, topicName)
-    logger().trace('Publishing message to sns', { message, topicArn })
+    this.logger.trace('Publishing message to sns', { message, topicArn })
 
     const attributeMap = toMessageAttributeMap(messageAttributes)
-    logger().debug('Resolved message attributes', { attributeMap })
+    this.logger.debug('Resolved message attributes', { attributeMap })
 
     const snsMessage: SNS.PublishInput = {
       TopicArn: topicArn,
       Subject: message.$name,
-      Message: MessageSerializer.serialize(message),
+      Message: this.coreDependencies.messageSerializer.serialize(message),
       MessageAttributes: attributeMap
     }
-    logger().debug('Sending message to SNS', { snsMessage })
+    this.logger.debug('Sending message to SNS', { snsMessage })
     await this.sns.publish(snsMessage).promise()
   }
 
   private async subscribeQueueToMessages (): Promise<void> {
     const busManagedTopicArns = await Promise.all(
-      handlerRegistry.getMessageNames()
+      this.coreDependencies.handlerRegistry.getMessageNames()
         .map(messageName => resolveTopicName(messageName))
         .map(topicName => this.createSnsTopic(topicName))
     )
 
-    const externallyManagedTopicArns = handlerRegistry.getExternallyManagedTopicIdentifiers()
+    const externallyManagedTopicArns = this.coreDependencies.handlerRegistry.getExternallyManagedTopicIdentifiers()
 
     await Promise.all(
       [
@@ -326,7 +330,7 @@ export class SqsTransport implements Transport<SQS.Message> {
    * @returns Target topic arn
    */
   private async createSnsTopic (topicName: string): Promise<string> {
-    logger().debug('Attempting to create SNS topic if it doesn\'t exist', { topicName })
+    this.logger.debug('Attempting to create SNS topic if it doesn\'t exist', { topicName })
     /*
       This action is idempotent, so if the topic exists then this will just return. This
       is preferable to checking `sns.listTopics` first as it can't be run in a transaction.
@@ -341,7 +345,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       Protocol: 'sqs',
       Endpoint: queueArn
     }
-    logger().info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
+    this.logger.info('Subscribing sqs queue to sns topic', { serviceQueueArn: queueArn, topicArn })
     await this.sns.subscribe(subscribeRequest).promise()
   }
 
@@ -360,7 +364,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!
     }
-    logger().debug('Deleting message from sqs queue', { deleteMessageRequest })
+    this.logger.debug('Deleting message from sqs queue', { deleteMessageRequest })
     await this.sqs.deleteMessage(deleteMessageRequest).promise()
   }
 
@@ -373,7 +377,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       }
     }
 
-    logger().info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
+    this.logger.info('Attaching IAM policy to queue', { policy, serviceQueueUrl: queueUrl })
     await this.sqs.setQueueAttributes(setQueuePolicyRequest).promise()
   }
 

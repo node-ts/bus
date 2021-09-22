@@ -8,19 +8,15 @@ import {
 import {
   Transport,
   TransportMessage,
-  handlerRegistry,
-  getLogger,
-  getSerializer,
-  MessageSerializer,
-  DEFAULT_DEAD_LETTER_QUEUE_NAME
+  DEFAULT_DEAD_LETTER_QUEUE_NAME,
+  CoreDependencies,
+  Logger
 } from '@node-ts/bus-core'
-import { Connection, Channel, Message as RabbitMqMessage, connect, GetMessage } from 'amqplib'
+import { Connection, Channel, Message as RabbitMqMessage, GetMessage, connect } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import uuid from 'uuid'
 
 export const DEFAULT_MAX_RETRIES = 10
-
-const logger = getLogger('@node-ts/bus-rabbitmq:rabbitmq-transport')
 
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
@@ -37,6 +33,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private retryQueueExchange: string
   private serviceQueueExchange: string
 
+  private coreDependencies: CoreDependencies
+  private logger: Logger
+
   constructor (
     private readonly configuration: RabbitMqTransportConfiguration
   ) {
@@ -47,9 +46,14 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.serviceQueueExchange = configuration.queueName
   }
 
+  prepare (coreDependencies: CoreDependencies): void {
+    this.coreDependencies = coreDependencies
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-rabbitmq:rabbitmq-transport')
+  }
+
   async connect (): Promise<void> {
     this.logger.info('Connecting to RabbitMQ...')
-    this.connection = await this.connectionFactory()
+    this.connection = await connect(this.configuration.connectionString)
     this.channel = await this.connection.createChannel()
     this.logger.info('Connected to RabbitMQ')
   }
@@ -57,7 +61,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   async initialize (): Promise<void> {
     this.logger.info('Initializing RabbitMQ transport')
     await this.bindExchangesToQueue()
-    logger.info('RabbitMQ transport initialized')
+    this.logger.info('RabbitMQ transport initialized')
   }
 
   async disconnect (): Promise<void> {
@@ -75,13 +79,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
-    const serializedPayload = getSerializer().serialize(transportMessage.domainMessage)
+    const serializedPayload = this.coreDependencies.messageSerializer.serialize(transportMessage.domainMessage)
     this.channel.sendToQueue(
       this.deadLetterQueue,
       Buffer.from(serializedPayload),
       rawMessage.properties
     )
-    logger.debug(
+    this.logger.debug(
       'Message failed immediately to dead letter queue',
       { rawMessage, deadLetterQueue: this.deadLetterQueue }
     )
@@ -93,7 +97,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       return undefined
     }
     const payloadStr = rabbitMessage.content.toString('utf8')
-    const payload = MessageSerializer.deserialize(payloadStr)
+    const payload = this.coreDependencies.messageSerializer.deserialize(payloadStr)
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string | undefined,
@@ -114,7 +118,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   async deleteMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
-    logger.debug(
+    this.logger.debug(
       'Deleting message',
       {
         rawMessage: {
@@ -137,20 +141,20 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const meta = { attempt, message: msg, rawMessage: message.raw }
 
     if (attempt >= this.maxRetries) {
-      logger.debug('Message retries failed, sending to dead letter queue', meta)
+      this.logger.debug('Message retries failed, sending to dead letter queue', meta)
 
       // Send to DLQ before ack'ing to avoid dropping messages in case of SIGKILL happening in between
       this.channel.sendToQueue(this.deadLetterQueue, message.raw.content, message.raw.properties)
       this.channel.ack(message.raw, false)
     } else {
-      logger.debug('Returning message', meta)
+      this.logger.debug('Returning message', meta)
       this.channel.nack(message.raw, false, false)
     }
   }
 
   private async assertExchange (topicIdentifier: string): Promise<void> {
     if (!this.assertedExchanges[topicIdentifier]) {
-      logger.debug('Asserting exchange', { messageName: topicIdentifier })
+      this.logger.debug('Asserting exchange', { messageName: topicIdentifier })
       await this.channel.assertExchange(topicIdentifier, 'fanout', { durable: true })
       this.assertedExchanges[topicIdentifier] = true
     }
@@ -161,14 +165,14 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.createQueues()
     await this.bindQueues()
 
-    const subscriptionPromises = handlerRegistry
+    const subscriptionPromises = this.coreDependencies.handlerRegistry
       .getMessageNames()
-      .concat(handlerRegistry.getExternallyManagedTopicIdentifiers())
+      .concat(this.coreDependencies.handlerRegistry.getExternallyManagedTopicIdentifiers())
       .map(async topicIdentifier => {
         const exchangeName = topicIdentifier
         await this.assertExchange(exchangeName)
 
-        logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
+        this.logger.debug('Binding exchange to queue.', { exchangeName, queueName: this.configuration.queueName })
         await this.channel.bindQueue(this.configuration.queueName, exchangeName, '')
       })
 
@@ -243,7 +247,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): Promise<void> {
     await this.assertExchange(message.$name)
-    const payload = getSerializer().serialize(message)
+    const payload = this.coreDependencies.messageSerializer.serialize(message)
     this.channel.publish(message.$name, '', Buffer.from(payload), {
       correlationId: messageOptions.correlationId,
       messageId: uuid.v4(),
