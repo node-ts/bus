@@ -60,6 +60,18 @@ export interface Transport<TransportMessageType = {}> {
   returnMessage (message: TransportMessage<TransportMessageType>): Promise<void>
 
   /**
+   * An optional function that will be called on startup. This gives a chance for the transport
+   * to establish any connections to the underlying infrastructure.
+   */
+  connect? (): Promise<void>
+
+  /**
+   * An optional function that will be called on shutdown. This gives a chance for the transport
+   * to close any connections to the underlying infrastructure.
+   */
+  disconnect? (): Promise<void>
+
+  /**
    * An optional function that will be called when the service bus is starting. This is an
    * opportunity for the transport to see what messages need to be handled so that subscriptions
    * to the topics can be created.
@@ -72,4 +84,5 @@ export interface Transport<TransportMessageType = {}> {
    * opportunity for the transport to close out any open requests to fetch messages etc.
    */
   dispose? (): Promise<void>
+
 }

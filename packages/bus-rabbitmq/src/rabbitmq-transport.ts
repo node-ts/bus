@@ -47,16 +47,20 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.serviceQueueExchange = configuration.queueName
   }
 
-  async initialize (): Promise<void> {
-    logger.info('Initializing RabbitMQ transport')
-    this.connection = await connect(this.configuration.connectionString)
-
+  async connect (): Promise<void> {
+    this.logger.info('Connecting to RabbitMQ...')
+    this.connection = await this.connectionFactory()
     this.channel = await this.connection.createChannel()
+    this.logger.info('Connected to RabbitMQ')
+  }
+
+  async initialize (): Promise<void> {
+    this.logger.info('Initializing RabbitMQ transport')
     await this.bindExchangesToQueue()
     logger.info('RabbitMQ transport initialized')
   }
 
-  async dispose (): Promise<void> {
+  async disconnect (): Promise<void> {
     await this.channel.close()
     await this.connection.close()
   }
