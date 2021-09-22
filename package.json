@@ -70,7 +70,6 @@
     "dotenv-cli": "^4.0.0",
     "esbuild": "^0.12.12",
     "esbuild-jest": "^0.5.0",
-    "inversify": "^5.1.1",
     "jest": "^27.0.5",
     "lerna": "^4.0.0",
     "reflect-metadata": "^0.1.13",
