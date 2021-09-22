@@ -3,14 +3,14 @@ import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import * as uuid from 'uuid'
 import { Workflow, OnWhenHandler, WorkflowMapper } from '../workflow'
-import { getPersistence } from '../persistence/persistence'
-import { ClassConstructor } from '../../util'
+import { ClassConstructor, CoreDependencies } from '../../util'
 import { PersistenceNotConfigured } from '../persistence/error'
 import { WorkflowAlreadyInitialized } from '../error'
 import { messageHandlingContext } from '../../message-handling-context'
 import { ContainerAdapter } from '../../container'
 import { HandlerRegistry } from '../../handler'
-import { Logger, LoggerFactory } from '../../logger'
+import { Logger } from '../../logger'
+import { Persistence } from '../persistence'
 
 /**
  * A default lookup that will match a workflow by its id with the workflowId
@@ -34,6 +34,12 @@ export class WorkflowRegistry {
   private isInitialized = false
   private isInitializing = false
   private logger: Logger
+  private persistence: Persistence
+
+  prepare (coreDependencies: CoreDependencies, persistence: Persistence): void {
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:workflow-registry')
+    this.persistence = persistence
+  }
 
   async register (workflow: ClassConstructor<Workflow<WorkflowState>>): Promise<void> {
     if (this.isInitialized) {
@@ -60,11 +66,9 @@ export class WorkflowRegistry {
    * This should be called once as the application is starting.
    */
   async initialize (
-    loggerFactory: LoggerFactory,
     handlerRegistry: HandlerRegistry,
     container: ContainerAdapter | undefined
   ): Promise<void> {
-    this.logger = loggerFactory('@node-ts/bus-core:workflow-registry')
     if (this.workflowRegistry.length === 0) {
       this.logger.info('No workflows registered, skipping this step.')
       return
@@ -95,15 +99,15 @@ export class WorkflowRegistry {
         mapper.onWhen,
         ([_, onWhenHandler]) => onWhenHandler.customLookup || workflowLookup
       )
-      await getPersistence().initializeWorkflow(mapper.workflowStateCtor!, messageWorkflowMappings)
+      await this.persistence.initializeWorkflow(mapper.workflowStateCtor!, messageWorkflowMappings)
       this.logger.debug('Workflow initialized', { workflowName: WorkflowCtor.prototype.name })
     }
 
     this.workflowRegistry = []
 
-    if (getPersistence().initialize) {
+    if (this.persistence.initialize) {
       this.logger.info('Initializing persistence...')
-      await getPersistence().initialize!()
+      await this.persistence.initialize!()
     }
 
     this.isInitialized = true
@@ -114,8 +118,8 @@ export class WorkflowRegistry {
   async dispose (): Promise<void> {
     this.logger.debug('Disposing workflow registry')
     try {
-      if (getPersistence().dispose) {
-        await getPersistence().dispose!()
+      if (this.persistence.dispose) {
+        await this.persistence.dispose!()
       }
     } catch (error) {
       if (error instanceof PersistenceNotConfigured) {
@@ -160,7 +164,7 @@ export class WorkflowRegistry {
             )
 
             if (result) {
-              await getPersistence().saveWorkflowState({
+              await this.persistence.saveWorkflowState({
                 ...workflowState,
                 ...result
               })
@@ -194,7 +198,7 @@ export class WorkflowRegistry {
         messageConstructor,
         async (message, attributes) => {
           this.logger.debug('Getting workflow state for message handler', { msg: message, workflow: workflowCtor })
-          const workflowState = await getPersistence().getWorkflowState<WorkflowState, Message>(
+          const workflowState = await this.persistence.getWorkflowState<WorkflowState, Message>(
             mapper.workflowStateCtor!,
             messageMapping,
             message,
@@ -313,7 +317,7 @@ export class WorkflowRegistry {
 
   private async persist (data: WorkflowState) {
     try {
-      await getPersistence().saveWorkflowState(data)
+      await this.persistence.saveWorkflowState(data)
       this.logger.info('Workflow state saved', { data })
     } catch (err) {
       this.logger.error('Error persisting workflow state', { err })

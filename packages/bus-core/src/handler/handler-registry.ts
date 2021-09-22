@@ -207,6 +207,10 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
       .filter(topicArn => !!topicArn) as string[]
   }
 
+  getResolvers (): HandlerResolver[] {
+    return this.handlerResolvers
+  }
+
   reset (): void {
     this.registry = {}
   }

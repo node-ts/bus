@@ -20,10 +20,8 @@ export class InMemoryPersistence implements Persistence {
   private workflowState: WorkflowStorage = {}
   private logger: Logger
 
-  constructor (
-    private coreDependencies: CoreDependencies
-  ) {
-    this.logger = this.coreDependencies.loggerFactory('@node-ts/bus-core:in-memory-persistence')
+  prepare (coreDependencies: CoreDependencies): void {
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:in-memory-persistence')
   }
 
   async initializeWorkflow<TWorkflowState extends WorkflowState> (

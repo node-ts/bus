@@ -43,10 +43,10 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
   private logger: Logger
+  private coreDependencies: CoreDependencies
 
-  constructor (
-    private readonly coreDependencies: CoreDependencies
-  ) {
+  prepare (coreDependencies: CoreDependencies): void {
+    this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:memory-queue')
   }
 

@@ -7,12 +7,12 @@ import { ClassConstructor, CoreDependencies } from '../util'
 import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
-import { setPersistence } from '../workflow/persistence/persistence'
 import { BusAlreadyInitialized } from './error'
 import { ContainerAdapter } from '../container'
 import { defaultLoggerFactory, LoggerFactory } from '../logger'
 import { ContainerNotRegistered } from '../error'
 import { MessageSerializer } from 'src/serialization/message-serializer'
+import { InMemoryPersistence } from 'src/workflow/persistence'
 
 export enum BusState {
   Starting = 'starting',
@@ -31,6 +31,7 @@ export class BusConfiguration {
   private handlerRegistry = new DefaultHandlerRegistry()
   private loggerFactory: LoggerFactory = defaultLoggerFactory
   private serializer = new JsonSerializer()
+  private persistence: Persistence = new InMemoryPersistence()
 
   /**
    * Initializes the bus with the provided configuration
@@ -50,14 +51,17 @@ export class BusConfiguration {
       serializer: this.serializer,
       messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry)
     }
-    await this.workflowRegistry.initialize(this.loggerFactory, this.handlerRegistry, this.container)
+    this.persistence?.prepare(coreDependencies)
+    this.workflowRegistry.prepare(coreDependencies, this.persistence)
+    await this.workflowRegistry.initialize(this.handlerRegistry, this.container)
 
     const classHandlers = this.handlerRegistry.getClassHandlers()
     if (!this.container && classHandlers.length) {
       throw new ContainerNotRegistered(classHandlers[0].constructor.name)
     }
 
-    const transport = this.configuredTransport || new MemoryQueue(coreDependencies)
+    const transport = this.configuredTransport || new MemoryQueue()
+    transport.prepare(coreDependencies)
     if (transport.initialize) {
       await transport.initialize(this.handlerRegistry)
     }
@@ -178,7 +182,7 @@ export class BusConfiguration {
       throw new BusAlreadyInitialized()
     }
 
-    setPersistence(persistence)
+    this.persistence = persistence
     return this
   }
 
