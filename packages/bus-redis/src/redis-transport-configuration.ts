@@ -37,4 +37,13 @@ export interface RedisTransportConfiguration {
    */
   withScheduler?: boolean
 
+  /**
+   * Different queues may want to be aware of the same event being sent on the bus
+   * We need to store a set of queue names that are interested in events being published on the bus
+   * and where better than redis at a certain key.
+   *
+   * @default 'node-ts:bus-redis:subscriptions:'
+   */
+  subscriptionsKeyPrefix?: string
+
 }
