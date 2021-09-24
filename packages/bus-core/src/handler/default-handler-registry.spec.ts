@@ -1,14 +1,15 @@
 import { Mock, IMock, It, Times } from 'typemoq'
 import { TestEvent, testEventHandler, MessageLogger, TestCommand, TestCommand2 } from '../test'
 import { HandlerAlreadyRegistered } from './errors'
-import { defaultLoggerFactory, Logger, setLogger } from '../logger'
+import { Logger, LoggerFactory } from '../logger'
 import { Handler } from './handler'
 import { Message } from '@node-ts/bus-messages'
-import { DefaultHandlerRegistry } from './handler-registry'
+import { DefaultHandlerRegistry } from './default-handler-registry'
 
 describe('HandlerRegistry', () => {
 
   let logger: IMock<Logger>
+  let loggerFactory: LoggerFactory
 
   const messageLoggerMock = Mock.ofType<MessageLogger>()
   const handler = testEventHandler(messageLoggerMock.object)
@@ -18,11 +19,7 @@ describe('HandlerRegistry', () => {
 
   beforeAll(() => {
     logger = Mock.ofType<Logger>()
-    setLogger(() => logger.object)
-  })
-
-  afterAll(() => {
-    setLogger(defaultLoggerFactory)
+    loggerFactory = () => logger.object
   })
 
   afterEach(() => handlerRegistry.reset())
@@ -31,7 +28,7 @@ describe('HandlerRegistry', () => {
     beforeEach(() => handlerRegistry.register(messageType, handler))
 
     it('should register the handler', () => {
-      const handlers = handlerRegistry.get(new messageType())
+      const handlers = handlerRegistry.get(loggerFactory, new messageType())
       expect(handlers).toHaveLength(1)
     })
   })
@@ -45,18 +42,18 @@ describe('HandlerRegistry', () => {
 
   describe('when getting a handler', () => {
     it('should return an empty array for an unregistered handler', () => {
-      expect(handlerRegistry.get({})).toHaveLength(0)
+      expect(handlerRegistry.get(loggerFactory, {})).toHaveLength(0)
     })
 
     it('should return a single handler for a single registration', () => {
       handlerRegistry.register(messageType, handler)
-      expect(handlerRegistry.get(new messageType())).toHaveLength(1)
+      expect(handlerRegistry.get(loggerFactory, new messageType())).toHaveLength(1)
     })
 
     it('should return a multiple handlers for multiple registrations', () => {
       handlerRegistry.register(messageType, handler)
       handlerRegistry.register(messageType, () => undefined)
-      expect(handlerRegistry.get(new messageType())).toHaveLength(2)
+      expect(handlerRegistry.get(loggerFactory, new messageType())).toHaveLength(2)
     })
   })
 
@@ -64,7 +61,7 @@ describe('HandlerRegistry', () => {
     let handlers: Handler<Message>[]
     const unregisteredMessage = { $name: 'unregistered-message' }
     beforeEach(() => {
-      handlers = handlerRegistry.get(unregisteredMessage)
+      handlers = handlerRegistry.get(loggerFactory, unregisteredMessage)
     })
 
     it('should return an empty array of handlers', () => {
@@ -80,9 +77,9 @@ describe('HandlerRegistry', () => {
 
     describe('when the same message is handled again', () => {
       it('should not keep logging the error', () => {
-        handlerRegistry.get(unregisteredMessage)
-        handlerRegistry.get(unregisteredMessage)
-        handlerRegistry.get(unregisteredMessage)
+        handlerRegistry.get(loggerFactory, unregisteredMessage)
+        handlerRegistry.get(loggerFactory, unregisteredMessage)
+        handlerRegistry.get(loggerFactory, unregisteredMessage)
         logger.verify(
           l => l.error(`No handlers were registered for message`, It.isObjectWith({ messageName: unregisteredMessage.$name })),
           Times.once()
@@ -139,7 +136,7 @@ describe('HandlerRegistry', () => {
 
     describe('and then getting a handler for the message type', () => {
       it('should resolve using the custom handler', () => {
-        const resolvedHandlers = handlerRegistry.get(new TestCommand2())
+        const resolvedHandlers = handlerRegistry.get(loggerFactory, new TestCommand2())
         expect(resolvedHandlers).toHaveLength(1)
         expect(resolvedHandlers[0]).toEqual(CustomHandler)
       })

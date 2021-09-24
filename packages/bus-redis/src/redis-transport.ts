@@ -147,13 +147,13 @@ export class RedisTransport implements Transport<QueueMessage> {
    * In this way, if another redis-transport publishes a message this queue would also get the message.
    */
   private async subscribeToMessagesOfInterest (): Promise<void> {
-    const queueSubscriptionPromises = this.coreDependencies.handlerRegistry.getResolvers().messageSubscriptions
+    const queueSubscriptionPromises = this.coreDependencies.handlerRegistry.getResolvers()
       .filter(subscription => !!subscription.messageType)
       .map(async subscription => {
         if (subscription.messageType) {
           const messageCtor = subscription.messageType
           return this.connection.sadd(
-            `${this.subscriptionsKeyPrefix}${new messageCtor().$name}`,
+            `${this.subscriptionsKeyPrefix}${(new messageCtor() as Message).$name}`,
             this.configuration.queueName
           )
         } else {

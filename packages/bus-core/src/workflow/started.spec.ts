@@ -8,7 +8,6 @@ import { WorkflowStatus } from './workflow-state'
 import { WorkflowState } from './workflow-state'
 import { sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
-import { getPersistence } from './persistence/persistence'
 
 class AssignmentCreated extends Event {
   $name = 'my-app/accounts/assignment-created'
@@ -158,9 +157,9 @@ describe('Workflow', () => {
   let bus: BusInstance
 
   const CONSUME_TIMEOUT = 2000
+  const inMemoryPersistence = new InMemoryPersistence()
 
   beforeAll(async () => {
-    const inMemoryPersistence = new InMemoryPersistence()
     bus = await Bus
       .configure()
       .withPersistence(inMemoryPersistence)
@@ -188,7 +187,7 @@ describe('Workflow', () => {
     let workflowState: AssignmentWorkflowState[]
 
     beforeAll(async () => {
-      workflowState = await getPersistence()
+      workflowState = await inMemoryPersistence
         .getWorkflowState<AssignmentWorkflowState, AssignmentCreated>(
           AssignmentWorkflowState,
           propertyMapping,
@@ -211,7 +210,7 @@ describe('Workflow', () => {
         await bus.publish(assignmentAssigned)
         await sleep(CONSUME_TIMEOUT)
 
-        startedWorkflowState = await getPersistence()
+        startedWorkflowState = await inMemoryPersistence
           .getWorkflowState(
             AssignmentWorkflowState,
             propertyMapping,
@@ -238,7 +237,7 @@ describe('Workflow', () => {
           )
           await sleep(CONSUME_TIMEOUT)
 
-          nextWorkflowState = await getPersistence()
+          nextWorkflowState = await inMemoryPersistence
             .getWorkflowState(
               AssignmentWorkflowState,
               propertyMapping,
@@ -263,13 +262,14 @@ describe('Workflow', () => {
             )
             await sleep(CONSUME_TIMEOUT)
 
-            finalWorkflowState = await getPersistence().getWorkflowState(
-              AssignmentWorkflowState,
-              propertyMapping,
-              finalTask,
-              messageOptions,
-              true
-            )
+            finalWorkflowState = await inMemoryPersistence
+              .getWorkflowState(
+                AssignmentWorkflowState,
+                propertyMapping,
+                finalTask,
+                messageOptions,
+                true
+              )
           })
 
           it('should mark the workflow as complete', () => {

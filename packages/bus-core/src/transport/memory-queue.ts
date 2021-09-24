@@ -2,8 +2,8 @@ import { Transport } from './transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
 import { EventEmitter } from 'stream'
-import { CoreDependencies } from 'src/util'
-import { Logger } from 'src/logger'
+import { CoreDependencies } from '../util'
+import { Logger } from '../logger'
 
 export const RETRY_LIMIT = 10
 

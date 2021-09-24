@@ -1,5 +1,5 @@
-import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
-import { CoreDependencies } from 'src/util'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
+import { CoreDependencies } from '../util'
 import { HandlerRegistry } from '../handler'
 import { TransportMessage } from './transport-message'
 

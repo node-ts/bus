@@ -7,7 +7,7 @@ import { BusState } from './bus'
 import { messageHandlingContext } from '../message-handling-context'
 import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
 import { v4 as generateUuid } from 'uuid'
-import { WorkflowRegistry } from 'src/workflow/registry'
+import { WorkflowRegistry } from '../workflow/registry'
 import { Logger } from '../logger'
 
 const EMPTY_QUEUE_SLEEP_MS = 500

@@ -1,10 +1,10 @@
 // tslint:disable:max-classes-per-file no-inferred-empty-object-type
-import { handlerRegistry } from '../handler/handler-registry'
-import { Serializer, MessageSerializer, setSerializer } from './serializer'
+import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
 import * as faker from 'faker'
 import { Message } from '@node-ts/bus-messages'
-import { HandlerContext } from '../handler/handler'
+import { DefaultHandlerRegistry } from '../handler'
+import { MessageSerializer } from './message-serializer'
 
 class DummyMessage {
   $name = 'bluh'
@@ -36,17 +36,12 @@ class ToxicSerializer implements Serializer {
 }
 
 describe('MessageSerializer', () => {
-
-  beforeEach(() => {
-    const toxicSerializer = new ToxicSerializer()
-    setSerializer(toxicSerializer)
-
-    handlerRegistry.register(DummyMessage, (_: HandlerContext<DummyMessage>) => undefined)
-  })
+  const serializer = new ToxicSerializer()
+  const messageSerializer = new MessageSerializer(serializer, new DefaultHandlerRegistry())
 
   it('should use underlying serializer to serialize', () => {
     const message = new DummyMessage('a')
-    const result = MessageSerializer.serialize(message)
+    const result = messageSerializer.serialize(message)
     expect(result).toBe(message.$name)
   })
 
@@ -54,8 +49,7 @@ describe('MessageSerializer', () => {
     const msg = new DummyMessage(faker.random.words())
     const raw = JSON.stringify(msg)
 
-    const result = MessageSerializer.deserialize<DummyMessage>(raw)
-
-    expect(result.value).toBe(raw)
+    const result = messageSerializer.deserialize<DummyMessage>(raw)
+    expect(result.value).toBe(msg.value)
   })
 })

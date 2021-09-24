@@ -11,8 +11,8 @@ import { BusAlreadyInitialized } from './error'
 import { ContainerAdapter } from '../container'
 import { defaultLoggerFactory, LoggerFactory } from '../logger'
 import { ContainerNotRegistered } from '../error'
-import { MessageSerializer } from 'src/serialization/message-serializer'
-import { InMemoryPersistence } from 'src/workflow/persistence'
+import { MessageSerializer } from '../serialization/message-serializer'
+import { InMemoryPersistence } from '../workflow/persistence'
 
 export enum BusState {
   Starting = 'starting',

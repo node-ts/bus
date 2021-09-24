@@ -1,11 +1,12 @@
 import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
 import { TestCommand, TestEvent, TestCommand2, TestEvent2 } from '../test'
 import { TransportMessage } from '../transport'
-import { handlerRegistry } from '../handler'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
-import { Mock } from 'typemoq'
-import { Logger, setLogger } from '../logger'
+import { IMock, Mock } from 'typemoq'
+import { Logger, LoggerFactory } from '../logger'
+import { DefaultHandlerRegistry, HandlerRegistry } from '../handler'
+import { JsonSerializer, MessageSerializer } from '../serialization'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -19,10 +20,26 @@ describe('MemoryQueue', () => {
     stickyAttributes: {}
    }
 
-  beforeEach(async () => {
-    sut = new MemoryQueue()
+  const handlerRegistry: HandlerRegistry = new DefaultHandlerRegistry()
+  let logger: IMock<Logger>
+  let loggerFactory: LoggerFactory
 
-    setLogger(() => Mock.ofType<Logger>().object)
+  const serializer = new JsonSerializer()
+  const messageSerializer = new MessageSerializer(serializer, handlerRegistry)
+
+  beforeEach(async () => {
+    logger = Mock.ofType<Logger>()
+    loggerFactory = () => logger.object
+
+    sut = new MemoryQueue()
+    sut.prepare({
+      handlerRegistry,
+      container: undefined,
+      loggerFactory,
+      messageSerializer,
+      serializer
+    })
+
     handlerRegistry.register(TestEvent, () => undefined)
     handlerRegistry.register(TestCommand, () => undefined)
     handlerRegistry.register(TestEvent2, () => undefined)

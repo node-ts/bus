@@ -13,17 +13,14 @@ import { MessageAttributes } from '@node-ts/bus-messages'
 import { Bus, BusInstance } from '../service-bus'
 import { ClassConstructor, sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
-import { getPersistence } from './persistence/persistence'
 
 describe('Workflow', () => {
   const command = new TestCommand('abc')
   const CONSUME_TIMEOUT = 500
   let bus: BusInstance
+  const inMemoryPersistence = new InMemoryPersistence()
 
   beforeAll(async () => {
-
-    const inMemoryPersistence = new InMemoryPersistence()
-
     bus = await Bus.configure()
       .withPersistence(inMemoryPersistence)
       .withContainer({
@@ -54,7 +51,7 @@ describe('Workflow', () => {
     const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
 
     beforeAll(async () => {
-      workflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
+      workflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowState, TestCommand>(
         TestWorkflowState,
         propertyMapping,
         command,
@@ -78,7 +75,7 @@ describe('Workflow', () => {
         await bus.publish(event)
         await sleep(CONSUME_TIMEOUT)
 
-        nextWorkflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
+        nextWorkflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowState, TestCommand>(
           TestWorkflowState,
           propertyMapping,
           command,
@@ -102,7 +99,7 @@ describe('Workflow', () => {
           )
           await sleep(CONSUME_TIMEOUT)
 
-          finalWorkflowState = await getPersistence().getWorkflowState<TestWorkflowState, TestCommand>(
+          finalWorkflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowState, TestCommand>(
             TestWorkflowState,
             propertyMapping,
             command,
@@ -128,7 +125,7 @@ describe('Workflow', () => {
     }
 
     it('should persist the workflow as completed', async () => {
-      const workflowState = await getPersistence()
+      const workflowState = await inMemoryPersistence
         .getWorkflowState<TestWorkflowStartedByCompletesData, TestCommand>(
           TestWorkflowStartedByCompletesData,
           propertyMapping,
@@ -151,7 +148,7 @@ describe('Workflow', () => {
     }
 
     it('should not persist the workflow', async () => {
-      const workflowState = await getPersistence().getWorkflowState<TestWorkflowStartedByDiscardData, TestCommand>(
+      const workflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowStartedByDiscardData, TestCommand>(
         TestWorkflowStartedByDiscardData,
         propertyMapping,
         command,
