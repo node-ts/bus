@@ -43,7 +43,7 @@ The Redis transport has the following configuration:
 * **connectionString** *(required)* A redis formatted connection string that's used to connect to the Redis instance
 * **maxRetries** *(optional)* The number of attempts to retry failed messages before they're routed to the dead letter queue. *Default: 10*
 * **visibilityTimeout** *(optional)* The time taken before a message has been deemed to have failed or stalled. Once this time has been exceeded the message will be re-added to queue. *Default: 30000*
-* **withScheduler** *(optional)* The scheduler is a worker that checks messages if any messages have exceeded the visibility timeout. If they have, the are re added to the queue. It might be more performant to have only a few of these running. *Default: true*
+* **subscriptionsKeyPrefix** *(optional)* Different queues may want to be aware of the same event being sent on the bus. We need to store a set of queue names that are interested in events being published on the bus and where better than redis at a certain key. *Default: 'node-ts:bus-redis:subscriptions:'*
 ## Development
 
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:

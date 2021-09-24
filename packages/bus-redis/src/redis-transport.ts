@@ -49,7 +49,7 @@ export class RedisTransport implements Transport<QueueMessage> {
     private readonly handlerRegistry: HandlerRegistry
   ) {
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
-    this.subscriptionsKeyPrefix = 'node-ts:bus-redis:subscriptions:'
+    this.subscriptionsKeyPrefix = configuration.subscriptionsKeyPrefix ?? 'node-ts:bus-redis:subscriptions:'
   }
 
   prepare (coreDependencies: CoreDependencies): void {
