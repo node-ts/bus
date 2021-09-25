@@ -21,6 +21,20 @@ export enum BusState {
   Stopped = 'stopped'
 }
 
+export interface BusInitializeOptions {
+  /**
+   * If true, will initialize the bus in send only mode.
+   * This will provide a bus instance that is capable of sending/publishing
+   * messages only and won't handle incoming messages or workflows
+   * @default false
+   */
+  sendOnly: boolean
+}
+
+const defaultBusInitializeOptions: BusInitializeOptions = {
+  sendOnly: false
+}
+
 export class BusConfiguration {
 
   private configuredTransport: Transport | undefined
@@ -35,12 +49,10 @@ export class BusConfiguration {
 
   /**
    * Initializes the bus with the provided configuration
-   *
-   * @param sendOnly If true, will initialize the bus in send only mode.
-   * This will provide a bus instance that is capable of sending/publishing
-   * messages only and won't handle incoming messages or workflows
+   * @param options Changes the default startup mode of the bus
    */
-  async initialize (sendOnly = false): Promise<BusInstance> {
+  async initialize (options = defaultBusInitializeOptions): Promise<BusInstance> {
+    const { sendOnly } = options
     const logger = this.loggerFactory('@node-ts/bus-core:bus')
     logger.debug('Initializing bus', { sendOnly })
 
