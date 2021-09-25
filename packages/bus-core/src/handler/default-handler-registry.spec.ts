@@ -1,6 +1,6 @@
 import { Mock, IMock, It, Times } from 'typemoq'
 import { TestEvent, testEventHandler, MessageLogger, TestCommand, TestCommand2 } from '../test'
-import { HandlerAlreadyRegistered } from './errors'
+import { HandlerAlreadyRegistered } from './error'
 import { Logger, LoggerFactory } from '../logger'
 import { Handler } from './handler'
 import { Message } from '@node-ts/bus-messages'

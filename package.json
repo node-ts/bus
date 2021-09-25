@@ -39,7 +39,8 @@
       "!**/node_modules/**",
       "!**/vendor/**",
       "!**/dist/**",
-      "!**/bus-messages/**"
+      "!**/bus-messages/**",
+      "!**/error/*"
     ],
     "testRegex": "(src\\/.+\\.|/)(integration|spec)\\.ts$",
     "transform": {

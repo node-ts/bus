@@ -5,7 +5,6 @@ import { MessageLogger } from '../test/test-event-handler'
 import { ClassConstructor, sleep } from '../util'
 import { TestEvent, TestEvent2 } from '../test'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
-import { Message } from '@node-ts/bus-messages'
 
 class UnregisteredClassHandler {
   async handle (_: TestEvent2): Promise<void> {

@@ -1,5 +1,5 @@
 import { CustomResolver, HandlerRegistrations, HandlerRegistry, HandlerResolver, MessageName } from './handler-registry'
-import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './errors'
+import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './error'
 import { ClassHandler, Handler, isClassHandler, MessageBase } from './handler'
 import { ClassConstructor } from '../util'
 import { Message } from '@node-ts/bus-messages'
