@@ -74,7 +74,7 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
     * @example
     *  resolveTopicName (messageName: string) => `production-${messageName}`
     */
-   resolveTopicName (messageName: string): string
+   resolveTopicName? (messageName: string): string
 
    /**
     * A resolver function that maps an SNS topic name to an SNS topic arn
@@ -83,5 +83,5 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
     * @example
     *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
     */
-   resolveTopicArn (topicName: string): string
+   resolveTopicArn? (topicName: string): string
 }

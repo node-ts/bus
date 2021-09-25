@@ -15,8 +15,8 @@ import {
   resolveDeadLetterQueueName,
   resolveQueueArn,
   resolveQueueUrl,
-  resolveTopicArn,
-  resolveTopicName
+  resolveTopicArn as defaultResolveTopicArn,
+  resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
@@ -65,6 +65,9 @@ export class SqsTransport implements Transport<SQS.Message> {
   private coreDependencies: CoreDependencies
   private logger: Logger
 
+  private readonly resolveTopicName: typeof defaultResolveTopicName
+  private readonly resolveTopicArn: typeof defaultResolveTopicArn
+
   /**
    * An AWS SQS Transport adapter for @node-ts/bus
    * @param sqsConfiguration Settings to use when resolving queues and topics
@@ -76,6 +79,9 @@ export class SqsTransport implements Transport<SQS.Message> {
     private readonly sqs: SQS = new SQS(),
     private readonly sns: SNS = new SNS()
   ) {
+    this.resolveTopicName = this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
+    this.resolveTopicArn = this.sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
+
     this.queueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, sqsConfiguration.queueName)
     this.queueArn = resolveQueueArn(
       sqsConfiguration.awsAccountId,
@@ -243,8 +249,8 @@ export class SqsTransport implements Transport<SQS.Message> {
   private async assertSnsTopic (message: Message): Promise<void> {
     const messageName = message.$name
     if (!this.registeredMessages[messageName]) {
-      const snsTopicName = resolveTopicName(messageName)
-      const snsTopicArn = resolveTopicArn(
+      const snsTopicName = this.resolveTopicName(messageName)
+      const snsTopicArn = this.resolveTopicArn(
         this.sqsConfiguration.awsAccountId,
         this.sqsConfiguration.awsRegion,
         messageName
@@ -287,8 +293,8 @@ export class SqsTransport implements Transport<SQS.Message> {
   ): Promise<void> {
     await this.assertSnsTopic(message)
 
-    const topicName = resolveTopicName(message.$name)
-    const topicArn = resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, topicName)
+    const topicName = this.resolveTopicName(message.$name)
+    const topicArn = this.resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, topicName)
     this.logger.trace('Publishing message to sns', { message, topicArn })
 
     const attributeMap = toMessageAttributeMap(messageAttributes)
@@ -307,7 +313,7 @@ export class SqsTransport implements Transport<SQS.Message> {
   private async subscribeQueueToMessages (): Promise<void> {
     const busManagedTopicArns = await Promise.all(
       this.coreDependencies.handlerRegistry.getMessageNames()
-        .map(messageName => resolveTopicName(messageName))
+        .map(messageName => this.resolveTopicName(messageName))
         .map(topicName => this.createSnsTopic(topicName))
     )
 

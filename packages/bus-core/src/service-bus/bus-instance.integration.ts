@@ -224,7 +224,7 @@ describe('BusInstance', () => {
 
   describe('when sending a message with sticky attributes', () => {
     describe('which results in another message being sent', () => {
-      fit('should attach sticky attributes', async () => {
+      it('should attach sticky attributes', async () => {
         const events = new EventEmitter()
         const bus = await Bus.configure()
           .withHandler(TestCommand, async () => await bus.send(new TestEvent2()))
@@ -308,7 +308,7 @@ describe('BusInstance', () => {
       await new Promise<void>(resolve => events.on('event', resolve))
 
       logger.verify(
-        l => l.error(`Failed to receive message from transport`, It.isAny()),
+        l => l.error(`Failed to handle and dispatch message from transport`, It.isAny()),
         Times.once()
       )
       await bus.dispose()
@@ -350,7 +350,7 @@ describe('BusInstance', () => {
       it('should throw a FailMessageOutsideHandlingContext error', async () => {
         let bus: BusInstance
         try {
-          await Bus.configure().initialize()
+          bus = await Bus.configure().initialize()
           await bus.fail()
           fail('Expected FailMessageOutsideHandlingContext to have been thrown')
         } catch (error) {

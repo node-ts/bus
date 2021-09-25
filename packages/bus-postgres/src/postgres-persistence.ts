@@ -7,7 +7,7 @@ import {
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { PostgresConfiguration } from './postgres-configuration'
 import { WorkflowStateNotFound } from './error'
 
@@ -20,6 +20,7 @@ export class PostgresPersistence implements Persistence {
 
   private coreDependencies: CoreDependencies
   private logger: Logger
+  private client: PoolClient | undefined
 
   constructor (
     private readonly configuration: PostgresConfiguration,
@@ -34,13 +35,17 @@ export class PostgresPersistence implements Persistence {
 
   async initialize (): Promise<void> {
     this.logger.info('Initializing postgres persistence...')
-    await this.postgres.connect()
+    this.client = await this.postgres.connect()
     await this.ensureSchemaExists(this.configuration.schemaName)
     this.logger.info('Postgres persistence initialized')
   }
 
   async dispose (): Promise<void> {
     this.logger.info('Disposing postgres persistence...')
+    if (this.client) {
+      this.client.release()
+      this.client = undefined
+    }
     await this.postgres.end()
     this.logger.info('Postgres persistence disposed')
   }

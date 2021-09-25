@@ -113,8 +113,11 @@ export class BusInstance {
   /**
    * Stops and disposes all resources allocated to the bus, as well as removing
    * all handler registrations.
+   *
+   * The bus instance can not be used after this has been called.
    */
   async dispose (): Promise<void> {
+    this.logger.info('Disposing bus instance...')
     if (![BusState.Stopped, BusState.Stopped].includes(this.state)) {
       await this.stop()
     }
@@ -123,6 +126,7 @@ export class BusInstance {
     }
     await this.workflowRegistry.dispose()
     this.coreDependencies.handlerRegistry.reset()
+    this.logger.info('Bus disposed')
   }
 
   get state (): BusState {
@@ -179,7 +183,7 @@ export class BusInstance {
         return true
       }
     } catch (error) {
-      this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
+      this.logger.error('Failed to handle and dispatch message from transport', { error: serializeError(error) })
     }
     return false
   }

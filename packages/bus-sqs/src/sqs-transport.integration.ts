@@ -1,5 +1,4 @@
 import { fromMessageAttributeMap, SQSMessageBody, SqsTransport } from './sqs-transport'
-import { Bus } from '@node-ts/bus-core'
 import { SQS, SNS } from 'aws-sdk'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { resolveQueueUrl } from './queue-resolvers'
@@ -45,7 +44,6 @@ describe('SqsTransport', () => {
   })
 
   afterAll(async () => {
-    await Bus.dispose()
     const appQueueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, normalizeMessageName(sqsConfiguration.queueName))
     await sqs.purgeQueue({ QueueUrl: appQueueUrl }).promise()
     await sqs.deleteQueue({ QueueUrl: appQueueUrl }).promise()

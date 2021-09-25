@@ -1,4 +1,4 @@
-import { Bus, WorkflowStatus, MessageWorkflowMapping, Logger } from '@node-ts/bus-core'
+import { Bus, WorkflowStatus, MessageWorkflowMapping, Logger, BusInstance } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { PostgresPersistence } from './postgres-persistence'
 import { PostgresConfiguration } from './postgres-configuration'
@@ -17,27 +17,26 @@ const configuration: PostgresConfiguration = {
 describe('PostgresPersistence', () => {
   let sut: PostgresPersistence
   let postgres: Pool
+  let bus: BusInstance
 
   beforeAll(async () => {
     postgres = new Pool(configuration.connection)
-    await postgres.connect()
     await postgres.query('create schema if not exists ' + configuration.schemaName)
-
     sut = new PostgresPersistence(configuration, postgres)
-    await Bus
+    bus = await Bus
       .configure()
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
       .initialize()
 
-    await Bus.start()
+    await bus.start()
   })
 
   afterAll(async () => {
-    await Bus.dispose()
     await postgres.query('drop table if exists "workflows"."testworkflowstate"')
     await postgres.query('drop schema if exists ' + configuration.schemaName)
+    await bus.dispose()
   })
 
   describe('when initializing the transport', () => {
@@ -74,7 +73,7 @@ describe('PostgresPersistence', () => {
 
       it('should retrieve the item', async () => {
         mapping = {
-          lookup: ({ message }) => message.property1,
+          lookup: message => message.property1,
           mapsTo: 'property1'
         }
         const results = await sut.getWorkflowState(
