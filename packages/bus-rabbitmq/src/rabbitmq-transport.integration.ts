@@ -1,6 +1,6 @@
 import { RabbitMqTransport } from './rabbitmq-transport'
 import { Connection, Channel, connect, ConsumeMessage } from 'amqplib'
-import { Bus, MessageSerializer } from '@node-ts/bus-core'
+import { DefaultHandlerRegistry, JsonSerializer, MessageSerializer } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import { Message, MessageAttributeMap, MessageAttributes } from '@node-ts/bus-messages'
 import uuid from 'uuid'
@@ -19,6 +19,7 @@ describe('RabbitMqTransport', () => {
   let rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: Connection
   let channel: Channel
+  const messageSerializer = new MessageSerializer(new JsonSerializer(), new DefaultHandlerRegistry())
 
   const systemMessageTopicIdentifier = TestSystemMessage.NAME
   const message = new TestSystemMessage()
@@ -56,7 +57,7 @@ describe('RabbitMqTransport', () => {
     await channel.purgeQueue(configuration.deadLetterQueueName)
 
     const payload = rabbitMessage.content.toString('utf8')
-    const message = MessageSerializer.deserialize(payload) as Message
+    const message = messageSerializer.deserialize(payload) as Message
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string,
@@ -92,6 +93,5 @@ describe('RabbitMqTransport', () => {
     await channel.deleteExchange(systemMessageTopicIdentifier)
     await channel.close()
     await connection.close()
-    await Bus.dispose()
   })
 })
