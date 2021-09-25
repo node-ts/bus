@@ -34,27 +34,15 @@ export class BusConfiguration {
   private persistence: Persistence = new InMemoryPersistence()
 
   /**
-   * Initializes a bus in send only mode. This will provide a bus
-   * instance that is capable of sending/publishing messages only
-   * and won't handle incoming messages or workflows.
-   */
-  async initializeSendOnly (): Promise<BusInstance> {
-    const logger = this.loggerFactory('@node-ts/bus-core:bus')
-    logger.debug('Initializing bus in send only mode')
-
-    if (!!this.busInstance) {
-      throw new BusAlreadyInitialized()
-    }
-
-    throw new Error('Not implemented')
-  }
-
-  /**
    * Initializes the bus with the provided configuration
+   *
+   * @param sendOnly If true, will initialize the bus in send only mode.
+   * This will provide a bus instance that is capable of sending/publishing
+   * messages only and won't handle incoming messages or workflows
    */
-  async initialize (): Promise<BusInstance> {
+  async initialize (sendOnly = false): Promise<BusInstance> {
     const logger = this.loggerFactory('@node-ts/bus-core:bus')
-    logger.debug('Initializing bus')
+    logger.debug('Initializing bus', { sendOnly })
 
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
@@ -67,13 +55,16 @@ export class BusConfiguration {
       serializer: this.serializer,
       messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry)
     }
-    this.persistence?.prepare(coreDependencies)
-    this.workflowRegistry.prepare(coreDependencies, this.persistence)
-    await this.workflowRegistry.initialize(this.handlerRegistry, this.container)
 
-    const classHandlers = this.handlerRegistry.getClassHandlers()
-    if (!this.container && classHandlers.length) {
-      throw new ContainerNotRegistered(classHandlers[0].constructor.name)
+    if (!sendOnly) {
+      this.persistence?.prepare(coreDependencies)
+      this.workflowRegistry.prepare(coreDependencies, this.persistence)
+      await this.workflowRegistry.initialize(this.handlerRegistry, this.container)
+
+      const classHandlers = this.handlerRegistry.getClassHandlers()
+      if (!this.container && classHandlers.length) {
+        throw new ContainerNotRegistered(classHandlers[0].constructor.name)
+      }
     }
 
     const transport: Transport = this.configuredTransport || new MemoryQueue()
@@ -81,7 +72,7 @@ export class BusConfiguration {
     if (transport.connect) {
       await transport.connect()
     }
-    if (transport.initialize) {
+    if (!sendOnly && transport.initialize) {
       await transport.initialize(this.handlerRegistry)
     }
     this.busInstance = new BusInstance(
@@ -91,7 +82,7 @@ export class BusConfiguration {
       coreDependencies
     )
 
-    logger.debug('Bus initialized', { registeredMessages: this.handlerRegistry.getMessageNames() })
+    logger.debug('Bus initialized', { sendOnly, registeredMessages: this.handlerRegistry.getMessageNames() })
 
     return this.busInstance
   }
