@@ -44,9 +44,7 @@ export class RedisTransport implements Transport<QueueMessage> {
    * @param connectionFactory A callback that creates a new connection to Redis
    */
   constructor (
-    private readonly configuration: RedisTransportConfiguration,
-    private readonly messageSerializer: MessageSerializer,
-    private readonly handlerRegistry: HandlerRegistry
+    private readonly configuration: RedisTransportConfiguration
   ) {
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
     this.subscriptionsKeyPrefix = configuration.subscriptionsKeyPrefix ?? 'node-ts:bus-redis:subscriptions:'
@@ -111,7 +109,7 @@ export class RedisTransport implements Transport<QueueMessage> {
 
     this.logger.debug('Received message from Redis', {redisMessage: maybeMessage.message})
     const { message, ...attributes} = JSON.parse(maybeMessage.message) as Payload
-    const domainMessage = this.messageSerializer.deserialize(message)
+    const domainMessage = this.coreDependencies.messageSerializer.deserialize(message)
 
     return {
       id: maybeMessage.metadata.token,

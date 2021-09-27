@@ -1,8 +1,9 @@
 // tslint:disable:no-magic-numbers Date based tests
-import { JsonSerializer } from './json-serializer'
+import { ClassSerializer } from './class-serializer'
+import { Type } from 'class-transformer'
 
 class Contract {
-  readonly c: Date
+  @Type(() => Date) readonly c: Date
 
   testFn: () => void
 
@@ -15,13 +16,13 @@ class Contract {
   }
 }
 
-describe('JsonSerializer', () => {
-  let sut: JsonSerializer
+describe('ClassSerializer', () => {
+  let sut: ClassSerializer
   const date = new Date(2000, 2, 1, 10, 0, 0, 0)
   const contract = new Contract('a', 1, date)
 
   beforeEach(() => {
-    sut = new JsonSerializer()
+    sut = new ClassSerializer()
   })
 
   describe('when serializing', () => {
@@ -49,10 +50,9 @@ describe('JsonSerializer', () => {
     it('should deserialize to a plain object', () => {
       expect(result).toMatchObject({ a: 'a', b: 1 })
       expect(result.c).toBeDefined()
-    })
-
-    it('should be unable to deserilize strong types', () => {
-      expect(result.c.toUTCString).toBeUndefined()
+      // tslint:disable-next-line:no-unbound-method Testing presence
+      expect(result.c.toUTCString).toBeDefined()
+      expect(result.c.getDate()).toEqual(date.getDate())
     })
   })
 

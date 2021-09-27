@@ -4,7 +4,6 @@
   "main": "index.js",
   "description": "A service bus for message-based, distributed node applications",
   "repository": "github:node-ts/bus.git",
-  "author": "Andrew den Hertog <andrew.denhertog@gmail.com>",
   "license": "MIT",
   "private": true,
   "scripts": {

@@ -2,7 +2,6 @@
   "name": "@node-ts/bus-test",
   "version": "0.0.1",
   "description": "A dev-dependency package used to test transport and persistence implementations.",
-  "author": "Andrew den Hertog <andrew.denhertog@gmail.com>",
   "homepage": "https://github.com/node-ts/bus#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,6 +1,7 @@
 import { RedisTransport } from './redis-transport'
 import { RedisTransportConfiguration } from './redis-transport-configuration'
 import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
+import { DefaultHandlerRegistry, HandlerAlreadyRegistered, JsonSerializer, MessageSerializer } from '../../bus-core/dist'
 
 const configuration: RedisTransportConfiguration = {
   queueName: 'node-ts/bus-redis-test',
@@ -13,24 +14,30 @@ describe('RedisTransport', () => {
 
   const redisTransport = new RedisTransport(configuration)
 
-  /**
-   * removes all jobs irrespective of their state
-   * 'completed' | 'wait' | 'active' | 'paused' | 'delayed' | 'failed'
-   */
   async function purgeQueue() {
-    return Promise.all(
-      ['completed','wait','active','paused','delayed','failed']
-        .map(jobState => redisTransport['queue'.clean(2000, 100, jobState as any)))
+    return redisTransport['queue'].destroyQueue()
   }
 
   const systemMessageTopicIdentifier = TestSystemMessage.NAME
   const message = new TestSystemMessage()
   const publishSystemMessage = async (systemMessageAttribute: string) => {
     const attributes = { systemMessage: systemMessageAttribute }
+    const messageSerializer = new MessageSerializer(
+      new JsonSerializer(),
+      new DefaultHandlerRegistry()
+    )
+    const payload = {
+      message: messageSerializer.serialize(message),
+      correlationId: undefined,
+      attributes: attributes,
+      stickyAttributes: {}
+    }
 
+    redisTransport['queue'].publish(payload.message)
   }
 
   const readAllFromDeadLetterQueue = async () => {
+    // TODO does modest-queue support DLQing?
     return []
   }
 
