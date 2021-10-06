@@ -1,6 +1,6 @@
 import { Message } from '@node-ts/bus-messages'
-import { DefaultHandlerRegistry } from '../handler'
-import { Handler } from '../handler/handler'
+import { DefaultHandlerRegistry, Handler } from '../handler'
+import { HandlerDefinition, isClassHandler } from '../handler/handler'
 import { JsonSerializer, Serializer } from '../serialization'
 import { MemoryQueue, Transport } from '../transport'
 import { ClassConstructor, CoreDependencies } from '../util'
@@ -99,6 +99,7 @@ export class BusConfiguration {
     return this.busInstance
   }
 
+
   /**
    * Register a handler for a specific message type. When Bus is initialized it will configure
    * the transport to subscribe to this type of message and upon receipt will forward the message
@@ -107,24 +108,42 @@ export class BusConfiguration {
    * @param messageHandler A callback that will be invoked when the message is received
    * @param customResolver Subscribe to a topic that's created and maintained outside of the application
    */
-  withHandler<MessageType extends (Message | object)> (
-    messageType: ClassConstructor<MessageType>,
-    messageHandler: Handler<MessageType>
+  withHandler (classHandler: ClassConstructor<Handler<Message>>): this
+  withHandler <MessageType extends (Message | object)>(
+    functionHandler: {
+      messageType: ClassConstructor<MessageType>,
+      messageHandler: HandlerDefinition<MessageType>
+    }
   ): this
+  withHandler <MessageType extends (Message | object)>(
+    handler: ClassConstructor<Handler<Message>> | {
+      messageType: ClassConstructor<MessageType>,
+      messageHandler: HandlerDefinition<MessageType>
+    }): this
   {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.handlerRegistry.register(
-      messageType,
-      messageHandler
-    )
+    if ('messageHandler' in handler) {
+      this.handlerRegistry.register(
+        handler.messageType,
+        handler.messageHandler
+      )
+    } else if (isClassHandler(handler)) {
+      const handlerInstance = new handler()
+      this.handlerRegistry.register(
+        handlerInstance.messageType,
+        handler
+      )
+    }
+
+
     return this
   }
 
   withCustomHandler<MessageType extends (Message | object)> (
-    messageHandler: Handler<MessageType>,
+    messageHandler: HandlerDefinition<MessageType>,
     customResolver: {
       resolveWith: ((message: MessageType) => boolean),
       topicIdentifier?: string

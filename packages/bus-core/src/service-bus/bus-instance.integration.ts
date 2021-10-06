@@ -3,7 +3,7 @@ import { Bus, BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
 import { Mock, IMock, Times, It } from 'typemoq'
-import { SystemMessageMissingResolver } from '../handler'
+import { handlerFor, SystemMessageMissingResolver } from '../handler'
 import { TestCommand } from '../test/test-command'
 import { TestEvent2 } from '../test/test-event-2'
 import { ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
@@ -23,7 +23,7 @@ describe('BusInstance', () => {
     let bus: BusInstance
     let queue: MemoryQueue
     let callback: IMock<Callback>
-    const handler = async (_: TestEvent) => callback.object()
+    const handler = handlerFor(TestEvent, async (_: TestEvent) => callback.object())
 
     beforeAll(async () => {
       queue = new MemoryQueue()
@@ -31,7 +31,7 @@ describe('BusInstance', () => {
 
       bus = await Bus.configure()
         .withTransport(queue)
-        .withHandler(TestEvent, handler)
+        .withHandler(handler)
         .initialize()
     })
 
@@ -215,7 +215,7 @@ describe('BusInstance', () => {
       it('should throw a ContainerNotRegistered error', async () => {
         await expect(Bus.configure()
           .withConcurrency(1)
-          .withHandler(TestEvent, TestEventClassHandler)
+          .withHandler(TestEventClassHandler)
           .initialize()
         ).rejects.toBeInstanceOf(ContainerNotRegistered)
       })
@@ -227,9 +227,9 @@ describe('BusInstance', () => {
       it('should attach sticky attributes', async () => {
         const events = new EventEmitter()
         const bus = await Bus.configure()
-          .withHandler(TestCommand, async () => await bus.send(new TestEvent2()))
-          .withHandler(TestEvent2, async () => bus.send(new TestEvent()))
-          .withHandler(TestEvent, async (_: TestEvent, { stickyAttributes }: MessageAttributes) => { events.emit('event', stickyAttributes) })
+          .withHandler(handlerFor(TestCommand, async () => await bus.send(new TestEvent2())))
+          .withHandler(handlerFor(TestEvent2, async () => bus.send(new TestEvent())))
+          .withHandler(handlerFor(TestEvent, async (_: TestEvent, { stickyAttributes }: MessageAttributes) => { events.emit('event', stickyAttributes) }))
           .initialize()
 
         await bus.start()
@@ -250,7 +250,7 @@ describe('BusInstance', () => {
     it('should fail when a custom resolver is not provided', async () => {
       try {
         await Bus.configure()
-          .withHandler(TestSystemMessage, async () => undefined)
+          .withHandler(handlerFor(TestSystemMessage, async () => undefined))
           .initialize()
         fail('Registry should throw an SystemMessageMissingResolver error')
       } catch (error) {
@@ -369,10 +369,10 @@ describe('BusInstance', () => {
         const queueMock = jest.spyOn(queue, 'fail')
         const bus = await Bus.configure()
           .withTransport(queue)
-          .withHandler(TestCommand, async () => {
+          .withHandler(handlerFor(TestCommand, async () => {
             await bus.fail()
             events.emit('event')
-          })
+          }))
           .initialize()
 
         await bus.start()

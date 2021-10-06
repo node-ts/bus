@@ -1,14 +1,14 @@
+import { handlerFor } from './handler-for'
 import { TestEvent } from '../test/test-event'
 import { Bus, BusInstance } from '../service-bus'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { TestCommand } from '../test/test-command'
-import { Mock, Times, It } from 'typemoq'
-import { ClassConstructor, sleep } from '../util'
-import { MessageLogger, TestCommand2, testEventHandler } from '../test'
-import * as faker from 'faker'
-import { Handler } from './handler'
 import { TestCommand3 } from '../test/test-command-3'
+import { TestCommand } from '../test/test-command'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { MessageLogger, TestCommand2, testEventHandler } from '../test'
+import { ClassConstructor, sleep } from '../util'
+import * as faker from 'faker'
+import { Mock, Times, It } from 'typemoq'
 import { EventEmitter } from 'stream'
 
 const event = new TestEvent()
@@ -32,16 +32,16 @@ describe('Handler', () => {
     let bus: BusInstance
 
     // Sticky attributes should propagate during Bus.send
-    const command2Handler: Handler<TestCommand2> = async (_: TestCommand2, { correlationId }) => {
+    const command2Handler = handlerFor(TestCommand2, async (_: TestCommand2, { correlationId }) => {
       await bus.send(new TestCommand3())
       messageLogger.object.log({ name: 'command2Handler', correlationId })
       events.emit('command2Handler')
-    }
-    const command3Handler = (messageLogger: MessageLogger) => async (_: TestCommand3, { stickyAttributes, correlationId }: MessageAttributes) => {
+    })
+    const command3Handler = (messageLogger: MessageLogger) => handlerFor(TestCommand3, async (_: TestCommand3, { stickyAttributes, correlationId }: MessageAttributes) => {
       messageLogger.log(stickyAttributes.value)
       messageLogger.log({ name: 'command3Handler', correlationId })
       events.emit('command3Handler')
-    }
+    })
 
     beforeAll(async () => {
       bus = await Bus.configure()
@@ -51,10 +51,10 @@ describe('Handler', () => {
             return new type(messageLogger.object)
           }
         })
-        .withHandler(TestEvent, testEventHandler(messageLogger.object))
-        .withHandler(TestEvent, TestEventClassHandler)
-        .withHandler(TestCommand2, command2Handler)
-        .withHandler(TestCommand3, command3Handler(messageLogger.object))
+        .withHandler(testEventHandler(messageLogger.object))
+        .withHandler(TestEventClassHandler)
+        .withHandler(command2Handler)
+        .withHandler(command3Handler(messageLogger.object))
         .initialize()
 
       await bus.start()

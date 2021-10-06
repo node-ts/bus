@@ -5,8 +5,11 @@ import { MessageLogger } from '../test/test-event-handler'
 import { ClassConstructor, sleep } from '../util'
 import { TestEvent, TestEvent2 } from '../test'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
+import { Handler } from '../handler'
 
-class UnregisteredClassHandler {
+class UnregisteredClassHandler implements Handler<TestEvent2> {
+  messageType = TestEvent2
+
   async handle (_: TestEvent2): Promise<void> {
     // ...
   }
@@ -51,8 +54,8 @@ describe('ContainerAdapter', () => {
             return container[type.name] as T
           }
         })
-        .withHandler(TestEvent, TestEventClassHandler)
-        .withHandler(TestEvent2, UnregisteredClassHandler)
+        .withHandler(TestEventClassHandler)
+        .withHandler(UnregisteredClassHandler)
         .initialize()
       await bus.start()
     })
@@ -96,7 +99,7 @@ describe('ContainerAdapter', () => {
         try {
           bus = await Bus
             .configure()
-            .withHandler(TestEvent, TestEventClassHandler)
+            .withHandler(TestEventClassHandler)
             .initialize()
           fail('Bus initialization should throw a ContainerNotRegistered error')
         } catch (error) {

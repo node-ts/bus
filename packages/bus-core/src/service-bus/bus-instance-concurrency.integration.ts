@@ -4,6 +4,7 @@ import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
 import { Mock, IMock } from 'typemoq'
 import { BusInstance } from './bus-instance'
+import { handlerFor } from '../handler'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -16,12 +17,12 @@ describe('BusInstance - Concurrency', () => {
   const CONCURRENCY = 2
   let bus: BusInstance
 
-  const handler = async () => {
+  const handler = handlerFor(TestEvent, async () => {
     handleCount++
     await new Promise(resolve => {
       resolutions.push(resolve)
     })
-  }
+  })
 
   beforeAll(async () => {
     queue = new MemoryQueue()
@@ -29,7 +30,7 @@ describe('BusInstance - Concurrency', () => {
 
     bus =await Bus.configure()
       .withTransport(queue)
-      .withHandler(TestEvent, handler)
+      .withHandler(handler)
       .withConcurrency(CONCURRENCY)
       .initialize()
     await bus.start()

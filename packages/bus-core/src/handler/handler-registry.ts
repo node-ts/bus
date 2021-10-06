@@ -1,11 +1,11 @@
 import { Message } from '@node-ts/bus-messages'
 import { LoggerFactory } from '../logger'
 import { ClassConstructor } from '../util'
-import { ClassHandler, Handler, MessageBase } from './handler'
+import { ClassHandler, HandlerDefinition, MessageBase } from './handler'
 
 interface RegisteredHandlers {
   messageType: ClassConstructor<MessageBase>
-  handlers: Handler[]
+  handlers: HandlerDefinition[]
 }
 
 export interface HandlerRegistrations {
@@ -31,7 +31,7 @@ export interface CustomResolver<MessageType> {
 }
 
 export interface HandlerResolver {
-  handler: Handler
+  handler: HandlerDefinition
   resolver (message: unknown): boolean
   messageType: ClassConstructor<MessageBase> | undefined
   topicIdentifier: string | undefined
@@ -54,11 +54,11 @@ export interface HandlerRegistry {
    */
   register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
-    handler: Handler<TMessage>
+    handler: HandlerDefinition<TMessage>
   ): void
 
   registerCustom<TMessage extends MessageBase> (
-    handler: Handler<TMessage>,
+    handler: HandlerDefinition<TMessage>,
     customResolver: CustomResolver<TMessage>
   ): void
 
@@ -66,7 +66,7 @@ export interface HandlerRegistry {
    * Gets all registered message handlers for a given message name
    * @param message A message that has been received from the bus
    */
-  get<MessageType extends Message> (loggerFactory: LoggerFactory, message: object): Handler<MessageType>[]
+  get<MessageType extends Message> (loggerFactory: LoggerFactory, message: object): HandlerDefinition<MessageType>[]
 
   /**
    * Retrieves a list of all messages that have handler registrations

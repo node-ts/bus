@@ -7,15 +7,23 @@ import { ClassConstructor } from '../util'
 export type MessageBase = Message // For messages that originate inside the app and conform to @node-ts/bus-messages
   | object // For messages that originate from external services where the structure can't be modified
 
-// export interface HandlerContext<TMessage extends MessageBase> {
-//   message: TMessage
-//   attributes: MessageAttributes
-// }
-
-export interface ClassHandler<
+/**
+ * Implemented by a class to indicate it acts as a handler for a given message
+ */
+export interface Handler<
   TMessage extends MessageBase = MessageBase,
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > {
+  /**
+   * The type of message the class handles
+   */
+  messageType: ClassConstructor<TMessage>
+
+  /**
+   * A function that is called each time a message of `messageType` is received
+   * @param message The message read from the bus
+   * @param attributes Attributes of the message read from the bus
+   */
   handle (message: TMessage, attributes: TMessageAttributes): void | Promise<void>
 }
 
@@ -24,14 +32,14 @@ export type FunctionHandler<
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > = (message: TMessage, attributes: TMessageAttributes) => void | Promise<void>
 
-export type Handler<
+export type HandlerDefinition<
   TMessage extends MessageBase = MessageBase,
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > =
   FunctionHandler<TMessage, TMessageAttributes>
-  | ClassConstructor<ClassHandler<TMessage, TMessageAttributes>>
+  | ClassConstructor<Handler<TMessage, TMessageAttributes>>
 
 /**
  * A naive but best guess effort into if a handler is class based and should be resolved from a container
  */
-export const isClassHandler = (handler: Handler) => handler.prototype?.handle && handler.prototype?.constructor?.name
+export const isClassHandler = (handler: HandlerDefinition) => handler.prototype?.handle && handler.prototype?.constructor?.name

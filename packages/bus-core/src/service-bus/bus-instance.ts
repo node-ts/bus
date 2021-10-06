@@ -1,7 +1,7 @@
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { sleep, ClassConstructor, TypedEmitter, CoreDependencies} from '../util'
-import { ClassHandler, FunctionHandler, Handler, isClassHandler } from '../handler'
+import { ClassHandler, FunctionHandler, HandlerDefinition, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from '../message-handling-context'
@@ -26,7 +26,7 @@ export class BusInstance {
   readonly beforeDispatch = new TypedEmitter<{
     message: Message,
     attributes: MessageAttributes,
-    handlers: Handler[]
+    handlers: HandlerDefinition[]
   }>()
   readonly afterDispatch = new TypedEmitter<{
     message: Message,
@@ -234,7 +234,7 @@ export class BusInstance {
   async dispatchMessageToHandler (
     message: Message,
     attributes: MessageAttributes,
-    handler: Handler<Message>
+    handler: HandlerDefinition<Message>
   ): Promise<void> {
     if (isClassHandler(handler)) {
       const classHandler = handler as ClassConstructor<ClassHandler<Message>>

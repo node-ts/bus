@@ -1,8 +1,10 @@
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { Handler } from '../handler'
 import { TestEvent } from './test-event'
 import { MessageLogger } from './test-event-handler'
 
-export class TestEventClassHandler {
+export class TestEventClassHandler implements Handler<TestEvent> {
+  messageType = TestEvent
 
   constructor (
     private readonly messageLogger: MessageLogger
