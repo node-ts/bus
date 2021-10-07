@@ -99,7 +99,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payloadStr = rabbitMessage.content.toString('utf8')
     const payload = this.coreDependencies.messageSerializer.deserialize(payloadStr)
 
-    const attributes: MessageAttributes = {
+    const attributes = {
       correlationId: rabbitMessage.properties.correlationId as string | undefined,
       attributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.attributes
         ? JSON.parse(rabbitMessage.properties.headers.attributes as string) as MessageAttributeMap
@@ -107,7 +107,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       stickyAttributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.stickyAttributes
         ? JSON.parse(rabbitMessage.properties.headers.stickyAttributes as string) as MessageAttributeMap
         : {}
-    } as any
+    } as unknown as MessageAttributes
 
     return {
       id: rabbitMessage.properties.messageId as string,
@@ -133,7 +133,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   async returnMessage (message: TransportMessage<RabbitMqMessage>): Promise<void> {
     const msg = JSON.parse(message.raw.content.toString())
 
-    // makes attempt indexed from 1
+    // Makes attempt indexed from 1
     const attempt = (message.raw.properties.headers['x-death']
       ?.find(death => death.exchange === this.retryQueueExchange)
       ?.count

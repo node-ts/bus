@@ -294,7 +294,11 @@ export class SqsTransport implements Transport<SQS.Message> {
     await this.assertSnsTopic(message)
 
     const topicName = this.resolveTopicName(message.$name)
-    const topicArn = this.resolveTopicArn(this.sqsConfiguration.awsAccountId, this.sqsConfiguration.awsRegion, topicName)
+    const topicArn = this.resolveTopicArn(
+      this.sqsConfiguration.awsAccountId,
+      this.sqsConfiguration.awsRegion,
+      topicName
+    )
     this.logger.trace('Publishing message to sns', { message, topicArn })
 
     const attributeMap = toMessageAttributeMap(messageAttributes)

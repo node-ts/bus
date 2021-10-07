@@ -1,6 +1,6 @@
 import { TransportConfiguration } from '@node-ts/bus-core'
 
-export interface RabbitMqTransportConfiguration extends TransportConfiguration{
+export interface RabbitMqTransportConfiguration extends TransportConfiguration {
   /**
    * The amqp connection string to use to connect to the rabbit mq instance
    * @example amqp://guest:guest@localhost
