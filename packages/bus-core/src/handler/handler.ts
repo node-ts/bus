@@ -1,45 +1,45 @@
-import { MessageAttributes, Message } from '@node-ts/bus-messages'
-import { ClassConstructor } from '@node-ts/logger-core'
-
-export type MessageType = Message | {}
-
-export interface HandlerPrototype<T extends MessageType> {
-  /**
-   * The bus message registered to be handled. If set, then queue/topic subscriptions
-   * will be automatically set up. If not set, then only the handler will be registered
-   * and it's up to the consumer to manually register the queue/topic subscriptions themselves.
-   */
-  $message?: ClassConstructor<Message>
-
-  /**
-   * A symbol to uniquely identify the registration of this message handler
-   */
-  $symbol: symbol
-
-  /**
-   * An optional topic identifier where the source message is published to. This is used to
-   * subscribe the application queue to non-application type messages like infrastructure or
-   * third party messages.
-   *
-   * This field accepts identifiers of the transport used. eg. SQS transports will accept a
-   * source SNS arn, whereas a RabbitMQ transport would use a topic name.
-   */
-  $topicIdentifier: string | undefined
-
-  /**
-   * The resolver to use that determines if a given message should be dispatched to the handler
-   * it's attached to
-   * @param message A message received from the underlying transport
-   */
-  $resolver (message: T): boolean
-}
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { ClassConstructor } from '../util'
 
 /**
- * An interface used by `HandlesMessages` used to dispatch messages to
- * @param message A message that has been received from the bus and passed to the handler for processing
- * @param options (optional) Additional message options and metadata that were sent along with the message
- * @returns An awaitable promise that resolves when the handler operation has completed
+ * Defines the types of messages that the bus can handle
  */
-export interface Handler<TMessage extends MessageType> {
-  handle (message: TMessage, messageOptions?: MessageAttributes): Promise<void>
+export type MessageBase = Message // For messages that originate inside the app and conform to @node-ts/bus-messages
+  | object // For messages that originate from external services where the structure can't be modified
+
+/**
+ * Implemented by a class to indicate it acts as a handler for a given message
+ */
+export interface Handler<
+  TMessage extends MessageBase = MessageBase,
+  TMessageAttributes extends MessageAttributes = MessageAttributes
+> {
+  /**
+   * The type of message the class handles
+   */
+  messageType: ClassConstructor<TMessage>
+
+  /**
+   * A function that is called each time a message of `messageType` is received
+   * @param message The message read from the bus
+   * @param attributes Attributes of the message read from the bus
+   */
+  handle (message: TMessage, attributes: TMessageAttributes): void | Promise<void>
 }
+
+export type FunctionHandler<
+  TMessage extends MessageBase,
+  TMessageAttributes extends MessageAttributes = MessageAttributes
+> = (message: TMessage, attributes: TMessageAttributes) => void | Promise<void>
+
+export type HandlerDefinition<
+  TMessage extends MessageBase = MessageBase,
+  TMessageAttributes extends MessageAttributes = MessageAttributes
+> =
+  FunctionHandler<TMessage, TMessageAttributes>
+  | ClassConstructor<Handler<TMessage, TMessageAttributes>>
+
+/**
+ * A naive but best guess effort into if a handler is class based and should be resolved from a container
+ */
+export const isClassHandler = (handler: HandlerDefinition) => handler.prototype?.handle && handler.prototype?.constructor?.name

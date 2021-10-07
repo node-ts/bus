@@ -1,31 +1,22 @@
 # @node-ts/bus-postgres
 
-[![Known Vulnerabilities](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
-[![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+A Postgres based persistence for workflow storage in [@node-ts/bus](https://node-ts.gitbook.io/bus/)
 
-A Postgrres based persistence for workflow storage.
+🔥 📒 👉 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 👈 📒 🔥
 
 ## Installation
 
 Install all packages and their dependencies
 
 ```bash
-npm i reflect-metadata inversify @node-ts/bus-postgres @node-ts/bus-core @node-ts/bus-workflow
+npm install @node-ts/bus-postgres
 ```
 
-Once installed, load the `BusPostgresModiule` to your inversify container alongside the other modules it depends on:
+Configure a new Postgres persistence and register it with `Bus`:
 
 ```typescript
-import { Container } from 'inversify'
-import { LoggerModule } from '@node-ts/logger-core'
-import { BUS_SYMBOLS, BusModule, ApplicationBootstrap } from '@node-ts/bus-core'
-import { BUS_WORKFLOW_SYMBOLS, WorkflowRegistry } from '@node-ts/bus-workflow'
-import { BUS_POSTGRES_SYMBOLS, BusPostgresModule, PostgresConfiguration } from '@node-ts/bus-postgres'
-
-const container = new Container()
-container.load(new LoggerModule())
-container.load(new BusModule())
-container.load(new BusPostgresModule())
+import { Bus } from '@node-ts/bus-core'
+import { PostgresPersistence, PostgresConfiguration } from '@node-ts/bus-postgres'
 
 const configuration: PostgresConfiguration = {
   connection: {
@@ -33,25 +24,29 @@ const configuration: PostgresConfiguration = {
   },
   schemaName: 'workflows'
 }
-container.bind(BUS_POSTGRES_SYMBOLS.PostgresConfiguration).toConstantValue(configuration)
+const postgresPersistence = new PostgresPersistence(configuration)
 
-// Run the application
-const application = async () => {
-    const workflows = container.get<WorkflowRegistry>(BUS_WORKFLOW_SYMBOLS.WorkflowRegistry)
-    workflows.register(TestWorkflow, TestWorkflowData) // Register all workflows here
-    await workflows.initializeWorkflows()
-
-    const bootstrap = container.get<ApplicationBootstrap>(BUS_SYMBOLS.ApplicationBootstrap)
-    await bootstrap.initialize(container)
+// Configure bus to use postgres as a persistence
+const run = async () => {
+  await Bus
+    .configure()
+    .withPersistence(postgresPersistence)
+    .initialize()
 }
-application
-  .then(() => void)
+run.then(() => void)
 ```
+
+## Configuration Options
+
+The Postgres persistence has the following configuration:
+
+*  **connection** *(required)* Connection pool settings for the application to connect to the postgres instance
+*  **schemaName** *(required)* The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
 
 ## Development
 
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
 
 ```bash
-docker run -d --name bus-postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
+docker run --name bus-postgres -e POSTGRES_PASSWORD=password -p 6432:5432 -d postgres
 ```

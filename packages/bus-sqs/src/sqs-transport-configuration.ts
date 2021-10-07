@@ -1,43 +1,27 @@
-export interface SqsTransportConfiguration {
+import { TransportConfiguration } from '@node-ts/bus-core'
+
+export interface SqsTransportConfiguration extends TransportConfiguration {
   /**
-   * The name of the queue that receives incomming messages
-   * @example production-application-server
+   * The AWS Account Id of the account where queues and topics will be created
    */
-  queueName: string
+  awsAccountId: string
 
   /**
-   * The URL of the Amazon SQS queue from which messages are received.
-   * Queue URLs and names are case-sensitive
-   * @example https://sqs.us-west-2.amazonaws.com/12345678/production-application-server
+   * The AWS region to create queues and topics in
    */
-  queueUrl: string
+  awsRegion: string
 
   /**
-   * The ARN of the service queue where messages are received
-   * @example arn:aws:sqs:us-west-2:12345678:production-application-server
+   * The number of seconds to retain messages in the service and dead letter queues
+   * @default 1209600 (14 days)
    */
-  queueArn: string
+  messageRetentionPeriod?: number
 
   /**
-   * Name of the dead letter queue to fail messages to
-   * @example production-dead-letter-queue
-   */
-  deadLetterQueueName: string
-
-  /**
-   * Url of the dead letter queue to fail messages to
-   * @example https://sqs.us-west-2.amazonaws.com/12345678/production-dead-letter-queue
-   */
-  deadLetterQueueUrl: string
-
-  /**
-   * ARN of the dead letter queue. This queue will be created if it doesn't already exist
-   * @example arn:aws:sqs:us-west-2:12345678:production-dead-letter-queue
-   */
-  deadLetterQueueArn: string
-
-  /**
-   * An SQS policy template that grants access to subscribed SNS topics to send messages to the SQS queue.
+   * An optional custom queue policy to apply to any created SQS queues.
+   * By default a generic policy will be added that grants send permissions to SNS
+   * topics within the same AWS account. This can be further restricted or relaxed by
+   * providing a custom policy.
    * @example
    * {
    *   "Version": "2012-10-17",
@@ -60,44 +44,44 @@ export interface SqsTransportConfiguration {
    *   ]
    * }
    */
-  queuePolicy: string
+  queuePolicy?: string
 
   /**
    * The visibility timeout for the queue, in seconds. Valid values: An integer from 0 to 43,200 (12 hours)
    * @default 30
    */
-  visibilityTimeout?: number
+   visibilityTimeout?: number
 
-  /**
-   * The number of times a message is delivered to the source queue before being moved to the dead-letter queue
-   * @default 10
-   */
-  maxReceiveCount?: number
+   /**
+    * The number of times a message is delivered to the source queue before being moved to the dead-letter queue
+    * @default 10
+    */
+   maxReceiveCount?: number
 
-  /**
-   * The wait time on sqs.receiveMessage, setting it to 0 will essentially turn it to short polling.
-   *
-   * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptable action.
-   *
-   * @default 10
-   */
-  waitTimeSeconds?: number
+   /**
+    * The wait time on sqs.receiveMessage, setting it to 0 will essentially turn it to short polling.
+    *
+    * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptable action.
+    *
+    * @default 10
+    */
+   waitTimeSeconds?: number
 
-  /**
-   * A resolver function that maps a message name to an SNS topic.
-   * @param messageName Name of the message to map
-   * @returns An SNS topic name where messages of @param messageName are sent. Must be compatible with SNS topic naming
-   * @example
-   *  resolveTopicName (messageName: string) => `production-${messageName}`
-   */
-  resolveTopicName (messageName: string): string
+   /**
+    * A resolver function that maps a message name to an SNS topic.
+    * @param messageName Name of the message to map
+    * @returns An SNS topic name where messages of @param messageName are sent. Must be compatible with SNS topic naming
+    * @example
+    *  resolveTopicName (messageName: string) => `production-${messageName}`
+    */
+   resolveTopicName? (messageName: string): string
 
-  /**
-   * A resolver function that maps an SNS topic name to an SNS topic arn
-   * @param topicName Name of the message to map
-   * @returns An SNS topic url where messages are sent
-   * @example
-   *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
-   */
-  resolveTopicArn (topicName: string): string
+   /**
+    * A resolver function that maps an SNS topic name to an SNS topic arn
+    * @param topicName Name of the message to map
+    * @returns An SNS topic url where messages are sent
+    * @example
+    *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
+    */
+   resolveTopicArn? (topicName: string): string
 }

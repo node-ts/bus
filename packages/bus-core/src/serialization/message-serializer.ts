@@ -1,8 +1,6 @@
-import { injectable, inject } from 'inversify'
-import { Serializer } from './serializer'
-import { BUS_SYMBOLS } from '../bus-symbols'
-import { HandlerRegistry } from '../handler'
 import { Message } from '@node-ts/bus-messages'
+import { HandlerRegistry } from '../handler'
+import { Serializer } from './serializer'
 
 /**
  * This a wrapper around the real serializer.
@@ -12,14 +10,11 @@ import { Message } from '@node-ts/bus-messages'
  *
  * Normally, transports will use this instead of the real serializer.
  */
-@injectable()
-export class MessageSerializer {
+ export class MessageSerializer {
 
   constructor (
-    @inject(BUS_SYMBOLS.Serializer)
-      readonly serializer: Serializer,
-    @inject(BUS_SYMBOLS.HandlerRegistry)
-      readonly handlerRegistry: HandlerRegistry
+    private readonly serializer: Serializer,
+    private readonly handlerRegistry: HandlerRegistry
   ) {
   }
 
@@ -28,13 +23,14 @@ export class MessageSerializer {
   }
 
   deserialize<MessageType extends Message> (serializedMessage: string): MessageType {
-      const naiveDerializedMessage = JSON.parse(serializedMessage) as Message
-      const messageType = this.handlerRegistry.getMessageType(naiveDerializedMessage)
+    const naiveDeserializedMessage = JSON.parse(serializedMessage) as Message
+    const messageType = this.handlerRegistry.getMessageConstructor(naiveDeserializedMessage.$name)
 
-      return (!!messageType
-        ? this.serializer.deserialize(
+    return (!!messageType
+      ? this.serializer.deserialize(
           serializedMessage,
           messageType
-        ) : naiveDerializedMessage) as MessageType
+        )
+      : naiveDeserializedMessage) as MessageType
   }
 }

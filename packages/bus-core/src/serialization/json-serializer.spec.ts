@@ -1,10 +1,8 @@
 // tslint:disable:no-magic-numbers Date based tests
-
 import { JsonSerializer } from './json-serializer'
-import { Type } from 'class-transformer'
 
 class Contract {
-  @Type(() => Date) readonly c: Date
+  readonly c: Date
 
   testFn: () => void
 
@@ -51,9 +49,10 @@ describe('JsonSerializer', () => {
     it('should deserialize to a plain object', () => {
       expect(result).toMatchObject({ a: 'a', b: 1 })
       expect(result.c).toBeDefined()
-      // tslint:disable-next-line:no-unbound-method Testing presence
-      expect(result.c.toUTCString).toBeDefined()
-      expect(result.c.getDate()).toEqual(date.getDate())
+    })
+
+    it('should be unable to deserilize strong types', () => {
+      expect(result.c.toUTCString).toBeUndefined()
     })
   })
 
@@ -65,6 +64,18 @@ describe('JsonSerializer', () => {
 
     it('should strip out additional fields', () => {
       expect(Object.keys(result)).not.toContain('testFn')
+    })
+  })
+
+  describe('when converting plain object to typed', () => {
+    let result: Contract
+    beforeEach(() => {
+      const plain = sut.toPlain(contract)
+      result = sut.toClass(plain, Contract)
+    })
+
+    it('should strip out additional fields', () => {
+      expect(result).toBeInstanceOf(Contract)
     })
   })
 })

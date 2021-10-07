@@ -1,4 +1,6 @@
-import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
+import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
+import { CoreDependencies } from '../util'
+import { HandlerRegistry } from '../handler'
 import { TransportMessage } from './transport-message'
 
 /**
@@ -30,6 +32,12 @@ export interface Transport<TransportMessageType = {}> {
   fail (transportMessage: TransportMessage<unknown>): Promise<void>
 
   /**
+   * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
+   * queue and have a receipt handle.
+   */
+  fail (transportMessage: TransportMessage<unknown>): Promise<void>
+
+  /**
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
    * should be returned.
    *
@@ -53,6 +61,14 @@ export interface Transport<TransportMessageType = {}> {
   returnMessage (message: TransportMessage<TransportMessageType>): Promise<void>
 
   /**
+   * An optional function that is called before startup that will provide core dependencies
+   * to the transport. This can be used to fetch loggers, registries etc that are used
+   * in initialization steps
+   * @param coreDependencies
+   */
+  prepare (coreDependencies: CoreDependencies): void
+
+  /**
    * An optional function that will be called on startup. This gives a chance for the transport
    * to establish any connections to the underlying infrastructure.
    */
@@ -68,8 +84,9 @@ export interface Transport<TransportMessageType = {}> {
    * An optional function that will be called when the service bus is starting. This is an
    * opportunity for the transport to see what messages need to be handled so that subscriptions
    * to the topics can be created.
+   * @param handlerRegistry The list of messages being handled by the bus that the transport needs to subscribe to.
    */
-  initialize? (): Promise<void>
+  initialize? (handlerRegistry: HandlerRegistry): Promise<void>
 
   /**
    * An optional function that will be called when the service bus is shutting down. This is an

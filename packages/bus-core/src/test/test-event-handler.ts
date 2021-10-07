@@ -1,23 +1,26 @@
-import { HandlesMessage } from '../handler/handles-message'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { HandlerDefinition } from '../handler'
+import { ClassConstructor } from '../util'
 import { TestEvent } from './test-event'
-import { inject } from 'inversify'
-import { MessageAttributes } from '@node-ts/bus-messages'
 
-export const MESSAGE_LOGGER = Symbol.for('@node-ts/bus-core/message-logger')
+const handlerFor = <TMessageType extends Message>(
+  messageType: ClassConstructor<TMessageType>,
+  messageHandler: HandlerDefinition<TMessageType>
+) => {
+
+  return {
+    messageType,
+    messageHandler
+  }
+}
 export interface MessageLogger {
   log (message: unknown): void
 }
 
-@HandlesMessage(TestEvent)
-export class TestEventHandler {
-
-  constructor (
-    @inject(MESSAGE_LOGGER) private readonly messageLogger: MessageLogger
-  ) {
+export const testEventHandler = (messageLogger: MessageLogger) => handlerFor(
+  TestEvent,
+  (message: TestEvent, attributes: MessageAttributes) => {
+    messageLogger.log(message)
+    messageLogger.log(attributes)
   }
-
-  async handle (testEvent: TestEvent, attributes: MessageAttributes): Promise<void> {
-    this.messageLogger.log(testEvent)
-    this.messageLogger.log(attributes)
-  }
-}
+)

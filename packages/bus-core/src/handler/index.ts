@@ -1,3 +1,5 @@
 export * from './handler-registry'
-export * from './handles-message'
-export { Handler, MessageType } from './handler'
+export * from './handler'
+export * from './error'
+export * from './default-handler-registry'
+export * from './handler-for'

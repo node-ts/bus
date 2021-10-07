@@ -1,0 +1,35 @@
+{
+  "name": "@node-ts/bus-test",
+  "version": "0.0.1",
+  "description": "A dev-dependency package used to test transport and persistence implementations.",
+  "homepage": "https://github.com/node-ts/bus#readme",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "license": "MIT",
+  "private": "true",
+  "repository": "github:node-ts/bus.git",
+  "scripts": {
+    "build": "tsc --project tsconfig.json --declaration",
+    "build:watch": "yarn run build --incremental --watch --preserveWatchOutput",
+    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
+    "lint:fix": "yarn lint --fix"
+  },
+  "bugs": {
+    "url": "https://github.com/node-ts/bus/issues"
+  },
+  "dependencies": {
+    "@node-ts/bus-core": "^1.0.0-alpha.0",
+    "@node-ts/bus-messages": "^1.0.0-alpha.0",
+    "@node-ts/code-standards": "^0.0.10",
+    "@types/faker": "^5.5.7",
+    "@types/node": "^14.14.31",
+    "class-transformer": "^0.4.0",
+    "faker": "^5.5.3",
+    "reflect-metadata": "^0.1.13",
+    "tslib": "^2.3.0",
+    "tslint": "^6.1.3",
+    "typemoq": "^2.1.0",
+    "typescript": "^4.3.5",
+    "uuid": "^8.3.2"
+  }
+}

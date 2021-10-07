@@ -1,37 +1,38 @@
 # @node-ts/bus-rabbitmq
 
-[![Known Vulnerabilities](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
-[![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+A Rabbit MQ transport adapter for [@node-ts/bus](https://node-ts.gitbook.io/bus/)
 
-A rabbitmq transport adapter for `@node-ts/bus`.
+🔥 📒 👉 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 👈 📒 🔥
 
 ## Installation
 
 Install all packages and their dependencies
 
 ```bash
-npm i reflect-metadata inversify @node-ts/bus-rabbitmq @node-ts/bus-core
+npm install @node-ts/bus-rabbitmq
 ```
 
-Once installed, load the `BusRabbitMqModule` to your inversify container alongside the other modules it depends on:
+Once installed, configure a new `RabbitMqTransport` and register it for use with `Bus`:
 
 ```typescript
-import { Container } from 'inversify'
-import { LoggerModule } from '@node-ts/logger-core'
-import { BusModule } from '@node-ts/bus-core'
-import { BUS_RABBITMQ_SYMBOLS, BusRabbitMqModule, RabbitMqTransportConfiguration } from '@node-ts/bus-rabbitmq'
-
-const container = new Container()
-container.load(new LoggerModule())
-container.load(new BusModule())
-container.load(new BusRabbitMqModule())
+import { Bus } from '@node-ts/bus-core'
+import { RabbitMqTransport, RabbitMqTransportConfiguration } from '@node-ts/bus-rabbitmq'
 
 const rabbitConfiguration: RabbitMqTransportConfiguration = {
   queueName: 'accounts-application-queue',
   connectionString: 'amqp://guest:guest@localhost',
   maxRetries: 5
 }
-container.bind(BUS_RABBITMQ_SYMBOLS.TransportConfiguration).toConstantValue(rabbitConfiguration)
+const rabbitMqTransport = new RabbitMqTransport(rabbitConfiguration)
+
+// Configure Bus to use RabbitMQ as a transport
+const run = async () => {
+  await Bus
+    .configure()
+    .withTransport(rabbitMqTransport)
+    .initialize()
+}
+run.catch(console.error)
 ```
 
 ## Configuration Options

@@ -1,78 +1,264 @@
-import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
-import { TransportMessage } from '../transport'
+import { Message } from '@node-ts/bus-messages'
+import { DefaultHandlerRegistry, Handler } from '../handler'
+import { HandlerDefinition, isClassHandler } from '../handler/handler'
+import { JsonSerializer, Serializer } from '../serialization'
+import { MemoryQueue, Transport } from '../transport'
+import { ClassConstructor, CoreDependencies } from '../util'
+import { BusInstance } from './bus-instance'
+import { Persistence, Workflow, WorkflowState } from '../workflow'
+import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
+import { BusAlreadyInitialized } from './error'
+import { ContainerAdapter } from '../container'
+import { defaultLoggerFactory, LoggerFactory } from '../logger'
+import { ContainerNotRegistered } from '../error'
+import { MessageSerializer } from '../serialization/message-serializer'
+import { InMemoryPersistence } from '../workflow/persistence'
 
 export enum BusState {
-  Stopped = 'stopped',
   Starting = 'starting',
   Started = 'started',
-  Stopping = 'stopping'
+  Stopping = 'stopping',
+  Stopped = 'stopped'
 }
 
-export type HookAction = 'send' | 'publish' | 'error'
-
-export type StandardHookCallback = (
-  message: Message,
-  messageAttributes?: MessageAttributes
-) => Promise<void> | void
-
-export type ErrorHookCallback<TransportMessageType> = (
-  message: Message,
-  error: Error,
-  messageAttributes?: MessageAttributes,
-  rawMessage?: TransportMessage<TransportMessageType>
-) => Promise<void> | void
-
-export type HookCallback<TransportMessageType> = StandardHookCallback | ErrorHookCallback<TransportMessageType>
-
-
-export interface Bus {
+export interface BusInitializeOptions {
   /**
-   * Fetches the state of the message read and processing loop
+   * If true, will initialize the bus in send only mode.
+   * This will provide a bus instance that is capable of sending/publishing
+   * messages only and won't handle incoming messages or workflows
+   * @default false
    */
-  state: BusState
+  sendOnly: boolean
+}
 
-  /**
-   * The number of running parallel workers that are processing the application queue
-   */
-  runningParallelWorkerCount: number
+const defaultBusInitializeOptions: BusInitializeOptions = {
+  sendOnly: false
+}
+
+export class BusConfiguration {
+
+  private configuredTransport: Transport | undefined
+  private concurrency = 1
+  private busInstance: BusInstance | undefined
+  private container: ContainerAdapter | undefined
+  private workflowRegistry = new WorkflowRegistry()
+  private handlerRegistry = new DefaultHandlerRegistry()
+  private loggerFactory: LoggerFactory = defaultLoggerFactory
+  private serializer = new JsonSerializer()
+  private persistence: Persistence = new InMemoryPersistence()
 
   /**
-   * Publishes an event onto the bus. Any subscribers of this event will receive a copy of it.
+   * Initializes the bus with the provided configuration
+   * @param options Changes the default startup mode of the bus
    */
-  publish<EventType extends Event> (event: EventType, messageOptions?: MessageAttributes): Promise<void>
+  async initialize (options = defaultBusInitializeOptions): Promise<BusInstance> {
+    const { sendOnly } = options
+    const logger = this.loggerFactory('@node-ts/bus-core:bus')
+    logger.debug('Initializing bus', { sendOnly })
+
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    const coreDependencies: CoreDependencies = {
+      container: this.container,
+      handlerRegistry: this.handlerRegistry,
+      loggerFactory: this.loggerFactory,
+      serializer: this.serializer,
+      messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry)
+    }
+
+    if (!sendOnly) {
+      this.persistence?.prepare(coreDependencies)
+      this.workflowRegistry.prepare(coreDependencies, this.persistence)
+      await this.workflowRegistry.initialize(this.handlerRegistry, this.container)
+
+      const classHandlers = this.handlerRegistry.getClassHandlers()
+      if (!this.container && classHandlers.length) {
+        throw new ContainerNotRegistered(classHandlers[0].constructor.name)
+      }
+    }
+
+    const transport: Transport = this.configuredTransport || new MemoryQueue()
+    transport.prepare(coreDependencies)
+    if (transport.connect) {
+      await transport.connect()
+    }
+    if (!sendOnly && transport.initialize) {
+      await transport.initialize(this.handlerRegistry)
+    }
+    this.busInstance = new BusInstance(
+      transport,
+      this.concurrency,
+      this.workflowRegistry,
+      coreDependencies
+    )
+
+    logger.debug('Bus initialized', { sendOnly, registeredMessages: this.handlerRegistry.getMessageNames() })
+
+    return this.busInstance
+  }
+
 
   /**
-   * Sends a command onto the bus. There should be exactly one subscriber of this command type who can
-   * process it and perform the requested action.
+   * Register a handler for a specific message type. When Bus is initialized it will configure
+   * the transport to subscribe to this type of message and upon receipt will forward the message
+   * through to the provided message handler
+   * @param messageType Which message will be subscribed to and routed to the handler
+   * @param messageHandler A callback that will be invoked when the message is received
+   * @param customResolver Subscribe to a topic that's created and maintained outside of the application
    */
-  send<CommandType extends Command> (command: CommandType, messageOptions?: MessageAttributes): Promise<void>
+  withHandler (classHandler: ClassConstructor<Handler<Message>>): this
+  withHandler <MessageType extends (Message | object)>(
+    functionHandler: {
+      messageType: ClassConstructor<MessageType>,
+      messageHandler: HandlerDefinition<MessageType>
+    }
+  ): this
+  withHandler <MessageType extends (Message | object)>(
+    handler: ClassConstructor<Handler<Message>> | {
+      messageType: ClassConstructor<MessageType>,
+      messageHandler: HandlerDefinition<MessageType>
+    }): this
+  {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    if ('messageHandler' in handler) {
+      this.handlerRegistry.register(
+        handler.messageType,
+        handler.messageHandler
+      )
+    } else if (isClassHandler(handler)) {
+      const handlerInstance = new handler()
+      this.handlerRegistry.register(
+        handlerInstance.messageType,
+        handler
+      )
+    }
+
+
+    return this
+  }
+
+  withCustomHandler<MessageType extends (Message | object)> (
+    messageHandler: HandlerDefinition<MessageType>,
+    customResolver: {
+      resolveWith: ((message: MessageType) => boolean),
+      topicIdentifier?: string
+    }
+  ): this
+  {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.handlerRegistry.registerCustom(
+      messageHandler,
+      customResolver
+    )
+    return this
+  }
 
   /**
-   * Immediately fail the message of the current receive context and deliver it to the dead letter queue
-   * (if configured). It will not be retried Any processing of the message by a different handler on the
-   * same service instance will still process it.
+   * Register a workflow definition so that all of the messages it depends on will be subscribed to
+   * and forwarded to the handlers inside the workflow
    */
-  fail (): Promise<void>
+  withWorkflow<TWorkflowState extends WorkflowState> (workflow: ClassConstructor<Workflow<TWorkflowState>>): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.workflowRegistry.register(
+      workflow
+    )
+    return this
+  }
 
   /**
-   * For applications that handle messages, start reading messages off the underlying queue and process them.
+   * Configures Bus to use a different transport than the default MemoryQueue
    */
-  start (): Promise<void>
+  withTransport (transportConfiguration: Transport): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.configuredTransport = transportConfiguration
+    return this
+  }
 
   /**
-   * For  applications that handle messages, stop reading messages from the underlying queue.
+   * Configures Bus to use a different logging provider than the default console logger
    */
-  stop (): Promise<void>
+  withLogger (loggerFactory: LoggerFactory): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.loggerFactory = loggerFactory
+    return this
+  }
 
   /**
-   * Registers a @param callback function that is invoked for every instance of @param action occurring
-   * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
+   * Configures Bus to use a different serialization provider. The provider is responsible for
+   * transforming messages to/from a serialized representation, as well as ensuring all object
+   * properties are a strong type
    */
-  on<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void
+  withSerializer (serializer: Serializer): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.serializer = serializer
+    return this
+  }
 
   /**
-   * Deregisters a @param callback function from firing when an @param action occurs
-   * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
+   * Configures Bus to use a different persistence provider than the default InMemoryPersistence provider.
+   * This is used to persist workflow data and is unused if not using workflows.
    */
-  off<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void
+  withPersistence (persistence: Persistence): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.persistence = persistence
+    return this
+  }
+
+  /**
+   * Sets the message handling concurrency beyond the default value of 1, which will increase the number of messages
+   * handled in parallel.
+   */
+  withConcurrency (concurrency: number): this {
+    if (concurrency < 1) {
+      throw new Error('Invalid concurrency setting. Must be set to 1 or greater')
+    }
+
+    this.concurrency = concurrency
+    return this
+  }
+
+  /**
+   * Use a local dependency injection/IoC container to resolve handlers
+   * and workflows.
+   * @param container An adapter to an existing DI container to fetch class instances from
+   */
+  withContainer (container: { get <T>(type: ClassConstructor<T>): T }): this {
+    this.container = container
+    return this
+  }
+}
+
+export class Bus {
+  private constructor () {
+  }
+
+  /**
+   * Configures the Bus prior to use
+   */
+  static configure (): BusConfiguration {
+    return new BusConfiguration()
+  }
 }

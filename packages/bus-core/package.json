@@ -1,39 +1,37 @@
 {
   "name": "@node-ts/bus-core",
-  "version": "0.6.7",
+  "version": "1.0.0-alpha.0",
   "description": "A service bus for message-based, distributed node applications",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",
   "license": "MIT",
   "scripts": {
-    "build": "tsc --project tsconfig.json --declaration"
+    "build": "tsc --project tsconfig.json --declaration",
+    "build:watch": "yarn run build --incremental --watch --preserveWatchOutput"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.3.2",
-    "@types/node": "^14.14.31",
-    "autobind-decorator": "^2.4.0",
-    "class-transformer": "^0.3.1",
+    "@node-ts/bus-messages": "^1.0.0-alpha.0",
+    "debug": "^4.3.1",
     "reflect-metadata": "^0.1.13",
-    "serialize-error": "^4.1.0",
-    "tslib": "^1.11.1"
+    "serialize-error": "^8.1.0",
+    "tslib": "^1.11.1",
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "@node-ts/logger-core": "^0.0.17",
+    "@types/debug": "^4.1.5",
     "@types/faker": "^4.1.5",
+    "@types/node": "^14.14.31",
+    "@types/serialize-error": "^4.0.1",
+    "@types/uuid": "^8.3.1",
     "faker": "^4.1.0",
-    "inversify": "^5.0.1",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",
-    "typescript": "^4.3.5"
-  },
-  "peerDependencies": {
-    "@node-ts/logger-core": "^0.0.17",
-    "inversify": "^5.0.1"
+    "typescript": "^4.1.5"
   },
   "keywords": [
     "esb",

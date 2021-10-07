@@ -1,23 +1,9 @@
-import { SqsTransport, SQSMessageBody, fromMessageAttributeMap } from './sqs-transport'
-import {
-  TestContainer,
-  TestCommandHandler,
-  TestCommand,
-  HandleChecker,
-  HANDLE_CHECKER,
-  TestFailMessageHandler,
-  TestFailMessage
-} from '../test'
-import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
+import { fromMessageAttributeMap, SQSMessageBody, SqsTransport } from './sqs-transport'
 import { SQS, SNS } from 'aws-sdk'
-import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { IMock, Mock, Times, It } from 'typemoq'
-import * as uuid from 'uuid'
-import * as faker from 'faker'
-import { MessageAttributes, Message } from '@node-ts/bus-messages'
-import { TestSystemMessageHandler } from '../test/test-system-message-handler'
-import { TestSystemMessage } from '../test/test-system-message'
+import { resolveQueueUrl } from './queue-resolvers'
+import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
+import { Message } from '@node-ts/bus-messages'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -27,217 +13,85 @@ function getEnvVar (key: string): string {
   return value
 }
 
-// Use a randomize number otherwise aws will disallow recreat just deleted queue
-const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
+// Use a randomize number otherwise aws will disallow recreate just deleted queue
+// const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
+const resourcePrefix = `integration-bus-sqs-1`
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
 
 const sqsConfiguration: SqsTransportConfiguration = {
+  awsRegion: AWS_REGION,
+  awsAccountId: AWS_ACCOUNT_ID,
   queueName: `${resourcePrefix}-test`,
-  queueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${resourcePrefix}-test`,
-  queueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-test`,
-
-  deadLetterQueueName: `${resourcePrefix}-dead-letter`,
-  deadLetterQueueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${resourcePrefix}-dead-letter`,
-  deadLetterQueueArn: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${resourcePrefix}-dead-letter`,
-
-  resolveTopicName: (messageName: string) =>
-    `${resourcePrefix}-${normalizeMessageName(messageName)}`,
-
-  resolveTopicArn: (topicName: string) =>
-    `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`,
-
-    queuePolicy: `
-    {
-      "Version": "2012-10-17",
-      "Statement": [
-      ]
-    }
-`
+  deadLetterQueueName: `${resourcePrefix}-dead-letter`
 }
 
-describe('SqsTransport', () => {
-  let container: TestContainer
-  let sut: SqsTransport
-  let bootstrap: ApplicationBootstrap
-  let sqs: SQS
-  let sns: SNS
-  let bus: Bus
+const manualTopicName = `${resourcePrefix}-test-system-message`
+const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${manualTopicName}`
 
-  let handleChecker: IMock<HandleChecker>
-  let testSystemMessageTopicArn: string
+jest.setTimeout(15000)
+
+describe('SqsTransport', () => {
+  const sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+  const sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
+  const deadLetterQueueUrl = `${sqs.endpoint.href}${process.env.AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
+  const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
 
   beforeAll(async () => {
-    jest.setTimeout(10000)
-    container = new TestContainer()
-    container.bind(BUS_SQS_SYMBOLS.SqsConfiguration).toConstantValue(sqsConfiguration)
-    container
-      .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sns)
-      .toConstantValue(new SNS({
-        endpoint: 'http://localhost:4566'
-      }))
-    container
-      .rebind(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
-      .toConstantValue(new SQS({
-        endpoint: 'http://localhost:4566'
-      }))
-    sut = container.get(BUS_SYMBOLS.Transport)
-    sqs = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sqs)
-    sns = container.get(BUS_SQS_INTERNAL_SYMBOLS.Sns)
-    bus = container.get(BUS_SYMBOLS.Bus)
-    bootstrap = container.get(BUS_SYMBOLS.ApplicationBootstrap)
-
-    handleChecker = Mock.ofType<HandleChecker>()
-    container.bind(HANDLE_CHECKER).toConstantValue(handleChecker.object)
-
-    bootstrap.registerHandler(TestCommandHandler)
-    bootstrap.registerHandler(TestSystemMessageHandler)
-    bootstrap.registerHandler(TestFailMessageHandler)
-
-    const testSystemMessageTopic = await sns.createTopic({ Name: TestSystemMessage.NAME }).promise()
-    testSystemMessageTopicArn = testSystemMessageTopic.TopicArn!
+    await sns.createTopic({ Name: manualTopicName }).promise()
   })
 
   afterAll(async () => {
-    // tslint:disable-next-line:no-magic-numbers A timeout > 10s which is the default sqs receive timeout
-    jest.setTimeout(15000)
-    await bootstrap.dispose()
-    await Promise.all([
-      sqs.deleteQueue({
-        QueueUrl: sqsConfiguration.queueUrl
-      }).promise(),
-      sqs.deleteQueue({
-        QueueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
-      }).promise(),
-      sns.deleteTopic({
-        TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-      }).promise(),
-      sns.deleteTopic({
-        TopicArn: testSystemMessageTopicArn
-      }).promise()
-    ])
+    const appQueueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, normalizeMessageName(sqsConfiguration.queueName))
+    await sqs.purgeQueue({ QueueUrl: appQueueUrl }).promise()
+    await sqs.deleteQueue({ QueueUrl: appQueueUrl }).promise()
+    await sqs.deleteQueue({ QueueUrl: deadLetterQueueUrl }).promise()
   })
 
-  describe('when the transport has been initialized', () => {
-
-    beforeAll(async () => {
-      await bootstrap.initialize(container)
-    })
-
-    it('should subscribe the queue to manually provided topics', () => {
-      // Expect sns to exist
-      // Expect it's bound to the queue
-    })
-
-    it('should create the service queue', async () => {
-      const result = await sqs.listQueues({
-        QueueNamePrefix: sqsConfiguration.queueName
-      }).promise()
-
-      expect(result.QueueUrls).toHaveLength(1)
-    })
-
-    it('should create the dead letter queue', async () => {
-      const result = await sqs.listQueues({
-        QueueNamePrefix: sqsConfiguration.deadLetterQueueName
-      }).promise()
-
-      expect(result.QueueUrls).toHaveLength(1)
-    })
-
-    it('should subscribe the queue to all message topics', async () => {
-      const result = await sns.getTopicAttributes({
-        TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-      }).promise()
-
-      expect(result.Attributes).toBeDefined()
-    })
-
-    describe('when a system message is received', () => {
-
-      const message = new TestSystemMessage()
-
-      beforeAll(async () => {
-        await sns.publish({
-          Message: JSON.stringify(message),
-          TopicArn: testSystemMessageTopicArn
-        }).promise()
-      })
-
-      it('should handle the system message', async () => {
-        await sleep(1000 * 8)
-        handleChecker.verify(
-          h => h.check(It.isObjectWith({...message}), It.isAny()),
-          Times.once()
-        )
-      })
-    })
-
-    describe('when sending a command', () => {
-      const testCommand = new TestCommand(uuid.v4(), new Date())
-      const messageOptions: MessageAttributes = {
-        correlationId: faker.random.uuid(),
-        attributes: {
-          attribute1: 'a',
-          attribute2: 1
-        },
-        stickyAttributes: {
-          attribute1: 'b',
-          attribute2: 2
+  const message = new TestSystemMessage()
+  const publishSystemMessage = async (systemMessageAttribute: string) => {
+    await sns.publish({
+      Message: JSON.stringify(message),
+      TopicArn: manualTopicIdentifier,
+      MessageAttributes: {
+        'attributes.systemMessage': {
+          DataType: 'String',
+          StringValue: systemMessageAttribute
         }
       }
+    }).promise()
+  }
 
-      beforeAll(async () => {
-        await bus.send(testCommand, messageOptions)
-      })
+  const readAllFromDeadLetterQueue = async () => {
+    const result = await sqs.receiveMessage({
+      QueueUrl: deadLetterQueueUrl,
+      WaitTimeSeconds: 5,
+      MaxNumberOfMessages: 10,
+      AttributeNames: ['All'],
+    }).promise()
 
-      it('should receive and dispatch to the handler', async () => {
-        await sleep(1000 * 8)
-        handleChecker.verify(
-          h => h.check(It.isObjectWith({...testCommand}), It.isObjectWith(messageOptions)),
-          Times.once()
-        )
-      })
-    })
+    const transportMessages = (result.Messages || [])
 
-    describe('when failing a message', () => {
-      const messageToFail = new TestFailMessage(faker.random.uuid())
-      const correlationId = faker.random.uuid()
-      let messageAttributes: MessageAttributes
-      let message: TestFailMessage
-      let receiveCount: number
-      beforeAll(async () => {
-        const deadLetterQueueUrl = `http://localhost:4566/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
-        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
-        await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
-        const result = await sqs.receiveMessage({
-          QueueUrl: deadLetterQueueUrl,
-          WaitTimeSeconds: 5,
-          AttributeNames: ['All']
-        }).promise()
-        if (result.Messages && result.Messages.length === 1) {
-          const transportMessage = result.Messages[0]
-          receiveCount = parseInt(transportMessage.Attributes!.ApproximateReceiveCount, 10)
-          const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
-          message = JSON.parse(rawMessage.Message) as TestFailMessage
-          messageAttributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
-        }
-      })
+    await Promise.all(
+      transportMessages
+        .map(message => sqs.deleteMessage({ QueueUrl: deadLetterQueueUrl, ReceiptHandle: message.ReceiptHandle! }).promise())
+    )
 
-      it('should forward it to the dead letter queue', () => {
-        expect(message).toBeDefined()
-        expect(message).toMatchObject(messageToFail)
+    return (result.Messages || [])
+      .map(transportMessage => {
+        const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
+        const message = JSON.parse(rawMessage.Message) as Message
+        const attributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
+        return { message, attributes }
       })
+  }
 
-      it('should only have received the message once', () => {
-        expect(receiveCount).toEqual(1)
-      })
-
-      it('should retain the same message attributes', () => {
-        expect(messageAttributes.correlationId).toEqual(correlationId)
-      })
-    })
-  })
+  transportTests(
+    sqsTransport,
+    publishSystemMessage,
+    manualTopicIdentifier,
+    readAllFromDeadLetterQueue
+  )
 })

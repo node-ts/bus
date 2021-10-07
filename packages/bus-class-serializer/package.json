@@ -1,0 +1,41 @@
+{
+  "name": "@node-ts/bus-class-serializer",
+  "version": "1.0.0-alpha.0",
+  "description": "A JSON serializer for @node-ts/bus based on class-transformer for strong marshalling of messages",
+  "homepage": "https://github.com/node-ts/bus#readme",
+  "license": "MIT",
+  "repository": "github:node-ts/bus.git",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc --project tsconfig.json --declaration",
+    "build:watch": "yarn run build --incremental --watch --preserveWatchOutput",
+    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
+    "lint:fix": "yarn lint --fix"
+  },
+  "devDependencies": {
+    "@node-ts/bus-core": "^1.0.0-alpha.0",
+    "class-transformer": "^0.3.1",
+    "reflect-metadata": "^0.1.13"
+  },
+  "peerDependencies": {
+    "@node-ts/bus-core": "^1.0.0-alpha.0",
+    "class-transformer": "^0.3.1"
+  },
+  "keywords": [
+    "serializer",
+    "esb",
+    "redis",
+    "typescript",
+    "enterprise integration patterns",
+    "bus",
+    "messaging",
+    "microservices",
+    "distributed systems",
+    "framework",
+    "enterprise framework",
+    "CQRS",
+    "ES",
+    "NServiceBus",
+    "Mule ESB"
+  ]
+}

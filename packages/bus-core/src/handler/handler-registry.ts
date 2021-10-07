@@ -1,184 +1,102 @@
 import { Message } from '@node-ts/bus-messages'
-import { Container, decorate, inject, injectable, interfaces } from 'inversify'
-import { ClassConstructor, isClassConstructor } from '../util/class-constructor'
-import { Handler, HandlerPrototype, MessageType } from './handler'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
-import * as serializeError from 'serialize-error'
+import { LoggerFactory } from '../logger'
+import { ClassConstructor } from '../util'
+import { Handler, HandlerDefinition, MessageBase } from './handler'
 
-type HandlerType = ClassConstructor<Handler<Message>> | ((context: interfaces.Context) => Handler<Message>)
+interface RegisteredHandlers {
+  messageType: ClassConstructor<MessageBase>
+  handlers: HandlerDefinition[]
+}
 
-export interface HandlerRegistration<TMessage extends MessageType> {
-  defaultContainer: Container
-  resolveHandler (handlerContextContainer: Container): Handler<TMessage>
+export interface HandlerRegistrations {
+  [key: string]: RegisteredHandlers
+}
+
+/**
+ * Provide a way for externally managed messages to be handled
+ * by the Bus
+ */
+export interface CustomResolver<MessageType> {
+  /**
+   * A resolver function that will be executed for each read message
+   * to determine if it's to be handled by the handler declaring this resolver
+   */
+  resolveWith: ((message: MessageType) => boolean),
+
+  /**
+   * If provided, will attempt to subscribe the queue to this topic.
+   * If not provided, assumes that the queue will be subscribed to the topic manually.
+   */
+  topicIdentifier?: string
 }
 
 export interface HandlerResolver {
-  handler: HandlerType
-  symbol: symbol
-  topicIdentifier: string | undefined
-  messageType: ClassConstructor<Message> | undefined
+  handler: HandlerDefinition
   resolver (message: unknown): boolean
+  messageType: ClassConstructor<MessageBase> | undefined
+  topicIdentifier: string | undefined
 }
+
+export type MessageName = string
 
 /**
  * An internal singleton that contains all registrations of messages to functions that handle
  * those messages.
  */
-@injectable()
-export class HandlerRegistry {
-
-  private container: Container
-  private handlerResolvers: HandlerResolver[] = []
-
-  constructor (
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger
-  ) {
-  }
-
+export interface HandlerRegistry {
   /**
    * Registers that a function handles a particular message type
-   * @param resolver A method that determines which messages should be forwarded to the handler
-   * @param symbol A unique symbol to identify the binding of the message to the function
-   * @param handler The function handler to dispatch messages to as they arrive
    * @param messageType The class type of message to handle
-   * @param topicIdentifier Identifies the topic where the message is sourced from. This topic must exist
-   * before being consumed as the library assumes it's managed externally
+   * @param handler The function handler to dispatch messages to as they arrive
+   * @param customResolver An optional custom resolver that will be used instead
+   * of the default @node-ts/bus-messages/Message behaviour in terms of matching
+   * incoming messages to handlers.
    */
-  register<TMessage extends MessageType = MessageType> (
-    resolver: (message: TMessage) => boolean,
-    symbol: symbol,
-    handler: HandlerType,
-    messageType?: ClassConstructor<Message>,
-    topicIdentifier?: string
-  ): void {
+  register<TMessage extends MessageBase> (
+    messageType: ClassConstructor<TMessage>,
+    handler: HandlerDefinition<TMessage>
+  ): void
 
-    const handlerName = getHandlerName(handler)
-    const handlerAlreadyRegistered = this.handlerResolvers.some(f => f.symbol === symbol)
-
-    if (handlerAlreadyRegistered) {
-      this.logger.warn(`Attempted to re-register a handler that's already registered`, { handlerName })
-      return
-    }
-
-    if (isClassConstructor(handler)) {
-      try {
-        // Ensure the handler is available for injection
-        decorate(injectable(), handler)
-        this.logger.trace(`Handler "${handler.name}" was missing the "injectable()" decorator. `
-          + `This has been added automatically`)
-      } catch {
-        // An error is expected here if the injectable() decorator was attached to the handler
-      }
-    }
-
-    this.handlerResolvers.push({ messageType, resolver, symbol, handler, topicIdentifier })
-
-    this.logger.info(
-      'Handler registered',
-      { messageName: messageType ? messageType.name : undefined, handler: handlerName }
-    )
-  }
+  registerCustom<TMessage extends MessageBase> (
+    handler: HandlerDefinition<TMessage>,
+    customResolver: CustomResolver<TMessage>
+  ): void
 
   /**
    * Gets all registered message handlers for a given message name
-   * @param message A message instance to resolve handlers for
+   * @param message A message that has been received from the bus
    */
-  get<TMessage extends MessageType> (message: TMessage): HandlerRegistration<TMessage>[] {
-    const resolvedHandlers = this.handlerResolvers
-      .filter(resolvers => resolvers.resolver(message))
-
-    if (resolvedHandlers.length === 0) {
-      // No handlers for the given message
-      this.logger.warn(`No handlers were registered for message. ` +
-        `This could mean that either the handlers haven't been registered with bootstrap.registerHandler(), ` +
-        `or that the underlying transport is subscribed to messages that aren't handled and should be removed.`,
-        { receivedMessage: message }
-      )
-      return []
-    }
-
-    return resolvedHandlers.map(h => ({
-      defaultContainer: this.container,
-      resolveHandler: (container: Container) => {
-        this.logger.debug(`Resolving handlers for message.`, { receivedMessage: message })
-        try {
-          return container.get<Handler<TMessage>>(h.symbol)
-        } catch (error) {
-          this.logger.error(
-            'Could not resolve handler from the IoC container.',
-            {
-              receivedMessage: message,
-              error: serializeError(error)
-            }
-          )
-          throw error
-        }
-      }
-    }))
-  }
-
-  /**
-   * Gets the type consturctor for a given message name.
-   * This is used for deserialization
-   * @param message A message instance to resolve handlers for
-   */
-  getMessageType<TMessage extends MessageType> (message: TMessage): HandlerResolver['messageType'] {
-    const resolvedHandlers = this.handlerResolvers
-      .filter(resolvers => resolvers.resolver(message))
-
-    if (resolvedHandlers.length === 0) {
-      return undefined
-    }
-
-    // Assuming one message name is only associated with one message type
-    return resolvedHandlers[0].messageType
-  }
-
-  /**
-   * Binds message handlers into the IoC container. All handlers should be stateless and are
-   * bound in a transient scope.
-   */
-  bindHandlersToContainer (container: Container): void {
-    this.container = container
-    this.bindHandlers()
-  }
-
-  /**
-   * Retrieves the identity of a handler. This is synonymous with a the handler's class name.
-   */
-  getHandlerId (handler: Handler<Message>): string {
-    return handler.constructor.name
-  }
+  get<MessageType extends Message> (loggerFactory: LoggerFactory, message: object): HandlerDefinition<MessageType>[]
 
   /**
    * Retrieves a list of all messages that have handler registrations
    */
-  get messageSubscriptions (): HandlerResolver[] {
-    return this.handlerResolvers
-  }
+  getMessageNames (): string[]
 
-  private bindHandlers (): void {
-    this.handlerResolvers.forEach(handlerRegistration => {
-      const handlerName = getHandlerName(handlerRegistration.handler)
-      this.logger.debug('Binding handler to message', { handlerName })
+  /**
+   * Returns the class constructor for a message that has a handler registration
+   * @param messageName Message to get a class constructor for
+   */
+  getMessageConstructor<TMessage extends Message> (messageName: string): ClassConstructor<TMessage> | undefined
 
-      if (isClassConstructor(handlerRegistration.handler)) {
-        this.container
-          .bind<Handler<Message>>(handlerRegistration.symbol)
-          .to(handlerRegistration.handler)
-          .inTransientScope()
-      } else {
-        this.container
-          .bind<Handler<Message>>(handlerRegistration.symbol)
-          .toDynamicValue(handlerRegistration.handler)
-          .inTransientScope()
-      }
-    })
-  }
-}
+  /**
+   * Retrieves an array of all topic arns that are managed externally but require subscribing to as there are
+   * custom handlers that handle those messages.
+   */
+  getExternallyManagedTopicIdentifiers (): string[]
 
-function getHandlerName (handler: HandlerType): string {
-  return isClassConstructor(handler)
-    ? (handler.prototype as HandlerPrototype<MessageType>).constructor.name
-    : handler.constructor.name
+  /**
+   * Gets all registered message handler resolvers
+   */
+  getResolvers (): HandlerResolver[]
+
+  /**
+   * Gets a list of all class based handlers that have been registered
+   */
+  getClassHandlers (): Handler[]
+
+  /**
+   * Removes all handlers from the registry
+   */
+  reset (): void
 }

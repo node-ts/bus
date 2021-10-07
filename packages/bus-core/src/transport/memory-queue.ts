@@ -1,19 +1,16 @@
-import { injectable, inject } from 'inversify'
 import { Transport } from './transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
-import { LOGGER_SYMBOLS, Logger } from '@node-ts/logger-core'
-import { HandlerRegistry } from '../handler'
-import { MessageType } from '../handler/handler'
-import { BUS_SYMBOLS } from '../bus-symbols'
-import { EventEmitter } from 'events'
+import { EventEmitter } from 'stream'
+import { CoreDependencies } from '../util'
+import { Logger } from '../logger'
 
 export const RETRY_LIMIT = 10
 
 /**
  * How long to wait for the next message
  */
-export const RECEIVE_TIMEOUT_MS = 1000
+ export const RECEIVE_TIMEOUT_MS = 1000
 
 export interface InMemoryMessage {
   /**
@@ -29,7 +26,7 @@ export interface InMemoryMessage {
   /**
    * The body of the message that was sent by the consumer
    */
-  payload: MessageType
+  payload: Message
 }
 
 /**
@@ -37,29 +34,26 @@ export interface InMemoryMessage {
  * are kept in memory and hence will be wiped when the application or host restarts.
  *
  * There are however legitimate uses for in-memory queues such as decoupling of non-mission
- * critical code inside of larger applications; so use at your own discresion.
+ * critical code inside of larger applications; so use at your own discretion.
  */
-@injectable()
 export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
   private queuePushed: EventEmitter = new EventEmitter()
   private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
+  private logger: Logger
+  private coreDependencies: CoreDependencies
 
-  constructor (
-    @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
-    @inject(BUS_SYMBOLS.HandlerRegistry)
-      private readonly handlerRegistry: HandlerRegistry
-  ) {
+  prepare (coreDependencies: CoreDependencies): void {
+    this.coreDependencies = coreDependencies
+    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:memory-queue')
   }
 
   async initialize (): Promise<void> {
     this.messagesWithHandlers = {}
-    this.handlerRegistry.messageSubscriptions
-      .filter(subscription => !!subscription.messageType)
-      .map(subscription => subscription.messageType!)
-      .map(ctor => new ctor().$name)
+    this.coreDependencies.handlerRegistry
+      .getMessageNames()
       .forEach(messageName => this.messagesWithHandlers[messageName] = {})
   }
 
@@ -77,8 +71,8 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     this.addToQueue(command, messageOptions)
   }
 
-  async fail (transportMessage: TransportMessage<unknown>): Promise<void> {
-    await this.sendToDeadLetterQueue(transportMessage as TransportMessage<InMemoryMessage>)
+  async fail (transportMessage: TransportMessage<InMemoryMessage>): Promise<void> {
+    await this.sendToDeadLetterQueue(transportMessage)
   }
 
   async readNextMessage (): Promise<TransportMessage<InMemoryMessage> | undefined> {
@@ -139,23 +133,15 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     }
   }
 
-  addToQueue (message: MessageType, messageOptions: MessageAttributes = new MessageAttributes()): void {
-    const isBusMessage = message instanceof Message
-    if (!isBusMessage || this.messagesWithHandlers[(message as Message).$name]) {
-      const transportMessage = toTransportMessage(message, messageOptions, false)
-      this.queue.push(transportMessage)
-      this.queuePushed.emit('pushed')
-      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
-    } else {
-      this.logger.warn('Message was not sent as it has no registered handlers', { message })
-    }
-  }
-
   /**
    * Gets the queue depth, which is the number of messages both queued and in flight
    */
-  get depth (): number {
+   get depth (): number {
     return this.queue.length
+  }
+
+  get deadLetterQueueDepth (): number {
+    return this.deadLetterQueue.length
   }
 
   /**
@@ -165,35 +151,35 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
     return this.queue.filter(m => !m.raw.inFlight).length
   }
 
-  get deadLetterQueueDepth (): number {
-    return this.deadLetterQueue.length
-  }
 
   private async sendToDeadLetterQueue (message: TransportMessage<InMemoryMessage>): Promise<void> {
-    this.deadLetterQueue.push({
-      ...message,
-      raw: {
-        ...message.raw,
-        inFlight: false
-      }
-    })
+    this.deadLetterQueue.push(message)
     await this.deleteMessage(message)
+  }
+
+  private addToQueue (message: Message, messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }): void {
+    if (this.messagesWithHandlers[message.$name]) {
+      const transportMessage = toTransportMessage(message, messageOptions, false)
+      this.queue.push(transportMessage)
+      this.logger.debug('Added message to queue', { message, queueSize: this.queue.length })
+    } else {
+      this.logger.warn('Message was not sent as it has no registered handlers', { message })
+    }
   }
 }
 
 export const toTransportMessage = (
-  message: MessageType,
-  messageAttributes: MessageAttributes,
+  message: Message,
+  messageOptions: MessageAttributes,
   isProcessing: boolean
-): TransportMessage<InMemoryMessage> => {
-  return {
+): TransportMessage<InMemoryMessage> =>
+  ({
     id: undefined,
     domainMessage: message,
-    attributes: messageAttributes,
+    attributes: messageOptions,
     raw: {
       seenCount: 0,
       payload: message,
       inFlight: isProcessing
     }
-  }
-}
+  })

@@ -1,34 +1,28 @@
-import { TestWorkflowData } from './test-workflow-data'
-import { injectable, inject } from 'inversify'
-import { BUS_SYMBOLS, Bus } from '@node-ts/bus-core'
+import { TestWorkflowState } from './test-workflow-state'
+import { Bus, HandlerContext, Workflow, WorkflowMapper } from '@node-ts/bus-core'
 import { TestCommand } from './test-command'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
-import { Workflow, StartedBy, Handles } from '@node-ts/bus-workflow'
 
-@injectable()
-export class TestWorkflow extends Workflow<TestWorkflowData> {
+export class TestWorkflow extends Workflow<TestWorkflowState> {
 
-  constructor (
-    @inject(BUS_SYMBOLS.Bus) private readonly bus: Bus
-  ) {
-    super()
+  configureWorkflow(mapper: WorkflowMapper<TestWorkflowState, TestWorkflow>): void {
+    mapper
+      .withState(TestWorkflowState)
+      .startedBy(TestCommand, 'sendRunTask')
+      .when(TaskRan, 'complete', { lookup: ({ message }) => message.value, mapsTo: 'property1' })
   }
 
-  @StartedBy<TestCommand, TestWorkflowData, 'handleTestCommand'>(TestCommand)
-  async handleTestCommand (command: TestCommand): Promise<TestWorkflowData> {
-    await this.bus.send(new RunTask(command.property1!))
-    return Object.assign(
-      new TestWorkflowData(),
-      { property1: command.property1! }
-    )
+  async sendRunTask ({ message: { property1 } }: HandlerContext<TestCommand>): Promise<Partial<TestWorkflowState>> {
+    await Bus.send(new RunTask(property1!))
+    return {
+      property1
+    }
   }
 
-  @Handles<TaskRan, TestWorkflowData, 'handleTaskRan'>(TaskRan, event => event.value, 'property1')
-  async handleTaskRan (event: TaskRan): Promise<Partial<TestWorkflowData>> {
-    return this.complete({
-      eventValue: event.value
+  complete ({ message: { value } }: HandlerContext<TaskRan>): Partial<TestWorkflowState> {
+    return this.completeWorkflow({
+      eventValue: value
     })
   }
-
 }

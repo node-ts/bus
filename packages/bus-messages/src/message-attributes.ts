@@ -1,16 +1,19 @@
 type Uuid = string
 
 export interface MessageAttributeMap {
-  [key: string]: string | number | undefined
+  [key: string]: string | number | boolean | undefined
 }
+
+export type Attributes<AttributesType extends MessageAttributeMap> = AttributesType
+export type StickyAttributes<StickyAttributesType extends MessageAttributeMap> = StickyAttributesType
 
 /**
  * Options that control the behaviour around how the message is sent and
  * additional information that travels with it.
  */
-export class MessageAttributes<
-  AttributeType extends MessageAttributeMap = MessageAttributeMap,
-  StickyAttributeType extends MessageAttributeMap = MessageAttributeMap
+export interface MessageAttributes<
+  AttributesType extends MessageAttributeMap = MessageAttributeMap,
+  StickyAttributesType extends MessageAttributeMap = MessageAttributeMap
 > {
   /**
    * An identifier that can be used to relate or group messages together.
@@ -29,7 +32,7 @@ export class MessageAttributes<
    * These attributes will be attached to the outgoing message, but will not
    * propagate beyond the first receipt
    */
-  attributes: AttributeType
+  attributes: AttributesType
 
   /**
    * Additional metadata that will be sent alongside the message payload.
@@ -39,22 +42,6 @@ export class MessageAttributes<
    * These values are sticky, in that they will propagate for any message that
    * is sent as a result of receiving the message with sticky attributes.
    */
-  stickyAttributes: StickyAttributeType
-
-  constructor (properties?: {
-    correlationId?: Uuid,
-    attributes?: AttributeType,
-    stickyAttributes?: StickyAttributeType
-  }) {
-    this.attributes = {} as AttributeType
-    this.stickyAttributes = {} as StickyAttributeType
-
-    if (!!properties) {
-      const { correlationId, attributes, stickyAttributes } = properties
-      this.correlationId = correlationId
-      this.attributes = attributes || {} as AttributeType
-      this.stickyAttributes = stickyAttributes || {} as StickyAttributeType
-    }
-  }
-
+  stickyAttributes: StickyAttributesType
 }
+
