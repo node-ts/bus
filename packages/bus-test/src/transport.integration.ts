@@ -1,4 +1,4 @@
-import { Bus, BusInstance, Transport } from '@node-ts/bus-core'
+import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
 import { HandleChecker, TestCommand, TestEvent, TestFailMessage, TestPoisonedMessage } from './helpers'
 import { EventEmitter } from 'stream'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -35,25 +35,28 @@ export const transportTests = (
     beforeAll(async () => {
       bus = await Bus.configure()
         .withTransport(transport)
-        .withHandler(
+        .withHandler(handlerFor(
           TestCommand,
           (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testCommandHandlerEmitter.emit('received')
           }
-        )
-        .withHandler(
+        ))
+        .withHandler(handlerFor(
           TestEvent,
           (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testEventHandlerEmitter.emit('received')
           }
-        )
-        .withHandler(TestPoisonedMessage, async () => {
-          poisonedMessageReceiptAttempts++
-          testPoisonedMessageHandlerEmitter.emit('received', poisonedMessageReceiptAttempts)
-          throw new Error()
-        })
+        ))
+        .withHandler(handlerFor(
+          TestPoisonedMessage,
+          async () => {
+            poisonedMessageReceiptAttempts++
+            testPoisonedMessageHandlerEmitter.emit('received', poisonedMessageReceiptAttempts)
+            throw new Error()
+          }
+        ))
         .withCustomHandler(
           async (message, attributes) => {
             handleChecker.object.check(message, attributes)
@@ -64,7 +67,7 @@ export const transportTests = (
             topicIdentifier: systemMessageTopicIdentifier
           }
         )
-        .withHandler(TestFailMessage, async () => bus.fail())
+        .withHandler(handlerFor(TestFailMessage, async () => bus.fail()))
         .initialize()
 
       await bus.start()

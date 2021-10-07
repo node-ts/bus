@@ -1,7 +1,7 @@
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { sleep, ClassConstructor, TypedEmitter, CoreDependencies} from '../util'
-import { ClassHandler, FunctionHandler, HandlerDefinition, isClassHandler } from '../handler'
+import { Handler, FunctionHandler, HandlerDefinition, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus'
 import { messageHandlingContext } from '../message-handling-context'
@@ -237,9 +237,9 @@ export class BusInstance {
     handler: HandlerDefinition<Message>
   ): Promise<void> {
     if (isClassHandler(handler)) {
-      const classHandler = handler as ClassConstructor<ClassHandler<Message>>
+      const classHandler = handler as ClassConstructor<Handler<Message>>
 
-      let handlerInstance: ClassHandler<Message> | undefined
+      let handlerInstance: Handler<Message> | undefined
       try {
         handlerInstance = this.coreDependencies.container!.get(classHandler)
         if (!handlerInstance) {

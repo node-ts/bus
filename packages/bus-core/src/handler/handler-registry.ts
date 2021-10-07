@@ -1,7 +1,7 @@
 import { Message } from '@node-ts/bus-messages'
 import { LoggerFactory } from '../logger'
 import { ClassConstructor } from '../util'
-import { ClassHandler, HandlerDefinition, MessageBase } from './handler'
+import { Handler, HandlerDefinition, MessageBase } from './handler'
 
 interface RegisteredHandlers {
   messageType: ClassConstructor<MessageBase>
@@ -93,7 +93,7 @@ export interface HandlerRegistry {
   /**
    * Gets a list of all class based handlers that have been registered
    */
-  getClassHandlers (): ClassHandler[]
+  getClassHandlers (): Handler[]
 
   /**
    * Removes all handlers from the registry

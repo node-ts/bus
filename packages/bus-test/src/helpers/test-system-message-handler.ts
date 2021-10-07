@@ -1,7 +1,5 @@
-import { Handler } from '@node-ts/bus-core'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { HandleChecker } from './handle-checker'
-import { TestSystemMessage } from './test-system-message'
 
-export const testSystemMessageHandler = (handleChecker: HandleChecker): Handler<TestSystemMessage> =>
-  async (message, attributes) =>
-    handleChecker.check(message, attributes)
+export const testSystemMessageHandler = (handleChecker: HandleChecker) =>
+  async (message: Message, attributes: MessageAttributes) => handleChecker.check(message, attributes)

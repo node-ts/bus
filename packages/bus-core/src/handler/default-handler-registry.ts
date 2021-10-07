@@ -1,6 +1,6 @@
 import { CustomResolver, HandlerRegistrations, HandlerRegistry, HandlerResolver, MessageName } from './handler-registry'
 import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './error'
-import { ClassHandler, Handler, isClassHandler, MessageBase } from './handler'
+import { Handler, HandlerDefinition, isClassHandler, MessageBase } from './handler'
 import { ClassConstructor } from '../util'
 import { Message } from '@node-ts/bus-messages'
 import { LoggerFactory } from '../logger'
@@ -12,7 +12,7 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
   private handlerResolvers: HandlerResolver[] = []
 
   registerCustom<TMessage extends MessageBase> (
-    handler: Handler<TMessage>,
+    handler: HandlerDefinition<TMessage>,
     customResolver: CustomResolver<TMessage>
   ): void {
     this.handlerResolvers.push({
@@ -25,7 +25,7 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
 
   register<TMessage extends MessageBase> (
     messageType: ClassConstructor<TMessage>,
-    handler: Handler<TMessage>,
+    handler: HandlerDefinition<TMessage>,
   ): void {
     const message = new messageType()
     if (!('$name' in message)) {
@@ -51,7 +51,7 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
     this.registry[messageName].handlers.push(handler)
   }
 
-  get<MessageType extends MessageBase> (loggerFactory: LoggerFactory, message: object | Message): Handler<MessageType>[] {
+  get<MessageType extends MessageBase> (loggerFactory: LoggerFactory, message: MessageBase): HandlerDefinition<MessageType>[] {
     const logger = loggerFactory('@node-ts/bus-core:handler-registry')
     logger.debug('Getting handlers for message', { msg: message })
     const customHandlers = this.resolveCustomHandlers(message)
@@ -95,7 +95,7 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
       ...messageHandlers,
       ...customHandlers
     ]
-    return result
+    return result as HandlerDefinition<MessageType>[]
   }
 
   getMessageNames (): string[] {
@@ -123,15 +123,15 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
     this.registry = {}
   }
 
-  getClassHandlers (): ClassHandler[] {
+  getClassHandlers (): Handler[] {
     const customHandlers = this.handlerResolvers
       .map(handlerResolver => handlerResolver.handler)
-      .filter(isClassHandler) as unknown as ClassHandler[]
+      .filter(isClassHandler) as unknown as Handler[]
 
     const regularHandlers = Object.values(this.registry)
       .map(h => h.handlers)
       .flat()
-      .filter(isClassHandler) as unknown as ClassHandler[]
+      .filter(isClassHandler) as unknown as Handler[]
 
     return [
       ...customHandlers,
@@ -144,9 +144,9 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
    * @param message A message that has been fetched from the bus. Note that this may or may not
    * adhere to @node-ts/bus-messages/Message contracts, and could be any externally generated message.
    */
-  private resolveCustomHandlers<MessageType extends MessageBase> (message: object): Handler<MessageType>[] {
+  private resolveCustomHandlers<MessageType extends MessageBase> (message: object): HandlerDefinition<MessageType>[] {
     return this.handlerResolvers
       .filter(handlerResolver => handlerResolver.resolver(message))
-      .map(handlerResolver => handlerResolver.handler)
+      .map(handlerResolver => handlerResolver.handler) as HandlerDefinition<MessageType>[]
   }
 }
