@@ -12,6 +12,9 @@
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
     "lint:fix": "yarn lint --fix"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@node-ts/bus-core": "^1.0.0-alpha.0",
     "class-transformer": "^0.3.1",
@@ -37,5 +40,6 @@
     "ES",
     "NServiceBus",
     "Mule ESB"
-  ]
+  ],
+  "gitHead": "265ea7e16c614971d4b01c3642682d6c93feb52f"
 }

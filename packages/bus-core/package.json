@@ -44,5 +44,6 @@
     "NServiceBus",
     "Mule ESB",
     "typescript"
-  ]
+  ],
+  "gitHead": "265ea7e16c614971d4b01c3642682d6c93feb52f"
 }
