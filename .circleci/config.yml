@@ -8,11 +8,6 @@ jobs:
     <<: *defaults
     docker:
       - image: circleci/node:14.18.0
-      - image: postgres
-        environment:
-          POSTGRES_PASSWORD: password
-        ports:
-          - "6432:5432"
     steps:
       - checkout
       - attach_workspace:
