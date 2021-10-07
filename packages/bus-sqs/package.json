@@ -17,7 +17,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.3.2",
+    "@node-ts/bus-messages": "^1.0.0-alpha.0",
     "aws-sdk": "^2.834.0",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"

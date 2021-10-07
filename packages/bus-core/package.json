@@ -14,7 +14,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^0.3.2",
+    "@node-ts/bus-messages": "^1.0.0-alpha.0",
     "debug": "^4.3.1",
     "reflect-metadata": "^0.1.13",
     "serialize-error": "^8.1.0",
