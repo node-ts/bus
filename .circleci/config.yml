@@ -3,7 +3,7 @@ version: 2
 defaults: &defaults
   working_directory: ~/repo
   docker:
-    - image: circleci/node:12.18.1
+    - image: circleci/node:14.18.0
 
 jobs:
   build:
@@ -70,7 +70,6 @@ workflows:
             branches:
               ignore:
                 - master
-                - gh-pages
       - deploy:
           filters:
             branches:
