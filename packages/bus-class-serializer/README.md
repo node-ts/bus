@@ -1,6 +1,6 @@
 # `@node-ts/bus-class-serializer`
 
-A JSON-based serializer for @node-ts/bus that deserializes into strong types. This is a preferred alternative to the default serializer that does not support this.
+A JSON-based serializer for [@node-ts/bus](https://node-ts.gitbook.io/bus/) that deserializes into strong types. This is a preferred alternative to the default serializer that does not support this.
 
 ## Installation
 
@@ -14,7 +14,11 @@ Configure your bus to use the serializer:
 
 ```typescript
 import { ClassSerializer } from '@node-ts/bus-class-serializer'
-Bus.configure().withSerializer(new ClassSerializer()).initialize()
+
+await Bus
+  .configure()
+  .withSerializer(new ClassSerializer())
+  .initialize()
 ```
 
 **Note** This package relies on [class transformer](https://www.npmjs.com/package/class-transformer) that requires [reflect-metadata](https://www.npmjs.com/package/reflect-metadata) to be installed and called at the start of your application before any other imports. Please follow their guides on how to configure your app and contracts to serialize correctly.

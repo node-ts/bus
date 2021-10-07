@@ -1,16 +1,15 @@
 # @node-ts/bus-rabbitmq
 
-[![Greenkeeper badge](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
-[![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+A Rabbit MQ transport adapter for [@node-ts/bus](https://node-ts.gitbook.io/bus/)
 
-A rabbitmq transport adapter for `@node-ts/bus`.
+🔥 📒 👉 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 👈 📒 🔥
 
 ## Installation
 
 Install all packages and their dependencies
 
 ```bash
-npm i reflect-metadata @node-ts/bus-rabbitmq @node-ts/bus-core
+npm install @node-ts/bus-rabbitmq
 ```
 
 Once installed, configure a new `RabbitMqTransport` and register it for use with `Bus`:
@@ -25,10 +24,15 @@ const rabbitConfiguration: RabbitMqTransportConfiguration = {
   maxRetries: 5
 }
 const rabbitMqTransport = new RabbitMqTransport(rabbitConfiguration)
-await Bus
-  .configure()
-  .withTransport(rabbitMqTransport)
-  .initialize()
+
+// Configure Bus to use RabbitMQ as a transport
+const run = async () => {
+  await Bus
+    .configure()
+    .withTransport(rabbitMqTransport)
+    .initialize()
+}
+run.catch(console.error)
 ```
 
 ## Configuration Options

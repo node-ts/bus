@@ -1,19 +1,18 @@
 # @node-ts/bus-postgres
 
-[![Greenkeeper badge](https://snyk.io/test/github/node-ts/bus/badge.svg)](https://snyk.io/test/github/node-ts/bus)
-[![CircleCI](https://circleci.com/gh/node-ts/bus/tree/master.svg?style=svg)](https://circleci.com/gh/node-ts/bus/tree/master)[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+A Postgres based persistence for workflow storage in [@node-ts/bus](https://node-ts.gitbook.io/bus/)
 
-A Postgres based persistence for workflow storage in `@node-ts/bus`
+🔥 📒 👉 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 👈 📒 🔥
 
 ## Installation
 
 Install all packages and their dependencies
 
 ```bash
-npm i reflect-metadata @node-ts/bus-postgres @node-ts/bus-core
+npm install @node-ts/bus-postgres
 ```
 
-Once installed, configure a new Postgres persistence and register it with `Bus`:
+Configure a new Postgres persistence and register it with `Bus`:
 
 ```typescript
 import { Bus } from '@node-ts/bus-core'
@@ -25,18 +24,24 @@ const configuration: PostgresConfiguration = {
   },
   schemaName: 'workflows'
 }
+const postgresPersistence = new PostgresPersistence(configuration)
 
-const postgresPersistence = PostgresPersistence.configure(configuration)
-
-// Run the application
-const application = async () => {
+// Configure bus to use postgres as a persistence
+const run = async () => {
   await Bus
     .configure()
     .withPersistence(postgresPersistence)
     .initialize()
 }
-application.then(() => void)
+run.then(() => void)
 ```
+
+## Configuration Options
+
+The Postgres persistence has the following configuration:
+
+*  **connection** *(required)* Connection pool settings for the application to connect to the postgres instance
+*  **schemaName** *(required)* The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
 
 ## Development
 
