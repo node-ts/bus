@@ -3,7 +3,7 @@ import { Connection, Channel, connect, ConsumeMessage } from 'amqplib'
 import { DefaultHandlerRegistry, JsonSerializer, MessageSerializer } from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import { Message, MessageAttributeMap, MessageAttributes } from '@node-ts/bus-messages'
-import uuid from 'uuid'
+import * as uuid from 'uuid'
 import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
 
 const configuration: RabbitMqTransportConfiguration = {
