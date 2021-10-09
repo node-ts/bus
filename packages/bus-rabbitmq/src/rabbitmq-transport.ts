@@ -14,7 +14,7 @@ import {
 } from '@node-ts/bus-core'
 import { Connection, Channel, Message as RabbitMqMessage, GetMessage, connect } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
-import uuid from 'uuid'
+import * as uuid from 'uuid'
 
 export const DEFAULT_MAX_RETRIES = 10
 
