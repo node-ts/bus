@@ -11,7 +11,12 @@ export const generatePolicy = (awsAccountId: string, awsRegion: string) => `
       "Action":"sqs:SendMessage",
       "Resource": [
         "arn:aws:sqs:${awsRegion}:${awsAccountId}:*"
-      ]
+      ],
+      "Condition":{
+        "StringLike":{
+          "aws:SourceArn":"arn:aws:sns:${awsRegion}:${awsAccountId}:*"
+        }
+      }
     }
   ]
 }
