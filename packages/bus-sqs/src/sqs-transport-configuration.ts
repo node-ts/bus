@@ -1,4 +1,8 @@
 import { TransportConfiguration } from '@node-ts/bus-core'
+import {
+  resolveTopicArn as defaultResolveTopicArn,
+  resolveTopicName as defaultResolveTopicName
+} from './queue-resolvers'
 
 export interface SqsTransportConfiguration extends TransportConfiguration {
   /**
@@ -74,14 +78,13 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
     * @example
     *  resolveTopicName (messageName: string) => `production-${messageName}`
     */
-   resolveTopicName? (messageName: string): string
+   resolveTopicName?: typeof defaultResolveTopicName
 
    /**
     * A resolver function that maps an SNS topic name to an SNS topic arn
-    * @param topicName Name of the message to map
     * @returns An SNS topic url where messages are sent
     * @example
-    *  resolveTopicArn (topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
+    *  resolveTopicArn (awsAccountId: string, awsRegion: string, topicName: string) => `arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:${topicName}`
     */
-   resolveTopicArn? (topicName: string): string
+   resolveTopicArn?: typeof defaultResolveTopicArn
 }
