@@ -84,7 +84,8 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
     * A resolver function that maps an SNS topic name to an SNS topic arn
     * @returns An SNS topic url where messages are sent
     * @example
-    *  resolveTopicArn (awsAccountId: string, awsRegion: string, topicName: string) => `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
+    *  resolveTopicArn (awsAccountId: string, awsRegion: string, topicName: string) =>
+    *   `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
     */
    resolveTopicArn?: typeof defaultResolveTopicArn
 }
