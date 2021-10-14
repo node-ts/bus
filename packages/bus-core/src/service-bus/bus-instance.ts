@@ -3,12 +3,13 @@ import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-message
 import { sleep, ClassConstructor, TypedEmitter, CoreDependencies} from '../util'
 import { Handler, FunctionHandler, HandlerDefinition, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
-import { BusState } from './bus'
+import { BusState } from './bus-state'
 import { messageHandlingContext } from '../message-handling-context'
 import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
 import { v4 as generateUuid } from 'uuid'
 import { WorkflowRegistry } from '../workflow/registry'
 import { Logger } from '../logger'
+import { InvalidBusState } from './error'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -47,26 +48,41 @@ export class BusInstance {
 
   }
 
+  /**
+   * Publishes an event to the transport
+   * @param event An event to publish
+   * @param messageAttributes A set of attributes to attach to the outgoing message when published
+   */
   async publish<TEvent extends Event> (
     event: TEvent,
-    messageOptions: Partial<MessageAttributes> = {}
+    messageAttributes: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    this.logger.debug('Publishing event', { event, messageOptions })
-    const attributes = this.prepareTransportOptions(messageOptions)
+    this.logger.debug('Publishing event', { event, messageAttributes })
+    const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforePublish.emit({ event, attributes })
     return this.transport.publish(event, attributes)
   }
 
+  /**
+   * Sends a command to the transport
+   * @param command A command to send
+   * @param messageAttributes A set of attributes to attach to the outgoing messsage when sent
+   */
   async send<TCommand extends Command> (
     command: TCommand,
-    messageOptions: Partial<MessageAttributes> = {}
+    messageAttributes: Partial<MessageAttributes> = {}
   ): Promise<void> {
-    this.logger.debug('Sending command', { command, messageOptions })
-    const attributes = this.prepareTransportOptions(messageOptions)
+    this.logger.debug('Sending command', { command, messageAttributes })
+    const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforeSend.emit({ command, attributes })
     return this.transport.send(command, attributes)
   }
 
+  /**
+   * Instructs the bus that the current message being handled cannot be processed even with
+   * retries and instead should immediately be routed to the dead letter queue
+   * @throws FailMessageOutsideHandlingContext if called outside a message handling context
+   */
   async fail (): Promise<void> {
     const context = messageHandlingContext.get()
     if (!context) {
@@ -77,10 +93,20 @@ export class BusInstance {
     return this.transport.fail(message)
   }
 
+  /**
+   * Instructs the bus to start reading messages from the underlying service queue
+   * and dispatching to message handlers.
+   *
+   * @throws InvalidBusState if the bus is already started or in a starting state
+   */
   async start (): Promise<void> {
     const startedStates = [BusState.Started, BusState.Starting]
     if (startedStates.includes(this.state)) {
-      throw new Error('Bus must be stopped before it can be started')
+      throw new InvalidBusState(
+        'Bus must be stopped before it can be started',
+        this.state,
+        [BusState.Stopped, BusState.Stopping]
+      )
     }
     this.internalState = BusState.Starting
     this.logger.info('Bus starting...')
@@ -94,16 +120,26 @@ export class BusInstance {
     this.logger.info(`Bus started with concurrency ${this.concurrency}`)
   }
 
+  /**
+   * Stops a bus that has been started by `.start()`. This will wait for all running workers to complete
+   * their current message handling contexts before returning.
+   *
+   * @throws InvalidBusState if the bus is already stopped or stopping
+   */
   async stop (): Promise<void> {
     const stoppedStates = [BusState.Stopped, BusState.Stopping]
     if (stoppedStates.includes(this.state)) {
-      throw new Error('Bus must be started before it can be stopped')
+      throw new InvalidBusState(
+        'Bus must be started before it can be stopped',
+        this.state,
+        [BusState.Started, BusState.Started]
+      )
     }
     this.internalState = BusState.Stopping
     this.logger.info('Bus stopping...')
 
     while (this.runningWorkerCount > 0) {
-      await sleep(100)
+      await sleep(10)
     }
 
     this.internalState = BusState.Stopped
@@ -129,6 +165,9 @@ export class BusInstance {
     this.logger.info('Bus disposed')
   }
 
+  /**
+   * Gets the current state of a message-handling bus
+   */
   get state (): BusState {
     return this.internalState
   }
