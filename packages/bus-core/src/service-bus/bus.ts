@@ -14,13 +14,6 @@ import { ContainerNotRegistered } from '../error'
 import { MessageSerializer } from '../serialization/message-serializer'
 import { InMemoryPersistence } from '../workflow/persistence'
 
-export enum BusState {
-  Starting = 'starting',
-  Started = 'started',
-  Stopping = 'stopping',
-  Stopped = 'stopped'
-}
-
 export interface BusInitializeOptions {
   /**
    * If true, will initialize the bus in send only mode.

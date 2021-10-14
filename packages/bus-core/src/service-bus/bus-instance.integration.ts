@@ -1,5 +1,6 @@
 import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
-import { Bus, BusState } from './bus'
+import { Bus } from './bus'
+import { BusState } from './bus-state'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
 import { Mock, IMock, Times, It } from 'typemoq'
@@ -14,6 +15,7 @@ import { Command, MessageAttributes } from '@node-ts/bus-messages'
 import { toTransportMessage } from '../transport/memory-queue'
 import { Logger } from '../logger'
 import { BusInstance } from './bus-instance'
+import { InvalidBusState } from './error'
 
 const event = new TestEvent()
 type Callback = () => void;
@@ -45,7 +47,7 @@ describe('BusInstance', () => {
       describe('and then the bus is started again', () => {
         it('should throw an error', async () => {
           await bus.start()
-          await expect(bus.start()).rejects.toThrowError()
+          await expect(bus.start()).rejects.toThrow(InvalidBusState)
           await bus.stop()
         })
       })
@@ -62,7 +64,7 @@ describe('BusInstance', () => {
 
       describe('when its not started', () => {
         it('should throw an error', async () => {
-          await expect(bus.stop()).rejects.toThrowError()
+          await expect(bus.stop()).rejects.toThrow(InvalidBusState)
         })
       })
     })
@@ -229,7 +231,10 @@ describe('BusInstance', () => {
         const bus = await Bus.configure()
           .withHandler(handlerFor(TestCommand, async () => await bus.send(new TestEvent2())))
           .withHandler(handlerFor(TestEvent2, async () => bus.send(new TestEvent())))
-          .withHandler(handlerFor(TestEvent, async (_: TestEvent, { stickyAttributes }: MessageAttributes) => { events.emit('event', stickyAttributes) }))
+          .withHandler(handlerFor(
+            TestEvent,
+            async (_: TestEvent, { stickyAttributes }: MessageAttributes) => { events.emit('event', stickyAttributes) }
+          ))
           .initialize()
 
         await bus.start()
@@ -276,7 +281,11 @@ describe('BusInstance', () => {
 
       const systemMessageReceived = new Promise(resolve => events.on('event', resolve))
       const systemMessage = new TestSystemMessage()
-      const transportSystemMessage = toTransportMessage(systemMessage as unknown as Command, { attributes: {}, stickyAttributes: {}}, false)
+      const transportSystemMessage = toTransportMessage(
+        systemMessage as unknown as Command,
+        { attributes: {}, stickyAttributes: {}},
+        false
+      )
       queue['queue'].push(transportSystemMessage)
 
       const actualSystemMessage = await systemMessageReceived
