@@ -157,6 +157,9 @@ export class BusInstance {
     if (![BusState.Stopped, BusState.Stopped].includes(this.state)) {
       await this.stop()
     }
+    if (this.transport.disconnect) {
+      await this.transport.disconnect()
+    }
     if (this.transport.dispose) {
       await this.transport.dispose()
     }
