@@ -135,6 +135,12 @@ export class BusConfiguration {
     return this
   }
 
+  /**
+   * Registers a custom handler that receives messages from external systems, or messages that don't implement the
+   * Message interface from @node-ts/bus-messages
+   * @param messageHandler A handler that receives the custom message
+   * @param customResolver A discriminator that determines if an incoming message should be mapped to this handler.
+   */
   withCustomHandler<MessageType extends (Message | object)> (
     messageHandler: HandlerDefinition<MessageType>,
     customResolver: {
