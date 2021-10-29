@@ -2,8 +2,9 @@
 
 *A library for building message-based, distributed node applications.*
 
-🔥 📒 👉 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 👈 📒 🔥
+🔥 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 🔥
 
+🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
 ## Components
 
 * [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - Core bus library for sending and receiving messages and managing workflows

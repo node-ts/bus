@@ -2,7 +2,9 @@
 
 A Rabbit MQ transport adapter for [@node-ts/bus](https://node-ts.gitbook.io/bus/)
 
-🔥 📒 👉 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 👈 📒 🔥
+🔥 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 🔥
+
+🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
 
 ## Installation
 
