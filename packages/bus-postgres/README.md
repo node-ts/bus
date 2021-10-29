@@ -1,8 +1,8 @@
 # @node-ts/bus-postgres
 
-A Postgres based persistence for workflow storage in [@node-ts/bus](https://docs.node-ts.com)
+A Postgres based persistence for workflow storage in [@node-ts/bus](https://bus.node-ts.com)
 
-🔥 View our docs at [https://docs.node-ts.com](https://docs.node-ts.com) 🔥
+🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
 
 🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
 
