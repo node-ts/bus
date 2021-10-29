@@ -2,7 +2,7 @@
 
 *A library for building message-based, distributed node applications.*
 
-🔥 View our docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/) 🔥
+🔥 View our docs at [https://docs.node-ts.com](https://docs.node-ts.com) 🔥
 
 🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
 ## Components
@@ -16,7 +16,7 @@
 
 ## Development
 
-This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://node-ts.gitbook.io/bus/](https://node-ts.gitbook.io/bus/).
+This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://docs.node-ts.com](https://docs.node-ts.com).
 
 ### Installation
 

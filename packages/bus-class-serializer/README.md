@@ -1,6 +1,6 @@
 # `@node-ts/bus-class-serializer`
 
-A JSON-based serializer for [@node-ts/bus](https://node-ts.gitbook.io/bus/) that deserializes into strong types. This is a preferred alternative to the default serializer that does not support this.
+A JSON-based serializer for [@node-ts/bus](https://docs.node-ts.com) that deserializes into strong types. This is a preferred alternative to the default serializer that does not support this.
 
 ## Installation
 
