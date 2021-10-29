@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-postgres",
   "description": "A Postgres persistence adapter for workflow storage in @node-ts/bus-workflow.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,13 +17,13 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^1.0.1",
+    "@node-ts/bus-messages": "^1.0.2",
     "pg": "^8.2.1",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^1.0.4",
+    "@node-ts/bus-core": "^1.0.5",
     "@node-ts/code-standards": "^0.0.10",
     "@types/amqplib": "^0.5.11",
     "@types/pg": "^7.14.3",
