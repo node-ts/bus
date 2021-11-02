@@ -1,12 +1,11 @@
 {
   "name": "@node-ts/bus-test",
   "version": "0.0.8",
-  "description": "A dev-dependency package used to test transport and persistence implementations.",
+  "description": "A dev-dependency package used to test transport implementations.",
   "homepage": "https://github.com/node-ts/bus#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "license": "MIT",
-  "private": "true",
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "build": "tsc --project tsconfig.json --declaration",
