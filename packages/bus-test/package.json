@@ -13,6 +13,9 @@
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
     "lint:fix": "yarn lint --fix"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "bugs": {
     "url": "https://github.com/node-ts/bus/issues"
   },
