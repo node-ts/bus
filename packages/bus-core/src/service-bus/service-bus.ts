@@ -117,7 +117,17 @@ export class ServiceBus implements Bus {
 
       if (message) {
         this.logger.debug('Message read from transport', { message })
+        // docs to look at:
+        // https://muniftanjim.dev/blog/basic-middleware-pattern-in-javascript/
+        // https://evertpot.com/generic-middleware/
+        // wondering if we can create a single middleware that does our first xray call - then awaits next() (so any other middlewares run) then does our second middleware.
+        // we would then have this bus expose a beforeHandleNextMessage middleware which would call next,
+        // and our own code would on start add itself to the middlewares to run that calls the anon function - either in applicationLoop or in start
 
+
+        // first middleware call
+        // wrap everything in try below as some sort of anon function. Our middleware can be written to call our code, then call anon function, then call our second bit of code.
+        // look at koa and express to see how they implement 'middlewares'
         try {
           await this.dispatchMessageToHandlers(message)
           this.logger.debug('Message dispatched to all handlers', { message })
@@ -133,6 +143,7 @@ export class ServiceBus implements Bus {
             message.attributes,
             message
           )))
+          // second middleware call (might not be required)
           await this.transport.returnMessage(message)
           return false
         }
