@@ -167,10 +167,9 @@ export class ServiceBus implements Bus {
     return false
   }
   /**
-   * our final middleware that runs, whether other middlewares are used or not
-   * It dispatches a message that has been polled form the queue
-   * and deletes the message from the transport - calls next just in case there are other middlewares
-   *
+   * The final middleware that runs, after all the useBeforeHandleNextMessage middlewares have completed
+   * It dispatches a message that has been polled from the queue
+   * and deletes the message from the transport
    */
   handleNextMessagePolled: Middleware<TransportMessage<MessageType>> = async (message: TransportMessage<MessageType>, next: Next): Promise<void> => {
     await this.dispatchMessageToHandlers(message)

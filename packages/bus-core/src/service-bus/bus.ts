@@ -78,9 +78,10 @@ export interface Bus {
   off<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void
 
   /**
-   * Register optional middlewares that will run for each message that is polled
-   * Note these middlewares only run when polling pulls a message off the Transports queue
-   * The bus must add the final middleware that dispatches the message to the handlers and deletes the message from the underlying transport
+   * Register optional middlewares that will run for each message that is polled from the transport
+   * Note these middlewares only run when polling successfully pulls a message off the Transports queue
+   * After all the user defined middlewares have registered. @see start and @see stop should add/remove a final bus middleware
+   * that ensures the message is correctly dispatched to the handlers and removed from the underlying transport
    */
   useBeforeHandleNextMessage<TransportMessageType = unknown> (useBeforeHandleNextMessageMiddleware:  Middleware<TransportMessage<TransportMessageType>>): void
 }
