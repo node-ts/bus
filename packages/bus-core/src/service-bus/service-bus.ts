@@ -5,7 +5,7 @@ import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
-import { sleep } from '../util'
+import { Middleware, MiddlewareDispatcher, Next, sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
 import { SessionScopeBinder } from '../bus-module'
@@ -20,6 +20,7 @@ export class ServiceBus implements Bus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+  private useBeforeMiddlewareDispatcher: MiddlewareDispatcher<TransportMessage<MessageType>>
 
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
@@ -29,7 +30,9 @@ export class ServiceBus implements Bus {
     @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks,
     @inject(BUS_SYMBOLS.BusConfiguration) private readonly busConfiguration: BusConfiguration,
     @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
+
   ) {
+    this.useBeforeMiddlewareDispatcher = new MiddlewareDispatcher<TransportMessage<MessageType>>()
   }
 
   async publish<TEvent extends Event> (
@@ -63,10 +66,18 @@ export class ServiceBus implements Bus {
     return this.transport.send(command, transportOptions)
   }
 
+  useBeforeHandleNextMessage<TransportMessageType = MessageType>(useBeforeHandleNextMessageMiddleware: Middleware<TransportMessage<TransportMessageType>>) {
+    if (this.internalState !== BusState.Stopped) {
+      throw new Error('ServiceBus must be stopped to add useBforeHandleNextMessageMiddlewares')
+    }
+    this.useBeforeMiddlewareDispatcher.use(useBeforeHandleNextMessageMiddleware)
+  }
+
   async start (): Promise<void> {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
+    this.useBeforeMiddlewareDispatcher.use(this.handleNextMessagePolled)
     this.internalState = BusState.Starting
     this.logger.info('ServiceBus starting...', { concurrency: this.busConfiguration.concurrency })
     new Array(this.busConfiguration.concurrency)
@@ -83,8 +94,11 @@ export class ServiceBus implements Bus {
       await sleep(100)
     }
 
+
     this.internalState = BusState.Stopped
     this.logger.info('ServiceBus stopped')
+    // remove our middleware from the end of the array
+    this.useBeforeMiddlewareDispatcher.middlewares.pop()
   }
 
   get state (): BusState {
@@ -129,9 +143,7 @@ export class ServiceBus implements Bus {
         // wrap everything in try below as some sort of anon function. Our middleware can be written to call our code, then call anon function, then call our second bit of code.
         // look at koa and express to see how they implement 'middlewares'
         try {
-          await this.dispatchMessageToHandlers(message)
-          this.logger.debug('Message dispatched to all handlers', { message })
-          await this.transport.deleteMessage(message)
+          await this.useBeforeMiddlewareDispatcher.dispatch(message)
         } catch (error) {
           this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
@@ -153,6 +165,18 @@ export class ServiceBus implements Bus {
       this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
+  }
+  /**
+   * our final middleware that runs, whether other middlewares are used or not
+   * It dispatches a message that has been polled form the queue
+   * and deletes the message from the transport - calls next just in case there are other middlewares
+   *
+   */
+  handleNextMessagePolled: Middleware<TransportMessage<MessageType>> = async (message: TransportMessage<MessageType>, next: Next): Promise<void> => {
+    await this.dispatchMessageToHandlers(message)
+    this.logger.debug('Message dispatched to all handlers', { message })
+    await this.transport.deleteMessage(message)
+    return next()
   }
 
   private async dispatchMessageToHandlers (
