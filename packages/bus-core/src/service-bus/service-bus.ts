@@ -67,7 +67,7 @@ export class ServiceBus implements Bus {
     return this.transport.send(command, transportOptions)
   }
 
-  messageReadMiddleware<TransportMessageType = MessageType>(messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>) {
+  messageReadMiddleware<MessageType>(messageReadMiddleware: Middleware<TransportMessage<MessageType>>) {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped to add useBforeHandleNextMessageMiddlewares')
     }
@@ -159,7 +159,7 @@ export class ServiceBus implements Bus {
    * It dispatches a message that has been polled from the queue
    * and deletes the message from the transport
    */
-  handleNextMessagePolled: Middleware<TransportMessage<MessageType>> = async (message: TransportMessage<MessageType>, next: Next): Promise<void> => {
+  private handleNextMessagePolled: Middleware<TransportMessage<MessageType>> = async (message: TransportMessage<MessageType>, next: Next): Promise<void> => {
     await this.dispatchMessageToHandlers(message)
     this.logger.debug('Message dispatched to all handlers', { message })
     await this.transport.deleteMessage(message)
