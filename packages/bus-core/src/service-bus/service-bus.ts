@@ -33,6 +33,8 @@ export class ServiceBus implements Bus {
 
   ) {
     this.useBeforeMiddlewareDispatcher = new MiddlewareDispatcher<TransportMessage<MessageType>>()
+    // Register our message handling middleware
+    this.useBeforeMiddlewareDispatcher.useFinal(this.handleNextMessagePolled)
   }
 
   async publish<TEvent extends Event> (
@@ -61,7 +63,6 @@ export class ServiceBus implements Bus {
   ): Promise<void> {
     this.logger.debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
-
     await Promise.all(this.busHooks.send.map(callback => callback(command, messageOptions)))
     return this.transport.send(command, transportOptions)
   }
@@ -77,7 +78,7 @@ export class ServiceBus implements Bus {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
-    this.useBeforeMiddlewareDispatcher.use(this.handleNextMessagePolled)
+
     this.internalState = BusState.Starting
     this.logger.info('ServiceBus starting...', { concurrency: this.busConfiguration.concurrency })
     new Array(this.busConfiguration.concurrency)
@@ -97,8 +98,6 @@ export class ServiceBus implements Bus {
 
     this.internalState = BusState.Stopped
     this.logger.info('ServiceBus stopped')
-    // remove our middleware from the end of the array
-    this.useBeforeMiddlewareDispatcher.middlewares.pop()
   }
 
   get state (): BusState {
