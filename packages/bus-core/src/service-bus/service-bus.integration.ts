@@ -143,12 +143,14 @@ describe('ServiceBus', () => {
           .verifiable(Times.once())
 
         callback.reset()
-        callback
-          .setup(c => c())
-          .callback(() => undefined)
-          .verifiable(Times.once())
-        await sut.publish(event)
-        await sleep(10)
+
+        await new Promise<void>(async resolve => {
+          callback
+            .setup(c => c())
+            .callback(resolve)
+            .verifiable(Times.once())
+          await sut.publish(event)
+        })
       })
 
       it('should call the message handler', () => {
