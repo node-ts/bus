@@ -83,5 +83,5 @@ export interface Bus {
    * After all the user defined middlewares have registered. @see start and @see stop should add/remove a final bus middleware
    * that ensures the message is correctly dispatched to the handlers and removed from the underlying transport
    */
-  useBeforeHandleNextMessage<TransportMessageType = unknown> (useBeforeHandleNextMessageMiddleware:  Middleware<TransportMessage<TransportMessageType>>): void
+  messageReadMiddleware<TransportMessageType = unknown> (useBeforeHandleNextMessageMiddleware:  Middleware<TransportMessage<TransportMessageType>>): void
 }

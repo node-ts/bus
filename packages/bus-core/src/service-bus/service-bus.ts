@@ -20,7 +20,7 @@ export class ServiceBus implements Bus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
-  private useBeforeMiddlewareDispatcher: MiddlewareDispatcher<TransportMessage<MessageType>>
+  private messageReadMiddlewares: MiddlewareDispatcher<TransportMessage<MessageType>>
 
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
@@ -32,9 +32,9 @@ export class ServiceBus implements Bus {
     @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
 
   ) {
-    this.useBeforeMiddlewareDispatcher = new MiddlewareDispatcher<TransportMessage<MessageType>>()
+    this.messageReadMiddlewares = new MiddlewareDispatcher<TransportMessage<MessageType>>()
     // Register our message handling middleware
-    this.useBeforeMiddlewareDispatcher.useFinal(this.handleNextMessagePolled)
+    this.messageReadMiddlewares.useFinal(this.handleNextMessagePolled)
   }
 
   async publish<TEvent extends Event> (
@@ -67,11 +67,11 @@ export class ServiceBus implements Bus {
     return this.transport.send(command, transportOptions)
   }
 
-  useBeforeHandleNextMessage<TransportMessageType = MessageType>(useBeforeHandleNextMessageMiddleware: Middleware<TransportMessage<TransportMessageType>>) {
+  messageReadMiddleware<TransportMessageType = MessageType>(messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>) {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped to add useBforeHandleNextMessageMiddlewares')
     }
-    this.useBeforeMiddlewareDispatcher.use(useBeforeHandleNextMessageMiddleware)
+    this.messageReadMiddlewares.use(messageReadMiddleware)
   }
 
   async start (): Promise<void> {
@@ -131,7 +131,7 @@ export class ServiceBus implements Bus {
       if (message) {
         this.logger.debug('Message read from transport', { message })
         try {
-          await this.useBeforeMiddlewareDispatcher.dispatch(message)
+          await this.messageReadMiddlewares.dispatch(message)
         } catch (error) {
           this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
