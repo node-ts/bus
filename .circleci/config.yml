@@ -60,11 +60,7 @@ workflows:
   version: 2
   build-deploy:
     jobs:
-      - build:
-          filters:
-            branches:
-              ignore:
-                - 0.x
+      - build
       - deploy:
           filters:
             branches:
