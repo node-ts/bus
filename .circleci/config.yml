@@ -10,8 +10,6 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - attach_workspace:
-          at: ~/repo
       - run:
           name: Install dependencies
           command: yarn
@@ -38,28 +36,25 @@ jobs:
       #       docker create -v /repo --name repo alpine:3.4 /bin/true
       #       docker cp . repo:/repo
       #       docker run -it --volumes-from repo --workdir /repo/bus node:8.15.0 yarn test:integration
+      # Save workspace for subsequent jobs (i.e. test)
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
 
   deploy:
     <<: *defaults
     steps:
-      - checkout
+      # Reuse the workspace from the build job
       - attach_workspace:
-          at: ~/repo
-      - run:
-          name: Install dependencies
-          command: yarn
-      - run:
-          name: Bootstrap
-          command: yarn run bootstrap
-      - run:
-          name: Build
-          command: yarn run build
+          at: .
       - run:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
           name: Publish
-          command: npx lerna publish from-package --yes
+          command: npx lerna publish from-package --yes --dist-tag 0.x
+
 
 workflows:
   version: 2
@@ -69,12 +64,9 @@ workflows:
           filters:
             branches:
               ignore:
-                - master
                 - 0.x
-                - gh-pages
       - deploy:
           filters:
             branches:
               only:
-                - master
                 - 0.x
