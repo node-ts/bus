@@ -26,7 +26,7 @@ jobs:
           command: yarn run lint
       - run:
           name: Unit Test
-          command: yarn run test:unit
+          command: yarn run test:unit --runInBand # runInBand used as circle ci runs out of memory
       - run:
           name: Integration Test
           command: yarn run test:integration
@@ -70,8 +70,11 @@ workflows:
             branches:
               ignore:
                 - master
+                - 0.x
                 - gh-pages
       - deploy:
           filters:
             branches:
-              only: master
+              only:
+                - master
+                - 0.x
