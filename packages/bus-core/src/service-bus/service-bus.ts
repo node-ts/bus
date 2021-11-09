@@ -20,10 +20,10 @@ export class ServiceBus implements Bus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
-  private messageReadMiddlewares: MiddlewareDispatcher<TransportMessage<MessageType>>
+  private messageReadMiddlewares: MiddlewareDispatcher<TransportMessage<unknown>>
 
   constructor (
-    @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
+    @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<unknown>,
     @inject(LOGGER_SYMBOLS.Logger) private readonly logger: Logger,
     @inject(BUS_SYMBOLS.HandlerRegistry) private readonly handlerRegistry: HandlerRegistry,
     @inject(BUS_SYMBOLS.MessageHandlingContext) private readonly messageHandlingContext: MessageAttributes,
@@ -32,7 +32,7 @@ export class ServiceBus implements Bus {
     @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
 
   ) {
-    this.messageReadMiddlewares = new MiddlewareDispatcher<TransportMessage<MessageType>>()
+    this.messageReadMiddlewares = new MiddlewareDispatcher<TransportMessage<unknown>>()
     // Register our message handling middleware
     this.messageReadMiddlewares.useFinal(this.handleNextMessagePolled)
   }
@@ -67,7 +67,7 @@ export class ServiceBus implements Bus {
     return this.transport.send(command, transportOptions)
   }
 
-  messageReadMiddleware<MessageType>(messageReadMiddleware: Middleware<TransportMessage<MessageType>>) {
+  messageReadMiddleware<TransportMessageType>(messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>) {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped to add useBforeHandleNextMessageMiddlewares')
     }
