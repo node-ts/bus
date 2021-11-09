@@ -10,8 +10,6 @@ jobs:
       - image: circleci/node:14.18.0
     steps:
       - checkout
-      - attach_workspace:
-          at: ~/repo
       - run:
           name: Install dependencies
           command: yarn
@@ -38,24 +36,20 @@ jobs:
       #       docker create -v /repo --name repo alpine:3.4 /bin/true
       #       docker cp . repo:/repo
       #       docker run -it --volumes-from repo --workdir /repo/bus node:8.15.0 yarn test:integration
+      # Save workspace for subsequent jobs (i.e. test)
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
 
   deploy:
     <<: *defaults
     docker:
       - image: circleci/node:14.18.0
     steps:
-      - checkout
+      # Reuse the workspace from the build job
       - attach_workspace:
-          at: ~/repo
-      - run:
-          name: Install dependencies
-          command: yarn
-      - run:
-          name: Bootstrap
-          command: yarn run bootstrap
-      - run:
-          name: Build
-          command: yarn run build
+          at: .
       - run:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
@@ -67,12 +61,11 @@ workflows:
   version: 2
   build-deploy:
     jobs:
-      - build:
-          filters:
-            branches:
-              ignore:
-                - master
+      - build
       - deploy:
+          requires:
+            - build
           filters:
             branches:
-              only: master
+              only:
+                - master
