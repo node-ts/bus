@@ -5,7 +5,7 @@ import { BUS_SYMBOLS, BUS_INTERNAL_SYMBOLS } from '../bus-symbols'
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
-import { sleep } from '../util'
+import { Middleware, MiddlewareDispatcher, Next, sleep } from '../util'
 import { HandlerRegistry, HandlerRegistration } from '../handler'
 import * as serializeError from 'serialize-error'
 import { SessionScopeBinder } from '../bus-module'
@@ -20,6 +20,7 @@ export class ServiceBus implements Bus {
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
+  private messageReadMiddlewares: MiddlewareDispatcher<TransportMessage<MessageType>>
 
   constructor (
     @inject(BUS_SYMBOLS.Transport) private readonly transport: Transport<{}>,
@@ -29,7 +30,11 @@ export class ServiceBus implements Bus {
     @inject(BUS_INTERNAL_SYMBOLS.BusHooks) private readonly busHooks: BusHooks,
     @inject(BUS_SYMBOLS.BusConfiguration) private readonly busConfiguration: BusConfiguration,
     @optional() @inject(BUS_INTERNAL_SYMBOLS.RawMessage) private readonly rawMessage: TransportMessage<unknown>
+
   ) {
+    this.messageReadMiddlewares = new MiddlewareDispatcher<TransportMessage<MessageType>>()
+    // Register our message handling middleware
+    this.messageReadMiddlewares.useFinal(this.handleNextMessagePolled)
   }
 
   async publish<TEvent extends Event> (
@@ -58,15 +63,22 @@ export class ServiceBus implements Bus {
   ): Promise<void> {
     this.logger.debug('send', { command })
     const transportOptions = this.prepareTransportOptions(messageOptions)
-
     await Promise.all(this.busHooks.send.map(callback => callback(command, messageOptions)))
     return this.transport.send(command, transportOptions)
+  }
+
+  messageReadMiddleware<MessageType>(messageReadMiddleware: Middleware<TransportMessage<MessageType>>) {
+    if (this.internalState !== BusState.Stopped) {
+      throw new Error('ServiceBus must be stopped to add useBforeHandleNextMessageMiddlewares')
+    }
+    this.messageReadMiddlewares.use(messageReadMiddleware)
   }
 
   async start (): Promise<void> {
     if (this.internalState !== BusState.Stopped) {
       throw new Error('ServiceBus must be stopped before it can be started')
     }
+
     this.internalState = BusState.Starting
     this.logger.info('ServiceBus starting...', { concurrency: this.busConfiguration.concurrency })
     new Array(this.busConfiguration.concurrency)
@@ -82,6 +94,7 @@ export class ServiceBus implements Bus {
     while (this.runningWorkerCount > 0) {
       await sleep(100)
     }
+
 
     this.internalState = BusState.Stopped
     this.logger.info('ServiceBus stopped')
@@ -117,11 +130,8 @@ export class ServiceBus implements Bus {
 
       if (message) {
         this.logger.debug('Message read from transport', { message })
-
         try {
-          await this.dispatchMessageToHandlers(message)
-          this.logger.debug('Message dispatched to all handlers', { message })
-          await this.transport.deleteMessage(message)
+          await this.messageReadMiddlewares.dispatch(message)
         } catch (error) {
           this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
@@ -133,6 +143,7 @@ export class ServiceBus implements Bus {
             message.attributes,
             message
           )))
+          // second middleware call (might not be required)
           await this.transport.returnMessage(message)
           return false
         }
@@ -142,6 +153,17 @@ export class ServiceBus implements Bus {
       this.logger.error('Failed to receive message from transport', { error: serializeError(error) })
     }
     return false
+  }
+  /**
+   * The final middleware that runs, after all the useBeforeHandleNextMessage middlewares have completed
+   * It dispatches a message that has been polled from the queue
+   * and deletes the message from the transport
+   */
+  private handleNextMessagePolled: Middleware<TransportMessage<MessageType>> = async (message: TransportMessage<MessageType>, next: Next): Promise<void> => {
+    await this.dispatchMessageToHandlers(message)
+    this.logger.debug('Message dispatched to all handlers', { message })
+    await this.transport.deleteMessage(message)
+    return next()
   }
 
   private async dispatchMessageToHandlers (

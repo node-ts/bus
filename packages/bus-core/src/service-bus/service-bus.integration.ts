@@ -5,13 +5,13 @@ import { BusState } from './bus'
 import { TestEvent } from '../test/test-event'
 import { TestEvent2 } from '../test/test-event-2'
 import { TestCommand } from '../test/test-command'
-import { sleep } from '../util'
+import { Middleware, sleep } from '../util'
 import { Container, inject } from 'inversify'
 import { TestContainer } from '../test/test-container'
 import { BUS_SYMBOLS } from '../bus-symbols'
 import { Logger } from '@node-ts/logger-core'
-import { Mock, IMock, Times } from 'typemoq'
-import { HandlesMessage } from '../handler'
+import { Mock, IMock, Times, It } from 'typemoq'
+import { HandlesMessage, MessageType } from '../handler'
 import { ApplicationBootstrap } from '../application-bootstrap'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { BusConfiguration } from './bus-configuration'
@@ -55,6 +55,7 @@ describe('ServiceBus', () => {
     let queue: MemoryQueue
 
     let callback: IMock<Callback>
+    let messageReadMiddleware: IMock<Middleware<TransportMessage<MessageType>>>
 
     beforeAll(async () => {
       container = new TestContainer().silenceLogs()
@@ -68,8 +69,12 @@ describe('ServiceBus', () => {
 
       callback = Mock.ofType<Callback>()
       container.bind(CALLBACK).toConstantValue(callback.object)
-      await bootstrapper.initialize(container)
+
       sut = container.get(BUS_SYMBOLS.Bus)
+      messageReadMiddleware = Mock.ofType<Middleware<TransportMessage<MessageType>>>()
+
+      sut.messageReadMiddleware<MessageType>(messageReadMiddleware.object)
+      await bootstrapper.initialize(container)
     })
 
     afterAll(async () => {
@@ -129,17 +134,33 @@ describe('ServiceBus', () => {
     })
 
     describe('when a message is successfully handled from the queue', () => {
-      it('should delete the message from the queue', async () => {
-        callback.reset()
-        callback
-          .setup(c => c())
-          .callback(() => undefined)
-          .verifiable(Times.once())
-        await sut.publish(event)
-        await sleep(10)
+      beforeAll(async () => {
+        messageReadMiddleware.reset()
 
-        expect(queue.depth).toEqual(0)
+        messageReadMiddleware
+          .setup(x => x(It.isAny(),It.isAny()))
+          .returns((_, next) => next())
+          .verifiable(Times.once())
+
+        callback.reset()
+
+        await new Promise<void>(async resolve => {
+          callback
+            .setup(c => c())
+            .callback(resolve)
+            .verifiable(Times.once())
+          await sut.publish(event)
+        })
+      })
+
+      it('should call the message handler', () => {
         callback.verifyAll()
+      })
+      it('should delete the message from the queue', async () => {
+        expect(queue.depth).toEqual(0)
+      })
+      it('should call the message middlewares', async () => {
+        messageReadMiddleware.verifyAll()
       })
     })
 

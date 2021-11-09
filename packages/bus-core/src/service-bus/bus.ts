@@ -1,4 +1,5 @@
 import { Event, Command, MessageAttributes, Message } from '@node-ts/bus-messages'
+import { Middleware } from '../util'
 import { TransportMessage } from '../transport'
 
 export enum BusState {
@@ -75,4 +76,12 @@ export interface Bus {
    * @template TransportMessageType - The raw message type returned from the transport that will be passed to the hooks
    */
   off<TransportMessageType = unknown> (action: HookAction, callback: HookCallback<TransportMessageType>): void
+
+  /**
+   * Register optional middlewares that will run for each message that is polled from the transport
+   * Note these middlewares only run when polling successfully pulls a message off the Transports queue
+   * After all the user defined middlewares have registered. @see start and @see stop should add/remove a final bus middleware
+   * that ensures the message is correctly dispatched to the handlers and removed from the underlying transport
+   */
+  messageReadMiddleware<TransportMessageType = unknown> (useBeforeHandleNextMessageMiddleware:  Middleware<TransportMessage<TransportMessageType>>): void
 }
