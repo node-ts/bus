@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-sqs",
   "description": "An AWS SQS transport adapter for @node-ts/bus-core.",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,8 +23,8 @@
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^1.0.7",
-    "@node-ts/bus-test": "^0.0.11",
+    "@node-ts/bus-core": "^1.0.8",
+    "@node-ts/bus-test": "^0.0.12",
     "@node-ts/code-standards": "^0.0.10",
     "@types/amqplib": "^0.5.11",
     "@types/faker": "^4.1.5",
