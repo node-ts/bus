@@ -1,6 +1,6 @@
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep, ClassConstructor, TypedEmitter, CoreDependencies} from '../util'
+import { sleep, ClassConstructor, TypedEmitter, CoreDependencies, MiddlewareDispatcher, Middleware, Next} from '../util'
 import { Handler, FunctionHandler, HandlerDefinition, isClassHandler } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus-state'
@@ -42,10 +42,11 @@ export class BusInstance {
     private readonly transport: Transport<{}>,
     private readonly concurrency: number,
     private readonly workflowRegistry: WorkflowRegistry,
-    private readonly coreDependencies: CoreDependencies
+    private readonly coreDependencies: CoreDependencies,
+    private readonly messageReadMiddleware: MiddlewareDispatcher<TransportMessage<unknown>>
   ) {
     this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:service-bus')
-
+    this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
   }
 
   /**
@@ -199,8 +200,7 @@ export class BusInstance {
         try {
           messageHandlingContext.set(message)
 
-          await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
-          await this.transport.deleteMessage(message)
+          await this.messageReadMiddleware.dispatch(message)
 
           this.afterDispatch.emit({
             message: message.domainMessage,
@@ -299,5 +299,19 @@ export class BusInstance {
         attributes
       )
     }
+  }
+
+  /**
+   * The final middleware that runs, after all the useBeforeHandleNextMessage middlewares have completed
+   * It dispatches a message that has been polled from the queue
+   * and deletes the message from the transport
+   */
+  private handleNextMessagePolled: Middleware<TransportMessage<{}>> = async (
+    message: TransportMessage<{}>,
+    next: Next
+  ): Promise<void> => {
+    await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
+    await this.transport.deleteMessage(message)
+    return next()
   }
 }

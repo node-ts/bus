@@ -2,7 +2,7 @@ import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
 import { Bus } from './bus'
 import { BusState } from './bus-state'
 import { TestEvent } from '../test/test-event'
-import { sleep } from '../util'
+import { Middleware, sleep } from '../util'
 import { Mock, IMock, Times, It } from 'typemoq'
 import { handlerFor, SystemMessageMissingResolver } from '../handler'
 import { TestCommand } from '../test/test-command'
@@ -26,14 +26,17 @@ describe('BusInstance', () => {
     let queue: MemoryQueue
     let callback: IMock<Callback>
     const handler = handlerFor(TestEvent, async (_: TestEvent) => callback.object())
+    let messageReadMiddleware: IMock<Middleware<TransportMessage<unknown>>>
 
     beforeAll(async () => {
       queue = new MemoryQueue()
       callback = Mock.ofType<Callback>()
+      messageReadMiddleware = Mock.ofType<Middleware<TransportMessage<unknown>>>()
 
       bus = await Bus.configure()
         .withTransport(queue)
         .withHandler(handler)
+        .withMessageReadMiddleware(messageReadMiddleware.object)
         .initialize()
     })
 
@@ -70,20 +73,36 @@ describe('BusInstance', () => {
     })
 
     describe('when a message is successfully handled from the queue', () => {
-      beforeEach(async () => bus.start())
-      afterEach(async () => bus.stop())
+      beforeAll(async () => {
+        messageReadMiddleware.reset()
+
+        messageReadMiddleware
+          .setup(x => x(It.isAny(), It.isAny()))
+          .returns((_, next) => next())
+          .verifiable(Times.once())
+
+        await bus.start()
+
+        await new Promise(async resolve => {
+          callback.reset()
+          callback
+            .setup(c => c())
+            .callback(resolve)
+            .verifiable(Times.once())
+
+          await bus.publish(event)
+        })
+      })
+
+      afterAll(async () => bus.stop())
 
       it('should delete the message from the queue', async () => {
-        callback.reset()
-        callback
-          .setup(c => c())
-          .callback(() => undefined)
-          .verifiable(Times.once())
-        await bus.publish(event)
-        await sleep(10)
-
         expect(queue.depth).toEqual(0)
         callback.verifyAll()
+      })
+
+      it('should invoke the message read middlewares', async () => {
+        messageReadMiddleware.verifyAll()
       })
     })
 
@@ -94,17 +113,21 @@ describe('BusInstance', () => {
       it('should return the message for retry', async () => {
         callback.reset()
         let callCount = 0
-        callback
-          .setup(c => c())
-          .callback(() => {
-            if (callCount++ === 0) {
-              throw new Error()
-            }
-          })
-          .verifiable(Times.exactly(2))
 
-        await bus.publish(event)
-        await sleep(2000)
+        await new Promise<void>(async resolve => {
+          callback
+            .setup(c => c())
+            .callback(() => {
+              if (callCount++ === 0) {
+                throw new Error()
+              } else {
+                resolve()
+              }
+            })
+            .verifiable(Times.exactly(2))
+
+          await bus.publish(event)
+        })
 
         callback.verifyAll()
       })
