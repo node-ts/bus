@@ -19,7 +19,7 @@
   "dependencies": {
     "@node-ts/bus-messages": "^1.0.4",
     "@types/amqplib": "^0.8.2",
-    "amqplib": "^0.6.0",
+    "amqplib": "^0.8.0",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
