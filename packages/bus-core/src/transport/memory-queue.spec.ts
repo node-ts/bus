@@ -5,8 +5,10 @@ import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { IMock, Mock } from 'typemoq'
 import { Logger, LoggerFactory } from '../logger'
-import { DefaultHandlerRegistry, HandlerRegistry } from '../handler'
+import { DefaultHandlerRegistry, handlerFor, HandlerRegistry } from '../handler'
 import { JsonSerializer, MessageSerializer } from '../serialization'
+import EventEmitter from 'events'
+import { Bus } from '../service-bus/bus'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -162,6 +164,25 @@ describe('MemoryQueue', () => {
 
     it('should forward it to the dead letter queue', () => {
       expect(sut.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should only fail the handled message', async () => {
+      const emitter = new EventEmitter()
+      const bus = await Bus.configure()
+        .withConcurrency(1)
+        .withHandler(handlerFor(TestEvent, async () => {
+          await bus.send(new TestCommand())
+          await bus.fail()
+        }))
+        .withHandler(handlerFor(TestCommand, () => { emitter.emit('done') }))
+        .initialize()
+
+      await bus.start()
+
+      const completion = new Promise<void>(resolve => emitter.once('done', resolve))
+      await bus.publish(new TestEvent())
+      await completion
+      await bus.dispose()
     })
   })
 })

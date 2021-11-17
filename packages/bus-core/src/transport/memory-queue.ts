@@ -40,7 +40,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   private queue: TransportMessage<InMemoryMessage>[] = []
   private queuePushed: EventEmitter = new EventEmitter()
-  private deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
+  private _deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   private messagesWithHandlers: { [key: string]: {} }
   private logger: Logger
   private coreDependencies: CoreDependencies
@@ -116,6 +116,11 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
   async deleteMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
     const messageIndex = this.queue.indexOf(message)
+    if (messageIndex < 0) {
+      // actions like .fail() will cause the message to already be deleted
+      this.logger.debug('Message already deleted', { message, messageIndex })
+      return
+    }
     this.logger.debug('Deleting message', { queueDepth: this.depth, messageIndex })
     this.queue.splice(messageIndex, 1)
     this.logger.debug('Message Deleted', { queueDepth: this.depth })
@@ -141,7 +146,15 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   get deadLetterQueueDepth (): number {
-    return this.deadLetterQueue.length
+    return this._deadLetterQueue.length
+  }
+
+  /**
+   * Returns all messages sitting in the dead letter queue. This is a copy of the queue
+   * so mutative actions on this array will have no consequence.
+   */
+  get deadLetterQueue (): TransportMessage<InMemoryMessage>[] {
+    return [...this._deadLetterQueue]
   }
 
   /**
@@ -153,7 +166,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
 
 
   private async sendToDeadLetterQueue (message: TransportMessage<InMemoryMessage>): Promise<void> {
-    this.deadLetterQueue.push(message)
+    this._deadLetterQueue.push(message)
     await this.deleteMessage(message)
   }
 
