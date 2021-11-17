@@ -1,5 +1,3 @@
-export * from './service-bus/bus'
-export * from './service-bus/bus-instance'
 export {
   Transport,
   TransportMessage,
@@ -13,3 +11,4 @@ export * from './workflow'
 export * from './error'
 export * from './container'
 export * from './logger'
+export * from './service-bus'
