@@ -149,7 +149,7 @@ export class SqsTransport implements Transport<SQS.Message> {
       return undefined
     }
 
-    // Only handle the expected snumber of messages, anything else just return and retry
+    // Only handle the expected number of messages, anything else just return and retry
     if (result.Messages.length > 1) {
       this.logger.error(
         'Received more than the expected number of messages',
@@ -363,7 +363,7 @@ export class SqsTransport implements Transport<SQS.Message> {
     const changeVisibilityRequest: SQS.ChangeMessageVisibilityRequest = {
       QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!,
-      VisibilityTimeout: calculateVisibilityTimeout(sqsMessage)
+      VisibilityTimeout: this.calculateVisibilityTimeout(sqsMessage)
     }
 
     await this.sqs.changeMessageVisibility(changeVisibilityRequest).promise()
@@ -401,17 +401,18 @@ export class SqsTransport implements Transport<SQS.Message> {
       }).promise()
     }
   }
-}
 
-function calculateVisibilityTimeout (sqsMessage: SQS.Message): Seconds {
-  const currentReceiveCount = parseInt(
-    sqsMessage.Attributes && sqsMessage.Attributes.ApproximateReceiveCount || '0',
-    10
-  )
-  const numberOfFailures = currentReceiveCount + 1
-  // tslint:disable-next-line:no-magic-numbers This will be replaced with a more comprehensive retry strategy
-  const delay: Milliseconds = 5 ^ numberOfFailures // Delays from 5ms to ~2.5 hrs
-  return delay / MILLISECONDS_IN_SECONDS
+  private calculateVisibilityTimeout (sqsMessage: SQS.Message): Seconds {
+    const currentReceiveCount = parseInt(
+      sqsMessage.Attributes && sqsMessage.Attributes.ApproximateReceiveCount || '0',
+      10
+    )
+
+    const delay: Milliseconds = this.coreDependencies.retryStrategy.calculateRetryDelay(
+      currentReceiveCount
+    )
+    return delay / MILLISECONDS_IN_SECONDS
+  }
 }
 
 export function toMessageAttributeMap (messageOptions: MessageAttributes): SNS.MessageAttributeMap {

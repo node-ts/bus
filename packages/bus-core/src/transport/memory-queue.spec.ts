@@ -1,14 +1,16 @@
-import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
+import { MemoryQueue, InMemoryMessage } from './memory-queue'
 import { TestCommand, TestEvent, TestCommand2, TestEvent2 } from '../test'
 import { TransportMessage } from '../transport'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
-import { IMock, Mock } from 'typemoq'
+import { IMock, It, Mock, Times } from 'typemoq'
 import { Logger, LoggerFactory } from '../logger'
 import { DefaultHandlerRegistry, handlerFor, HandlerRegistry } from '../handler'
 import { JsonSerializer, MessageSerializer } from '../serialization'
 import EventEmitter from 'events'
 import { Bus } from '../service-bus/bus'
+import { RetryStrategy } from '../retry-strategy'
+import { sleep } from '../../dist'
 
 const event = new TestEvent()
 const command = new TestCommand()
@@ -29,17 +31,23 @@ describe('MemoryQueue', () => {
   const serializer = new JsonSerializer()
   const messageSerializer = new MessageSerializer(serializer, handlerRegistry)
 
+  const retryStrategy = Mock.ofType<RetryStrategy>()
+
   beforeEach(async () => {
     logger = Mock.ofType<Logger>()
     loggerFactory = () => logger.object
 
-    sut = new MemoryQueue()
+    sut = new MemoryQueue({
+      maxRetries: 3,
+      receiveTimeoutMs: 1000
+    })
     sut.prepare({
       handlerRegistry,
       container: undefined,
       loggerFactory,
       messageSerializer,
-      serializer
+      serializer,
+      retryStrategy: retryStrategy.object
     })
 
     handlerRegistry.register(TestEvent, () => undefined)
@@ -113,7 +121,14 @@ describe('MemoryQueue', () => {
 
   describe('when returning a message back onto the queue', () => {
     let message: TransportMessage<InMemoryMessage> | undefined
+    const retryDelay = 5
     beforeEach(async () => {
+      retryStrategy.reset()
+
+      retryStrategy
+        .setup(r => r.calculateRetryDelay(0))
+        .returns(() => retryDelay)
+        .verifiable(Times.once())
       await sut.publish(event, messageOptions)
       message = await sut.readNextMessage()
     })
@@ -125,6 +140,7 @@ describe('MemoryQueue', () => {
 
     it('should toggle the inFlight flag to false', async () => {
       await sut.returnMessage(message!)
+      await sleep(retryDelay)
       expect(message!.raw.inFlight).toEqual(false)
     })
 
@@ -132,17 +148,29 @@ describe('MemoryQueue', () => {
       await sut.returnMessage(message!)
       expect(message!.raw.seenCount).toEqual(1)
     })
+
+    it('should delay retrying the message based on the retry strategy', async () => {
+      await sut.returnMessage(message!)
+      retryStrategy.verifyAll()
+    })
   })
 
   describe('when retrying a message has been retried beyond the retry limit', () => {
     let message: TransportMessage<InMemoryMessage> | undefined
     beforeEach(async () => {
+      retryStrategy.reset()
+      retryStrategy
+        .setup(r => r.calculateRetryDelay(It.isAny()))
+        .returns(() => 0)
       await sut.publish(event, messageOptions)
 
       let attempt = 0
-      while (attempt < RETRY_LIMIT) {
+      while (attempt < 3) {
         // Retry to the limit
         message = await sut.readNextMessage()
+        if (!message) {
+          continue
+        }
         await sut.returnMessage(message!)
         attempt++
       }
