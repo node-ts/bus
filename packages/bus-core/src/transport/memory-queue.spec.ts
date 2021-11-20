@@ -1,4 +1,4 @@
-import { MemoryQueue, InMemoryMessage, RETRY_LIMIT } from './memory-queue'
+import { MemoryQueue, InMemoryMessage } from './memory-queue'
 import { TestCommand, TestEvent, TestCommand2, TestEvent2 } from '../test'
 import { TransportMessage } from '../transport'
 import { MessageAttributes } from '@node-ts/bus-messages'
