@@ -1,7 +1,7 @@
 export type Milliseconds = number
 
 /**
- * Defines how a message retry strategy is to be implements that calculates the delay between subsequent
+ * Defines how a message retry strategy is to be implemented that calculates the delay between subsequent
  * retries of a message.
  */
 export interface RetryStrategy {
