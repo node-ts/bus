@@ -72,7 +72,7 @@ export const transportTests = (
         )
         .withHandler(handlerFor(TestFailMessage, async () => bus.fail()))
         .withRetryStrategy({
-          calculateRetryDelay () { return RETRY_DELAY }
+          calculateRetryDelay (_: number): number { return RETRY_DELAY }
         })
         .initialize()
 
