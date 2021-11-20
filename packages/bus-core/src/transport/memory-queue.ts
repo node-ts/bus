@@ -4,13 +4,9 @@ import { TransportMessage } from './transport-message'
 import { EventEmitter } from 'stream'
 import { CoreDependencies } from '../util'
 import { Logger } from '../logger'
-
-export const RETRY_LIMIT = 10
-
-/**
- * How long to wait for the next message
- */
- export const RECEIVE_TIMEOUT_MS = 1000
+import { Milliseconds } from 'src/retry-strategy'
+import { MemoryQueueConfiguration } from './memory-queue-configuration'
+import { DefaultMemoryQueueConfiguration } from './default-memory-queue-configuration'
 
 export interface InMemoryMessage {
   /**
@@ -44,6 +40,11 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   private messagesWithHandlers: { [key: string]: {} }
   private logger: Logger
   private coreDependencies: CoreDependencies
+
+  constructor (
+    private memoryQueueConfiguration: MemoryQueueConfiguration = new DefaultMemoryQueueConfiguration()
+  ) {
+  }
 
   prepare (coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
@@ -102,7 +103,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
       const timeoutToken = setTimeout(() => {
         unsubscribeEmitter()
         resolve(undefined)
-      }, RECEIVE_TIMEOUT_MS)
+      }, this.memoryQueueConfiguration.receiveTimeoutMs)
 
       const nextMessage = getNextMessage()
       if (nextMessage) {
@@ -127,14 +128,17 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   }
 
   async returnMessage (message: TransportMessage<InMemoryMessage>): Promise<void> {
+    const delay: Milliseconds = this.coreDependencies.retryStrategy.calculateRetryDelay(message.raw.seenCount)
     message.raw.seenCount++
 
-    if (message.raw.seenCount >= RETRY_LIMIT) {
+    if (message.raw.seenCount >= this.memoryQueueConfiguration.maxRetries) {
       // Message retries exhausted, send to DLQ
       this.logger.info('Message retry limit exceeded, sending to dead letter queue', { message })
       await this.sendToDeadLetterQueue(message)
     } else {
-      message.raw.inFlight = false
+      setTimeout(() => {
+        message.raw.inFlight = false
+      }, delay)
     }
   }
 
