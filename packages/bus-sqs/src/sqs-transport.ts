@@ -155,7 +155,7 @@ export class SqsTransport implements Transport<SQS.Message> {
         'Received more than the expected number of messages',
         { expected: 1, received: result.Messages.length }
       )
-      await Promise.all(
+      await Promise.allSettled(
         result.Messages
           .map(async message => this.makeMessageVisible(message))
       )

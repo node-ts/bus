@@ -8,7 +8,7 @@ import { PersistenceNotConfigured } from '../persistence/error'
 import { WorkflowAlreadyInitialized } from '../error'
 import { messageHandlingContext } from '../../message-handling-context'
 import { ContainerAdapter } from '../../container'
-import { HandlerRegistry } from '../../handler'
+import { HandlerDispatchRejected, HandlerRegistry } from '../../handler'
 import { Logger } from '../../logger'
 import { Persistence } from '../persistence'
 
@@ -228,7 +228,12 @@ export class WorkflowRegistry {
             }
           })
 
-          await Promise.all(workflowHandlers)
+          const handlerResults = await Promise.allSettled(workflowHandlers)
+          const failedHandlers = handlerResults.filter(r => r.status === 'rejected')
+          if (failedHandlers.length) {
+            const reasons = (failedHandlers as PromiseRejectedResult[]).map(h => h.reason)
+            throw new HandlerDispatchRejected(reasons)
+          }
         }
       )
     })

@@ -5,7 +5,7 @@ import { MessageLogger } from '../test/test-event-handler'
 import { ClassConstructor, sleep } from '../util'
 import { TestEvent, TestEvent2 } from '../test'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
-import { Handler } from '../handler'
+import { Handler, HandlerDispatchRejected } from '../handler'
 
 class UnregisteredClassHandler implements Handler<TestEvent2> {
   messageType = TestEvent2
@@ -75,8 +75,10 @@ describe('ContainerAdapter', () => {
     describe('and a handler is not registered', () => {
       it('should throw a ClassHandlerNotResolved error', async () => {
         const onError = waitForError(bus, error => {
-          expect(error).toBeInstanceOf(ClassHandlerNotResolved)
-          const classHandlerNotResolved = error as ClassHandlerNotResolved
+          expect(error).toBeInstanceOf(HandlerDispatchRejected)
+          const baseError = error as HandlerDispatchRejected
+          expect(baseError.rejections[0]).toBeInstanceOf(ClassHandlerNotResolved)
+          const classHandlerNotResolved = baseError.rejections[0] as ClassHandlerNotResolved
           expect(classHandlerNotResolved.reason).toEqual('Container failed to resolve an instance.')
         })
         await bus.publish(new TestEvent2())
