@@ -13,6 +13,7 @@ import { defaultLoggerFactory, LoggerFactory } from '../logger'
 import { ContainerNotRegistered } from '../error'
 import { MessageSerializer } from '../serialization/message-serializer'
 import { InMemoryPersistence } from '../workflow/persistence'
+import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 
 export interface BusInitializeOptions {
   /**
@@ -40,6 +41,7 @@ export class BusConfiguration {
   private serializer = new JsonSerializer()
   private persistence: Persistence = new InMemoryPersistence()
   private messageReadMiddlewares = new MiddlewareDispatcher<TransportMessage<unknown>>()
+  private retryStrategy: RetryStrategy = new DefaultRetryStrategy()
 
   /**
    * Initializes the bus with the provided configuration
@@ -59,7 +61,8 @@ export class BusConfiguration {
       handlerRegistry: this.handlerRegistry,
       loggerFactory: this.loggerFactory,
       serializer: this.serializer,
-      messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry)
+      messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry),
+      retryStrategy: this.retryStrategy
     }
 
     if (!sendOnly) {
@@ -260,6 +263,16 @@ export class BusConfiguration {
     messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>
   ): this {
     this.messageReadMiddlewares.use(messageReadMiddleware)
+    return this
+  }
+
+  /**
+   * Configure @node-ts/bus to use a different retry strategy that determines delays between
+   * retrying failed messages.
+   * @default DefaultRetryStrategy
+   */
+  withRetryStrategy (retryStrategy: RetryStrategy): this {
+    this.retryStrategy = retryStrategy
     return this
   }
 }

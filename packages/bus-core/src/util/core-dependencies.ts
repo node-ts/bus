@@ -2,6 +2,7 @@ import { MessageSerializer, Serializer } from '../serialization'
 import { HandlerRegistry } from '../handler'
 import { LoggerFactory } from '../logger'
 import { ContainerAdapter } from '../container'
+import { RetryStrategy } from '../retry-strategy'
 
 /**
  * A core set of dependencies that are shared around the service.
@@ -15,4 +16,5 @@ export interface CoreDependencies {
   messageSerializer: MessageSerializer
   loggerFactory: LoggerFactory
   container: ContainerAdapter | undefined
+  retryStrategy: RetryStrategy
 }

@@ -1,7 +1,10 @@
-import { toMessageAttributeMap, SqsMessageAttributes, fromMessageAttributeMap } from './sqs-transport'
-import { SNS } from 'aws-sdk'
+import { toMessageAttributeMap, SqsMessageAttributes, fromMessageAttributeMap, SqsTransport } from './sqs-transport'
+import { SNS, SQS } from 'aws-sdk'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
+import { SqsTransportConfiguration } from './sqs-transport-configuration'
+import { CoreDependencies, TransportMessage, RetryStrategy, LoggerFactory, DebugLogger } from '@node-ts/bus-core'
+import { Mock, It, IMock, Times } from 'typemoq'
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
@@ -88,6 +91,33 @@ describe('sqs-transport', () => {
       const attribute2 = messageAttributes['stickyAttributes.attribute2']
       expect(attribute2.DataType).toEqual('Number')
       expect(attribute2.StringValue).toEqual('2')
+    })
+  })
+
+  describe('when returning a message to the queue', () => {
+    it('should use the retry strategy delay', async () => {
+      const sqs = Mock.ofType(SQS)
+      const sut = new SqsTransport(
+        {} as SqsTransportConfiguration,
+        sqs.object
+      )
+
+      const retryStrategy: RetryStrategy = {
+        calculateRetryDelay () { return 3000 }
+      }
+
+      sut.prepare({
+        retryStrategy,
+        loggerFactory: (name: string) => new DebugLogger(name)
+      } as any as CoreDependencies)
+
+      sqs
+        .setup(s => s.changeMessageVisibility(It.isObjectWith<any>({ VisibilityTimeout: 3 })))
+        .returns(() => ({ promise: async () => undefined }) as any)
+        .verifiable(Times.once())
+
+      await sut.returnMessage({ raw: {} } as TransportMessage<SQS.Message>)
+      sqs.verifyAll()
     })
   })
 })
