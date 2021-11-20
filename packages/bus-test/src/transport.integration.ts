@@ -7,6 +7,8 @@ import * as uuid from 'uuid'
 import { Mock, It, Times } from 'typemoq'
 import { TestSystemMessage } from './helpers/test-system-message'
 
+const RETRY_DELAY = 5
+
 /**
  * A suite of tests that get wrapped by the integration test setup/tear-down of an
  * implementation of a transport
@@ -70,7 +72,7 @@ export const transportTests = (
         )
         .withHandler(handlerFor(TestFailMessage, async () => bus.fail()))
         .withRetryStrategy({
-          calculateRetryDelay () { return 5 }
+          calculateRetryDelay () { return RETRY_DELAY }
         })
         .initialize()
 
