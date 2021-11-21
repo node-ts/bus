@@ -84,7 +84,10 @@ export class WorkflowRegistry {
     for (const WorkflowCtor of this.workflowRegistry) {
       this.logger.debug('Initializing workflow', { workflow: WorkflowCtor.prototype.constructor.name })
 
-      const workflowInstance = new WorkflowCtor()
+      const workflowInstance = container
+        ? container.get(WorkflowCtor)
+        : new WorkflowCtor()
+
       const mapper = new WorkflowMapper(WorkflowCtor)
       workflowInstance.configureWorkflow(mapper)
 
