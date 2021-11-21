@@ -1,7 +1,7 @@
 import { Transport, TransportMessage } from '../transport'
 import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { sleep, ClassConstructor, TypedEmitter, CoreDependencies, MiddlewareDispatcher, Middleware, Next} from '../util'
-import { Handler, FunctionHandler, HandlerDefinition, isClassHandler } from '../handler'
+import { Handler, FunctionHandler, HandlerDefinition, isClassHandler, HandlerDispatchRejected } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus-state'
 import { messageHandlingContext } from '../message-handling-context'
@@ -249,7 +249,13 @@ export class BusInstance {
       handlers
     })
 
-    await Promise.all(handlersToInvoke)
+    const  handlerResults = await Promise.allSettled(handlersToInvoke)
+    const failedHandlers = handlerResults.filter(r => r.status === 'rejected')
+    if (failedHandlers.length) {
+      const reasons = (failedHandlers as PromiseRejectedResult[]).map(h => h.reason)
+      throw new HandlerDispatchRejected(reasons)
+    }
+
     this.logger.debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
   }
 
