@@ -1,4 +1,7 @@
 export class HandlerDispatchRejected extends Error {
+  /**
+   * @param rejections All errors thrown by handlers for the message
+   */
   constructor (
     readonly rejections: Error[]
   ) {
