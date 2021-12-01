@@ -1,3 +1,4 @@
+// tslint:disable:no-magic-numbers
 import { Command, Event, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
 import { SNS, SQS } from 'aws-sdk'
 import { QueueAttributeMap } from 'aws-sdk/clients/sqs'
