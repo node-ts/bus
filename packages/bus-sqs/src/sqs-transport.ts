@@ -18,6 +18,9 @@ const DEFAULT_VISIBILITY_TIMEOUT = 30
 const DEFAULT_MAX_RETRY_COUNT = 10
 const MILLISECONDS_IN_SECONDS = 1000
 const DEFAULT_WAIT_TIME_SECONDS = 10
+const MAX_DELAY_MS = 2.5 * 60 * 60 * 1000 // 2.5 hours
+const JITTER_PERCENT = 0.1
+
 type Seconds = number
 type Milliseconds = number
 
@@ -357,9 +360,12 @@ function calculateVisibilityTimeout (sqsMessage: SQS.Message): Seconds {
     10
   )
   const numberOfFailures = currentReceiveCount + 1
-  // tslint:disable-next-line:no-magic-numbers This will be replaced with a more comprehensive retry strategy
-  const delay: Milliseconds = 5 ^ numberOfFailures // Delays from 5ms to ~2.5 hrs
-  return delay / MILLISECONDS_IN_SECONDS
+  const constantDelay: Milliseconds = Math.pow(5, numberOfFailures)
+  const jitterAmount = Math.random() * JITTER_PERCENT * constantDelay
+  const jitterDirection = Math.random() > 0.5 ? 1 : -1
+  const jitter = jitterAmount * jitterDirection
+  const delay = Math.round(constantDelay + jitter)
+  return Math.min(delay, MAX_DELAY_MS) / MILLISECONDS_IN_SECONDS
 }
 
 export function toMessageAttributeMap (messageOptions: MessageAttributes): SNS.MessageAttributeMap {
