@@ -31,8 +31,8 @@
     "typescript": "^4.3.5"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^0.4.6",
-    "@node-ts/logger-core": "^0.0.17",
+    "@node-ts/bus-core": "^0.6.0",
+    "@node-ts/logger-core": "^0.1.0",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13"
   },
