@@ -37,7 +37,7 @@
   },
   "peerDependencies": {
     "@node-ts/bus-core": "^0.6.6",
-    "@node-ts/logger-core": "^0.0.13",
+    "@node-ts/logger-core": "^0.1.0",
     "inversify": "^5.0.1",
     "reflect-metadata": "^0.1.13"
   },
