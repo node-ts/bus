@@ -131,10 +131,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
       // No messages immediately available, so wait for one to be received
       const messageConsumedCallback = () => {
-        const message = this.consumptionQueue.shift()
-        if (message) {
+        const maybeMessage = this.consumptionQueue.shift()
+        if (maybeMessage) {
           unsubscribe()
-          resolve(message)
+          resolve(maybeMessage)
         }
       }
 
