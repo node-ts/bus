@@ -79,7 +79,9 @@ export class BusConfiguration {
     const transport: Transport = this.configuredTransport || new MemoryQueue()
     transport.prepare(coreDependencies)
     if (transport.connect) {
-      await transport.connect()
+      await transport.connect({
+        concurrency: this.concurrency
+      })
     }
     if (!sendOnly && transport.initialize) {
       await transport.initialize(this.handlerRegistry)

@@ -10,13 +10,20 @@ import {
   TransportMessage,
   DEFAULT_DEAD_LETTER_QUEUE_NAME,
   CoreDependencies,
-  Logger
+  Logger,
+  TransportConnectionOptions
 } from '@node-ts/bus-core'
-import { Connection, Channel, Message as RabbitMqMessage, GetMessage, connect } from 'amqplib'
+import { Connection, Channel, Message as RabbitMqMessage, GetMessage, connect, ConsumeMessage } from 'amqplib'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import * as uuid from 'uuid'
+import { EventEmitter } from 'events'
 
 export const DEFAULT_MAX_RETRIES = 10
+
+enum ConsumptionQueueEvent {
+  Pushed = 'pushed',
+  Stopped = 'stopped'
+}
 
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
@@ -36,6 +43,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private coreDependencies: CoreDependencies
   private logger: Logger
 
+  private consumptionQueue: ConsumeMessage[] = []
+  private consumptionQueueEvents = new EventEmitter()
+
   constructor (
     private readonly configuration: RabbitMqTransportConfiguration
   ) {
@@ -51,10 +61,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.logger = coreDependencies.loggerFactory('@node-ts/bus-rabbitmq:rabbitmq-transport')
   }
 
-  async connect (): Promise<void> {
+  async connect (options: TransportConnectionOptions): Promise<void> {
     this.logger.info('Connecting to RabbitMQ...')
     this.connection = await connect(this.configuration.connectionString)
     this.channel = await this.connection.createChannel()
+    this.channel.prefetch(options.concurrency)
     this.logger.info('Connected to RabbitMQ')
   }
 
@@ -91,9 +102,57 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     )
   }
 
+  async start (): Promise<void> {
+    await this.channel.consume(
+      this.configuration.queueName,
+      (msg: ConsumeMessage | null) => {
+        if (!msg) {
+          return
+        }
+        this.consumptionQueue.push(msg)
+        this.consumptionQueueEvents.emit(ConsumptionQueueEvent.Pushed)
+      },
+      { noAck: false }
+    )
+  }
+
+  async stop (): Promise<void> {
+    // Tell the .consume() subscription to exit
+    this.consumptionQueueEvents.emit(ConsumptionQueueEvent.Stopped)
+  }
+
   async readNextMessage (): Promise<TransportMessage<RabbitMqMessage> | undefined> {
-    const rabbitMessage = await this.channel.get(this.configuration.queueName, { noAck: false })
-    if (rabbitMessage === false) {
+    const rabbitMessage = await new Promise<ConsumeMessage | undefined>(resolve => {
+      const message = this.consumptionQueue.shift()
+      if (message) {
+        resolve(message)
+        return
+      }
+
+      // No messages immediately available, so wait for one to be received
+      const messageConsumedCallback = () => {
+        const maybeMessage = this.consumptionQueue.shift()
+        if (maybeMessage) {
+          unsubscribe()
+          resolve(maybeMessage)
+        }
+      }
+
+      const messageStoppedCallback = () => {
+        unsubscribe()
+        resolve(undefined)
+      }
+
+      const unsubscribe = () => {
+        this.consumptionQueueEvents.off(ConsumptionQueueEvent.Pushed, messageConsumedCallback)
+        this.consumptionQueueEvents.off(ConsumptionQueueEvent.Stopped, messageStoppedCallback)
+      }
+
+      this.consumptionQueueEvents.on(ConsumptionQueueEvent.Pushed, messageConsumedCallback)
+      this.consumptionQueueEvents.on(ConsumptionQueueEvent.Stopped, messageStoppedCallback)
+    })
+
+    if (!rabbitMessage) {
       return undefined
     }
     const payloadStr = rabbitMessage.content.toString('utf8')

@@ -323,11 +323,6 @@ Session.vim
 pyvenv.cfg
 pip-selfcheck.json
 
-#####=== VisualStudioCode ===#####
-.settings
-.vscode/
-
-
 #####=== Windows ===#####
 # Windows image file caches
 Thumbs.db

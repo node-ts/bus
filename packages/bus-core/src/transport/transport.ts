@@ -3,6 +3,10 @@ import { CoreDependencies } from '../util'
 import { HandlerRegistry } from '../handler'
 import { TransportMessage } from './transport-message'
 
+export interface TransportConnectionOptions {
+  concurrency: number
+}
+
 /**
  * A transport adapter interface that enables the service bus to use a messaging technology.
  */
@@ -72,13 +76,23 @@ export interface Transport<TransportMessageType = {}> {
    * An optional function that will be called on startup. This gives a chance for the transport
    * to establish any connections to the underlying infrastructure.
    */
-  connect? (): Promise<void>
+  connect? (options: TransportConnectionOptions): Promise<void>
 
   /**
    * An optional function that will be called on shutdown. This gives a chance for the transport
    * to close any connections to the underlying infrastructure.
    */
   disconnect? (): Promise<void>
+
+  /**
+   * An optional method called on the transport when it should start consuming messages.
+   */
+  start? (): Promise<void>
+
+  /**
+   * An optional method called on the transport when it should no longer consume messages.
+   */
+  stop? (): Promise<void>
 
   /**
    * An optional function that will be called when the service bus is starting. This is an

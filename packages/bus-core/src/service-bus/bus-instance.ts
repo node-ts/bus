@@ -113,6 +113,10 @@ export class BusInstance {
     this.logger.info('Bus starting...')
     messageHandlingContext.enable()
 
+    if(this.transport.start) {
+      await this.transport.start()
+    }
+
     this.internalState = BusState.Started
     for (var i = 0; i < this.concurrency; i++) {
       setTimeout(async () => this.applicationLoop(), 0)
@@ -138,6 +142,9 @@ export class BusInstance {
     }
     this.internalState = BusState.Stopping
     this.logger.info('Bus stopping...')
+    if (this.transport.stop) {
+      await this.transport.stop()
+    }
 
     while (this.runningWorkerCount > 0) {
       await sleep(10)
