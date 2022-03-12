@@ -1,0 +1,19 @@
+{
+  "configurations": [
+    {
+      /*
+        Runs the test in the active window in watch mode, allowing for debug breakpoints to be hit.
+        Breakpoints can be added anywhere up and down the stack, including in node_modules.
+      */
+      "name": "Debug test",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "args": ["run", "test:watch", "${file}", "--", "--runInBand"],
+      "cwd": "${workspaceRoot}",
+      "protocol": "inspector",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}

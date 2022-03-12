@@ -2,6 +2,7 @@ export {
   Transport,
   TransportMessage,
   TransportConfiguration,
+  TransportConnectionOptions,
   DEFAULT_DEAD_LETTER_QUEUE_NAME
 } from './transport'
 export * from './handler'
