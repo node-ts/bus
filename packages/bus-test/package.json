@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-test",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "A dev-dependency package used to test transport implementations.",
   "homepage": "https://github.com/node-ts/bus#readme",
   "main": "./src/index.ts",
@@ -17,7 +17,7 @@
     "url": "https://github.com/node-ts/bus/issues"
   },
   "dependencies": {
-    "@node-ts/bus-core": "^1.0.12",
+    "@node-ts/bus-core": "^1.0.13",
     "@node-ts/bus-messages": "^1.0.4",
     "@node-ts/code-standards": "^0.0.10",
     "@types/faker": "^5.5.7",
