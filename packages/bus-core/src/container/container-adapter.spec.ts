@@ -86,6 +86,47 @@ describe('ContainerAdapter', () => {
       })
     })
   })
+  describe('when an async adapter is installed', () => {
+    beforeEach(async () => {
+      bus = await Bus
+        .configure()
+        .withContainer({
+          get <T>(type: ClassConstructor<T>) {
+            return Promise.resolve(container[type.name] as T);
+          }
+        })
+        .withHandler(TestEventClassHandler)
+        .withHandler(UnregisteredClassHandler)
+        .initialize()
+      await bus.start()
+    })
+
+    afterEach(async () => {
+      await bus.dispose()
+    })
+
+    describe('and a handler is registered', () => {
+      it('should route the message to the class based handler', async () => {
+        await bus.publish(event)
+        await sleep(0)
+        messageLogger.verify(m => m.log(event), Times.once())
+      })
+    })
+
+    describe('and a handler is not registered', () => {
+      it('should throw a ClassHandlerNotResolved error', async () => {
+        const onError = waitForError(bus, error => {
+          expect(error).toBeInstanceOf(HandlerDispatchRejected)
+          const baseError = error as HandlerDispatchRejected
+          expect(baseError.rejections[0]).toBeInstanceOf(ClassHandlerNotResolved)
+          const classHandlerNotResolved = baseError.rejections[0] as ClassHandlerNotResolved
+          expect(classHandlerNotResolved.reason).toEqual('Container failed to resolve an instance.')
+        })
+        await bus.publish(new TestEvent2())
+        await onError
+      })
+    })
+  })
 
   describe('when no adapter is installed', () => {
     describe('and no class handlers are registered', () => {

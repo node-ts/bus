@@ -45,5 +45,21 @@ describe('WorkflowRegistry', () => {
         container.verifyAll()
       })
     })
+    describe('with an async container', () => {
+      let container: IMock<ContainerAdapter>
+
+      beforeEach(() => {
+        container = Mock.ofType<ContainerAdapter>()
+        container
+          .setup(c => c.get(TestWorkflow))
+          .returns(() => Promise.resolve(new TestWorkflow(Mock.ofType<BusInstance>().object)))
+          .verifiable(Times.once())
+      })
+
+      it('should fetch workflows from the container', async () => {
+        await sut.initialize(new DefaultHandlerRegistry(), container.object)
+        container.verifyAll()
+      })
+    })
   })
 })

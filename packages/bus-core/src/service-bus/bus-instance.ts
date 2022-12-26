@@ -296,7 +296,12 @@ export class BusInstance {
 
       let handlerInstance: Handler<Message> | undefined
       try {
-        handlerInstance = this.coreDependencies.container!.get(classHandler)
+        const handlerInstanceFromContainer = this.coreDependencies.container!.get(classHandler);
+        if(handlerInstanceFromContainer instanceof Promise) {
+          handlerInstance = await handlerInstanceFromContainer;
+        } else{
+          handlerInstance =  handlerInstanceFromContainer;
+        }  
         if (!handlerInstance) {
           throw new Error('Container failed to resolve an instance.')
         }
