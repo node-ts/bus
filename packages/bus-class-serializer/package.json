@@ -4,6 +4,8 @@
   "description": "A JSON serializer for @node-ts/bus based on class-transformer for strong marshalling of messages",
   "homepage": "https://github.com/node-ts/bus#readme",
   "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
