@@ -8,18 +8,29 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
   /**
    * The AWS Account Id of the account where queues and topics will be created
    */
-  awsAccountId: string
+  awsAccountId?: string
 
   /**
    * The AWS region to create queues and topics in
    */
-  awsRegion: string
+  awsRegion?: string
+
+  /**
+   * An optional AWS ARN of the dead letter queue to fail messages to
+   * @default undefined
+   */
+  deadLetterQueueArn?: string;
 
   /**
    * The number of seconds to retain messages in the service and dead letter queues
    * @default 1209600 (14 days)
    */
   messageRetentionPeriod?: number
+
+  /**
+   * The AWS ARN for the target SQS Queue
+   */
+  queueArn?: string
 
   /**
    * An optional custom queue policy to apply to any created SQS queues.
