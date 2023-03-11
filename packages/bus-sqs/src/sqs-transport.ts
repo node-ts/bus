@@ -78,13 +78,15 @@ export class SqsTransport implements Transport<SQSMessage> {
    */
   private registeredMessages: MessageRegistry = {}
 
+  private coreDependencies: CoreDependencies
+  private logger: Logger
   private readonly queueUrl: string
   private readonly queueArn: string
   private readonly deadLetterQueueName: string
   private readonly deadLetterQueueUrl: string
   private readonly deadLetterQueueArn: string
-  private coreDependencies: CoreDependencies
-  private logger: Logger
+  private readonly sqs: SQSClient
+  private readonly sns: SNSClient
 
   private readonly resolveTopicName: typeof defaultResolveTopicName
   private readonly resolveTopicArn: typeof defaultResolveTopicArn
@@ -97,8 +99,8 @@ export class SqsTransport implements Transport<SQSMessage> {
    */
   constructor (
     private readonly sqsConfiguration: SqsTransportConfiguration,
-    private readonly sqs: SQSClient,
-    private readonly sns: SNSClient
+    sqs?: SQSClient,
+    sns?: SNSClient
   ) {
     if(!sqsConfiguration.queueArn && !(sqsConfiguration.awsAccountId && sqsConfiguration.awsRegion))
       throw new AssertionError({ message: 'SqsTransportConfiguration requires one of: awsAccountId and awsRegion and queueName, or queueArn' });
@@ -120,8 +122,8 @@ export class SqsTransport implements Transport<SQSMessage> {
       )
     }
 
-    this.sqs = new SQSClient({ region: sqsConfiguration.awsRegion });
-    this.sns = new SNSClient({ region: sqsConfiguration.awsRegion });
+    this.sqs = sqs || new SQSClient({ region: sqsConfiguration.awsRegion });
+    this.sns = sns || new SNSClient({ region: sqsConfiguration.awsRegion });
 
     this.queueUrl = resolveQueueUrl(sqsConfiguration, sqsConfiguration.queueName!)
 
