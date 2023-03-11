@@ -4,7 +4,7 @@ import {
   resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 
-export interface SqsTransportConfiguration extends TransportConfiguration {
+export interface SqsTransportConfiguration extends Omit<TransportConfiguration, 'queueName'> {
   /**
    * The AWS Account Id of the account where queues and topics will be created
    */
@@ -31,6 +31,12 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
    * The AWS ARN for the target SQS Queue
    */
   queueArn?: string
+
+  /**
+   * The name of the queue that receives incoming messages
+   * @example order-booking-service
+   */
+  queueName?: string;
 
   /**
    * An optional custom queue policy to apply to any created SQS queues.

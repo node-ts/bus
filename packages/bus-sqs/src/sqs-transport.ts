@@ -102,7 +102,7 @@ export class SqsTransport implements Transport<SQSMessage> {
     sqs?: SQSClient,
     sns?: SNSClient
   ) {
-    if(!sqsConfiguration.queueArn && !(sqsConfiguration.awsAccountId && sqsConfiguration.awsRegion))
+    if(!sqsConfiguration.queueArn && !(sqsConfiguration.awsAccountId && sqsConfiguration.awsRegion && sqsConfiguration.queueName))
       throw new AssertionError({ message: 'SqsTransportConfiguration requires one of: awsAccountId and awsRegion and queueName, or queueArn' });
 
     this.resolveTopicName = sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
