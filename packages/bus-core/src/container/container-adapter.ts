@@ -10,5 +10,5 @@ export interface ContainerAdapter {
    * @param type Type of the class to fetch an instance for
    * @example get(MessageHandler)
    */
-  get <T>(type: ClassConstructor<T>): T
+  get <T>(type: ClassConstructor<T>): T| Promise<T>
 }

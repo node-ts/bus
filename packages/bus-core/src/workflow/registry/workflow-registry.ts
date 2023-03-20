@@ -84,10 +84,17 @@ export class WorkflowRegistry {
     for (const WorkflowCtor of this.workflowRegistry) {
       this.logger.debug('Initializing workflow', { workflow: WorkflowCtor.prototype.constructor.name })
 
-      const workflowInstance = container
-        ? container.get(WorkflowCtor)
-        : new WorkflowCtor()
-
+      let workflowInstance;
+      if(container){
+        const workflowInstanceFromContainer = container.get(WorkflowCtor);
+        if(workflowInstanceFromContainer instanceof Promise){
+          workflowInstance = await workflowInstanceFromContainer;
+        }else{
+          workflowInstance =  workflowInstanceFromContainer;
+        }
+      }else{
+        workflowInstance = new WorkflowCtor();
+      }
       const mapper = new WorkflowMapper(WorkflowCtor)
       workflowInstance.configureWorkflow(mapper)
 
@@ -155,9 +162,17 @@ export class WorkflowRegistry {
           const immutableWorkflowState = Object.freeze({...workflowState})
           this.startWorkflowHandlingContext(immutableWorkflowState)
           try {
-            const workflow = container
-              ? container.get(options.workflowCtor)
-              : new options.workflowCtor()
+            let workflow: Workflow<WorkflowState>;
+            if(container){
+              const workflowFromContainer = container.get(options.workflowCtor);
+              if(workflowFromContainer instanceof Promise){
+                workflow = await workflowFromContainer;
+              }else{
+                workflow =  workflowFromContainer;
+              }
+            }else{
+              workflow = new options.workflowCtor();
+            }
             const handler = workflow[options.workflowHandler as keyof Workflow<WorkflowState>] as Function
             const result = await handler.bind(workflow)(message, immutableWorkflowState, messageAttributes)
 
@@ -279,9 +294,17 @@ export class WorkflowRegistry {
     container: ContainerAdapter | undefined
   ) {
     this.logger.debug('Dispatching message to workflow', { msg: message, workflow: workflowCtor })
-    const workflow = container
-      ? container.get(workflowCtor)
-      : new workflowCtor()
+    let workflow: Workflow<WorkflowState>;
+    if(container){
+      const workflowFromContainer = container.get(workflowCtor);
+      if(workflowFromContainer instanceof Promise){
+        workflow = await workflowFromContainer;
+      } else {
+        workflow =  workflowFromContainer;
+      }
+    }else{
+      workflow = new workflowCtor();
+    }
 
     const immutableWorkflowState = Object.freeze({...workflowState})
     const handler = workflow[workflowHandler] as Function
