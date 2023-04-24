@@ -19,12 +19,10 @@ const WORKFLOW_DATA_FIELD_NAME = "data";
 export class MongodbPersistence implements Persistence {
   private coreDependencies: CoreDependencies;
   private logger: Logger;
-  private database: Db | undefined;
+  private database: Db;
   constructor(
     private readonly configuration: MongodbConfiguration,
-    private client: MongoClient | undefined = new MongoClient(
-      configuration.connection
-    )
+    private client: MongoClient = new MongoClient(configuration.connection)
   ) {}
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -32,24 +30,18 @@ export class MongodbPersistence implements Persistence {
     this.logger = coreDependencies.loggerFactory(
       "@node-ts/bus-persistence:mongodb-persistence"
     );
-    this.client;
   }
 
   async initialize(): Promise<void> {
     this.logger.info("Initializing mongodb persistence...");
-    if (this.client) {
-      await this.client?.connect();
-      this.database = this.client?.db(this.configuration.databaseName);
-    }
+    await this.client.connect();
+    this.database = this.client.db(this.configuration.databaseName);
     this.logger.info("Mongodb persistence initialized");
   }
 
   async dispose(): Promise<void> {
     this.logger.info("Disposing Mongodb persistence...");
-    if (this.client) {
-      this.client.close();
-      this.client = undefined;
-    }
+    await this.client.close();
     this.logger.info("Mongodb persistence disposed");
   }
 
@@ -57,6 +49,8 @@ export class MongodbPersistence implements Persistence {
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
+    await this.client.connect();
+    this.database = this.client.db(this.configuration.databaseName);
     const workflowStateName = new workflowStateConstructor().$name;
     this.logger.info("Initializing workflow", {
       workflowState: workflowStateName,
@@ -86,7 +80,7 @@ export class MongodbPersistence implements Persistence {
     const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty(
       messageMap.mapsTo
     )}`;
-    const collection = this.database?.collection(tableName);
+    const collection = this.database.collection(tableName);
     const findObject = {
       [workflowStateField]: matcherValue,
     } as any;
@@ -95,7 +89,7 @@ export class MongodbPersistence implements Persistence {
         `${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty("$status")}`
       ] = "running";
     }
-    const documents = await collection?.find(findObject).toArray();
+    const documents = await collection.find(findObject).toArray();
     this.logger.debug("Querying workflow state", { findObject });
 
     this.logger.debug("Got workflow state", {
@@ -147,10 +141,10 @@ export class MongodbPersistence implements Persistence {
       collectionName,
     });
     const collectionExists = await this.database
-      ?.listCollections({ name: collectionName }, { nameOnly: true })
+      .listCollections({ name: collectionName }, { nameOnly: true })
       .hasNext();
     if (!collectionExists) {
-      await this.database?.createCollection(collectionName);
+      await this.database.createCollection(collectionName);
     }
   }
 
@@ -158,9 +152,11 @@ export class MongodbPersistence implements Persistence {
     collectionName: string,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
-    const collection = this.database?.collection(collectionName);
-    const existingIndexes = (await collection?.listIndexes().toArray()) ?? [];
-    const existingIndexNames = existingIndexes?.map((index) => index.name);
+    const collection = this.database.collection(collectionName);
+    const existingIndexes = (await collection.listIndexes().toArray()) ?? [];
+    const existingIndexNames = existingIndexes
+      .map((index) => index.name)
+      .filter((x) => x !== "_id_");
     const createPrimaryIndex = this.createPrimaryIndex(
       collectionName,
       existingIndexNames as string[]
@@ -184,13 +180,13 @@ export class MongodbPersistence implements Persistence {
       this.logger.debug("Ensuring secondary index exists", {
         indexName,
       });
-      await collection?.createIndex(
+      await collection.createIndex(
         { [workflowStateField]: 1 },
         { name: indexName }
       );
     });
     const dropIndexes = existingIndexNames.map(async (indexName) => {
-      await collection?.dropIndex(indexName);
+      await collection.dropIndex(indexName);
     });
     await Promise.all([
       createPrimaryIndex,
@@ -203,7 +199,7 @@ export class MongodbPersistence implements Persistence {
     collectionName: string,
     existingIndexesNames: string[]
   ): Promise<void> {
-    const collection = this.database?.collection(collectionName);
+    const collection = this.database.collection(collectionName);
     const primaryIndexName = resolveIndexName(collectionName, "id", "version");
     const primaryIndexLocation = existingIndexesNames.indexOf(primaryIndexName);
     if (primaryIndexLocation !== -1) {
@@ -213,7 +209,7 @@ export class MongodbPersistence implements Persistence {
     this.logger.debug("Ensuring primary index exists", {
       primaryIndexName,
     });
-    await collection?.createIndex(
+    await collection.createIndex(
       { _id: 1, version: 1 },
       { name: primaryIndexName }
     );
@@ -226,7 +222,7 @@ export class MongodbPersistence implements Persistence {
     oldVersion: number,
     newVersion: number
   ): Promise<void> {
-    const collection = this.database?.collection(collectionName);
+    const collection = this.database.collection(collectionName);
     if (oldVersion === 0) {
       this.logger.debug("Inserting new workflow state", {
         collectionName,
@@ -235,7 +231,7 @@ export class MongodbPersistence implements Persistence {
         newVersion,
       });
       // This is a new workflow, so just insert the data
-      await collection?.insertOne({
+      await collection.insertOne({
         id: workflowId,
         version: newVersion,
         [WORKFLOW_DATA_FIELD_NAME]: plainWorkflowState,
@@ -247,7 +243,7 @@ export class MongodbPersistence implements Persistence {
         oldVersion,
         newVersion,
       });
-      const result = await collection?.findOneAndUpdate(
+      const result = await collection.findOneAndUpdate(
         {
           id: workflowId,
           version: oldVersion,

@@ -1,4 +1,4 @@
-# @node-ts/bus-postgres
+# @node-ts/bus-mongodb
 
 A Mongodb based persistence for workflow storage in [@node-ts/bus](https://bus.node-ts.com)
 
@@ -14,11 +14,11 @@ Install all packages and their dependencies
 npm install @node-ts/bus-mongodb
 ```
 
-Configure a new Postgres persistence and register it with `Bus`:
+Configure a new Mongodb persistence and register it with `Bus`:
 
 ```typescript
 import { Bus } from '@node-ts/bus-core'
-import { MongodbPersistence, MongodbConfiguration } from '@node-ts/bus-postgres'
+import { MongodbPersistence, MongodbConfiguration } from '@node-ts/bus-mongodb'
 
 const configuration: MongodbConfiguration = {
   connection: 'mongodb://localhost:27017',

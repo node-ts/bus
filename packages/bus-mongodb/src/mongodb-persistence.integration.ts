@@ -10,7 +10,6 @@ import { MongodbPersistence } from "./mongodb-persistence";
 import { MongodbConfiguration } from "./mongodb-configuration";
 import { Mock } from "typemoq";
 import { TestWorkflowState, TestCommand, TestWorkflow } from "../test";
-import { Pool } from "pg";
 import * as uuid from "uuid";
 import { Collection, Db, MongoClient } from "mongodb";
 import { WorkflowStateNotFound } from "./error";
