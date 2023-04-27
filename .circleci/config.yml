@@ -7,7 +7,7 @@ jobs:
   build:
     <<: *defaults
     docker:
-      - image: circleci/node:14.20.1
+      - image: circleci/node:16
     steps:
       - checkout
       - run:
@@ -45,7 +45,7 @@ jobs:
   deploy:
     <<: *defaults
     docker:
-      - image: circleci/node:14.20.1
+      - image: circleci/node:16
     steps:
       # Reuse the workspace from the build job
       - attach_workspace:
