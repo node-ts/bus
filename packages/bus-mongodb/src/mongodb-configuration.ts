@@ -5,10 +5,10 @@ export interface MongodbConfiguration {
   /**
    * The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
    */
-  connection: string;
+  connection: string
 
   /**
-   * The database name to create workflow collections inside. 
+   * The database name to create workflow collections inside.
    */
-  databaseName: string;
+  databaseName: string
 }
