@@ -74,7 +74,8 @@ jobs:
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
           name: Publish
-          command: pnpm publish --recursive
+          command: git status
+          # command: pnpm publish --recursive
 
 workflows:
   version: 2
