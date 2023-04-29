@@ -26,10 +26,7 @@ jobs:
             curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@7
       - run:
           name: Install dependencies
-          command: pnpm
-      - run:
-          name: Bootstrap
-          command: pnpm run bootstrap
+          command: pnpm i
       - run:
           name: Build
           command: pnpm run build
