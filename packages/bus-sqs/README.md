@@ -30,10 +30,7 @@ const sqsTransport = new SqsTransport(sqsConfiguration)
 
 // Configure Bus to use SQS as a transport
 const run = async () => {
-  await Bus
-    .configure()
-    .withTransport(sqsTransport)
-    .initialize()
+  await Bus.configure().withTransport(sqsTransport).initialize()
 }
 run.catch(console.error)
 ```
@@ -45,4 +42,5 @@ Local development can be done with the aid of docker to run the required infrast
 ```bash
 docker run -e SERVICES=sqs,sns -e DEFAULT_REGION=us-east-1 -p 4566-4583:4566-4583 localstack/localstack
 ```
+
 This will create a localstack instance running and exposing a mock sqs/sns that's compatible with the AWS-SDK. This same environment is used when running integration tests for the `SqsTransport`.

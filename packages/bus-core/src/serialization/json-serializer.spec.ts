@@ -6,11 +6,7 @@ class Contract {
 
   testFn: () => void
 
-  constructor (
-    readonly a: string,
-    readonly b: number,
-    c: Date
-  ) {
+  constructor(readonly a: string, readonly b: number, c: Date) {
     this.c = c
   }
 }
@@ -43,7 +39,10 @@ describe('JsonSerializer', () => {
     let result: Contract
     const date = new Date(200)
     beforeEach(() => {
-      result = sut.deserialize(`{"a":"a","b":1,"c":"${date.toISOString()}"}`, Contract)
+      result = sut.deserialize(
+        `{"a":"a","b":1,"c":"${date.toISOString()}"}`,
+        Contract
+      )
     })
 
     it('should deserialize to a plain object', () => {

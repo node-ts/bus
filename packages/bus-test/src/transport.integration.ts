@@ -1,6 +1,12 @@
 // tslint:disable:no-unsafe-any Using typemoq for It.isAnh()
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
-import { HandleChecker, TestCommand, TestEvent, TestFailMessage, TestPoisonedMessage } from './helpers'
+import {
+  HandleChecker,
+  TestCommand,
+  TestEvent,
+  TestFailMessage,
+  TestPoisonedMessage
+} from './helpers'
 import { EventEmitter } from 'stream'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import * as uuid from 'uuid'
@@ -24,7 +30,9 @@ export const transportTests = (
   transport: Transport,
   publishSystemMessage: (testSystemAttributeValue: string) => Promise<void>,
   systemMessageTopicIdentifier: string | undefined,
-  readAllFromDeadLetterQueue: () => Promise<{ message: Message, attributes: MessageAttributes}[]>
+  readAllFromDeadLetterQueue: () => Promise<
+    { message: Message; attributes: MessageAttributes }[]
+  >
 ) => {
   const testCommandHandlerEmitter = new EventEmitter()
   const testEventHandlerEmitter = new EventEmitter()
@@ -38,41 +46,44 @@ export const transportTests = (
     beforeAll(async () => {
       bus = await Bus.configure()
         .withTransport(transport)
-        .withHandler(handlerFor(
-          TestCommand,
-          (message, attributes) => {
+        .withHandler(
+          handlerFor(TestCommand, (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testCommandHandlerEmitter.emit('received')
-          }
-        ))
-        .withHandler(handlerFor(
-          TestEvent,
-          (message, attributes) => {
+          })
+        )
+        .withHandler(
+          handlerFor(TestEvent, (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testEventHandlerEmitter.emit('received')
-          }
-        ))
-        .withHandler(handlerFor(
-          TestPoisonedMessage,
-          async () => {
+          })
+        )
+        .withHandler(
+          handlerFor(TestPoisonedMessage, async () => {
             poisonedMessageReceiptAttempts++
-            testPoisonedMessageHandlerEmitter.emit('received', poisonedMessageReceiptAttempts)
+            testPoisonedMessageHandlerEmitter.emit(
+              'received',
+              poisonedMessageReceiptAttempts
+            )
             throw new Error()
-          }
-        ))
+          })
+        )
         .withCustomHandler(
           async (message, attributes) => {
             handleChecker.object.check(message, attributes)
             testSystemMessageHandlerEmitter.emit('event')
           },
           {
-            resolveWith: (m: TestSystemMessage) => m.$name === TestSystemMessage.NAME,
+            resolveWith: (m: TestSystemMessage) =>
+              m.$name === TestSystemMessage.NAME,
             topicIdentifier: systemMessageTopicIdentifier
           }
         )
         .withHandler(handlerFor(TestFailMessage, async () => bus.fail()))
         .withRetryStrategy({
-          calculateRetryDelay (_: number): number { return RETRY_DELAY }
+          calculateRetryDelay(_: number): number {
+            return RETRY_DELAY
+          }
         })
         .initialize()
 
@@ -87,9 +98,17 @@ export const transportTests = (
       beforeAll(async () => publishSystemMessage(attrValue))
 
       it('should handle the system message', async () => {
-        await new Promise<void>(resolve => testSystemMessageHandlerEmitter.on('event', resolve))
+        await new Promise<void>(resolve =>
+          testSystemMessageHandlerEmitter.on('event', resolve)
+        )
         handleChecker.verify(
-          h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>({ attributes: { systemMessage: attrValue } })),
+          h =>
+            h.check(
+              It.isAny(),
+              It.isObjectWith<MessageAttributes>({
+                attributes: { systemMessage: attrValue }
+              })
+            ),
           Times.once()
         )
       })
@@ -111,9 +130,15 @@ export const transportTests = (
 
       it('should receive and dispatch to the handler', async () => {
         await bus.send(testCommand, messageOptions)
-        await new Promise(resolve => testCommandHandlerEmitter.on('received', resolve))
+        await new Promise(resolve =>
+          testCommandHandlerEmitter.on('received', resolve)
+        )
         handleChecker.verify(
-          h => h.check(It.isAny(), It.isObjectWith<MessageAttributes>(messageOptions)),
+          h =>
+            h.check(
+              It.isAny(),
+              It.isObjectWith<MessageAttributes>(messageOptions)
+            ),
           Times.once()
         )
       })
@@ -126,15 +151,20 @@ export const transportTests = (
         attributes: {
           foo: 'bar'
         },
-        stickyAttributes: {
-        }
+        stickyAttributes: {}
       }
 
       it('should receive and dispatch to the handler', async () => {
         await bus.publish(testEvent, messageOptions)
-        await new Promise(resolve => testEventHandlerEmitter.on('received', resolve))
+        await new Promise(resolve =>
+          testEventHandlerEmitter.on('received', resolve)
+        )
         handleChecker.verify(
-          h => h.check(It.isAnyObject(TestEvent), It.isObjectWith<MessageAttributes>(messageOptions)),
+          h =>
+            h.check(
+              It.isAnyObject(TestEvent),
+              It.isObjectWith<MessageAttributes>(messageOptions)
+            ),
           Times.once()
         )
       })
@@ -142,7 +172,7 @@ export const transportTests = (
 
     describe('when handing a poisoned message', () => {
       const poisonedMessage = new TestPoisonedMessage(uuid.v4())
-      let deadMessages: { message: Message, attributes: MessageAttributes}[]
+      let deadMessages: { message: Message; attributes: MessageAttributes }[]
 
       beforeAll(async () => {
         await bus.publish(poisonedMessage)
@@ -167,7 +197,10 @@ export const transportTests = (
     describe('when failing a message', () => {
       const messageToFail = new TestFailMessage(uuid.v4())
       const correlationId = uuid.v4()
-      let deadLetterQueueMessages: { message: Message, attributes: MessageAttributes }[]
+      let deadLetterQueueMessages: {
+        message: Message
+        attributes: MessageAttributes
+      }[]
 
       beforeAll(async () => {
         await bus.publish(messageToFail, { correlationId })
@@ -175,23 +208,27 @@ export const transportTests = (
       })
 
       it('should forward it to the dead letter queue', () => {
-        const deadLetterMessage = deadLetterQueueMessages
-          .find(msg => msg.message.$name === messageToFail.$name)
+        const deadLetterMessage = deadLetterQueueMessages.find(
+          msg => msg.message.$name === messageToFail.$name
+        )
         expect(deadLetterMessage).toBeDefined()
         expect(deadLetterMessage!.message).toMatchObject(messageToFail)
       })
 
       it('should only have received the message once', () => {
-        const receiveCount = deadLetterQueueMessages
-          .filter(msg => msg.message.$name === messageToFail.$name)
-          .length
+        const receiveCount = deadLetterQueueMessages.filter(
+          msg => msg.message.$name === messageToFail.$name
+        ).length
         expect(receiveCount).toEqual(1)
       })
 
       it('should retain the same message attributes', () => {
-        const deadLetterMessage = deadLetterQueueMessages
-          .find(msg => msg.message.$name === messageToFail.$name)
-        expect(deadLetterMessage?.attributes.correlationId).toEqual(correlationId)
+        const deadLetterMessage = deadLetterQueueMessages.find(
+          msg => msg.message.$name === messageToFail.$name
+        )
+        expect(deadLetterMessage?.attributes.correlationId).toEqual(
+          correlationId
+        )
       })
     })
   })

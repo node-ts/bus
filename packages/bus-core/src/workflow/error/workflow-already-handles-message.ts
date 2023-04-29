@@ -2,7 +2,7 @@ import { Message } from '@node-ts/bus-messages'
 import { ClassConstructor } from '../../util'
 
 export class WorkflowAlreadyHandlesMessage extends Error {
-  constructor (
+  constructor(
     readonly workflowName: string,
     readonly messageType: ClassConstructor<Message>
   ) {

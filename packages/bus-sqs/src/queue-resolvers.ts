@@ -17,12 +17,20 @@ export const resolveTopicName = (messageName: string) =>
  * @param topicName name of the topic being created
  * @returns an arn of a topic
  */
-export const resolveTopicArn = (awsAccountId: string, awsRegion: string, topicName: string) =>
-  `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
+export const resolveTopicArn = (
+  awsAccountId: string,
+  awsRegion: string,
+  topicName: string
+) => `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
 
-export const resolveQueueUrl = (href: string, awsAccountId: string, queueName: string) =>
-  `${href}${awsAccountId}/${queueName}`
-export const resolveQueueArn = (awsAccountId: string, awsRegion: string, queueName: string) =>
-  `arn:aws:sqs:${awsRegion}:${awsAccountId}:${queueName}`
-export const resolveDeadLetterQueueName = () =>
-  `dead-letter-queue`
+export const resolveQueueUrl = (
+  href: string,
+  awsAccountId: string,
+  queueName: string
+) => `${href}${awsAccountId}/${queueName}`
+export const resolveQueueArn = (
+  awsAccountId: string,
+  awsRegion: string,
+  queueName: string
+) => `arn:aws:sqs:${awsRegion}:${awsAccountId}:${queueName}`
+export const resolveDeadLetterQueueName = () => `dead-letter-queue`

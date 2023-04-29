@@ -1,8 +1,7 @@
 import { BusState } from '../bus-state'
 
 export class InvalidBusState extends Error {
-
-  constructor (
+  constructor(
     message: string,
     readonly actualState: BusState,
     readonly expectedState: BusState[]

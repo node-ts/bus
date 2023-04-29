@@ -14,13 +14,13 @@ Additionally, the library provides message workflows, or sagas, to help develope
 
 ## Components
 
-* [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - Core bus library for sending and receiving messages and managing workflows
-* [@node-ts/bus-messages](https://github.com/node-ts/bus/tree/master/packages/bus-messages) - A set of message type definitions used to define your own messages, events and commands
-* [@node-ts/bus-class-serializer](https://github.com/node-ts/bus/tree/master/packages/bus-class-serializer) - A json serializer that converts to class instances
-* [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence adapter for @node-ts/bus
-* [@node-ts/bus-mongodb](https://github.com/node-ts/bus/tree/master/packages/bus-mongodb) - A MongoDB persistence adapter for @node-ts/bus
-* [@node-ts/bus-rabbitmq](https://github.com/node-ts/bus/tree/master/packages/bus-rabbitmq) - A Rabbit MQ transport adapter for @node-ts/bus
-* [@node-ts/bus-sqs](https://github.com/node-ts/bus/tree/master/packages/bus-sqs) - An Amazon SQS transport adapter for @node-ts/bus
+- [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - Core bus library for sending and receiving messages and managing workflows
+- [@node-ts/bus-messages](https://github.com/node-ts/bus/tree/master/packages/bus-messages) - A set of message type definitions used to define your own messages, events and commands
+- [@node-ts/bus-class-serializer](https://github.com/node-ts/bus/tree/master/packages/bus-class-serializer) - A json serializer that converts to class instances
+- [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence adapter for @node-ts/bus
+- [@node-ts/bus-mongodb](https://github.com/node-ts/bus/tree/master/packages/bus-mongodb) - A MongoDB persistence adapter for @node-ts/bus
+- [@node-ts/bus-rabbitmq](https://github.com/node-ts/bus/tree/master/packages/bus-rabbitmq) - A Rabbit MQ transport adapter for @node-ts/bus
+- [@node-ts/bus-sqs](https://github.com/node-ts/bus/tree/master/packages/bus-sqs) - An Amazon SQS transport adapter for @node-ts/bus
 
 ## Development
 
@@ -38,10 +38,10 @@ pnpm i
 
 ### Scripts
 
-* `bootstrap` - install dependencies in all packages and hoist to root
-* `build` - build all packages
-* `build:watch` - build all packages and watch for changes with incremental builds
-* `clean` - remove all *dist* and *node_modules* folders
-* `lint` - lint inspect
-* `test` - run unit and integration tests
-* `test:watch` - run tests in watch mode, rerun on changes
+- `bootstrap` - install dependencies in all packages and hoist to root
+- `build` - build all packages
+- `build:watch` - build all packages and watch for changes with incremental builds
+- `clean` - remove all _dist_ and _node_modules_ folders
+- `lint` - lint inspect
+- `test` - run unit and integration tests
+- `test:watch` - run tests in watch mode, rerun on changes

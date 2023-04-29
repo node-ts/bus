@@ -1,7 +1,6 @@
-@node-ts/bus-core/logger
----
+## @node-ts/bus-core/logger
 
-Logging is fully configurable and by default uses [debug](https://www.npmjs.com/package/debug). 
+Logging is fully configurable and by default uses [debug](https://www.npmjs.com/package/debug).
 
 ## Controlling the log level of the default logger
 

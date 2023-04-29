@@ -14,9 +14,12 @@ describe('DefaultRetryStrategy', () => {
     [7, 351563, 429688],
     [8, 1757813, 2148438],
     [9, 8789063, 9000000]
-  ])('attempt %s should delay between %sms and %sms', (attempt: number, expectedMinDelay: number, expectedMaxDelay: number) => {
-    const actualDelay = sut.calculateRetryDelay(attempt)
-    expect(actualDelay).toBeGreaterThanOrEqual(expectedMinDelay)
-    expect(actualDelay).toBeLessThanOrEqual(expectedMaxDelay)
-  })
+  ])(
+    'attempt %s should delay between %sms and %sms',
+    (attempt: number, expectedMinDelay: number, expectedMaxDelay: number) => {
+      const actualDelay = sut.calculateRetryDelay(attempt)
+      expect(actualDelay).toBeGreaterThanOrEqual(expectedMinDelay)
+      expect(actualDelay).toBeLessThanOrEqual(expectedMaxDelay)
+    }
+  )
 })

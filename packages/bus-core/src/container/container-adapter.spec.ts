@@ -10,14 +10,13 @@ import { Handler, HandlerDispatchRejected } from '../handler'
 class UnregisteredClassHandler implements Handler<TestEvent2> {
   messageType = TestEvent2
 
-  async handle (_: TestEvent2): Promise<void> {
+  async handle(_: TestEvent2): Promise<void> {
     // ...
   }
 }
 
-const waitForError = (
-  bus: BusInstance,
-  onError: (error: Error) => void) => new Promise<void>((resolve, reject) => {
+const waitForError = (bus: BusInstance, onError: (error: Error) => void) =>
+  new Promise<void>((resolve, reject) => {
     const callback = ({ error }) => {
       try {
         onError(error)
@@ -29,7 +28,7 @@ const waitForError = (
       }
     }
     bus.onError.on(callback)
-})
+  })
 
 describe('ContainerAdapter', () => {
   const event = new TestEvent()
@@ -47,10 +46,9 @@ describe('ContainerAdapter', () => {
 
   describe('when an adapter is installed', () => {
     beforeEach(async () => {
-      bus = await Bus
-        .configure()
+      bus = await Bus.configure()
         .withContainer({
-          get <T>(type: ClassConstructor<T>) {
+          get<T>(type: ClassConstructor<T>) {
             return container[type.name] as T
           }
         })
@@ -77,9 +75,14 @@ describe('ContainerAdapter', () => {
         const onError = waitForError(bus, error => {
           expect(error).toBeInstanceOf(HandlerDispatchRejected)
           const baseError = error as HandlerDispatchRejected
-          expect(baseError.rejections[0]).toBeInstanceOf(ClassHandlerNotResolved)
-          const classHandlerNotResolved = baseError.rejections[0] as ClassHandlerNotResolved
-          expect(classHandlerNotResolved.reason).toEqual('Container failed to resolve an instance.')
+          expect(baseError.rejections[0]).toBeInstanceOf(
+            ClassHandlerNotResolved
+          )
+          const classHandlerNotResolved = baseError
+            .rejections[0] as ClassHandlerNotResolved
+          expect(classHandlerNotResolved.reason).toEqual(
+            'Container failed to resolve an instance.'
+          )
         })
         await bus.publish(new TestEvent2())
         await onError
@@ -88,11 +91,10 @@ describe('ContainerAdapter', () => {
   })
   describe('when an async adapter is installed', () => {
     beforeEach(async () => {
-      bus = await Bus
-        .configure()
+      bus = await Bus.configure()
         .withContainer({
-          get <T>(type: ClassConstructor<T>) {
-            return Promise.resolve(container[type.name] as T);
+          get<T>(type: ClassConstructor<T>) {
+            return Promise.resolve(container[type.name] as T)
           }
         })
         .withHandler(TestEventClassHandler)
@@ -118,9 +120,14 @@ describe('ContainerAdapter', () => {
         const onError = waitForError(bus, error => {
           expect(error).toBeInstanceOf(HandlerDispatchRejected)
           const baseError = error as HandlerDispatchRejected
-          expect(baseError.rejections[0]).toBeInstanceOf(ClassHandlerNotResolved)
-          const classHandlerNotResolved = baseError.rejections[0] as ClassHandlerNotResolved
-          expect(classHandlerNotResolved.reason).toEqual('Container failed to resolve an instance.')
+          expect(baseError.rejections[0]).toBeInstanceOf(
+            ClassHandlerNotResolved
+          )
+          const classHandlerNotResolved = baseError
+            .rejections[0] as ClassHandlerNotResolved
+          expect(classHandlerNotResolved.reason).toEqual(
+            'Container failed to resolve an instance.'
+          )
         })
         await bus.publish(new TestEvent2())
         await onError
@@ -140,8 +147,7 @@ describe('ContainerAdapter', () => {
       it('should throw a ContainerNotRegistered error', async () => {
         let bus: BusInstance
         try {
-          bus = await Bus
-            .configure()
+          bus = await Bus.configure()
             .withHandler(TestEventClassHandler)
             .initialize()
           fail('Bus initialization should throw a ContainerNotRegistered error')

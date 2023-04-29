@@ -7,7 +7,10 @@ import { Mock, IMock, Times, It } from 'typemoq'
 import { handlerFor, SystemMessageMissingResolver } from '../handler'
 import { TestCommand } from '../test/test-command'
 import { TestEvent2 } from '../test/test-event-2'
-import { ContainerNotRegistered, FailMessageOutsideHandlingContext } from '../error'
+import {
+  ContainerNotRegistered,
+  FailMessageOutsideHandlingContext
+} from '../error'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { EventEmitter } from 'stream'
 import { TestSystemMessage } from '../test/test-system-message'
@@ -18,20 +21,23 @@ import { BusInstance } from './bus-instance'
 import { InvalidBusState } from './error'
 
 const event = new TestEvent()
-type Callback = () => void;
+type Callback = () => void
 
 describe('BusInstance', () => {
   describe('when the bus is configured correctly', () => {
     let bus: BusInstance
     let queue: MemoryQueue
     let callback: IMock<Callback>
-    const handler = handlerFor(TestEvent, async (_: TestEvent) => callback.object())
+    const handler = handlerFor(TestEvent, async (_: TestEvent) =>
+      callback.object()
+    )
     let messageReadMiddleware: IMock<Middleware<TransportMessage<unknown>>>
 
     beforeAll(async () => {
       queue = new MemoryQueue()
       callback = Mock.ofType<Callback>()
-      messageReadMiddleware = Mock.ofType<Middleware<TransportMessage<unknown>>>()
+      messageReadMiddleware =
+        Mock.ofType<Middleware<TransportMessage<unknown>>>()
 
       bus = await Bus.configure()
         .withTransport(queue)
@@ -238,10 +244,11 @@ describe('BusInstance', () => {
   describe('when a class handler is used', () => {
     describe('without registering a container', () => {
       it('should throw a ContainerNotRegistered error', async () => {
-        await expect(Bus.configure()
-          .withConcurrency(1)
-          .withHandler(TestEventClassHandler)
-          .initialize()
+        await expect(
+          Bus.configure()
+            .withConcurrency(1)
+            .withHandler(TestEventClassHandler)
+            .initialize()
         ).rejects.toBeInstanceOf(ContainerNotRegistered)
       })
     })
@@ -252,18 +259,31 @@ describe('BusInstance', () => {
       it('should attach sticky attributes', async () => {
         const events = new EventEmitter()
         const bus = await Bus.configure()
-          .withHandler(handlerFor(TestCommand, async () => await bus.send(new TestEvent2())))
-          .withHandler(handlerFor(TestEvent2, async () => bus.send(new TestEvent())))
-          .withHandler(handlerFor(
-            TestEvent,
-            async (_: TestEvent, { stickyAttributes }: MessageAttributes) => { events.emit('event', stickyAttributes) }
-          ))
+          .withHandler(
+            handlerFor(
+              TestCommand,
+              async () => await bus.send(new TestEvent2())
+            )
+          )
+          .withHandler(
+            handlerFor(TestEvent2, async () => bus.send(new TestEvent()))
+          )
+          .withHandler(
+            handlerFor(
+              TestEvent,
+              async (_: TestEvent, { stickyAttributes }: MessageAttributes) => {
+                events.emit('event', stickyAttributes)
+              }
+            )
+          )
           .initialize()
 
         await bus.start()
 
         const stickyAttributes = { test: 'attribute' }
-        const eventReceived = new Promise(resolve => events.on('event', resolve))
+        const eventReceived = new Promise(resolve =>
+          events.on('event', resolve)
+        )
         await bus.send(new TestCommand(), { stickyAttributes })
 
         const actualStickyAttributes = await eventReceived
@@ -293,7 +313,9 @@ describe('BusInstance', () => {
       const bus = await Bus.configure()
         .withTransport(queue)
         .withCustomHandler(
-          async (message: TestSystemMessage) => { events.emit('event', message) },
+          async (message: TestSystemMessage) => {
+            events.emit('event', message)
+          },
           {
             resolveWith: m => m.name === TestSystemMessage.NAME
           }
@@ -302,11 +324,13 @@ describe('BusInstance', () => {
 
       await bus.start()
 
-      const systemMessageReceived = new Promise(resolve => events.on('event', resolve))
+      const systemMessageReceived = new Promise(resolve =>
+        events.on('event', resolve)
+      )
       const systemMessage = new TestSystemMessage()
       const transportSystemMessage = toTransportMessage(
         systemMessage as unknown as Command,
-        { attributes: {}, stickyAttributes: {}},
+        { attributes: {}, stickyAttributes: {} },
         false
       )
       queue['queue'].push(transportSystemMessage)
@@ -340,7 +364,11 @@ describe('BusInstance', () => {
       await new Promise<void>(resolve => events.on('event', resolve))
 
       logger.verify(
-        l => l.error(`Failed to handle and dispatch message from transport`, It.isAny()),
+        l =>
+          l.error(
+            `Failed to handle and dispatch message from transport`,
+            It.isAny()
+          ),
         Times.once()
       )
       await bus.dispose()
@@ -370,7 +398,11 @@ describe('BusInstance', () => {
       await new Promise<void>(resolve => events.on('event', resolve))
 
       logger.verify(
-        l => l.error(`No handlers registered for message. Message will be discarded`, It.isAny()),
+        l =>
+          l.error(
+            `No handlers registered for message. Message will be discarded`,
+            It.isAny()
+          ),
         Times.once()
       )
       await bus.dispose()
@@ -401,14 +433,18 @@ describe('BusInstance', () => {
         const queueMock = jest.spyOn(queue, 'fail')
         const bus = await Bus.configure()
           .withTransport(queue)
-          .withHandler(handlerFor(TestCommand, async () => {
-            await bus.fail()
-            events.emit('event')
-          }))
+          .withHandler(
+            handlerFor(TestCommand, async () => {
+              await bus.fail()
+              events.emit('event')
+            })
+          )
           .initialize()
 
         await bus.start()
-        const messageFailed = new Promise<void>(resolve => events.on('event', resolve))
+        const messageFailed = new Promise<void>(resolve =>
+          events.on('event', resolve)
+        )
         await bus.send(new TestCommand())
         await messageFailed
 

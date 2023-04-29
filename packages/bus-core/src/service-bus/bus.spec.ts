@@ -11,12 +11,24 @@ describe('Bus', () => {
     it('should reject', async () => {
       const config = Bus.configure()
       const bus = await config.initialize()
-      expect(() => config.withHandler(TestEvent, () => undefined)).toThrowError(BusAlreadyInitialized)
-      expect(() => config.withLogger(() => ({} as Logger))).toThrowError(BusAlreadyInitialized)
-      expect(() => config.withPersistence({} as Persistence)).toThrowError(BusAlreadyInitialized)
-      expect(() => config.withSerializer({} as Serializer)).toThrowError(BusAlreadyInitialized)
-      expect(() => config.withTransport({} as Transport)).toThrowError(BusAlreadyInitialized)
-      expect(() => config.withWorkflow({} as any)).toThrowError(BusAlreadyInitialized)
+      expect(() => config.withHandler(TestEvent, () => undefined)).toThrowError(
+        BusAlreadyInitialized
+      )
+      expect(() => config.withLogger(() => ({} as Logger))).toThrowError(
+        BusAlreadyInitialized
+      )
+      expect(() => config.withPersistence({} as Persistence)).toThrowError(
+        BusAlreadyInitialized
+      )
+      expect(() => config.withSerializer({} as Serializer)).toThrowError(
+        BusAlreadyInitialized
+      )
+      expect(() => config.withTransport({} as Transport)).toThrowError(
+        BusAlreadyInitialized
+      )
+      expect(() => config.withWorkflow({} as any)).toThrowError(
+        BusAlreadyInitialized
+      )
       await bus.dispose()
     })
   })

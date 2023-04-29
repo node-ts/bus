@@ -44,4 +44,6 @@ export abstract class WorkflowState {
   abstract readonly $name: string
 }
 
-export type WorkflowStateConstructor<TWorkflowState extends WorkflowState = WorkflowState> = new() => TWorkflowState
+export type WorkflowStateConstructor<
+  TWorkflowState extends WorkflowState = WorkflowState
+> = new () => TWorkflowState

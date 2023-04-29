@@ -3,7 +3,12 @@ import { DefaultHandlerRegistry, Handler } from '../handler'
 import { HandlerDefinition, isClassHandler } from '../handler/handler'
 import { JsonSerializer, Serializer } from '../serialization'
 import { MemoryQueue, Transport, TransportMessage } from '../transport'
-import { ClassConstructor, CoreDependencies, Middleware, MiddlewareDispatcher } from '../util'
+import {
+  ClassConstructor,
+  CoreDependencies,
+  Middleware,
+  MiddlewareDispatcher
+} from '../util'
 import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
@@ -30,7 +35,6 @@ const defaultBusInitializeOptions: BusInitializeOptions = {
 }
 
 export class BusConfiguration {
-
   private configuredTransport: Transport | undefined
   private concurrency = 1
   private busInstance: BusInstance | undefined
@@ -40,14 +44,18 @@ export class BusConfiguration {
   private loggerFactory: LoggerFactory = defaultLoggerFactory
   private serializer = new JsonSerializer()
   private persistence: Persistence = new InMemoryPersistence()
-  private messageReadMiddlewares = new MiddlewareDispatcher<TransportMessage<unknown>>()
+  private messageReadMiddlewares = new MiddlewareDispatcher<
+    TransportMessage<unknown>
+  >()
   private retryStrategy: RetryStrategy = new DefaultRetryStrategy()
 
   /**
    * Initializes the bus with the provided configuration
    * @param options Changes the default startup mode of the bus
    */
-  async initialize (options = defaultBusInitializeOptions): Promise<BusInstance> {
+  async initialize(
+    options = defaultBusInitializeOptions
+  ): Promise<BusInstance> {
     const { sendOnly } = options
     const logger = this.loggerFactory('@node-ts/bus-core:bus')
     logger.debug('Initializing bus', { sendOnly })
@@ -61,14 +69,20 @@ export class BusConfiguration {
       handlerRegistry: this.handlerRegistry,
       loggerFactory: this.loggerFactory,
       serializer: this.serializer,
-      messageSerializer: new MessageSerializer(this.serializer, this.handlerRegistry),
+      messageSerializer: new MessageSerializer(
+        this.serializer,
+        this.handlerRegistry
+      ),
       retryStrategy: this.retryStrategy
     }
 
     if (!sendOnly) {
       this.persistence?.prepare(coreDependencies)
       this.workflowRegistry.prepare(coreDependencies, this.persistence)
-      await this.workflowRegistry.initialize(this.handlerRegistry, this.container)
+      await this.workflowRegistry.initialize(
+        this.handlerRegistry,
+        this.container
+      )
 
       const classHandlers = this.handlerRegistry.getClassHandlers()
       if (!this.container && classHandlers.length) {
@@ -94,11 +108,13 @@ export class BusConfiguration {
       this.messageReadMiddlewares
     )
 
-    logger.debug('Bus initialized', { sendOnly, registeredMessages: this.handlerRegistry.getMessageNames() })
+    logger.debug('Bus initialized', {
+      sendOnly,
+      registeredMessages: this.handlerRegistry.getMessageNames()
+    })
 
     return this.busInstance
   }
-
 
   /**
    * Register a handler for a specific message type. When Bus is initialized it will configure
@@ -108,36 +124,29 @@ export class BusConfiguration {
    * @param messageHandler A callback that will be invoked when the message is received
    * @param customResolver Subscribe to a topic that's created and maintained outside of the application
    */
-  withHandler (classHandler: ClassConstructor<Handler<Message>>): this
-  withHandler <MessageType extends (Message | object)>(
-    functionHandler: {
-      messageType: ClassConstructor<MessageType>,
-      messageHandler: HandlerDefinition<MessageType>
-    }
-  ): this
-  withHandler <MessageType extends (Message | object)>(
-    handler: ClassConstructor<Handler<Message>> | {
-      messageType: ClassConstructor<MessageType>,
-      messageHandler: HandlerDefinition<MessageType>
-    }): this
-  {
+  withHandler(classHandler: ClassConstructor<Handler<Message>>): this
+  withHandler<MessageType extends Message | object>(functionHandler: {
+    messageType: ClassConstructor<MessageType>
+    messageHandler: HandlerDefinition<MessageType>
+  }): this
+  withHandler<MessageType extends Message | object>(
+    handler:
+      | ClassConstructor<Handler<Message>>
+      | {
+          messageType: ClassConstructor<MessageType>
+          messageHandler: HandlerDefinition<MessageType>
+        }
+  ): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
     if ('messageHandler' in handler) {
-      this.handlerRegistry.register(
-        handler.messageType,
-        handler.messageHandler
-      )
+      this.handlerRegistry.register(handler.messageType, handler.messageHandler)
     } else if (isClassHandler(handler)) {
       const handlerInstance = new handler()
-      this.handlerRegistry.register(
-        handlerInstance.messageType,
-        handler
-      )
+      this.handlerRegistry.register(handlerInstance.messageType, handler)
     }
-
 
     return this
   }
@@ -148,22 +157,18 @@ export class BusConfiguration {
    * @param messageHandler A handler that receives the custom message
    * @param customResolver A discriminator that determines if an incoming message should be mapped to this handler.
    */
-  withCustomHandler<MessageType extends (Message | object)> (
+  withCustomHandler<MessageType extends Message | object>(
     messageHandler: HandlerDefinition<MessageType>,
     customResolver: {
-      resolveWith: ((message: MessageType) => boolean),
+      resolveWith: (message: MessageType) => boolean
       topicIdentifier?: string
     }
-  ): this
-  {
+  ): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.handlerRegistry.registerCustom(
-      messageHandler,
-      customResolver
-    )
+    this.handlerRegistry.registerCustom(messageHandler, customResolver)
     return this
   }
 
@@ -171,21 +176,21 @@ export class BusConfiguration {
    * Register a workflow definition so that all of the messages it depends on will be subscribed to
    * and forwarded to the handlers inside the workflow
    */
-  withWorkflow<TWorkflowState extends WorkflowState> (workflow: ClassConstructor<Workflow<TWorkflowState>>): this {
+  withWorkflow<TWorkflowState extends WorkflowState>(
+    workflow: ClassConstructor<Workflow<TWorkflowState>>
+  ): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.workflowRegistry.register(
-      workflow
-    )
+    this.workflowRegistry.register(workflow)
     return this
   }
 
   /**
    * Configures Bus to use a different transport than the default MemoryQueue
    */
-  withTransport (transportConfiguration: Transport): this {
+  withTransport(transportConfiguration: Transport): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
@@ -197,7 +202,7 @@ export class BusConfiguration {
   /**
    * Configures Bus to use a different logging provider than the default console logger
    */
-  withLogger (loggerFactory: LoggerFactory): this {
+  withLogger(loggerFactory: LoggerFactory): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
@@ -211,7 +216,7 @@ export class BusConfiguration {
    * transforming messages to/from a serialized representation, as well as ensuring all object
    * properties are a strong type
    */
-  withSerializer (serializer: Serializer): this {
+  withSerializer(serializer: Serializer): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
@@ -224,7 +229,7 @@ export class BusConfiguration {
    * Configures Bus to use a different persistence provider than the default InMemoryPersistence provider.
    * This is used to persist workflow data and is unused if not using workflows.
    */
-  withPersistence (persistence: Persistence): this {
+  withPersistence(persistence: Persistence): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
@@ -237,9 +242,11 @@ export class BusConfiguration {
    * Sets the message handling concurrency beyond the default value of 1, which will increase the number of messages
    * handled in parallel.
    */
-  withConcurrency (concurrency: number): this {
+  withConcurrency(concurrency: number): this {
     if (concurrency < 1) {
-      throw new Error('Invalid concurrency setting. Must be set to 1 or greater')
+      throw new Error(
+        'Invalid concurrency setting. Must be set to 1 or greater'
+      )
     }
 
     this.concurrency = concurrency
@@ -251,7 +258,9 @@ export class BusConfiguration {
    * and workflows.
    * @param container An adapter to an existing DI container to fetch class instances from
    */
-  withContainer (container: { get <T>(type: ClassConstructor<T>): T | Promise<T> }): this {
+  withContainer(container: {
+    get<T>(type: ClassConstructor<T>): T | Promise<T>
+  }): this {
     this.container = container
     return this
   }
@@ -261,7 +270,7 @@ export class BusConfiguration {
    * Note these middlewares only run when polling successfully pulls a message off the Transports queue
    * After all the user defined middlewares have registered.
    */
-  withMessageReadMiddleware<TransportMessageType = unknown> (
+  withMessageReadMiddleware<TransportMessageType = unknown>(
     messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>
   ): this {
     this.messageReadMiddlewares.use(messageReadMiddleware)
@@ -273,7 +282,7 @@ export class BusConfiguration {
    * retrying failed messages.
    * @default DefaultRetryStrategy
    */
-  withRetryStrategy (retryStrategy: RetryStrategy): this {
+  withRetryStrategy(retryStrategy: RetryStrategy): this {
     this.retryStrategy = retryStrategy
     return this
   }

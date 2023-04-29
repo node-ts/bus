@@ -1,18 +1,38 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor } from '../util'
-import { WorkflowAlreadyHandlesMessage, WorkflowAlreadyStartedByMessage } from './error'
+import {
+  WorkflowAlreadyHandlesMessage,
+  WorkflowAlreadyStartedByMessage
+} from './error'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
 
-export type WorkflowHandler<TMessage extends Message, TMessageAttributes extends MessageAttributes, WorkflowStateType extends WorkflowState> =
-  (message?: TMessage, attributes?: TMessageAttributes, workflowState?: WorkflowStateType) => void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
+export type WorkflowHandler<
+  TMessage extends Message,
+  TMessageAttributes extends MessageAttributes,
+  WorkflowStateType extends WorkflowState
+> = (
+  message?: TMessage,
+  attributes?: TMessageAttributes,
+  workflowState?: WorkflowStateType
+) =>
+  | void
+  | Partial<WorkflowStateType>
+  | Promise<void | Partial<WorkflowStateType>>
 
-export type WhenHandler<WorkflowStateType extends WorkflowState, WorkflowType extends Workflow<WorkflowStateType>> =
-  (workflow: WorkflowType) => WorkflowHandler<Message, MessageAttributes, WorkflowStateType>
+export type WhenHandler<
+  WorkflowStateType extends WorkflowState,
+  WorkflowType extends Workflow<WorkflowStateType>
+> = (
+  workflow: WorkflowType
+) => WorkflowHandler<Message, MessageAttributes, WorkflowStateType>
 
-type KeyOfType<T, U> = {[P in keyof T]: T[P] extends U ? P: never}[keyof T]
+type KeyOfType<T, U> = { [P in keyof T]: T[P] extends U ? P : never }[keyof T]
 
-export type OnWhenHandler<WorkflowStateType extends WorkflowState = WorkflowState, WorkflowType extends Workflow<WorkflowStateType> = Workflow<WorkflowStateType>> = {
+export type OnWhenHandler<
+  WorkflowStateType extends WorkflowState = WorkflowState,
+  WorkflowType extends Workflow<WorkflowStateType> = Workflow<WorkflowStateType>
+> = {
   workflowCtor: ClassConstructor<Workflow<WorkflowState>>
   workflowHandler: KeyOfType<WorkflowType, Function>
   customLookup: MessageWorkflowMapping | undefined
@@ -21,8 +41,10 @@ export type OnWhenHandler<WorkflowStateType extends WorkflowState = WorkflowStat
 /**
  * A workflow configuration that describes how to map incoming messages to handlers within the workflow.
  */
-export class WorkflowMapper<WorkflowStateType extends WorkflowState, WorkflowType extends Workflow<WorkflowStateType>> {
-
+export class WorkflowMapper<
+  WorkflowStateType extends WorkflowState,
+  WorkflowType extends Workflow<WorkflowStateType>
+> {
   readonly onStartedBy = new Map<
     ClassConstructor<Message>,
     {
@@ -36,16 +58,15 @@ export class WorkflowMapper<WorkflowStateType extends WorkflowState, WorkflowTyp
   >()
   private workflowStateType: ClassConstructor<WorkflowStateType> | undefined
 
-  constructor (
+  constructor(
     private readonly workflow: ClassConstructor<Workflow<WorkflowState>>
-  ) {
-  }
+  ) {}
 
-  get workflowStateCtor (): ClassConstructor<WorkflowStateType> | undefined {
+  get workflowStateCtor(): ClassConstructor<WorkflowStateType> | undefined {
     return this.workflowStateType
   }
 
-  withState (workflowStateType: ClassConstructor<WorkflowStateType>): this {
+  withState(workflowStateType: ClassConstructor<WorkflowStateType>): this {
     this.workflowStateType = workflowStateType
     return this
   }
@@ -58,13 +79,10 @@ export class WorkflowMapper<WorkflowStateType extends WorkflowState, WorkflowTyp
     if (this.onStartedBy.has(message)) {
       throw new WorkflowAlreadyStartedByMessage(this.workflow.name, message)
     }
-    this.onStartedBy.set(
-      message,
-      {
-        workflowHandler,
-        workflowCtor: this.workflow
-      }
-    )
+    this.onStartedBy.set(message, {
+      workflowHandler,
+      workflowCtor: this.workflow
+    })
     return this
   }
 
@@ -79,20 +97,25 @@ export class WorkflowMapper<WorkflowStateType extends WorkflowState, WorkflowTyp
     this.onWhen.set(message, {
       workflowHandler,
       workflowCtor: this.workflow,
-      customLookup: customLookup as MessageWorkflowMapping<Message, WorkflowState>
+      customLookup: customLookup as MessageWorkflowMapping<
+        Message,
+        WorkflowState
+      >
     })
     return this
   }
 }
 
 export abstract class Workflow<WorkflowStateType extends WorkflowState> {
-  abstract configureWorkflow (mapper: WorkflowMapper<WorkflowStateType, any>): void
+  abstract configureWorkflow(
+    mapper: WorkflowMapper<WorkflowStateType, any>
+  ): void
 
   /**
    * Ends the workflow and optionally sets any final state. After this is returned,
    * the workflow instance will no longer be activated for subsequent messages.
    */
-  protected completeWorkflow (workflowState?: Partial<WorkflowStateType>) {
+  protected completeWorkflow(workflowState?: Partial<WorkflowStateType>) {
     return {
       ...workflowState,
       $status: WorkflowStatus.Complete
@@ -103,7 +126,7 @@ export abstract class Workflow<WorkflowStateType extends WorkflowState> {
    * Prevents a new workflow from starting, and prevents the persistence of
    * the workflow state. This should only be used in `startedBy` workflow handlers.
    */
-  protected discardWorkflow () {
+  protected discardWorkflow() {
     return { $status: WorkflowStatus.Discard }
   }
 }

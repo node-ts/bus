@@ -1,11 +1,33 @@
 import { Transport, TransportMessage } from '../transport'
-import { Event, Command, Message, MessageAttributes } from '@node-ts/bus-messages'
-import { sleep, ClassConstructor, TypedEmitter, CoreDependencies, MiddlewareDispatcher, Middleware, Next} from '../util'
-import { Handler, FunctionHandler, HandlerDefinition, isClassHandler, HandlerDispatchRejected } from '../handler'
+import {
+  Event,
+  Command,
+  Message,
+  MessageAttributes
+} from '@node-ts/bus-messages'
+import {
+  sleep,
+  ClassConstructor,
+  TypedEmitter,
+  CoreDependencies,
+  MiddlewareDispatcher,
+  Middleware,
+  Next
+} from '../util'
+import {
+  Handler,
+  FunctionHandler,
+  HandlerDefinition,
+  isClassHandler,
+  HandlerDispatchRejected
+} from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus-state'
 import { messageHandlingContext } from '../message-handling-context'
-import { ClassHandlerNotResolved, FailMessageOutsideHandlingContext } from '../error'
+import {
+  ClassHandlerNotResolved,
+  FailMessageOutsideHandlingContext
+} from '../error'
 import { v4 as generateUuid } from 'uuid'
 import { WorkflowRegistry } from '../workflow/registry'
 import { Logger } from '../logger'
@@ -14,23 +36,28 @@ import { InvalidBusState } from './error'
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 export class BusInstance {
-
-  readonly beforeSend = new TypedEmitter<{ command: Command, attributes: MessageAttributes }>()
-  readonly beforePublish = new TypedEmitter<{ event: Event, attributes: MessageAttributes }>()
+  readonly beforeSend = new TypedEmitter<{
+    command: Command
+    attributes: MessageAttributes
+  }>()
+  readonly beforePublish = new TypedEmitter<{
+    event: Event
+    attributes: MessageAttributes
+  }>()
   readonly onError = new TypedEmitter<{
-    message: Message,
-    error: Error,
-    attributes?: MessageAttributes,
+    message: Message
+    error: Error
+    attributes?: MessageAttributes
     rawMessage?: TransportMessage<unknown>
   }>()
   readonly afterReceive = new TypedEmitter<TransportMessage<unknown>>()
   readonly beforeDispatch = new TypedEmitter<{
-    message: Message,
-    attributes: MessageAttributes,
+    message: Message
+    attributes: MessageAttributes
     handlers: HandlerDefinition[]
   }>()
   readonly afterDispatch = new TypedEmitter<{
-    message: Message,
+    message: Message
     attributes: MessageAttributes
   }>()
 
@@ -38,14 +65,18 @@ export class BusInstance {
   private runningWorkerCount = 0
   private logger: Logger
 
-  constructor (
+  constructor(
     private readonly transport: Transport<{}>,
     private readonly concurrency: number,
     private readonly workflowRegistry: WorkflowRegistry,
     private readonly coreDependencies: CoreDependencies,
-    private readonly messageReadMiddleware: MiddlewareDispatcher<TransportMessage<unknown>>
+    private readonly messageReadMiddleware: MiddlewareDispatcher<
+      TransportMessage<unknown>
+    >
   ) {
-    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:service-bus')
+    this.logger = coreDependencies.loggerFactory(
+      '@node-ts/bus-core:service-bus'
+    )
     this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
   }
 
@@ -54,7 +85,7 @@ export class BusInstance {
    * @param event An event to publish
    * @param messageAttributes A set of attributes to attach to the outgoing message when published
    */
-  async publish<TEvent extends Event> (
+  async publish<TEvent extends Event>(
     event: TEvent,
     messageAttributes: Partial<MessageAttributes> = {}
   ): Promise<void> {
@@ -69,7 +100,7 @@ export class BusInstance {
    * @param command A command to send
    * @param messageAttributes A set of attributes to attach to the outgoing messsage when sent
    */
-  async send<TCommand extends Command> (
+  async send<TCommand extends Command>(
     command: TCommand,
     messageAttributes: Partial<MessageAttributes> = {}
   ): Promise<void> {
@@ -84,7 +115,7 @@ export class BusInstance {
    * retries and instead should immediately be routed to the dead letter queue
    * @throws FailMessageOutsideHandlingContext if called outside a message handling context
    */
-  async fail (): Promise<void> {
+  async fail(): Promise<void> {
     const context = messageHandlingContext.get()
     if (!context) {
       throw new FailMessageOutsideHandlingContext()
@@ -100,7 +131,7 @@ export class BusInstance {
    *
    * @throws InvalidBusState if the bus is already started or in a starting state
    */
-  async start (): Promise<void> {
+  async start(): Promise<void> {
     const startedStates = [BusState.Started, BusState.Starting]
     if (startedStates.includes(this.state)) {
       throw new InvalidBusState(
@@ -113,7 +144,7 @@ export class BusInstance {
     this.logger.info('Bus starting...')
     messageHandlingContext.enable()
 
-    if(this.transport.start) {
+    if (this.transport.start) {
       await this.transport.start()
     }
 
@@ -131,7 +162,7 @@ export class BusInstance {
    *
    * @throws InvalidBusState if the bus is already stopped or stopping
    */
-  async stop (): Promise<void> {
+  async stop(): Promise<void> {
     const stoppedStates = [BusState.Stopped, BusState.Stopping]
     if (stoppedStates.includes(this.state)) {
       throw new InvalidBusState(
@@ -160,7 +191,7 @@ export class BusInstance {
    *
    * The bus instance can not be used after this has been called.
    */
-  async dispose (): Promise<void> {
+  async dispose(): Promise<void> {
     this.logger.info('Disposing bus instance...')
     if (![BusState.Stopped, BusState.Stopped].includes(this.state)) {
       await this.stop()
@@ -179,11 +210,11 @@ export class BusInstance {
   /**
    * Gets the current state of a message-handling bus
    */
-  get state (): BusState {
+  get state(): BusState {
     return this.internalState
   }
 
-  private async applicationLoop (): Promise<void> {
+  private async applicationLoop(): Promise<void> {
     this.runningWorkerCount++
     while (this.internalState === BusState.Started) {
       const messageHandled = await this.handleNextMessage()
@@ -196,7 +227,7 @@ export class BusInstance {
     this.runningWorkerCount--
   }
 
-  private async handleNextMessage (): Promise<boolean> {
+  private async handleNextMessage(): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
 
@@ -232,23 +263,33 @@ export class BusInstance {
         return true
       }
     } catch (error) {
-      this.logger.error('Failed to handle and dispatch message from transport', { error: serializeError(error) })
+      this.logger.error(
+        'Failed to handle and dispatch message from transport',
+        { error: serializeError(error) }
+      )
     }
     return false
   }
 
-  private async dispatchMessageToHandlers (message: Message, messageAttributes: MessageAttributes): Promise<void> {
-    const handlers = this.coreDependencies.handlerRegistry.get(this.coreDependencies.loggerFactory, message)
+  private async dispatchMessageToHandlers(
+    message: Message,
+    messageAttributes: MessageAttributes
+  ): Promise<void> {
+    const handlers = this.coreDependencies.handlerRegistry.get(
+      this.coreDependencies.loggerFactory,
+      message
+    )
     if (handlers.length === 0) {
-      this.logger.error(`No handlers registered for message. Message will be discarded`, { messageName: message.$name })
+      this.logger.error(
+        `No handlers registered for message. Message will be discarded`,
+        { messageName: message.$name }
+      )
       return
     }
 
-    const handlersToInvoke = handlers.map(handler => this.dispatchMessageToHandler(
-      message,
-      messageAttributes,
-      handler
-    ))
+    const handlersToInvoke = handlers.map(handler =>
+      this.dispatchMessageToHandler(message, messageAttributes, handler)
+    )
 
     this.beforeDispatch.emit({
       message,
@@ -256,27 +297,39 @@ export class BusInstance {
       handlers
     })
 
-    const  handlerResults = await Promise.allSettled(handlersToInvoke)
+    const handlerResults = await Promise.allSettled(handlersToInvoke)
     const failedHandlers = handlerResults.filter(r => r.status === 'rejected')
     if (failedHandlers.length) {
-      const reasons = (failedHandlers as PromiseRejectedResult[]).map(h => h.reason)
+      const reasons = (failedHandlers as PromiseRejectedResult[]).map(
+        h => h.reason
+      )
       throw new HandlerDispatchRejected(reasons)
     }
 
-    this.logger.debug('Message dispatched to all handlers', { message, numHandlers: handlersToInvoke.length })
+    this.logger.debug('Message dispatched to all handlers', {
+      message,
+      numHandlers: handlersToInvoke.length
+    })
   }
 
-  private prepareTransportOptions (clientOptions: Partial<MessageAttributes>): MessageAttributes {
+  private prepareTransportOptions(
+    clientOptions: Partial<MessageAttributes>
+  ): MessageAttributes {
     const handlingContext = messageHandlingContext.get()
 
     const messageAttributes: MessageAttributes = {
       // The optional operator? decided not to work here
-      correlationId: clientOptions.correlationId
-        || (handlingContext ? handlingContext.message.attributes.correlationId : undefined)
-        || generateUuid(),
+      correlationId:
+        clientOptions.correlationId ||
+        (handlingContext
+          ? handlingContext.message.attributes.correlationId
+          : undefined) ||
+        generateUuid(),
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
-        ...(handlingContext ? handlingContext.message.attributes.stickyAttributes : {}),
+        ...(handlingContext
+          ? handlingContext.message.attributes.stickyAttributes
+          : {}),
         ...clientOptions.stickyAttributes
       }
     }
@@ -286,7 +339,7 @@ export class BusInstance {
     return messageAttributes
   }
 
-  async dispatchMessageToHandler (
+  async dispatchMessageToHandler(
     message: Message,
     attributes: MessageAttributes,
     handler: HandlerDefinition<Message>
@@ -296,12 +349,13 @@ export class BusInstance {
 
       let handlerInstance: Handler<Message> | undefined
       try {
-        const handlerInstanceFromContainer = this.coreDependencies.container!.get(classHandler);
-        if(handlerInstanceFromContainer instanceof Promise) {
-          handlerInstance = await handlerInstanceFromContainer;
-        } else{
-          handlerInstance =  handlerInstanceFromContainer;
-        }  
+        const handlerInstanceFromContainer =
+          this.coreDependencies.container!.get(classHandler)
+        if (handlerInstanceFromContainer instanceof Promise) {
+          handlerInstance = await handlerInstanceFromContainer
+        } else {
+          handlerInstance = handlerInstanceFromContainer
+        }
         if (!handlerInstance) {
           throw new Error('Container failed to resolve an instance.')
         }
@@ -312,10 +366,7 @@ export class BusInstance {
       return handlerInstance.handle(message, attributes)
     } else {
       const fnHandler = handler as FunctionHandler<Message>
-      return fnHandler(
-        message,
-        attributes
-      )
+      return fnHandler(message, attributes)
     }
   }
 
@@ -328,7 +379,10 @@ export class BusInstance {
     message: TransportMessage<{}>,
     next: Next
   ): Promise<void> => {
-    await this.dispatchMessageToHandlers(message.domainMessage, message.attributes)
+    await this.dispatchMessageToHandlers(
+      message.domainMessage,
+      message.attributes
+    )
     await this.transport.deleteMessage(message)
     return next()
   }

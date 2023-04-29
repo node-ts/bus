@@ -1,5 +1,5 @@
 export class FailMessageOutsideHandlingContext extends Error {
-  constructor (
+  constructor(
     readonly help = `Calling .fail() with a message indicates that the message received from the
 queue can not be processed even with retries and should immediately be sent
 to the dead letter queue.

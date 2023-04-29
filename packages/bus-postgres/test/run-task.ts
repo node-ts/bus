@@ -5,9 +5,7 @@ export class RunTask extends Command {
   $name = RunTask.NAME
   $version = 0
 
-  constructor (
-    readonly value: string
-  ) {
+  constructor(readonly value: string) {
     super()
   }
 }

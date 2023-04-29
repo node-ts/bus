@@ -5,9 +5,7 @@ export class TestPoisonedMessage extends Message {
   $name = TestPoisonedMessage.NAME
   $version = 1
 
-  constructor (
-    readonly id: string
-  ) {
+  constructor(readonly id: string) {
     super()
   }
 }

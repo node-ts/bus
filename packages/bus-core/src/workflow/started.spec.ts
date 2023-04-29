@@ -13,9 +13,7 @@ class AssignmentCreated extends Event {
   $name = 'my-app/accounts/assignment-created'
   $version = 1
 
-  constructor (
-    readonly assignmentId: string
-  ) {
+  constructor(readonly assignmentId: string) {
     super()
   }
 }
@@ -24,10 +22,7 @@ class AssignmentAssigned extends Event {
   $name = 'my-app/accounts/assignment-assigned'
   $version = 1
 
-  constructor (
-    readonly assignmentId: string,
-    readonly assigneeId: string
-  ) {
+  constructor(readonly assignmentId: string, readonly assigneeId: string) {
     super()
   }
 }
@@ -36,10 +31,7 @@ class CreateAssignmentBundle extends Command {
   $name = 'my-app/accounts/create-assignment-bundle'
   $version = 1
 
-  constructor (
-    readonly assignmentId: string,
-    readonly bundleId: string
-  ) {
+  constructor(readonly assignmentId: string, readonly bundleId: string) {
     super()
   }
 }
@@ -48,9 +40,7 @@ class NotifyAssignmentAssigned extends Command {
   $name = 'my-app/accounts/notify-assignment-assigned'
   $version = 1
 
-  constructor (
-    readonly assignmentId: string
-  ) {
+  constructor(readonly assignmentId: string) {
     super()
   }
 }
@@ -59,7 +49,7 @@ class AssignmentReassigned extends Event {
   $name = 'my-app/accounts/assignment-reassigned'
   $version = 1
 
-  constructor (
+  constructor(
     readonly assignmentId: string,
     readonly unassignedUserId: string
   ) {
@@ -71,7 +61,7 @@ class NotifyUnassignedAssignmentReassigned extends Command {
   $name = 'my-app/accounts/notify-unassigned-assignment-reassigned'
   $version = 1
 
-  constructor (
+  constructor(
     readonly assignmentId: string,
     readonly unassignedUserId: string
   ) {
@@ -83,9 +73,7 @@ class AssignmentCompleted extends Event {
   $name = 'my-app/accounts/assignment-completed'
   $version = 1
 
-  constructor (
-    readonly assignmentId: string
-  ) {
+  constructor(readonly assignmentId: string) {
     super()
   }
 }
@@ -98,29 +86,41 @@ export class AssignmentWorkflowState extends WorkflowState {
 }
 
 class AssignmentWorkflow extends Workflow<AssignmentWorkflowState> {
-
-  constructor (
-    private readonly bus: BusInstance
-  ) {
+  constructor(private readonly bus: BusInstance) {
     super()
   }
 
-  configureWorkflow(mapper: WorkflowMapper<AssignmentWorkflowState, AssignmentWorkflow>): void {
+  configureWorkflow(
+    mapper: WorkflowMapper<AssignmentWorkflowState, AssignmentWorkflow>
+  ): void {
     mapper
       .withState(AssignmentWorkflowState)
       .startedBy(AssignmentCreated, 'assignmentCreated')
-      .when(AssignmentAssigned, 'sendCreateAssignment', { lookup: message => message.assignmentId, mapsTo: 'assignmentId' })
-      .when(AssignmentReassigned, 'sendNotification', { lookup: (_, { correlationId }) => correlationId, mapsTo: '$workflowId' })
-      .when(AssignmentCompleted, 'complete', { lookup: message => message.assignmentId, mapsTo: 'assignmentId' })
+      .when(AssignmentAssigned, 'sendCreateAssignment', {
+        lookup: message => message.assignmentId,
+        mapsTo: 'assignmentId'
+      })
+      .when(AssignmentReassigned, 'sendNotification', {
+        lookup: (_, { correlationId }) => correlationId,
+        mapsTo: '$workflowId'
+      })
+      .when(AssignmentCompleted, 'complete', {
+        lookup: message => message.assignmentId,
+        mapsTo: 'assignmentId'
+      })
   }
 
-  assignmentCreated (message: AssignmentCreated): Partial<AssignmentWorkflowState> {
+  assignmentCreated(
+    message: AssignmentCreated
+  ): Partial<AssignmentWorkflowState> {
     return {
       assignmentId: message.assignmentId
     }
   }
 
-  async sendCreateAssignment (message: AssignmentAssigned): Promise<Partial<AssignmentWorkflowState>> {
+  async sendCreateAssignment(
+    message: AssignmentAssigned
+  ): Promise<Partial<AssignmentWorkflowState>> {
     const bundleId = uuid.v4()
     const createAssignmentBundle = new CreateAssignmentBundle(
       message.assignmentId,
@@ -130,11 +130,13 @@ class AssignmentWorkflow extends Workflow<AssignmentWorkflowState> {
     return { bundleId, assigneeId: message.assigneeId }
   }
 
-  async sendNotification (
+  async sendNotification(
     message: AssignmentReassigned,
     workflowState: AssignmentWorkflowState
   ): Promise<void> {
-    const notifyAssignmentAssigned = new NotifyAssignmentAssigned(workflowState.assignmentId)
+    const notifyAssignmentAssigned = new NotifyAssignmentAssigned(
+      workflowState.assignmentId
+    )
     await this.bus.send(notifyAssignmentAssigned)
 
     const notifyAssignmentReassigned = new NotifyUnassignedAssignmentReassigned(
@@ -144,13 +146,12 @@ class AssignmentWorkflow extends Workflow<AssignmentWorkflowState> {
     await this.bus.send(notifyAssignmentReassigned)
   }
 
-  complete (): Partial<AssignmentWorkflowState> {
+  complete(): Partial<AssignmentWorkflowState> {
     return this.completeWorkflow()
   }
 }
 
 export const assignmentWorkflow = Workflow
-
 
 describe('Workflow', () => {
   const event = new AssignmentCreated('abc')
@@ -160,8 +161,7 @@ describe('Workflow', () => {
   const inMemoryPersistence = new InMemoryPersistence()
 
   beforeAll(async () => {
-    bus = await Bus
-      .configure()
+    bus = await Bus.configure()
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get: type => new type(bus)
@@ -179,45 +179,53 @@ describe('Workflow', () => {
   })
 
   describe('when a message that starts a workflow is received', () => {
-    const propertyMapping: MessageWorkflowMapping<AssignmentCreated, AssignmentWorkflowState & WorkflowState> = {
+    const propertyMapping: MessageWorkflowMapping<
+      AssignmentCreated,
+      AssignmentWorkflowState & WorkflowState
+    > = {
       lookup: message => message.assignmentId,
       mapsTo: 'assignmentId'
     }
-    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+    const messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    }
     let workflowState: AssignmentWorkflowState[]
 
     beforeAll(async () => {
-      workflowState = await inMemoryPersistence
-        .getWorkflowState<AssignmentWorkflowState, AssignmentCreated>(
-          AssignmentWorkflowState,
-          propertyMapping,
-          event,
-          messageOptions
-        )
+      workflowState = await inMemoryPersistence.getWorkflowState<
+        AssignmentWorkflowState,
+        AssignmentCreated
+      >(AssignmentWorkflowState, propertyMapping, event, messageOptions)
     })
 
     it('should start a new workflow', () => {
       expect(workflowState).toHaveLength(1)
       const data = workflowState[0]
-      expect(data).toMatchObject({ assignmentId: event.assignmentId, $version: 0 })
+      expect(data).toMatchObject({
+        assignmentId: event.assignmentId,
+        $version: 0
+      })
     })
 
     describe('and then a message for the next step is received', () => {
-      const assignmentAssigned = new AssignmentAssigned(event.assignmentId, uuid.v4())
+      const assignmentAssigned = new AssignmentAssigned(
+        event.assignmentId,
+        uuid.v4()
+      )
       let startedWorkflowState: AssignmentWorkflowState[]
 
       beforeAll(async () => {
         await bus.publish(assignmentAssigned)
         await sleep(CONSUME_TIMEOUT)
 
-        startedWorkflowState = await inMemoryPersistence
-          .getWorkflowState(
-            AssignmentWorkflowState,
-            propertyMapping,
-            assignmentAssigned,
-            messageOptions,
-            true
-          )
+        startedWorkflowState = await inMemoryPersistence.getWorkflowState(
+          AssignmentWorkflowState,
+          propertyMapping,
+          assignmentAssigned,
+          messageOptions,
+          true
+        )
       })
 
       it('should handle that message', () => {
@@ -231,20 +239,18 @@ describe('Workflow', () => {
         let nextWorkflowState: AssignmentWorkflowState[]
 
         beforeAll(async () => {
-          await bus.publish(
-            assignmentReassigned,
-            { correlationId: startedWorkflowState[0].$workflowId }
-          )
+          await bus.publish(assignmentReassigned, {
+            correlationId: startedWorkflowState[0].$workflowId
+          })
           await sleep(CONSUME_TIMEOUT)
 
-          nextWorkflowState = await inMemoryPersistence
-            .getWorkflowState(
-              AssignmentWorkflowState,
-              propertyMapping,
-              assignmentAssigned,
-              messageOptions,
-              true
-            )
+          nextWorkflowState = await inMemoryPersistence.getWorkflowState(
+            AssignmentWorkflowState,
+            propertyMapping,
+            assignmentAssigned,
+            messageOptions,
+            true
+          )
         })
 
         it('should handle that message', () => {
@@ -256,20 +262,18 @@ describe('Workflow', () => {
           let finalWorkflowState: AssignmentWorkflowState[]
 
           beforeAll(async () => {
-            await bus.publish(
-              finalTask,
-              { correlationId: nextWorkflowState[0].$workflowId }
-            )
+            await bus.publish(finalTask, {
+              correlationId: nextWorkflowState[0].$workflowId
+            })
             await sleep(CONSUME_TIMEOUT)
 
-            finalWorkflowState = await inMemoryPersistence
-              .getWorkflowState(
-                AssignmentWorkflowState,
-                propertyMapping,
-                finalTask,
-                messageOptions,
-                true
-              )
+            finalWorkflowState = await inMemoryPersistence.getWorkflowState(
+              AssignmentWorkflowState,
+              propertyMapping,
+              finalTask,
+              messageOptions,
+              true
+            )
           })
 
           it('should mark the workflow as complete', () => {

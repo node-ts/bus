@@ -11,17 +11,17 @@ Workflows are a pattern that help you write applications that scale in both size
 
 Workflows (aka sagas, process managers, long running processes, message driven state machines), are a way to orchestrate higher level logic over a distributed or reliable/durable system. This is a key [enterprise integration pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html).
 
-![Workflow](https://github.com/node-ts/bus/blob/master/packages/bus-core/src/workflow/assets/workflow.gif?raw=true "Workflow")
+![Workflow](https://github.com/node-ts/bus/blob/master/packages/bus-core/src/workflow/assets/workflow.gif?raw=true 'Workflow')
 
-In plain English, workflows subscribe to various messages in your system, make decisions based on what they see, and send out commands based on the logic of your business. Because of this, the rest of your application can focus on logic to process individual command messages that each have a single responsibility. 
+In plain English, workflows subscribe to various messages in your system, make decisions based on what they see, and send out commands based on the logic of your business. Because of this, the rest of your application can focus on logic to process individual command messages that each have a single responsibility.
 
-Workflows are often started by a particular message (eg: `OrderPlaced`) and coordinate all the activities to complete a process. In this case, the workflow would be responsible for fulfilling an order, which may mean capturing payment, picking inventory, shipping, sending receipts etc. These steps may be independent of one another, or dependent and must be executed in order. The process may take a few seconds, or a few weeks. 
+Workflows are often started by a particular message (eg: `OrderPlaced`) and coordinate all the activities to complete a process. In this case, the workflow would be responsible for fulfilling an order, which may mean capturing payment, picking inventory, shipping, sending receipts etc. These steps may be independent of one another, or dependent and must be executed in order. The process may take a few seconds, or a few weeks.
 
 Regardless of these behaviours, the workflow will listen for events that signal the completion of each step, and may send out commands to invoke the next step. Once all steps have completed, the workflow will flag itself as complete and no further actions will be taken by it.
 
 ## Installation
 
-Ideally services that host workflows should be somewhat isolated and contain no other concerns. Workflows should be able to make decisions about what logic to execute based on the messages it sees and without having to query databases. 
+Ideally services that host workflows should be somewhat isolated and contain no other concerns. Workflows should be able to make decisions about what logic to execute based on the messages it sees and without having to query databases.
 
 ```bash
 npm i reflect-metadata @node-ts/bus-core
@@ -33,19 +33,20 @@ The following concepts are useful in understanding how workflows work and how to
 
 ### Workflow
 
-A workflow models a long running business process. In the context of an existing business, it's something that probably already exists such as the series of steps to perform when hiring new staff, how to process a product return etc. These processes are a series of steps that need to be performed in order to achieve a desired outcome. 
+A workflow models a long running business process. In the context of an existing business, it's something that probably already exists such as the series of steps to perform when hiring new staff, how to process a product return etc. These processes are a series of steps that need to be performed in order to achieve a desired outcome.
 
-`@node-ts/bus-core` provides a framework where these series of steps can be modelled as a Typescript class definition that contains a number of message handling functions. These functions react to changes in the business environment, such as when one step has completed so that the next can begin. 
+`@node-ts/bus-core` provides a framework where these series of steps can be modelled as a Typescript class definition that contains a number of message handling functions. These functions react to changes in the business environment, such as when one step has completed so that the next can begin.
 
 ### Workflow Data
 
-Workflow data contains the current state of a running workflow. For instance when hiring new staff, HR, IT, and Accounting may all need to perform certain steps so that a new employee is established. The outcomes of some of these individual steps may contain data that needs to be sent to subsequent steps. 
+Workflow data contains the current state of a running workflow. For instance when hiring new staff, HR, IT, and Accounting may all need to perform certain steps so that a new employee is established. The outcomes of some of these individual steps may contain data that needs to be sent to subsequent steps.
 
 `@node-ts/bus-core` persists and can update the state data for the duration of the workflow's lifetime. This data is made available to all message handling functions as they're invoked.
 
 ### Attributes
 
 A workflow consists of:
+
 - the `$name` of the workflow
 - 1..n messages that starts a workflow
 - 0..n messages that trigger the next step in a workflow
@@ -79,7 +80,7 @@ A workflow must have the following conditions met:
 1. Define a `WorkflowData` type that extends `WorkflowData` from `@node-ts/bus-core`
 2. Configure the workflow using `Workflow.configure(...)` from `@node-ts/bus-core`
 3. Contain at least 1 message handling function declared with `.startedBy()`
-5. Be registered with the library using `Bus.configure().withWorkflow(myWorkflow)` from `@node-ts/bus-core`
+4. Be registered with the library using `Bus.configure().withWorkflow(myWorkflow)` from `@node-ts/bus-core`
 
 ### Completing a workflow
 
@@ -105,25 +106,23 @@ Occasionally there are times when the workflow data shouldn't persist after a me
 For example, if your workflow is started by an `S3ObjectCreated` event, but should only create a new workflow if the object key is prefixed with `/documents`, then this can be achieved by returning `this.discard()` in the workflow like so:
 
 ```typescript
-const processDocumentWorkflow = Workflow
-  .configure('processDocumentWorkflow', ProcessDocumentWorkflowData)
-  .startedBy(
-    S3ObjectCreated,
-    ({ message }) => {
-      if (message.s3Key.indexOf('/documents') === 0) {
-        return {} // Starts a new workflow
-      } else {
-        return undefined // Do not start a new workflow
-      }
-    }
-  )
+const processDocumentWorkflow = Workflow.configure(
+  'processDocumentWorkflow',
+  ProcessDocumentWorkflowData
+).startedBy(S3ObjectCreated, ({ message }) => {
+  if (message.s3Key.indexOf('/documents') === 0) {
+    return {} // Starts a new workflow
+  } else {
+    return undefined // Do not start a new workflow
+  }
+})
 ```
 
 ### Example
 
 The following represents a simple workflow that sends a welcome message to new users and subscribes them to a mailing list.
 
-`user-signup-workflow-state.ts` is a workflow data definition that describes the state that the workflow will create and update throughout its lifetime.  
+`user-signup-workflow-state.ts` is a workflow data definition that describes the state that the workflow will create and update throughout its lifetime.
 
 ```typescript
 // user-signup-workflow.ts
@@ -149,8 +148,10 @@ export class UserSignupWorkflowData extends WorkflowData {
   subscribedToMailingList: boolean
 }
 
-export const userSignupWorkflow = Workflow
-  .configure('userSignupWorkflow', UserSignupWorkflowData)
+export const userSignupWorkflow = Workflow.configure(
+  'userSignupWorkflow',
+  UserSignupWorkflowData
+)
   .startedBy(UserSignedUp, async ({ message }) => {
     const sendWelcomeEmail = new SendWelcomeEmail(event.email)
     await Bus.send(sendWelcomeEmail)
@@ -172,7 +173,7 @@ export const userSignupWorkflow = Workflow
       /*
         Handle when the welcome email has been sent. Because there's one of these messages for each user signing up, we need
         to find the correct workflow data by mapping the 'email' field in the event to the 'email' field in the workflow data.
-      */ 
+      */
       if (workflowData.subscribedToMailingList) {
         return completeWorkflow({ welcomeEmailSent: true })
       }
@@ -196,7 +197,7 @@ export const userSignupWorkflow = Workflow
   )
 ```
 
-Next we need to register the workflow with the Bus library, which will take care of preparing the underlying transport, how to route messages to our app, and how the state of our workflow will be persisted. 
+Next we need to register the workflow with the Bus library, which will take care of preparing the underlying transport, how to route messages to our app, and how the state of our workflow will be persisted.
 
 ```typescript
 // index.ts
@@ -204,12 +205,8 @@ import { Bus } from '@node-ts/bus-core'
 import { userSignupWorkflow } from './user-signup-workflow'
 
 const run = async () => {
-  await Bus
-    .configure()
-    .withWorkflow(userSignupWorkflow)
-    .initialize()
+  await Bus.configure().withWorkflow(userSignupWorkflow).initialize()
 }
 
 run.catch(console.error)
 ```
-

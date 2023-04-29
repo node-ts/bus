@@ -42,8 +42,8 @@ run.then(() => void)
 
 The Postgres persistence has the following configuration:
 
-*  **connection** *(required)* Connection pool settings for the application to connect to the postgres instance
-*  **schemaName** *(required)* The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
+- **connection** _(required)_ Connection pool settings for the application to connect to the postgres instance
+- **schemaName** _(required)_ The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
 
 ## Development
 

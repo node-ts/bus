@@ -22,32 +22,32 @@ export class MongodbPersistence implements Persistence {
   private coreDependencies: CoreDependencies
   private logger: Logger
   private database: Db
-  constructor (
+  constructor(
     private readonly configuration: MongodbConfiguration,
     private client: MongoClient = new MongoClient(configuration.connection)
   ) {}
 
-  prepare (coreDependencies: CoreDependencies): void {
+  prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-persistence:mongodb-persistence'
     )
   }
 
-  async initialize (): Promise<void> {
+  async initialize(): Promise<void> {
     this.logger.info('Initializing mongodb persistence...')
     await this.client.connect()
     this.database = this.client.db(this.configuration.databaseName)
     this.logger.info('Mongodb persistence initialized')
   }
 
-  async dispose (): Promise<void> {
+  async dispose(): Promise<void> {
     this.logger.info('Disposing Mongodb persistence...')
     await this.client.close()
     this.logger.info('Mongodb persistence disposed')
   }
 
-  async initializeWorkflow<WorkflowStateType extends WorkflowState> (
+  async initializeWorkflow<WorkflowStateType extends WorkflowState>(
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
@@ -66,7 +66,7 @@ export class MongodbPersistence implements Persistence {
   async getWorkflowState<
     WorkflowStateType extends WorkflowState,
     MessageType extends Message
-  > (
+  >(
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
     message: MessageType,
@@ -110,7 +110,7 @@ export class MongodbPersistence implements Persistence {
       )
   }
 
-  async saveWorkflowState<WorkflowStateType extends WorkflowState> (
+  async saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType
   ): Promise<void> {
     this.logger.debug('Saving workflow state', {
@@ -121,7 +121,9 @@ export class MongodbPersistence implements Persistence {
 
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
-    const modifiedState = mapKeys(workflowState, (_, key) => normalizeProperty(key))
+    const modifiedState = mapKeys(workflowState, (_, key) =>
+      normalizeProperty(key)
+    )
 
     const plainWorkflowState = {
       ...this.coreDependencies.serializer.toPlain(modifiedState),
@@ -137,7 +139,7 @@ export class MongodbPersistence implements Persistence {
     )
   }
 
-  private async ensureCollectionExists (collectionName: string): Promise<void> {
+  private async ensureCollectionExists(collectionName: string): Promise<void> {
     this.logger.debug('Ensuring mongodb collection for workflow state exists', {
       collectionName
     })
@@ -149,7 +151,7 @@ export class MongodbPersistence implements Persistence {
     }
   }
 
-  private async ensureIndexesExist (
+  private async ensureIndexesExist(
     collectionName: string,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
@@ -163,7 +165,8 @@ export class MongodbPersistence implements Persistence {
       existingIndexNames as string[]
     )
 
-    const allWorkflowFields = messageWorkflowMappings.map(mapping => mapping.mapsTo
+    const allWorkflowFields = messageWorkflowMappings.map(
+      mapping => mapping.mapsTo
     )
     const distinctWorkflowFields = new Set(allWorkflowFields)
     const workflowFields: string[] = [...distinctWorkflowFields]
@@ -195,7 +198,7 @@ export class MongodbPersistence implements Persistence {
     ])
   }
 
-  private async createPrimaryIndex (
+  private async createPrimaryIndex(
     collectionName: string,
     existingIndexesNames: string[]
   ): Promise<void> {
@@ -215,7 +218,7 @@ export class MongodbPersistence implements Persistence {
     )
   }
 
-  private async upsertWorkflowState (
+  private async upsertWorkflowState(
     collectionName: string,
     workflowId: string,
     plainWorkflowState: object,
@@ -265,7 +268,7 @@ export class MongodbPersistence implements Persistence {
 /**
  * Returns a legal fully qualified schema + table name
  */
-function resolveQualifiedTableName (collectionName: string): string {
+function resolveQualifiedTableName(collectionName: string): string {
   const invalidPostgresCharacters = /[^0-9a-zA-Z_.-]/g
   const normalizedTableName = collectionName
     .replace(invalidPostgresCharacters, '')
@@ -278,20 +281,20 @@ function resolveQualifiedTableName (collectionName: string): string {
  * Converts pascal to snake case
  * @example MyTableName => my_table_name
  */
-function toSnakeCase (value: string): string {
+function toSnakeCase(value: string): string {
   return value.replace(/([A-Z])/g, c => `_${c.toLowerCase()}`)
 }
 
 /**
  * Resolves the name of an index from the fields contained in that index
  */
-function resolveIndexName (tableName: string, ...fields: string[]): string {
+function resolveIndexName(tableName: string, ...fields: string[]): string {
   const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
   return `"${normalizedTableName}_${fields.join('_')}_idx"`
 }
-function normalizeProperty (property: string): string {
+function normalizeProperty(property: string): string {
   return property.replace('$', '__')
 }
-function denormalizeProperty (property: string): string {
+function denormalizeProperty(property: string): string {
   return property.replace('__', '$')
 }

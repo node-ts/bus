@@ -40,8 +40,8 @@ run.then(() => void)
 
 The Mongodb persistence has the following configuration:
 
-*  **connection** *(required)* The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
-*  **schemaName** *(required)* The database name to create workflow collections inside. 
+- **connection** _(required)_ The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
+- **schemaName** _(required)_ The database name to create workflow collections inside.
 
 ## Development
 

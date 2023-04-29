@@ -16,7 +16,8 @@ describe('WorkflowRegistry', () => {
     beforeEach(() => {
       sut = new WorkflowRegistry()
       sut.register(TestWorkflow)
-      sut.prepare({
+      sut.prepare(
+        {
           loggerFactory: (name: string) => new DebugLogger(name)
         } as unknown as CoreDependencies,
         persistence.object
@@ -52,7 +53,9 @@ describe('WorkflowRegistry', () => {
         container = Mock.ofType<ContainerAdapter>()
         container
           .setup(c => c.get(TestWorkflow))
-          .returns(() => Promise.resolve(new TestWorkflow(Mock.ofType<BusInstance>().object)))
+          .returns(() =>
+            Promise.resolve(new TestWorkflow(Mock.ofType<BusInstance>().object))
+          )
           .verifiable(Times.once())
       })
 

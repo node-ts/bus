@@ -1,4 +1,10 @@
-import { Bus, WorkflowStatus, MessageWorkflowMapping, Logger, BusInstance } from '@node-ts/bus-core'
+import {
+  Bus,
+  WorkflowStatus,
+  MessageWorkflowMapping,
+  Logger,
+  BusInstance
+} from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { PostgresPersistence } from './postgres-persistence'
 import { PostgresConfiguration } from './postgres-configuration'
@@ -21,10 +27,11 @@ describe('PostgresPersistence', () => {
 
   beforeAll(async () => {
     postgres = new Pool(configuration.connection)
-    await postgres.query('create schema if not exists ' + configuration.schemaName)
+    await postgres.query(
+      'create schema if not exists ' + configuration.schemaName
+    )
     sut = new PostgresPersistence(configuration, postgres)
-    bus = await Bus
-      .configure()
+    bus = await Bus.configure()
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
@@ -41,7 +48,9 @@ describe('PostgresPersistence', () => {
 
   describe('when initializing the transport', () => {
     it('should create a workflow table', async () => {
-      const result = await postgres.query('select count(*) from "workflows"."testworkflowstate"')
+      const result = await postgres.query(
+        'select count(*) from "workflows"."testworkflowstate"'
+      )
       const { count } = result.rows[0] as { count: string }
       expect(count).toEqual('0')
     })
@@ -60,14 +69,19 @@ describe('PostgresPersistence', () => {
     })
 
     it('should add the row into the table', async () => {
-      const result = await postgres.query('select count(*) from "workflows"."testworkflowstate"')
+      const result = await postgres.query(
+        'select count(*) from "workflows"."testworkflowstate"'
+      )
       const { count } = result.rows[0] as { count: string }
       expect(count).toEqual('1')
     })
 
     describe('when getting the workflow state by property', () => {
       const testCommand = new TestCommand(workflowState.property1)
-      const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+      const messageOptions: MessageAttributes = {
+        attributes: {},
+        stickyAttributes: {}
+      }
       let dataV1: TestWorkflowState
       let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState>
 

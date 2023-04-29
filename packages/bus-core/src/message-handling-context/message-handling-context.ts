@@ -50,13 +50,10 @@ export const messageHandlingContext = {
    * only call this if they want to create a new context with themselves at the root.
    */
   set: (message: TransportMessage<unknown>) =>
-    handlingContexts.set(
-      asyncHooks.executionAsyncId(),
-      {
-        childAsyncIds: [],
-        message
-      }
-    ),
+    handlingContexts.set(asyncHooks.executionAsyncId(), {
+      childAsyncIds: [],
+      message
+    }),
   get: () => handlingContexts.get(asyncHooks.executionAsyncId()),
   destroy: () => {
     const asyncId = asyncHooks.executionAsyncId()
@@ -65,7 +62,9 @@ export const messageHandlingContext = {
       return
     }
 
-    context.childAsyncIds.forEach(childAsyncId => handlingContexts.delete(childAsyncId))
+    context.childAsyncIds.forEach(childAsyncId =>
+      handlingContexts.delete(childAsyncId)
+    )
     handlingContexts.delete(asyncId)
   },
   enable: () => hooks.enable(),

@@ -10,27 +10,28 @@ import { Serializer } from './serializer'
  *
  * Normally, transports will use this instead of the real serializer.
  */
- export class MessageSerializer {
-
-  constructor (
+export class MessageSerializer {
+  constructor(
     private readonly serializer: Serializer,
     private readonly handlerRegistry: HandlerRegistry
-  ) {
-  }
+  ) {}
 
-  serialize<MessageType extends Message> (message: MessageType): string {
+  serialize<MessageType extends Message>(message: MessageType): string {
     return this.serializer.serialize(message)
   }
 
-  deserialize<MessageType extends Message> (serializedMessage: string): MessageType {
+  deserialize<MessageType extends Message>(
+    serializedMessage: string
+  ): MessageType {
     const naiveDeserializedMessage = JSON.parse(serializedMessage) as Message
-    const messageType = this.handlerRegistry.getMessageConstructor(naiveDeserializedMessage.$name)
+    const messageType = this.handlerRegistry.getMessageConstructor(
+      naiveDeserializedMessage.$name
+    )
 
-    return (!!messageType
-      ? this.serializer.deserialize(
-          serializedMessage,
-          messageType
-        )
-      : naiveDeserializedMessage) as MessageType
+    return (
+      !!messageType
+        ? this.serializer.deserialize(serializedMessage, messageType)
+        : naiveDeserializedMessage
+    ) as MessageType
   }
 }
