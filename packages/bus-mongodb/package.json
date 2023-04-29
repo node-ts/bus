@@ -9,9 +9,9 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.json --declaration",
-    "build:watch": "yarn run build --incremental --watch --preserveWatchOutput",
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput",
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
-    "lint:fix": "yarn lint --fix"
+    "lint:fix": "pnpm lint --fix"
   },
   "publishConfig": {
     "access": "public"

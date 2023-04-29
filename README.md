@@ -1,10 +1,17 @@
 # @node-ts/bus
 
-*A library for building message-based, distributed node applications.*
+@node-ts/bus is a node-based library that aims to simplify the development of resilient message-based applications. By handling the technical aspects of the underlying bus transport, it enables developers to focus on creating loosely coupled systems with less boilerplate.
+
+@node-ts/bus allows developers to specify messages and message handlers. It then manages the message transport, subscriptions, and retries behind the scenes. In case of failure, messages are returned to the queue for retry, promoting application resilience.
+
+Additionally, the library provides message workflows, or sagas, to help developers coordinate multiple messages and handlers in longer running processes. As a result, applications built with @node-ts/bus can be more robust, self-healing, and resistant to data loss or corruption.
+
+## Further info
 
 🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
 
-🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
+🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+
 ## Components
 
 * [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - Core bus library for sending and receiving messages and managing workflows
@@ -21,12 +28,12 @@ This guide is for developers and contributors to the library itself. For consume
 
 ### Installation
 
-This package uses `lerna` for monorepo support and `yarn` workspaces.
+This package uses `pnpm` for monorepo support and workspaces.
 
 Install dependencies
 
 ```sh
-yarn && yarn bootstrap && yarn build
+pnpm i
 ```
 
 ### Scripts

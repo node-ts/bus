@@ -4,7 +4,7 @@ An Amazon SQS transport adapter for [@node-ts/bus](https://bus.node-ts.com)
 
 🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
 
-🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
+🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 
 ## Installation
 

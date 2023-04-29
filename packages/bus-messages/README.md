@@ -4,7 +4,7 @@ This package should be consumed wherever your application defines message contra
 
 🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
 
-🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
+🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 
 ## Installation
 
