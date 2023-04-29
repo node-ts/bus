@@ -2,6 +2,21 @@ version: 2
 
 defaults: &defaults
   working_directory: ~/repo
+  build: # this can be any name you choose
+    docker:
+      - image: node:16
+    resource_class: large
+    parallelism: 10
+    steps:
+      - checkout
+      - restore_cache:
+          name: Restore pnpm Package Cache
+          keys:
+            - pnpm-packages-{{ checksum "pnpm-lock.yaml" }}
+      - run:
+          name: Install pnpm package manager
+          command: |
+            curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@7
 
 jobs:
   build:
