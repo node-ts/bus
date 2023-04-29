@@ -5,6 +5,13 @@ defaults: &defaults
   build: # this can be any name you choose
     docker:
       - image: node:16
+
+
+jobs:
+  build:
+    <<: *defaults
+    docker:
+      - image: node:16
     resource_class: large
     parallelism: 10
     steps:
@@ -17,14 +24,6 @@ defaults: &defaults
           name: Install pnpm package manager
           command: |
             curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@7
-
-jobs:
-  build:
-    <<: *defaults
-    docker:
-      - image: circleci/node:16
-    steps:
-      - checkout
       - run:
           name: Install dependencies
           command: pnpm
@@ -60,7 +59,7 @@ jobs:
   deploy:
     <<: *defaults
     docker:
-      - image: circleci/node:16
+      - image: node:16
     steps:
       # Reuse the workspace from the build job
       - attach_workspace:
