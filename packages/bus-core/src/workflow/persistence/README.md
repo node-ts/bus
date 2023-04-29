@@ -11,6 +11,7 @@ By default, [@node-ts/bus-workflow](/packages/bus-workflow/) uses an in-memory p
 The following persistence providers are currently available:
 
 * [@node-ts/bus-postgres](/packages/bus-postgres/)
+* [@node-ts/bus-mongodb](/packages/bus-mongodb/)
 
 ## Implementing a Persistence
 
