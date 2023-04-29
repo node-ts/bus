@@ -1,4 +1,3 @@
-// tslint:disable:no-magic-numbers Date based tests
 import { ClassSerializer } from './class-serializer'
 import { Type } from 'class-transformer'
 
@@ -49,7 +48,6 @@ describe('ClassSerializer', () => {
     it('should deserialize to a plain object', () => {
       expect(result).toMatchObject({ a: 'a', b: 1 })
       expect(result.c).toBeDefined()
-      // tslint:disable-next-line:no-unbound-method Testing presence
       expect(result.c.toUTCString).toBeDefined()
       expect(result.c.getDate()).toEqual(date.getDate())
     })

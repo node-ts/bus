@@ -8,7 +8,6 @@ This error occurs when .fail() has been called outside of a message handling con
 or more specifically - outside the stack of a Handler() operation`
   ) {
     super(`Attempted to fail message outside of a message handling context`)
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

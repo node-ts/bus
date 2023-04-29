@@ -7,7 +7,6 @@ export class HandlerAlreadyRegistered extends Error {
     )
     this.help = `Handlers must be registered with a unique $name property`
 
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

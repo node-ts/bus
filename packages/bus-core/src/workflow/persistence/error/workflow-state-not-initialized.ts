@@ -6,7 +6,6 @@ export class WorkflowStateNotInitialized extends Error {
     this.help =
       'Ensure that the workflow has been registered with `Bus.configure().withWorkflow()'
 
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

@@ -8,7 +8,6 @@ export class WorkflowAlreadyHandlesMessage extends Error {
   ) {
     super(`Attempted to re-register the same message handler for a workflow`)
 
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

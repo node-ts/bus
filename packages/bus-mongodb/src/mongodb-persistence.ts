@@ -1,4 +1,3 @@
-// tslint:disable:no-unsafe-any strict-type-predicates
 import {
   ClassConstructor,
   CoreDependencies,

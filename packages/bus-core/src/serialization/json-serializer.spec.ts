@@ -1,4 +1,3 @@
-// tslint:disable:no-magic-numbers Date based tests
 import { JsonSerializer } from './json-serializer'
 
 class Contract {

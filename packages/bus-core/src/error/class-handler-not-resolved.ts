@@ -5,7 +5,6 @@ export class ClassHandlerNotResolved extends Error {
         ` Ensure that the class has been registered with your container and that` +
         ` the containerAdapter from .withContainer(...) is correct.`
     )
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

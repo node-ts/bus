@@ -1,4 +1,3 @@
-// tslint:disable:max-classes-per-file variable-name no-console
 import * as uuid from 'uuid'
 import { Workflow, WorkflowMapper } from './workflow'
 import { Bus, BusInstance } from '../service-bus'

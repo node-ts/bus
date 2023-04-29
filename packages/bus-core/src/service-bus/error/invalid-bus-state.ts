@@ -8,7 +8,6 @@ export class InvalidBusState extends Error {
   ) {
     super(message)
 
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

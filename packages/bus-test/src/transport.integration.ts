@@ -1,4 +1,3 @@
-// tslint:disable:no-unsafe-any Using typemoq for It.isAnh()
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
 import {
   HandleChecker,

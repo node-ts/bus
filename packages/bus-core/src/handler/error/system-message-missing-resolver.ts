@@ -9,7 +9,6 @@ export class SystemMessageMissingResolver extends Error {
     )
     this.help = `Ensure your .withHandler includes a customResolver with resolveWith supplied.`
 
-    // tslint:disable-next-line:no-unsafe-any
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }

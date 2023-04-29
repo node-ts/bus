@@ -1,4 +1,3 @@
-// tslint:disable:max-classes-per-file no-inferred-empty-object-type
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
 import * as faker from 'faker'
