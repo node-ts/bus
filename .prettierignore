@@ -1,0 +1,13 @@
+# This file is just for editor integration, the CLI tool uses .gitignore. Unfortunately
+# Prettier doesn't support multiple ignore files so any extra ignore patterns/paths
+# need to be added via the CLI glob.
+
+# Prettier was converting gitlab-ci.yml double-quotes to single-quotes, breaking
+# variable interpolation.
+*.yml
+*.yaml
+# Prettier was inserting blank lines, which was breaking MDX compilation.
+*.mdx
+
+# Exists only during builds
+.pnpm-store

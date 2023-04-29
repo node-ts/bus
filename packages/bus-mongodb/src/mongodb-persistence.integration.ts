@@ -3,7 +3,7 @@ import {
   WorkflowStatus,
   MessageWorkflowMapping,
   Logger,
-  BusInstance,
+  BusInstance
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { MongodbPersistence } from './mongodb-persistence'
@@ -16,7 +16,7 @@ import { WorkflowStateNotFound } from './error'
 
 const configuration: MongodbConfiguration = {
   connection: 'mongodb://localhost:27017/workflows',
-  databaseName: 'workflows',
+  databaseName: 'workflows'
 }
 
 describe('MongodbPersistence', () => {
@@ -77,8 +77,8 @@ describe('MongodbPersistence', () => {
           __version: 1,
           __name: 'TestWorkflowState',
           eventValue: 'abc',
-          property1: 'something',
-        },
+          property1: 'something'
+        }
       })
     })
 
@@ -86,15 +86,15 @@ describe('MongodbPersistence', () => {
       const testCommand = new TestCommand(workflowState.property1)
       const messageOptions: MessageAttributes = {
         attributes: {},
-        stickyAttributes: {},
+        stickyAttributes: {}
       }
       let dataV1: TestWorkflowState
       let mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState>
 
       it('should retrieve the item', async () => {
         mapping = {
-          lookup: (message) => message.property1,
-          mapsTo: 'property1',
+          lookup: message => message.property1,
+          mapsTo: 'property1'
         }
         const results = await sut.getWorkflowState(
           TestWorkflowState,
@@ -114,7 +114,7 @@ describe('MongodbPersistence', () => {
         beforeAll(async () => {
           updates = {
             ...dataV1,
-            eventValue: 'something else',
+            eventValue: 'something else'
           }
           await sut.saveWorkflowState(updates)
 
@@ -130,7 +130,7 @@ describe('MongodbPersistence', () => {
         it('should return the updates', () => {
           expect(dataV2).toMatchObject({
             ...updates,
-            $version: 2,
+            $version: 2
           })
         })
       })
@@ -141,7 +141,7 @@ describe('MongodbPersistence', () => {
         beforeAll(async () => {
           updates = {
             ...dataV1,
-            eventValue: 'something else',
+            eventValue: 'something else'
           }
           try {
             await sut.saveWorkflowState(updates)

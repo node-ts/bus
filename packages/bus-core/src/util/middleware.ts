@@ -6,25 +6,20 @@
 /**
  * 'next' function, passed to a middleware
  */
- export type Next = () => void | Promise<void>
+export type Next = () => void | Promise<void>
 
 /**
-  * A middleware
-  */
-export type Middleware<T> =
-  (context: T, next: Next) => Promise<void> | void
+ * A middleware
+ */
+export type Middleware<T> = (context: T, next: Next) => Promise<void> | void
 
 /**
  * A middleware container and invoker
  */
 export class MiddlewareDispatcher<T> {
-
   middlewares: Middleware<T>[] = []
 
-  constructor (
-    readonly finalMiddlewares: Middleware<T>[] = []
-  ) {
-  }
+  constructor(readonly finalMiddlewares: Middleware<T>[] = []) {}
 
   /**
    * Add a middleware function.
@@ -48,13 +43,17 @@ export class MiddlewareDispatcher<T> {
    * given Context.
    */
   dispatch(context: T): Promise<void> {
-     return invokeMiddlewares(context, this.middlewares.concat(this.finalMiddlewares))
+    return invokeMiddlewares(
+      context,
+      this.middlewares.concat(this.finalMiddlewares)
+    )
   }
 }
 
-
-async function invokeMiddlewares<T>(context: T, middlewares: Middleware<T>[]): Promise<void> {
-
+async function invokeMiddlewares<T>(
+  context: T,
+  middlewares: Middleware<T>[]
+): Promise<void> {
   if (!middlewares.length) {
     return
   }

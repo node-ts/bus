@@ -4,8 +4,10 @@ export interface MessageAttributeMap {
   [key: string]: string | number | boolean | undefined
 }
 
-export type Attributes<AttributesType extends MessageAttributeMap> = AttributesType
-export type StickyAttributes<StickyAttributesType extends MessageAttributeMap> = StickyAttributesType
+export type Attributes<AttributesType extends MessageAttributeMap> =
+  AttributesType
+export type StickyAttributes<StickyAttributesType extends MessageAttributeMap> =
+  StickyAttributesType
 
 /**
  * Options that control the behaviour around how the message is sent and
@@ -44,4 +46,3 @@ export interface MessageAttributes<
    */
   stickyAttributes: StickyAttributesType
 }
-

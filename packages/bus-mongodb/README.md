@@ -4,7 +4,7 @@ A Mongodb based persistence for workflow storage in [@node-ts/bus](https://bus.n
 
 🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
 
-🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
+🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 
 ## Installation
 
@@ -40,8 +40,8 @@ run.then(() => void)
 
 The Mongodb persistence has the following configuration:
 
-*  **connection** *(required)* The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
-*  **schemaName** *(required)* The database name to create workflow collections inside. 
+- **connection** _(required)_ The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
+- **schemaName** _(required)_ The database name to create workflow collections inside.
 
 ## Development
 

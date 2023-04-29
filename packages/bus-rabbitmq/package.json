@@ -9,17 +9,15 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.json --declaration",
-    "build:watch": "yarn run build --incremental --watch --preserveWatchOutput",
-    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
-    "lint:fix": "yarn lint --fix"
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@node-ts/bus-messages": "^1.0.4",
-    "@types/amqplib": "^0.8.2",
-    "amqplib": "^0.8.0",
+    "@types/amqplib": "^0.10.1",
+    "amqplib": "^0.10.3",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },

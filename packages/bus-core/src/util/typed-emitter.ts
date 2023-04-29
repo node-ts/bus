@@ -28,17 +28,17 @@ export class TypedEmitter<T> {
 
   emit = (event: T) => {
     // Update any general listeners
-    this.listeners.forEach((listener) => listener(event))
+    this.listeners.forEach(listener => listener(event))
 
     // Clear the `once` queue
     if (this.listenersOncer.length > 0) {
       const toCall = this.listenersOncer
       this.listenersOncer = []
-      toCall.forEach((listener) => listener(event))
+      toCall.forEach(listener => listener(event))
     }
   }
 
   pipe = (typedEmitter: TypedEmitter<T>): Unsubscribe => {
-    return this.on((e) => typedEmitter.emit(e))
+    return this.on(e => typedEmitter.emit(e))
   }
 }

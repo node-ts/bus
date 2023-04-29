@@ -24,7 +24,6 @@ const attributes: MessageAttributes = {
   }
 }
 
-
 describe('Handler', () => {
   describe('for a correctly configured instance', () => {
     const messageLogger = Mock.ofType<MessageLogger>()
@@ -32,16 +31,26 @@ describe('Handler', () => {
     let bus: BusInstance
 
     // Sticky attributes should propagate during Bus.send
-    const command2Handler = handlerFor(TestCommand2, async (_: TestCommand2, { correlationId }) => {
-      await bus.send(new TestCommand3())
-      messageLogger.object.log({ name: 'command2Handler', correlationId })
-      events.emit('command2Handler')
-    })
-    const command3Handler = (messageLogger: MessageLogger) => handlerFor(TestCommand3, async (_: TestCommand3, { stickyAttributes, correlationId }: MessageAttributes) => {
-      messageLogger.log(stickyAttributes.value)
-      messageLogger.log({ name: 'command3Handler', correlationId })
-      events.emit('command3Handler')
-    })
+    const command2Handler = handlerFor(
+      TestCommand2,
+      async (_: TestCommand2, { correlationId }) => {
+        await bus.send(new TestCommand3())
+        messageLogger.object.log({ name: 'command2Handler', correlationId })
+        events.emit('command2Handler')
+      }
+    )
+    const command3Handler = (messageLogger: MessageLogger) =>
+      handlerFor(
+        TestCommand3,
+        async (
+          _: TestCommand3,
+          { stickyAttributes, correlationId }: MessageAttributes
+        ) => {
+          messageLogger.log(stickyAttributes.value)
+          messageLogger.log({ name: 'command3Handler', correlationId })
+          events.emit('command3Handler')
+        }
+      )
 
     beforeAll(async () => {
       bus = await Bus.configure()
@@ -127,10 +136,7 @@ describe('Handler', () => {
 
     describe('when an unhandled message is received', () => {
       it('should not handle the message', () => {
-        messageLogger.verify(
-          m => m.log(command),
-          Times.never()
-        )
+        messageLogger.verify(m => m.log(command), Times.never())
       })
     })
 
@@ -147,7 +153,13 @@ describe('Handler', () => {
         await messageHandled
 
         messageLogger.verify(
-          logger => logger.log(It.isObjectWith({ name: 'command3Handler', correlationId: attributes.correlationId })),
+          logger =>
+            logger.log(
+              It.isObjectWith({
+                name: 'command3Handler',
+                correlationId: attributes.correlationId
+              })
+            ),
           Times.once()
         )
       })
@@ -158,11 +170,15 @@ describe('Handler', () => {
       beforeAll(async () => {
         messageLogger.reset()
         messageLogger
-          .setup(m => m.log(It.is<any>(m => !!m && m.name === 'command2Handler')))
-          .callback(m => command2CorrelationId = m.correlationId)
+          .setup(m =>
+            m.log(It.is<any>(m => !!m && m.name === 'command2Handler'))
+          )
+          .callback(m => (command2CorrelationId = m.correlationId))
         const command2 = new TestCommand2()
 
-        const messageHandled = new Promise<void>(resolve => events.on('command3Handler', resolve))
+        const messageHandled = new Promise<void>(resolve =>
+          events.on('command3Handler', resolve)
+        )
         await bus.send(command2)
         await messageHandled
       })
@@ -173,14 +189,26 @@ describe('Handler', () => {
 
       it('should assign a correlationId', () => {
         messageLogger.verify(
-          logger => logger.log(It.isObjectWith({ name: 'command3Handler', correlationId: command2CorrelationId })),
+          logger =>
+            logger.log(
+              It.isObjectWith({
+                name: 'command3Handler',
+                correlationId: command2CorrelationId
+              })
+            ),
           Times.once()
         )
       })
 
       it('should propagate the correlationId over multiple hops', () => {
         messageLogger.verify(
-          logger => logger.log(It.isObjectWith({ name: 'command3Handler', correlationId: command2CorrelationId })),
+          logger =>
+            logger.log(
+              It.isObjectWith({
+                name: 'command3Handler',
+                correlationId: command2CorrelationId
+              })
+            ),
           Times.once()
         )
       })

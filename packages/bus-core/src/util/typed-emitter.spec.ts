@@ -17,10 +17,7 @@ describe('TypedEmitter', () => {
     })
 
     it('should only receive the first event', () => {
-      callback.verify(
-        invocation => invocation('one'),
-        Times.once()
-      )
+      callback.verify(invocation => invocation('one'), Times.once())
     })
   })
 
@@ -35,10 +32,7 @@ describe('TypedEmitter', () => {
     })
 
     it('should pipe events through', () => {
-      callback.verify(
-        invocation => invocation('one'),
-        Times.once()
-      )
+      callback.verify(invocation => invocation('one'), Times.once())
     })
   })
 
@@ -51,10 +45,7 @@ describe('TypedEmitter', () => {
     })
 
     it('should not receive any events', () => {
-      callback.verify(
-        invocation => invocation('one'),
-        Times.never()
-      )
+      callback.verify(invocation => invocation('one'), Times.never())
     })
   })
 
@@ -71,10 +62,7 @@ describe('TypedEmitter', () => {
     })
 
     it('should receive all emitted events', () => {
-      callback.verify(
-        invocation => invocation('one'),
-        Times.exactly(2)
-      )
+      callback.verify(invocation => invocation('one'), Times.exactly(2))
     })
 
     describe('when unsubscribing', () => {
@@ -85,10 +73,7 @@ describe('TypedEmitter', () => {
       })
 
       it('should not receive subsequent events', () => {
-        callback.verify(
-          invocation => invocation('one'),
-          Times.never()
-        )
+        callback.verify(invocation => invocation('one'), Times.never())
       })
     })
   })

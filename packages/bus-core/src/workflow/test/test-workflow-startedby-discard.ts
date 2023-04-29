@@ -11,14 +11,18 @@ export class TestWorkflowStartedByDiscardData extends WorkflowState {
  * A test case where the workflow is completes during startup without persisting state
  */
 export class TestWorkflowStartedByDiscard extends Workflow<TestWorkflowStartedByDiscardData> {
-  configureWorkflow (mapper: WorkflowMapper<TestWorkflowStartedByDiscardData, TestWorkflowStartedByDiscard>): void {
+  configureWorkflow(
+    mapper: WorkflowMapper<
+      TestWorkflowStartedByDiscardData,
+      TestWorkflowStartedByDiscard
+    >
+  ): void {
     mapper
       .withState(TestWorkflowStartedByDiscardData)
       .startedBy(TestCommand, 'discard')
   }
 
-  discard () {
+  discard() {
     return this.discardWorkflow()
   }
-
 }

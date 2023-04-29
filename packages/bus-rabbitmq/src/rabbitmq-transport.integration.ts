@@ -1,8 +1,16 @@
 import { RabbitMqTransport } from './rabbitmq-transport'
 import { Connection, Channel, connect, ConsumeMessage } from 'amqplib'
-import { DefaultHandlerRegistry, JsonSerializer, MessageSerializer } from '@node-ts/bus-core'
+import {
+  DefaultHandlerRegistry,
+  JsonSerializer,
+  MessageSerializer
+} from '@node-ts/bus-core'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
-import { Message, MessageAttributeMap, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Message,
+  MessageAttributeMap,
+  MessageAttributes
+} from '@node-ts/bus-messages'
 import * as uuid from 'uuid'
 import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
 
@@ -19,7 +27,10 @@ describe('RabbitMqTransport', () => {
   let rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: Connection
   let channel: Channel
-  const messageSerializer = new MessageSerializer(new JsonSerializer(), new DefaultHandlerRegistry())
+  const messageSerializer = new MessageSerializer(
+    new JsonSerializer(),
+    new DefaultHandlerRegistry()
+  )
 
   const systemMessageTopicIdentifier = TestSystemMessage.NAME
   const message = new TestSystemMessage()
@@ -61,12 +72,20 @@ describe('RabbitMqTransport', () => {
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string,
-      attributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.attributes
-        ? JSON.parse(rabbitMessage.properties.headers.attributes as string) as MessageAttributeMap
-        : {},
-      stickyAttributes: rabbitMessage.properties.headers && rabbitMessage.properties.headers.stickyAttributes
-        ? JSON.parse(rabbitMessage.properties.headers.stickyAttributes as string) as MessageAttributeMap
-        : {}
+      attributes:
+        rabbitMessage.properties.headers &&
+        rabbitMessage.properties.headers.attributes
+          ? (JSON.parse(
+              rabbitMessage.properties.headers.attributes as string
+            ) as MessageAttributeMap)
+          : {},
+      stickyAttributes:
+        rabbitMessage.properties.headers &&
+        rabbitMessage.properties.headers.stickyAttributes
+          ? (JSON.parse(
+              rabbitMessage.properties.headers.stickyAttributes as string
+            ) as MessageAttributeMap)
+          : {}
     }
 
     return [{ message, attributes }]

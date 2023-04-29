@@ -7,7 +7,7 @@ import { BusInstance } from './bus-instance'
 import { handlerFor } from '../handler'
 
 const event = new TestEvent()
-type Callback = () => void;
+type Callback = () => void
 
 describe('BusInstance - Concurrency', () => {
   let queue: MemoryQueue
@@ -28,7 +28,7 @@ describe('BusInstance - Concurrency', () => {
     queue = new MemoryQueue()
     callback = Mock.ofType<Callback>()
 
-    bus =await Bus.configure()
+    bus = await Bus.configure()
       .withTransport(queue)
       .withHandler(handler)
       .withConcurrency(CONCURRENCY)
@@ -59,5 +59,4 @@ describe('BusInstance - Concurrency', () => {
       resolutions[2](undefined)
     })
   })
-
 })

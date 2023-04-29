@@ -1,5 +1,5 @@
 export class WorkflowStateNotFound extends Error {
-  constructor (
+  constructor(
     readonly workflowId: string,
     readonly tableName: string,
     readonly version: number

@@ -21,7 +21,7 @@ export interface CustomResolver<MessageType> {
    * A resolver function that will be executed for each read message
    * to determine if it's to be handled by the handler declaring this resolver
    */
-  resolveWith: ((message: MessageType) => boolean),
+  resolveWith: (message: MessageType) => boolean
 
   /**
    * If provided, will attempt to subscribe the queue to this topic.
@@ -32,7 +32,7 @@ export interface CustomResolver<MessageType> {
 
 export interface HandlerResolver {
   handler: HandlerDefinition
-  resolver (message: unknown): boolean
+  resolver(message: unknown): boolean
   messageType: ClassConstructor<MessageBase> | undefined
   topicIdentifier: string | undefined
 }
@@ -52,12 +52,12 @@ export interface HandlerRegistry {
    * of the default @node-ts/bus-messages/Message behaviour in terms of matching
    * incoming messages to handlers.
    */
-  register<TMessage extends MessageBase> (
+  register<TMessage extends MessageBase>(
     messageType: ClassConstructor<TMessage>,
     handler: HandlerDefinition<TMessage>
   ): void
 
-  registerCustom<TMessage extends MessageBase> (
+  registerCustom<TMessage extends MessageBase>(
     handler: HandlerDefinition<TMessage>,
     customResolver: CustomResolver<TMessage>
   ): void
@@ -66,37 +66,42 @@ export interface HandlerRegistry {
    * Gets all registered message handlers for a given message name
    * @param message A message that has been received from the bus
    */
-  get<MessageType extends Message> (loggerFactory: LoggerFactory, message: object): HandlerDefinition<MessageType>[]
+  get<MessageType extends Message>(
+    loggerFactory: LoggerFactory,
+    message: object
+  ): HandlerDefinition<MessageType>[]
 
   /**
    * Retrieves a list of all messages that have handler registrations
    */
-  getMessageNames (): string[]
+  getMessageNames(): string[]
 
   /**
    * Returns the class constructor for a message that has a handler registration
    * @param messageName Message to get a class constructor for
    */
-  getMessageConstructor<TMessage extends Message> (messageName: string): ClassConstructor<TMessage> | undefined
+  getMessageConstructor<TMessage extends Message>(
+    messageName: string
+  ): ClassConstructor<TMessage> | undefined
 
   /**
    * Retrieves an array of all topic arns that are managed externally but require subscribing to as there are
    * custom handlers that handle those messages.
    */
-  getExternallyManagedTopicIdentifiers (): string[]
+  getExternallyManagedTopicIdentifiers(): string[]
 
   /**
    * Gets all registered message handler resolvers
    */
-  getResolvers (): HandlerResolver[]
+  getResolvers(): HandlerResolver[]
 
   /**
    * Gets a list of all class based handlers that have been registered
    */
-  getClassHandlers (): Handler[]
+  getClassHandlers(): Handler[]
 
   /**
    * Removes all handlers from the registry
    */
-  reset (): void
+  reset(): void
 }

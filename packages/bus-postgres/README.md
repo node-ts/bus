@@ -4,7 +4,7 @@ A Postgres based persistence for workflow storage in [@node-ts/bus](https://bus.
 
 🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
 
-🤔 Have a question? [Join our Discord](https://discord.gg/Gg7v4xt82X) 🤔
+🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 
 ## Installation
 
@@ -42,8 +42,8 @@ run.then(() => void)
 
 The Postgres persistence has the following configuration:
 
-*  **connection** *(required)* Connection pool settings for the application to connect to the postgres instance
-*  **schemaName** *(required)* The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
+- **connection** _(required)_ Connection pool settings for the application to connect to the postgres instance
+- **schemaName** _(required)_ The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
 
 ## Development
 

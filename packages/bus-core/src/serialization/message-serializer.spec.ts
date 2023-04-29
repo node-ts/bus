@@ -1,4 +1,3 @@
-// tslint:disable:max-classes-per-file no-inferred-empty-object-type
 import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
 import * as faker from 'faker'
@@ -11,33 +10,38 @@ class DummyMessage {
   $version = 1
   value: string
 
-  constructor (s: string) {
+  constructor(s: string) {
     this.value = s
   }
 }
 
 class ToxicSerializer implements Serializer {
-
-  serialize<ObjectType extends object> (obj: ObjectType): string {
+  serialize<ObjectType extends object>(obj: ObjectType): string {
     return (obj as Message).$name
   }
 
-  deserialize<ObjectType extends object> (serialized: string, classType: ClassConstructor<ObjectType>): ObjectType {
+  deserialize<ObjectType extends object>(
+    serialized: string,
+    classType: ClassConstructor<ObjectType>
+  ): ObjectType {
     return new classType(serialized)
   }
 
-  toPlain<T extends object> (_: T): object {
+  toPlain<T extends object>(_: T): object {
     return {}
   }
 
-  toClass<T extends object> (_: object, __: ClassConstructor<T>): T {
+  toClass<T extends object>(_: object, __: ClassConstructor<T>): T {
     return {} as T
   }
 }
 
 describe('MessageSerializer', () => {
   const serializer = new ToxicSerializer()
-  const messageSerializer = new MessageSerializer(serializer, new DefaultHandlerRegistry())
+  const messageSerializer = new MessageSerializer(
+    serializer,
+    new DefaultHandlerRegistry()
+  )
 
   it('should use underlying serializer to serialize', () => {
     const message = new DummyMessage('a')

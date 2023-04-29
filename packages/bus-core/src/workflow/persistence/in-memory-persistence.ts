@@ -16,15 +16,16 @@ interface WorkflowStorage {
  * such this should only be used for testing, prototyping or handling unimportant workflows.
  */
 export class InMemoryPersistence implements Persistence {
-
   private workflowState: WorkflowStorage = {}
   private logger: Logger
 
-  prepare (coreDependencies: CoreDependencies): void {
-    this.logger = coreDependencies.loggerFactory('@node-ts/bus-core:in-memory-persistence')
+  prepare(coreDependencies: CoreDependencies): void {
+    this.logger = coreDependencies.loggerFactory(
+      '@node-ts/bus-core:in-memory-persistence'
+    )
   }
 
-  async initializeWorkflow<TWorkflowState extends WorkflowState> (
+  async initializeWorkflow<TWorkflowState extends WorkflowState>(
     workflowStateConstructor: ClassConstructor<TWorkflowState>,
     _: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
@@ -32,7 +33,10 @@ export class InMemoryPersistence implements Persistence {
     this.workflowState[name] = []
   }
 
-  async getWorkflowState<WorkflowStateType extends WorkflowState, MessageType extends Message> (
+  async getWorkflowState<
+    WorkflowStateType extends WorkflowState,
+    MessageType extends Message
+  >(
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
     message: MessageType,
@@ -45,29 +49,32 @@ export class InMemoryPersistence implements Persistence {
     }
 
     const workflowStateName = new workflowStateConstructor().$name
-    const workflowState = this.workflowState[workflowStateName] as WorkflowStateType[]
+    const workflowState = this.workflowState[
+      workflowStateName
+    ] as WorkflowStateType[]
     if (!workflowState) {
       throw new WorkflowStateNotInitialized('Workflow state not initialized')
     }
-    return workflowState
-      .filter(data =>
-        (includeCompleted || data.$status === WorkflowStatus.Running)
-        && data[messageMap.mapsTo] as {} as string  === filterValue
-      )
+    return workflowState.filter(
+      data =>
+        (includeCompleted || data.$status === WorkflowStatus.Running) &&
+        (data[messageMap.mapsTo] as {} as string) === filterValue
+    )
   }
 
-  async saveWorkflowState<WorkflowStateType extends WorkflowState> (
+  async saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType
   ): Promise<void> {
     const workflowStateName = workflowState.$name
-    const existingWorkflowState = this.workflowState[workflowStateName] as WorkflowStateType[]
-    const existingItem = existingWorkflowState.find(d => d.$workflowId === workflowState.$workflowId)
+    const existingWorkflowState = this.workflowState[
+      workflowStateName
+    ] as WorkflowStateType[]
+    const existingItem = existingWorkflowState.find(
+      d => d.$workflowId === workflowState.$workflowId
+    )
     if (existingItem) {
       try {
-        Object.assign(
-          existingItem,
-          workflowState
-        )
+        Object.assign(existingItem, workflowState)
       } catch (err) {
         this.logger.error('Unable to update data', { err })
         throw err
@@ -77,7 +84,9 @@ export class InMemoryPersistence implements Persistence {
     }
   }
 
-  length (workflowStateConstructor: ClassConstructor<WorkflowState>): number {
-    return this.workflowState[workflowStateConstructor.prototype.constructor.NAME].length
+  length(workflowStateConstructor: ClassConstructor<WorkflowState>): number {
+    return this.workflowState[
+      workflowStateConstructor.prototype.constructor.NAME
+    ].length
   }
 }

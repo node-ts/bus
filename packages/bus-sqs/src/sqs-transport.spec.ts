@@ -1,9 +1,20 @@
-import { toMessageAttributeMap, SqsMessageAttributes, fromMessageAttributeMap, SqsTransport } from './sqs-transport'
+import {
+  toMessageAttributeMap,
+  SqsMessageAttributes,
+  fromMessageAttributeMap,
+  SqsTransport
+} from './sqs-transport'
 import { SNS, SQS } from 'aws-sdk'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { CoreDependencies, TransportMessage, RetryStrategy, LoggerFactory, DebugLogger } from '@node-ts/bus-core'
+import {
+  CoreDependencies,
+  TransportMessage,
+  RetryStrategy,
+  LoggerFactory,
+  DebugLogger
+} from '@node-ts/bus-core'
 import { Mock, It, IMock, Times } from 'typemoq'
 
 describe('sqs-transport', () => {
@@ -41,7 +52,6 @@ describe('sqs-transport', () => {
         attribute2: 2
       })
     })
-
   })
 
   describe('when converting message attributes to SNS attribute values', () => {
@@ -66,7 +76,9 @@ describe('sqs-transport', () => {
     it('should convert the correlationId', () => {
       expect(messageAttributes.correlationId).toBeDefined()
       expect(messageAttributes.correlationId.DataType).toEqual('String')
-      expect(messageAttributes.correlationId.StringValue).toEqual(messageOptions.correlationId)
+      expect(messageAttributes.correlationId.StringValue).toEqual(
+        messageOptions.correlationId
+      )
     })
 
     it('should convert attributesValues', () => {
@@ -97,13 +109,12 @@ describe('sqs-transport', () => {
   describe('when returning a message to the queue', () => {
     it('should use the retry strategy delay', async () => {
       const sqs = Mock.ofType(SQS)
-      const sut = new SqsTransport(
-        {} as SqsTransportConfiguration,
-        sqs.object
-      )
+      const sut = new SqsTransport({} as SqsTransportConfiguration, sqs.object)
 
       const retryStrategy: RetryStrategy = {
-        calculateRetryDelay () { return 3000 }
+        calculateRetryDelay() {
+          return 3000
+        }
       }
 
       sut.prepare({
@@ -112,8 +123,12 @@ describe('sqs-transport', () => {
       } as any as CoreDependencies)
 
       sqs
-        .setup(s => s.changeMessageVisibility(It.isObjectWith<any>({ VisibilityTimeout: 3 })))
-        .returns(() => ({ promise: async () => undefined }) as any)
+        .setup(s =>
+          s.changeMessageVisibility(
+            It.isObjectWith<any>({ VisibilityTimeout: 3 })
+          )
+        )
+        .returns(() => ({ promise: async () => undefined } as any))
         .verifiable(Times.once())
 
       await sut.returnMessage({ raw: {} } as TransportMessage<SQS.Message>)

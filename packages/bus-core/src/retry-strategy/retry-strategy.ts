@@ -10,5 +10,5 @@ export interface RetryStrategy {
    * @param currentAttempt How many attempts at handling the message have failed
    * @returns The number of milliseconds to delay retrying a failed message attempt
    */
-  calculateRetryDelay (currentAttempt: number): Milliseconds
+  calculateRetryDelay(currentAttempt: number): Milliseconds
 }

@@ -11,11 +11,11 @@ import { ClassConstructor } from '../util'
  * be used instead that will preserve types when serialized/deserialized.
  */
 export class JsonSerializer implements Serializer {
-  serialize<ObjectType extends object> (obj: ObjectType): string {
+  serialize<ObjectType extends object>(obj: ObjectType): string {
     return JSON.stringify(obj)
   }
 
-  deserialize<ObjectType extends object> (
+  deserialize<ObjectType extends object>(
     serialized: string,
     classConstructor: ClassConstructor<ObjectType>
   ): ObjectType {
@@ -23,11 +23,14 @@ export class JsonSerializer implements Serializer {
     return this.toClass(plain, classConstructor)
   }
 
-  toPlain<T extends object> (obj: T): object {
+  toPlain<T extends object>(obj: T): object {
     return JSON.parse(JSON.stringify(obj))
   }
 
-  toClass<T extends object> (obj: object, classConstructor: ClassConstructor<T>): T {
+  toClass<T extends object>(
+    obj: object,
+    classConstructor: ClassConstructor<T>
+  ): T {
     const instance = new classConstructor()
     Object.assign(instance, obj)
     return instance

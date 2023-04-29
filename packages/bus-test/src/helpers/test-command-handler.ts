@@ -3,7 +3,6 @@ import { HandleChecker } from './handle-checker'
 import { TestCommand } from './test-command'
 
 export const testCommandHandler = (handleChecker: HandleChecker) =>
-  handlerFor(
-    TestCommand,
-    (message, attributes) => handleChecker.check(message, attributes)
+  handlerFor(TestCommand, (message, attributes) =>
+    handleChecker.check(message, attributes)
   )

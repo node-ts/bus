@@ -1,11 +1,15 @@
-import { fromMessageAttributeMap, SQSMessageBody, SqsTransport } from './sqs-transport'
+import {
+  fromMessageAttributeMap,
+  SQSMessageBody,
+  SqsTransport
+} from './sqs-transport'
 import { SQS, SNS } from 'aws-sdk'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { resolveQueueUrl } from './queue-resolvers'
 import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
 import { Message } from '@node-ts/bus-messages'
 
-function getEnvVar (key: string): string {
+function getEnvVar(key: string): string {
   const value = process.env[key]
   if (!value) {
     throw new Error(`Env var not set - ${key}`)
@@ -17,7 +21,8 @@ function getEnvVar (key: string): string {
 // const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
 const resourcePrefix = `integration-bus-sqs-1`
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
-const normalizeMessageName = (messageName: string) => messageName.replace(invalidSqsSnsCharacters, '-')
+const normalizeMessageName = (messageName: string) =>
+  messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
 
@@ -44,7 +49,11 @@ describe('SqsTransport', () => {
   })
 
   afterAll(async () => {
-    const appQueueUrl = resolveQueueUrl(sqs.endpoint.href, sqsConfiguration.awsAccountId, normalizeMessageName(sqsConfiguration.queueName))
+    const appQueueUrl = resolveQueueUrl(
+      sqs.endpoint.href,
+      sqsConfiguration.awsAccountId,
+      normalizeMessageName(sqsConfiguration.queueName)
+    )
     await sqs.purgeQueue({ QueueUrl: appQueueUrl }).promise()
     await sqs.deleteQueue({ QueueUrl: appQueueUrl }).promise()
     await sqs.deleteQueue({ QueueUrl: deadLetterQueueUrl }).promise()
@@ -52,40 +61,49 @@ describe('SqsTransport', () => {
 
   const message = new TestSystemMessage()
   const publishSystemMessage = async (systemMessageAttribute: string) => {
-    await sns.publish({
-      Message: JSON.stringify(message),
-      TopicArn: manualTopicIdentifier,
-      MessageAttributes: {
-        'attributes.systemMessage': {
-          DataType: 'String',
-          StringValue: systemMessageAttribute
+    await sns
+      .publish({
+        Message: JSON.stringify(message),
+        TopicArn: manualTopicIdentifier,
+        MessageAttributes: {
+          'attributes.systemMessage': {
+            DataType: 'String',
+            StringValue: systemMessageAttribute
+          }
         }
-      }
-    }).promise()
+      })
+      .promise()
   }
 
   const readAllFromDeadLetterQueue = async () => {
-    const result = await sqs.receiveMessage({
-      QueueUrl: deadLetterQueueUrl,
-      WaitTimeSeconds: 5,
-      MaxNumberOfMessages: 10,
-      AttributeNames: ['All'],
-    }).promise()
+    const result = await sqs
+      .receiveMessage({
+        QueueUrl: deadLetterQueueUrl,
+        WaitTimeSeconds: 5,
+        MaxNumberOfMessages: 10,
+        AttributeNames: ['All']
+      })
+      .promise()
 
-    const transportMessages = (result.Messages || [])
+    const transportMessages = result.Messages || []
 
     await Promise.all(
-      transportMessages
-        .map(message => sqs.deleteMessage({ QueueUrl: deadLetterQueueUrl, ReceiptHandle: message.ReceiptHandle! }).promise())
+      transportMessages.map(message =>
+        sqs
+          .deleteMessage({
+            QueueUrl: deadLetterQueueUrl,
+            ReceiptHandle: message.ReceiptHandle!
+          })
+          .promise()
+      )
     )
 
-    return (result.Messages || [])
-      .map(transportMessage => {
-        const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
-        const message = JSON.parse(rawMessage.Message) as Message
-        const attributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
-        return { message, attributes }
-      })
+    return (result.Messages || []).map(transportMessage => {
+      const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
+      const message = JSON.parse(rawMessage.Message) as Message
+      const attributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
+      return { message, attributes }
+    })
   }
 
   transportTests(

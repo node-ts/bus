@@ -9,16 +9,14 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.json --declaration",
-    "build:watch": "yarn run build --incremental --watch --preserveWatchOutput",
-    "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
-    "lint:fix": "yarn lint --fix"
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
     "@node-ts/bus-messages": "^1.0.4",
-    "aws-sdk": "^2.834.0",
+    "aws-sdk": "^2.1368.0",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },

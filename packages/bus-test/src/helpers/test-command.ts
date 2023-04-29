@@ -9,10 +9,7 @@ export class TestCommand extends Command {
   @Type(() => Date)
   readonly date: Date
 
-  constructor (
-    readonly value: string,
-    date: Date
-  ) {
+  constructor(readonly value: string, date: Date) {
     super()
 
     this.date = date

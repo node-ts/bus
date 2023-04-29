@@ -1,5 +1,11 @@
 import { InMemoryPersistence } from './persistence'
-import { TestCommand, TestWorkflowState, TestWorkflow, TaskRan, FinalTask } from './test'
+import {
+  TestCommand,
+  TestWorkflowState,
+  TestWorkflow,
+  TaskRan,
+  FinalTask
+} from './test'
 import { WorkflowStatus } from './workflow-state'
 import {
   TestWorkflowStartedByCompletes,
@@ -24,7 +30,7 @@ describe('Workflow', () => {
     bus = await Bus.configure()
       .withPersistence(inMemoryPersistence)
       .withContainer({
-        get <T>(workflowType: ClassConstructor<T>) {
+        get<T>(workflowType: ClassConstructor<T>) {
           return new workflowType(bus)
         }
       })
@@ -43,20 +49,24 @@ describe('Workflow', () => {
   })
 
   describe('when a message that starts a workflow is received', () => {
-    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
+    const propertyMapping: MessageWorkflowMapping<
+      TestCommand,
+      TestWorkflowState
+    > = {
       lookup: message => message.property1,
       mapsTo: 'property1'
     }
     let workflowState: TestWorkflowState[]
-    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+    const messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    }
 
     beforeAll(async () => {
-      workflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowState, TestCommand>(
+      workflowState = await inMemoryPersistence.getWorkflowState<
         TestWorkflowState,
-        propertyMapping,
-        command,
-        messageOptions
-      )
+        TestCommand
+      >(TestWorkflowState, propertyMapping, command, messageOptions)
     })
 
     it('should start a new workflow', () => {
@@ -75,13 +85,10 @@ describe('Workflow', () => {
         await bus.publish(event)
         await sleep(CONSUME_TIMEOUT)
 
-        nextWorkflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowState, TestCommand>(
+        nextWorkflowState = await inMemoryPersistence.getWorkflowState<
           TestWorkflowState,
-          propertyMapping,
-          command,
-          messageOptions,
-          true
-        )
+          TestCommand
+        >(TestWorkflowState, propertyMapping, command, messageOptions, true)
       })
 
       it('should handle that message', () => {
@@ -93,19 +100,15 @@ describe('Workflow', () => {
         let finalWorkflowState: TestWorkflowState[]
 
         beforeAll(async () => {
-          await bus.publish(
-            finalTask,
-            { correlationId: nextWorkflowState[0].$workflowId }
-          )
+          await bus.publish(finalTask, {
+            correlationId: nextWorkflowState[0].$workflowId
+          })
           await sleep(CONSUME_TIMEOUT)
 
-          finalWorkflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowState, TestCommand>(
+          finalWorkflowState = await inMemoryPersistence.getWorkflowState<
             TestWorkflowState,
-            propertyMapping,
-            command,
-            messageOptions,
-            true
-          )
+            TestCommand
+          >(TestWorkflowState, propertyMapping, command, messageOptions, true)
         })
 
         it('should mark the workflow as complete', () => {
@@ -118,21 +121,29 @@ describe('Workflow', () => {
   })
 
   describe('when a workflow is completed in a StartedBy handler', () => {
-    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
-    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByCompletesData> = {
+    const messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    }
+    const propertyMapping: MessageWorkflowMapping<
+      TestCommand,
+      TestWorkflowStartedByCompletesData
+    > = {
       lookup: message => message.property1,
       mapsTo: 'property1'
     }
 
     it('should persist the workflow as completed', async () => {
-      const workflowState = await inMemoryPersistence
-        .getWorkflowState<TestWorkflowStartedByCompletesData, TestCommand>(
-          TestWorkflowStartedByCompletesData,
-          propertyMapping,
-          command,
-          messageOptions,
-          true
-        )
+      const workflowState = await inMemoryPersistence.getWorkflowState<
+        TestWorkflowStartedByCompletesData,
+        TestCommand
+      >(
+        TestWorkflowStartedByCompletesData,
+        propertyMapping,
+        command,
+        messageOptions,
+        true
+      )
       expect(workflowState).toHaveLength(1)
 
       const data = workflowState[0]
@@ -141,14 +152,23 @@ describe('Workflow', () => {
   })
 
   describe('when a StartedBy handler returns undefined', () => {
-    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
-    const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowStartedByDiscardData> = {
+    const messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    }
+    const propertyMapping: MessageWorkflowMapping<
+      TestCommand,
+      TestWorkflowStartedByDiscardData
+    > = {
       lookup: message => message.property1,
       mapsTo: 'property1'
     }
 
     it('should not persist the workflow', async () => {
-      const workflowState = await inMemoryPersistence.getWorkflowState<TestWorkflowStartedByDiscardData, TestCommand>(
+      const workflowState = await inMemoryPersistence.getWorkflowState<
+        TestWorkflowStartedByDiscardData,
+        TestCommand
+      >(
         TestWorkflowStartedByDiscardData,
         propertyMapping,
         command,

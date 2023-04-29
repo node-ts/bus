@@ -22,7 +22,7 @@ describe('MemoryQueue', () => {
     correlationId: faker.random.uuid(),
     attributes: {},
     stickyAttributes: {}
-   }
+  }
 
   const handlerRegistry: HandlerRegistry = new DefaultHandlerRegistry()
   let logger: IMock<Logger>
@@ -198,16 +198,24 @@ describe('MemoryQueue', () => {
       const emitter = new EventEmitter()
       const bus = await Bus.configure()
         .withConcurrency(1)
-        .withHandler(handlerFor(TestEvent, async () => {
-          await bus.send(new TestCommand())
-          await bus.fail()
-        }))
-        .withHandler(handlerFor(TestCommand, () => { emitter.emit('done') }))
+        .withHandler(
+          handlerFor(TestEvent, async () => {
+            await bus.send(new TestCommand())
+            await bus.fail()
+          })
+        )
+        .withHandler(
+          handlerFor(TestCommand, () => {
+            emitter.emit('done')
+          })
+        )
         .initialize()
 
       await bus.start()
 
-      const completion = new Promise<void>(resolve => emitter.once('done', resolve))
+      const completion = new Promise<void>(resolve =>
+        emitter.once('done', resolve)
+      )
       await bus.publish(new TestEvent())
       await completion
       await bus.dispose()

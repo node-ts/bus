@@ -1,5 +1,7 @@
-# Prefer yarn.lock
+# Prefer pnpm-lock.yaml
 npm-shrinkwrap.json
+package-lock.json
+yarn.lock
 docs
 
 #### joe made this: http://goel.io/joe

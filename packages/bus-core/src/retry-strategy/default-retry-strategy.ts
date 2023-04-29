@@ -9,7 +9,7 @@ const JITTER_PERCENT = 0.1
  * up to 10% to avoid deadlock-related errors from continually blocking.
  */
 export class DefaultRetryStrategy implements RetryStrategy {
-  calculateRetryDelay (currentAttempt: number): Milliseconds {
+  calculateRetryDelay(currentAttempt: number): Milliseconds {
     const numberOfFailures = currentAttempt + 1
     const constantDelay: Milliseconds = Math.pow(5, numberOfFailures)
     const jitterAmount = Math.random() * JITTER_PERCENT * constantDelay

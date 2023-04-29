@@ -7,11 +7,14 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "bootstrap": "lerna bootstrap",
-    "build": "lerna run build --stream",
-    "build:watch": "lerna run --parallel build:watch --stream",
-    "clean": "lerna run clean && rm -r node_modules",
-    "lint": "lerna run lint --stream",
+    "build": "pnpm run --recursive build",
+    "build:watch": "pnpm run --recursive build:watch",
+    "clean": "pnpm run --recursive clean && rm -r node_modules",
+    "format": "prettier --ignore-path .gitignore --write --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
+    "format:check": "prettier --ignore-path .gitignore --check --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
+    "format:precommit": "lint-staged",
+    "preinstall": "npx only-allow pnpm",
+    "prepare": "husky install",
     "test": "dotenv -e test.env -- jest --collect-coverage",
     "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
     "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core).*(src\\/.+\\.|/)integration\\.ts$\"",
@@ -25,6 +28,10 @@
     "message queue",
     "node"
   ],
+  "engines": {
+    "pnpm": "^7.11",
+    "node": ">=16.15.1"
+  },
   "jest": {
     "testTimeout": 5000,
     "setupFilesAfterEnv": [
@@ -67,11 +74,17 @@
     "dotenv-cli": "^4.0.0",
     "esbuild": "^0.12.12",
     "esbuild-jest": "^0.5.0",
+    "husky": "^8.0.3",
     "jest": "^27.0.5",
-    "lerna": "^4.0.0",
+    "lint-staged": "^13.2.2",
+    "prettier": "^2.8.8",
+    "prettier-plugin-organize-imports": "^3.2.2",
     "reflect-metadata": "^0.1.13",
     "supports-color": "^9.0.1",
     "tslib": "^2.3.0",
     "typescript": "^4.3.5"
+  },
+  "lint-staged": {
+    "*.(ts|tsx|js|md|css|html|json)": "prettier --ignore-path .gitignore --write --config .prettierrc.js"
   }
 }

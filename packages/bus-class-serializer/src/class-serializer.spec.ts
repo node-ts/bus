@@ -1,4 +1,3 @@
-// tslint:disable:no-magic-numbers Date based tests
 import { ClassSerializer } from './class-serializer'
 import { Type } from 'class-transformer'
 
@@ -7,11 +6,7 @@ class Contract {
 
   testFn: () => void
 
-  constructor (
-    readonly a: string,
-    readonly b: number,
-    c: Date
-  ) {
+  constructor(readonly a: string, readonly b: number, c: Date) {
     this.c = c
   }
 }
@@ -44,13 +39,15 @@ describe('ClassSerializer', () => {
     let result: Contract
     const date = new Date(200)
     beforeEach(() => {
-      result = sut.deserialize(`{"a":"a","b":1,"c":"${date.toISOString()}"}`, Contract)
+      result = sut.deserialize(
+        `{"a":"a","b":1,"c":"${date.toISOString()}"}`,
+        Contract
+      )
     })
 
     it('should deserialize to a plain object', () => {
       expect(result).toMatchObject({ a: 'a', b: 1 })
       expect(result.c).toBeDefined()
-      // tslint:disable-next-line:no-unbound-method Testing presence
       expect(result.c.toUTCString).toBeDefined()
       expect(result.c.getDate()).toEqual(date.getDate())
     })

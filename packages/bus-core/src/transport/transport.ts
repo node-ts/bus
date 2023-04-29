@@ -18,7 +18,10 @@ export interface Transport<TransportMessageType = {}> {
    * @param messageOptions Options that control the behaviour around how the message is sent and
    * additional information that travels with it.
    */
-  publish<TEvent extends Event> (event: TEvent, messageOptions?: MessageAttributes): Promise<void>
+  publish<TEvent extends Event>(
+    event: TEvent,
+    messageOptions?: MessageAttributes
+  ): Promise<void>
 
   /**
    * Sends a command to the underlying transport. This is generally done to a topic or some other
@@ -27,19 +30,22 @@ export interface Transport<TransportMessageType = {}> {
    * @param messageOptions Options that control the behaviour around how the message is sent and
    * additional information that travels with it.
    */
-  send<TCommand extends Command> (command: TCommand, messageOptions?: MessageAttributes): Promise<void>
+  send<TCommand extends Command>(
+    command: TCommand,
+    messageOptions?: MessageAttributes
+  ): Promise<void>
 
   /**
    * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
    * queue and have a receipt handle.
    */
-  fail (transportMessage: TransportMessage<unknown>): Promise<void>
+  fail(transportMessage: TransportMessage<unknown>): Promise<void>
 
   /**
    * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
    * queue and have a receipt handle.
    */
-  fail (transportMessage: TransportMessage<unknown>): Promise<void>
+  fail(transportMessage: TransportMessage<unknown>): Promise<void>
 
   /**
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
@@ -48,21 +54,21 @@ export interface Transport<TransportMessageType = {}> {
    * @returns The message construct from the underlying transport, that inclues both the raw message envelope
    * plus the contents or body that contains the `@node-ts/bus-messages` message.
    */
-  readNextMessage (): Promise<TransportMessage<TransportMessageType> | undefined>
+  readNextMessage(): Promise<TransportMessage<TransportMessageType> | undefined>
 
   /**
    * Removes a message from the underlying transport. This will be called once a message has been
    * successfully handled by any of the message handling functions.
    * @param message The message to be removed from the transport
    */
-  deleteMessage (message: TransportMessage<TransportMessageType>): Promise<void>
+  deleteMessage(message: TransportMessage<TransportMessageType>): Promise<void>
 
   /**
    * Returns a message to the queue for retry. This will be called if an error was thrown when
    * trying to process a message.
    * @param message The message to be returned to the queue for reprocessing
    */
-  returnMessage (message: TransportMessage<TransportMessageType>): Promise<void>
+  returnMessage(message: TransportMessage<TransportMessageType>): Promise<void>
 
   /**
    * An optional function that is called before startup that will provide core dependencies
@@ -70,29 +76,29 @@ export interface Transport<TransportMessageType = {}> {
    * in initialization steps
    * @param coreDependencies
    */
-  prepare (coreDependencies: CoreDependencies): void
+  prepare(coreDependencies: CoreDependencies): void
 
   /**
    * An optional function that will be called on startup. This gives a chance for the transport
    * to establish any connections to the underlying infrastructure.
    */
-  connect? (options: TransportConnectionOptions): Promise<void>
+  connect?(options: TransportConnectionOptions): Promise<void>
 
   /**
    * An optional function that will be called on shutdown. This gives a chance for the transport
    * to close any connections to the underlying infrastructure.
    */
-  disconnect? (): Promise<void>
+  disconnect?(): Promise<void>
 
   /**
    * An optional method called on the transport when it should start consuming messages.
    */
-  start? (): Promise<void>
+  start?(): Promise<void>
 
   /**
    * An optional method called on the transport when it should no longer consume messages.
    */
-  stop? (): Promise<void>
+  stop?(): Promise<void>
 
   /**
    * An optional function that will be called when the service bus is starting. This is an
@@ -100,12 +106,11 @@ export interface Transport<TransportMessageType = {}> {
    * to the topics can be created.
    * @param handlerRegistry The list of messages being handled by the bus that the transport needs to subscribe to.
    */
-  initialize? (handlerRegistry: HandlerRegistry): Promise<void>
+  initialize?(handlerRegistry: HandlerRegistry): Promise<void>
 
   /**
    * An optional function that will be called when the service bus is shutting down. This is an
    * opportunity for the transport to close out any open requests to fetch messages etc.
    */
-  dispose? (): Promise<void>
-
+  dispose?(): Promise<void>
 }

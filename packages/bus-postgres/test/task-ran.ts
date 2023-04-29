@@ -5,9 +5,7 @@ export class TaskRan extends Event {
   $name = TaskRan.NAME
   $version = 0
 
-  constructor (
-    readonly value: string
-  ) {
+  constructor(readonly value: string) {
     super()
   }
 }

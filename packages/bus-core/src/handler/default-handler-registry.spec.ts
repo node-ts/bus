@@ -1,5 +1,11 @@
 import { Mock, IMock, It, Times } from 'typemoq'
-import { TestEvent, testEventHandler, MessageLogger, TestCommand, TestCommand2 } from '../test'
+import {
+  TestEvent,
+  testEventHandler,
+  MessageLogger,
+  TestCommand,
+  TestCommand2
+} from '../test'
 import { HandlerAlreadyRegistered } from './error'
 import { Logger, LoggerFactory } from '../logger'
 import { Handler } from './handler'
@@ -7,7 +13,6 @@ import { Message } from '@node-ts/bus-messages'
 import { DefaultHandlerRegistry } from './default-handler-registry'
 
 describe('HandlerRegistry', () => {
-
   let logger: IMock<Logger>
   let loggerFactory: LoggerFactory
 
@@ -36,7 +41,9 @@ describe('HandlerRegistry', () => {
   describe('when registering a handler twice', () => {
     it('should throw a HandlerAlreadyRegistered error', () => {
       handlerRegistry.register(messageType, handler)
-      expect(() => handlerRegistry.register(messageType, handler)).toThrowError(HandlerAlreadyRegistered)
+      expect(() => handlerRegistry.register(messageType, handler)).toThrowError(
+        HandlerAlreadyRegistered
+      )
     })
   })
 
@@ -47,13 +54,17 @@ describe('HandlerRegistry', () => {
 
     it('should return a single handler for a single registration', () => {
       handlerRegistry.register(messageType, handler)
-      expect(handlerRegistry.get(loggerFactory, new messageType())).toHaveLength(1)
+      expect(
+        handlerRegistry.get(loggerFactory, new messageType())
+      ).toHaveLength(1)
     })
 
     it('should return a multiple handlers for multiple registrations', () => {
       handlerRegistry.register(messageType, handler)
       handlerRegistry.register(messageType, () => undefined)
-      expect(handlerRegistry.get(loggerFactory, new messageType())).toHaveLength(2)
+      expect(
+        handlerRegistry.get(loggerFactory, new messageType())
+      ).toHaveLength(2)
     })
   })
 
@@ -70,7 +81,11 @@ describe('HandlerRegistry', () => {
 
     it('should log an error', () => {
       logger.verify(
-        l => l.error(`No handlers were registered for message`, It.isObjectWith({ messageName: unregisteredMessage.$name })),
+        l =>
+          l.error(
+            `No handlers were registered for message`,
+            It.isObjectWith({ messageName: unregisteredMessage.$name })
+          ),
         Times.once()
       )
     })
@@ -81,7 +96,11 @@ describe('HandlerRegistry', () => {
         handlerRegistry.get(loggerFactory, unregisteredMessage)
         handlerRegistry.get(loggerFactory, unregisteredMessage)
         logger.verify(
-          l => l.error(`No handlers were registered for message`, It.isObjectWith({ messageName: unregisteredMessage.$name })),
+          l =>
+            l.error(
+              `No handlers were registered for message`,
+              It.isObjectWith({ messageName: unregisteredMessage.$name })
+            ),
           Times.once()
         )
       })
@@ -93,8 +112,8 @@ describe('HandlerRegistry', () => {
       handlerRegistry.register(TestEvent, genericHandler)
       handlerRegistry.register(TestCommand, genericHandler)
 
-      const registeredMessages = handlerRegistry.getMessageNames();
-      [TestEvent, TestCommand].forEach(messageType => {
+      const registeredMessages = handlerRegistry.getMessageNames()
+      ;[TestEvent, TestCommand].forEach(messageType => {
         expect(registeredMessages).toContain(new messageType().$name)
       })
     })
@@ -119,28 +138,27 @@ describe('HandlerRegistry', () => {
 
   describe('when registering a message handler using a custom resolver', () => {
     class CustomHandler {
-      async handle (_: TestCommand2): Promise<void> {
+      async handle(_: TestCommand2): Promise<void> {
         // ...
       }
     }
 
     beforeAll(async () => {
-      handlerRegistry.registerCustom(
-        CustomHandler,
-        {
-          resolveWith: (message) => message.$name === TestCommand2.NAME,
-          topicIdentifier: 'arn:aws:sns:us-east-1:000000000000:s3-object-created'
-        }
-      )
+      handlerRegistry.registerCustom(CustomHandler, {
+        resolveWith: message => message.$name === TestCommand2.NAME,
+        topicIdentifier: 'arn:aws:sns:us-east-1:000000000000:s3-object-created'
+      })
     })
 
     describe('and then getting a handler for the message type', () => {
       it('should resolve using the custom handler', () => {
-        const resolvedHandlers = handlerRegistry.get(loggerFactory, new TestCommand2())
+        const resolvedHandlers = handlerRegistry.get(
+          loggerFactory,
+          new TestCommand2()
+        )
         expect(resolvedHandlers).toHaveLength(1)
         expect(resolvedHandlers[0]).toEqual(CustomHandler)
       })
     })
   })
-
 })

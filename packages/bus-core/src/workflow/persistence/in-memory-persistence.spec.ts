@@ -6,7 +6,10 @@ import { WorkflowState, WorkflowStatus } from '../workflow-state'
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence
-  const propertyMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
+  const propertyMapping: MessageWorkflowMapping<
+    TestCommand,
+    TestWorkflowState
+  > = {
     lookup: message => message.property1,
     mapsTo: 'property1'
   }
@@ -16,20 +19,22 @@ describe('InMemoryPersistence', () => {
   })
 
   describe('when getting workflow state', () => {
-    const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+    const messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    }
 
     beforeEach(async () => {
       const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
         lookup: message => message.property1,
         mapsTo: 'property1'
       }
-      await sut.initializeWorkflow(
-        TestWorkflowState,
-        [mapping as MessageWorkflowMapping<Message, WorkflowState>]
-      )
+      await sut.initializeWorkflow(TestWorkflowState, [
+        mapping as MessageWorkflowMapping<Message, WorkflowState>
+      ])
     })
 
-    describe('when the mapper doesn\'t resolve', () => {
+    describe("when the mapper doesn't resolve", () => {
       let result: TestWorkflowState[]
 
       beforeEach(async () => {
@@ -47,9 +52,12 @@ describe('InMemoryPersistence', () => {
       })
     })
 
-    describe('that doesn\'t exist', () => {
+    describe("that doesn't exist", () => {
       let result: TestWorkflowState[]
-      const unmatchedMapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
+      const unmatchedMapping: MessageWorkflowMapping<
+        TestCommand,
+        TestWorkflowState
+      > = {
         lookup: message => message.$name,
         mapsTo: '$workflowId'
       }
@@ -71,10 +79,9 @@ describe('InMemoryPersistence', () => {
 
   describe('when saving workflow state', () => {
     beforeEach(async () => {
-      await sut.initializeWorkflow(
-        TestWorkflowState,
-        [propertyMapping as MessageWorkflowMapping<Message, WorkflowState>]
-      )
+      await sut.initializeWorkflow(TestWorkflowState, [
+        propertyMapping as MessageWorkflowMapping<Message, WorkflowState>
+      ])
     })
 
     describe('for a new workflow', () => {
@@ -90,7 +97,10 @@ describe('InMemoryPersistence', () => {
     describe('for an existing workflow', () => {
       const testCommand = new TestCommand('a')
       const workflowId = 'abc'
-      const messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+      const messageOptions: MessageAttributes = {
+        attributes: {},
+        stickyAttributes: {}
+      }
 
       beforeEach(async () => {
         const workflowState = new TestWorkflowState()
