@@ -14,6 +14,7 @@
     "format:check": "prettier --ignore-path .gitignore --check --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
     "format:precommit": "lint-staged",
     "preinstall": "npx only-allow pnpm",
+    "prepare": "husky install",
     "test": "dotenv -e test.env -- jest --collect-coverage",
     "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
     "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core).*(src\\/.+\\.|/)integration\\.ts$\"",
@@ -82,5 +83,8 @@
     "supports-color": "^9.0.1",
     "tslib": "^2.3.0",
     "typescript": "^4.3.5"
+  },
+  "lint-staged": {
+    "*.(ts|tsx|js|md|css|html|json)": "prettier --ignore-path .gitignore --write --config .prettierrc.js"
   }
 }
