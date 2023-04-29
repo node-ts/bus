@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "main": "index.js",
   "description": "A service bus for message-based, distributed node applications",
   "repository": "github:node-ts/bus.git",
