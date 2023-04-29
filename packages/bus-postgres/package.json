@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-postgres",
   "description": "A Postgres persistence adapter for workflow storage in @node-ts/bus-workflow.",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
