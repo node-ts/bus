@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "^1.0.4",
-    "@types/amqplib": "^0.8.2",
-    "amqplib": "^0.8.0",
+    "@types/amqplib": "^0.10.1",
+    "amqplib": "^0.10.3",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
