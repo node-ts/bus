@@ -12,6 +12,7 @@
     "build:watch": "lerna run --parallel build:watch --stream",
     "clean": "lerna run clean && rm -r node_modules",
     "lint": "lerna run lint --stream",
+    "preinstall": "npx only-allow pnpm",
     "test": "dotenv -e test.env -- jest --collect-coverage",
     "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
     "test:integration": "dotenv -e test.env -- jest --runInBand \"bus-(core).*(src\\/.+\\.|/)integration\\.ts$\"",
