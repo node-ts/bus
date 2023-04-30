@@ -15,8 +15,10 @@
     "access": "public"
   },
   "dependencies": {
+    "@aws-sdk/client-sns": "^3.321.1",
+    "@aws-sdk/client-sqs": "^3.321.1",
+    "@aws-sdk/util-arn-parser": "^3.310.0",
     "@node-ts/bus-messages": "^1.0.4",
-    "aws-sdk": "^2.1368.0",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
