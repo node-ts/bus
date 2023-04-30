@@ -45,7 +45,7 @@ import {
   resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 
-type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
+export type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
@@ -115,11 +115,12 @@ export class SqsTransport implements Transport<SQSMessage> {
         sqsConfiguration.awsRegion &&
         sqsConfiguration.queueName
       )
-    )
+    ) {
       throw new AssertionError({
         message:
           'SqsTransportConfiguration requires one of: awsAccountId and awsRegion and queueName, or queueArn'
       })
+    }
 
     this.resolveTopicName =
       sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
