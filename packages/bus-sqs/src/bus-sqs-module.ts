@@ -3,7 +3,8 @@ import { BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
 import { bindLogger } from '@node-ts/logger-core'
 import { BUS_SYMBOLS, Transport } from '@node-ts/bus-core'
 import { SqsTransport } from './sqs-transport'
-import { SQS, SNS } from 'aws-sdk'
+import { Message, SQS } from '@aws-sdk/client-sqs'
+import { SNS } from '@aws-sdk/client-sns'
 
 export class BusSqsModule extends ContainerModule {
   constructor () {
@@ -13,7 +14,7 @@ export class BusSqsModule extends ContainerModule {
         .inSingletonScope()
       bindLogger(bind, SqsTransport)
 
-      rebind<Transport<SQS.Message>>(BUS_SYMBOLS.Transport)
+      rebind<Transport<Message>>(BUS_SYMBOLS.Transport)
         .toDynamicValue(c => c.container.get<SqsTransport>(BUS_SQS_INTERNAL_SYMBOLS.SqsTransport))
 
       bind(BUS_SQS_INTERNAL_SYMBOLS.Sqs)

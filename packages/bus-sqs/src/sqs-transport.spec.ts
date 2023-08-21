@@ -1,7 +1,7 @@
 import { toMessageAttributeMap, SqsMessageAttributes, fromMessageAttributeMap } from './sqs-transport'
-import { SNS } from 'aws-sdk'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
+import { MessageAttributeValue } from '@aws-sdk/client-sns'
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
@@ -54,7 +54,7 @@ describe('sqs-transport', () => {
       }
     }
 
-    let messageAttributes: SNS.MessageAttributeMap
+    let messageAttributes: Record<string, MessageAttributeValue>
 
     beforeEach(() => {
       messageAttributes = toMessageAttributeMap(messageOptions)

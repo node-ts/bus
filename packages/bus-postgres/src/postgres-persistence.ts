@@ -60,7 +60,7 @@ export class PostgresPersistence implements Persistence {
     const tableName = resolveQualifiedTableName(workflowDataName, this.configuration.schemaName)
     const matcherValue = messageMap.lookupMessage(message, messageOptions)
 
-    const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.workflowDataProperty}'`
+    const workflowDataField = `${WORKFLOW_DATA_FIELD_NAME}->>'${String(messageMap.workflowDataProperty)}'`
     const query = `
       select
         ${WORKFLOW_DATA_FIELD_NAME}
