@@ -9,15 +9,16 @@ import {
   TestFailMessage
 } from '../test'
 import { BUS_SYMBOLS, ApplicationBootstrap, Bus, sleep } from '@node-ts/bus-core'
-import { SQS, SNS } from 'aws-sdk'
 import { BUS_SQS_INTERNAL_SYMBOLS, BUS_SQS_SYMBOLS } from './bus-sqs-symbols'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { IMock, Mock, Times, It } from 'typemoq'
 import * as uuid from 'uuid'
 import * as faker from 'faker'
-import { MessageAttributes, Message } from '@node-ts/bus-messages'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { TestSystemMessageHandler } from '../test/test-system-message-handler'
 import { TestSystemMessage } from '../test/test-system-message'
+import { SQS } from '@aws-sdk/client-sqs'
+import { SNS } from '@aws-sdk/client-sns'
 
 function getEnvVar (key: string): string {
   const value = process.env[key]
@@ -96,7 +97,7 @@ describe('SqsTransport', () => {
     bootstrap.registerHandler(TestSystemMessageHandler)
     bootstrap.registerHandler(TestFailMessageHandler)
 
-    const testSystemMessageTopic = await sns.createTopic({ Name: TestSystemMessage.NAME }).promise()
+    const testSystemMessageTopic = await sns.createTopic({ Name: TestSystemMessage.NAME })
     testSystemMessageTopicArn = testSystemMessageTopic.TopicArn!
   })
 
@@ -107,16 +108,16 @@ describe('SqsTransport', () => {
     await Promise.all([
       sqs.deleteQueue({
         QueueUrl: sqsConfiguration.queueUrl
-      }).promise(),
+      }),
       sqs.deleteQueue({
         QueueUrl: `http://localhost:4566/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
-      }).promise(),
+      }),
       sns.deleteTopic({
         TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-      }).promise(),
+      }),
       sns.deleteTopic({
         TopicArn: testSystemMessageTopicArn
-      }).promise()
+      })
     ])
   })
 
@@ -134,7 +135,7 @@ describe('SqsTransport', () => {
     it('should create the service queue', async () => {
       const result = await sqs.listQueues({
         QueueNamePrefix: sqsConfiguration.queueName
-      }).promise()
+      })
 
       expect(result.QueueUrls).toHaveLength(1)
     })
@@ -142,7 +143,7 @@ describe('SqsTransport', () => {
     it('should create the dead letter queue', async () => {
       const result = await sqs.listQueues({
         QueueNamePrefix: sqsConfiguration.deadLetterQueueName
-      }).promise()
+      })
 
       expect(result.QueueUrls).toHaveLength(1)
     })
@@ -150,7 +151,7 @@ describe('SqsTransport', () => {
     it('should subscribe the queue to all message topics', async () => {
       const result = await sns.getTopicAttributes({
         TopicArn: sqsConfiguration.resolveTopicArn(sqsConfiguration.resolveTopicName(TestCommand.NAME))
-      }).promise()
+      })
 
       expect(result.Attributes).toBeDefined()
     })
@@ -163,7 +164,7 @@ describe('SqsTransport', () => {
         await sns.publish({
           Message: JSON.stringify(message),
           TopicArn: testSystemMessageTopicArn
-        }).promise()
+        })
       })
 
       it('should handle the system message', async () => {
@@ -210,13 +211,13 @@ describe('SqsTransport', () => {
       let receiveCount: number
       beforeAll(async () => {
         const deadLetterQueueUrl = `http://localhost:4566/${AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
-        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl }).promise()
+        await sqs.purgeQueue({ QueueUrl: deadLetterQueueUrl })
         await sut.publish(messageToFail, new MessageAttributes({ correlationId }))
         const result = await sqs.receiveMessage({
           QueueUrl: deadLetterQueueUrl,
           WaitTimeSeconds: 5,
           AttributeNames: ['All']
-        }).promise()
+        })
         if (result.Messages && result.Messages.length === 1) {
           const transportMessage = result.Messages[0]
           receiveCount = parseInt(transportMessage.Attributes!.ApproximateReceiveCount, 10)
