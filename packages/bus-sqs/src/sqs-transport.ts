@@ -1,7 +1,15 @@
 // tslint:disable:no-magic-numbers
 import { Command, Event, Message, MessageAttributes, MessageAttributeMap } from '@node-ts/bus-messages'
 import { MessageAttributeValue, PublishCommandInput, SNS, SubscribeCommandInput } from '@aws-sdk/client-sns'
-import { ChangeMessageVisibilityCommandInput, CreateQueueCommandInput, DeleteMessageCommandInput, ReceiveMessageCommandInput, SQS, SetQueueAttributesCommandInput, Message as SqsMessage } from '@aws-sdk/client-sqs'
+import {
+  ChangeMessageVisibilityCommandInput,
+  CreateQueueCommandInput,
+  DeleteMessageCommandInput,
+  ReceiveMessageCommandInput,
+  SQS,
+  SetQueueAttributesCommandInput,
+  Message as SqsMessage
+} from '@aws-sdk/client-sqs'
 import { inject, injectable } from 'inversify'
 import {
   Transport, TransportMessage, HandlerRegistry,
@@ -10,7 +18,6 @@ import {
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 import { Logger, LOGGER_SYMBOLS } from '@node-ts/logger-core'
 import { BUS_SQS_SYMBOLS, BUS_SQS_INTERNAL_SYMBOLS } from './bus-sqs-symbols'
-// import { MessageAttributeValue } from 'aws-sdk/clients/sns'
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
