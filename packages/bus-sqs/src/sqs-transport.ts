@@ -373,7 +373,7 @@ function calculateVisibilityTimeout (sqsMessage: SqsMessage): Seconds {
   const jitterDirection = Math.random() > 0.5 ? 1 : -1
   const jitter = jitterAmount * jitterDirection
   const delay = Math.round(constantDelay + jitter)
-  return Math.min(delay, MAX_DELAY_MS) / MILLISECONDS_IN_SECONDS
+  return Math.round(Math.min(delay, MAX_DELAY_MS) / MILLISECONDS_IN_SECONDS)
 }
 
 export function toMessageAttributeMap (messageOptions: MessageAttributes): Record<string, MessageAttributeValue> {
