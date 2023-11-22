@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -e
 
-yarn run docs:build
+pnpm run docs:build
 
 cd docs
 

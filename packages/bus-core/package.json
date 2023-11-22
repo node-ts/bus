@@ -25,14 +25,14 @@
     "@node-ts/logger-core": "^0.0.17",
     "@types/faker": "^4.1.5",
     "faker": "^4.1.0",
-    "inversify": "^5.0.1",
+    "inversify": "^6.0.2",
     "tslint": "^5.12.1",
     "typemoq": "^2.1.0",
     "typescript": "^4.9.4"
   },
   "peerDependencies": {
     "@node-ts/logger-core": "^0.0.17",
-    "inversify": "^5.0.1"
+    "inversify": "^6.0.2"
   },
   "keywords": [
     "esb",

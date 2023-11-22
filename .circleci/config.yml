@@ -2,32 +2,39 @@ version: 2
 
 defaults: &defaults
   working_directory: ~/repo
-  docker:
-    - image: cimg/node:14.21.3
+  build:
+    docker:
+      - image: node:16
 
 jobs:
   build:
     <<: *defaults
+    docker:
+      - image: node:16
     steps:
-      - checkout
+      - restore_cache:
+          name: Restore pnpm Package Cache
+          keys:
+            - pnpm-packages-{{ checksum "pnpm-lock.yaml" }}
+      - run:
+          name: Install pnpm package manager
+          command: |
+            curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@8
       - run:
           name: Install dependencies
-          command: yarn
-      - run:
-          name: Bootstrap
-          command: yarn run bootstrap
+          command: pnpm i
       - run:
           name: Build
-          command: yarn run build
+          command: pnpm run build
       - run:
           name: Lint
-          command: yarn run lint
+          command: pnpm run lint
       - run:
           name: Unit Test
-          command: yarn run test:unit --runInBand # runInBand used as circle ci runs out of memory
+          command: pnpm run test:unit --runInBand # runInBand used as circle ci runs out of memory
       - run:
           name: Integration Test
-          command: yarn run test:integration
+          command: pnpm run test:integration
       # - setup_remote_docker
       # - run:
       #     name: Integration Test
@@ -44,16 +51,26 @@ jobs:
 
   deploy:
     <<: *defaults
+    docker:
+      - image: node:16
     steps:
       # Reuse the workspace from the build job
       - attach_workspace:
           at: .
+      - restore_cache:
+          name: Restore pnpm Package Cache
+          keys:
+            - pnpm-packages-{{ checksum "pnpm-lock.yaml" }}
+      - run:
+          name: Install pnpm package manager
+          command: |
+            curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@8
       - run:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
           name: Publish
-          command: npx lerna publish from-package --yes --dist-tag 0.x
+          command: pnpm publish --recursive --no-git-checks --tag 0.x
 
 
 workflows:

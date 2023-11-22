@@ -10,7 +10,7 @@
     "clean": "rm -rf dist",
     "build": "tsc --project tsconfig.json --declaration",
     "lint": "tslint --project tsconfig.json 'src/**/*.ts'",
-    "lint:fix": "yarn lint --fix"
+    "lint:fix": "pnpm run lint --fix"
   },
   "publishConfig": {
     "access": "public"
@@ -25,7 +25,7 @@
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.17",
     "@types/uuid": "^3.4.4",
-    "inversify": "^5.0.1",
+    "inversify": "^6.0.2",
     "reflect-metadata": "^0.1.13",
     "typemoq": "^2.1.0",
     "typescript": "^4.9.4"
@@ -33,7 +33,7 @@
   "peerDependencies": {
     "@node-ts/bus-core": "^0.4.6",
     "@node-ts/logger-core": "^0.0.17",
-    "inversify": "^5.0.1",
+    "inversify": "^6.0.2",
     "reflect-metadata": "^0.1.13"
   },
   "keywords": [
