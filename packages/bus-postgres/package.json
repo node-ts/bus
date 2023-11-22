@@ -27,6 +27,7 @@
     "@node-ts/code-standards": "^0.0.10",
     "@node-ts/logger-core": "^0.0.13",
     "@types/amqplib": "^0.5.11",
+    "@types/node": "16",
     "@types/pg": "^7.14.3",
     "@types/uuid": "^3.4.4",
     "inversify": "^6.0.2",

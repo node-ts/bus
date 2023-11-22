@@ -12,7 +12,6 @@ jobs:
     docker:
       - image: node:16
     resource_class: large
-    parallelism: 10
     steps:
       - checkout
       - restore_cache:
