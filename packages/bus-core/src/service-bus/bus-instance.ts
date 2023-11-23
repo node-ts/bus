@@ -350,7 +350,10 @@ export class BusInstance {
       let handlerInstance: Handler<Message> | undefined
       try {
         const handlerInstanceFromContainer =
-          this.coreDependencies.container!.get(classHandler)
+          this.coreDependencies.container!.get(classHandler, {
+            message,
+            messageAttributes: attributes
+          })
         if (handlerInstanceFromContainer instanceof Promise) {
           handlerInstance = await handlerInstanceFromContainer
         } else {
