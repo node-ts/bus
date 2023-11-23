@@ -10,7 +10,7 @@ import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Db, MongoClient } from 'mongodb'
 import { MongodbConfiguration } from './mongodb-configuration'
 import { WorkflowStateNotFound } from './error'
-import mapKeys from 'lodash.mapkeys'
+import _ from 'lodash'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
@@ -99,7 +99,7 @@ export class MongodbPersistence implements Persistence {
 
     const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
     return rows
-      .map(row => mapKeys(row, (_, key) => denormalizeProperty(key)))
+      .map(row => _.mapKeys(row, (__, key) => denormalizeProperty(key)))
       .filter(workflowState => workflowState !== undefined)
       .map(workflowState =>
         this.coreDependencies.serializer.toClass(
@@ -120,7 +120,7 @@ export class MongodbPersistence implements Persistence {
 
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
-    const modifiedState = mapKeys(workflowState, (_, key) =>
+    const modifiedState = _.mapKeys(workflowState, (__, key) =>
       normalizeProperty(key)
     )
 
