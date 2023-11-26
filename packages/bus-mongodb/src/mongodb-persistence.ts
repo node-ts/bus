@@ -10,7 +10,6 @@ import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Db, MongoClient } from 'mongodb'
 import { MongodbConfiguration } from './mongodb-configuration'
 import { WorkflowStateNotFound } from './error'
-import mapKeys from 'lodash.mapkeys'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
@@ -99,7 +98,7 @@ export class MongodbPersistence implements Persistence {
 
     const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
     return rows
-      .map(row => mapKeys(row, (_, key) => denormalizeProperty(key)))
+      .map(row => mapKeys(row, (key, _) => denormalizeProperty(key)))
       .filter(workflowState => workflowState !== undefined)
       .map(workflowState =>
         this.coreDependencies.serializer.toClass(
@@ -120,7 +119,7 @@ export class MongodbPersistence implements Persistence {
 
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
-    const modifiedState = mapKeys(workflowState, (_, key) =>
+    const modifiedState = mapKeys(workflowState, (key, _) =>
       normalizeProperty(key)
     )
 
@@ -263,7 +262,13 @@ export class MongodbPersistence implements Persistence {
     }
   }
 }
-
+function mapKeys(obj: any, fn: (key: string, value: any) => string) {
+  return Object.keys(obj).reduce((acc, oldKey) => {
+    const newKey = fn(oldKey, obj[oldKey])
+    acc[newKey] = obj[oldKey]
+    return acc
+  }, {} as Record<string, unknown>)
+}
 /**
  * Returns a legal fully qualified schema + table name
  */
