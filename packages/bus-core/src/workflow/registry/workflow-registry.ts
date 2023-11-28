@@ -184,8 +184,7 @@ export class WorkflowRegistry {
             if (container) {
               const workflowFromContainer = container.get(
                 options.workflowCtor,
-                message,
-                messageAttributes
+                { message, messageAttributes }
               )
               if (workflowFromContainer instanceof Promise) {
                 workflow = await workflowFromContainer
@@ -349,11 +348,10 @@ export class WorkflowRegistry {
     })
     let workflow: Workflow<WorkflowState>
     if (container) {
-      const workflowFromContainer = container.get(
-        workflowCtor,
+      const workflowFromContainer = container.get(workflowCtor, {
         message,
-        attributes
-      )
+        messageAttributes: attributes
+      })
       if (workflowFromContainer instanceof Promise) {
         workflow = await workflowFromContainer
       } else {
