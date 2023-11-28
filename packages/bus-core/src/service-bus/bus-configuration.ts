@@ -258,9 +258,7 @@ export class BusConfiguration {
    * and workflows.
    * @param container An adapter to an existing DI container to fetch class instances from
    */
-  withContainer(container: {
-    get<T>(type: ClassConstructor<T>): T | Promise<T>
-  }): this {
+  withContainer(container: ContainerAdapter): this {
     this.container = container
     return this
   }
