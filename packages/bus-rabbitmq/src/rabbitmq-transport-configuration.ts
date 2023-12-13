@@ -16,5 +16,5 @@ export interface RabbitMqTransportConfiguration extends TransportConfiguration {
   /**
    * Whether the messages in RabbitMQ are persistent or not (survive a broker restart). By default, false.
    */
-  persistentMessages?: number
+  persistentMessages?: boolean
 }
