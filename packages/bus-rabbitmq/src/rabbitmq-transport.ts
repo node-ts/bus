@@ -51,6 +51,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private consumptionQueue: ConsumeMessage[] = []
   private consumptionQueueEvents = new EventEmitter()
+  private persistentMessages: boolean
 
   constructor(private readonly configuration: RabbitMqTransportConfiguration) {
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
@@ -59,6 +60,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.retryQueue = `${configuration.queueName}-retry`
     this.retryQueueExchange = `${configuration.queueName}-retry`
     this.serviceQueueExchange = configuration.queueName
+    this.persistentMessages = configuration.persistentMessages ?? false
   }
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -363,6 +365,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.channel.publish(message.$name, '', Buffer.from(payload), {
       correlationId: messageOptions.correlationId,
       messageId: uuid.v4(),
+      persistent: this.persistentMessages,
       headers: {
         attributes: messageOptions.attributes
           ? JSON.stringify(messageOptions.attributes)
