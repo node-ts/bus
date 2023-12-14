@@ -26,7 +26,8 @@ import {
 const rabbitConfiguration: RabbitMqTransportConfiguration = {
   queueName: 'accounts-application-queue',
   connectionString: 'amqp://guest:guest@localhost',
-  maxRetries: 5
+  maxRetries: 5,
+  persistentMessages: true
 }
 const rabbitMqTransport = new RabbitMqTransport(rabbitConfiguration)
 
