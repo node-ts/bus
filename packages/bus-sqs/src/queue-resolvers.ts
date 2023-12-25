@@ -1,3 +1,5 @@
+import { SqsTransportConfiguration } from './sqs-transport-configuration'
+
 const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
 export const normalizeMessageName = (messageName: string) =>
   messageName.replace(invalidSqsSnsCharacters, '-')
@@ -24,13 +26,14 @@ export const resolveTopicArn = (
 ) => `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
 
 export const resolveQueueUrl = (
-  href: string,
-  awsAccountId: string,
+  { awsAccountId, awsRegion }: SqsTransportConfiguration,
   queueName: string
-) => `${href}${awsAccountId}/${queueName}`
+) => `https://sqs.${awsRegion}.amazonaws.com/${awsAccountId}/${queueName}`
+
 export const resolveQueueArn = (
   awsAccountId: string,
   awsRegion: string,
   queueName: string
 ) => `arn:aws:sqs:${awsRegion}:${awsAccountId}:${queueName}`
-export const resolveDeadLetterQueueName = () => `dead-letter-queue`
+
+export const resolveDeadLetterQueueName = () => `dlq`

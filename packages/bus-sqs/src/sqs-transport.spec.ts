@@ -2,9 +2,14 @@ import {
   toMessageAttributeMap,
   SqsMessageAttributes,
   fromMessageAttributeMap,
-  SqsTransport
+  SqsTransport,
+  SnsMessageAttributeMap
 } from './sqs-transport'
-import { SNS, SQS } from 'aws-sdk'
+import {
+  ChangeMessageVisibilityCommand,
+  SQSClient,
+  Message as SQSMessage
+} from '@aws-sdk/client-sqs'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
@@ -67,7 +72,7 @@ describe('sqs-transport', () => {
       }
     }
 
-    let messageAttributes: SNS.MessageAttributeMap
+    let messageAttributes: SnsMessageAttributeMap
 
     beforeEach(() => {
       messageAttributes = toMessageAttributeMap(messageOptions)
@@ -108,8 +113,15 @@ describe('sqs-transport', () => {
 
   describe('when returning a message to the queue', () => {
     it('should use the retry strategy delay', async () => {
-      const sqs = Mock.ofType(SQS)
-      const sut = new SqsTransport({} as SqsTransportConfiguration, sqs.object)
+      const sqs = Mock.ofType(SQSClient)
+      const sut = new SqsTransport(
+        {
+          awsAccountId: '1',
+          awsRegion: 'us-west-2',
+          queueName: 'abc'
+        } as SqsTransportConfiguration,
+        sqs.object
+      )
 
       const retryStrategy: RetryStrategy = {
         calculateRetryDelay() {
@@ -124,14 +136,16 @@ describe('sqs-transport', () => {
 
       sqs
         .setup(s =>
-          s.changeMessageVisibility(
-            It.isObjectWith<any>({ VisibilityTimeout: 3 })
+          s.send(
+            It.is<ChangeMessageVisibilityCommand>(
+              x => x.input.VisibilityTimeout === 3
+            )
           )
         )
         .returns(() => ({ promise: async () => undefined } as any))
         .verifiable(Times.once())
 
-      await sut.returnMessage({ raw: {} } as TransportMessage<SQS.Message>)
+      await sut.returnMessage({ raw: {} } as TransportMessage<SQSMessage>)
       sqs.verifyAll()
     })
   })
