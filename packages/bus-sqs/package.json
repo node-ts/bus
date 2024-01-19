@@ -15,14 +15,16 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^1.0.4",
-    "aws-sdk": "^2.1368.0",
+    "@aws-sdk/client-sns": "3.428.0",
+    "@aws-sdk/client-sqs": "3.428.0",
+    "@aws-sdk/util-arn-parser": "^3.495.0",
+    "@node-ts/bus-messages": "workspace:^",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^1.0.15",
-    "@node-ts/bus-test": "^0.0.20",
+    "@node-ts/bus-core": "workspace:^",
+    "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
     "@types/amqplib": "^0.5.11",
     "@types/faker": "^4.1.5",
@@ -34,7 +36,7 @@
     "typescript": "^4.3.5"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^1.0.0-alpha.0"
+    "@node-ts/bus-core": "^1.0.15"
   },
   "keywords": [
     "esb",

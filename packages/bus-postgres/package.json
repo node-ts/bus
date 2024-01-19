@@ -15,13 +15,13 @@
     "access": "public"
   },
   "dependencies": {
-    "@node-ts/bus-messages": "^1.0.4",
+    "@node-ts/bus-messages": "workspace:^",
     "pg": "^8.2.1",
     "tslib": "^1.9.3",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^1.0.15",
+    "@node-ts/bus-core": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
     "@types/amqplib": "^0.5.11",
     "@types/pg": "^7.14.3",

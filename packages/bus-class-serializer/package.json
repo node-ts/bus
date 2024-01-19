@@ -16,12 +16,12 @@
     "access": "public"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^1.0.15",
+    "@node-ts/bus-core": "workspace:^",
     "class-transformer": "^0.5.1",
     "reflect-metadata": "^0.1.13"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^1.0.0-alpha.0",
+    "@node-ts/bus-core": "workspace:^",
     "class-transformer": "^0.5.1"
   },
   "keywords": [
