@@ -341,6 +341,10 @@ importers:
       uuid:
         specifier: ^8.3.2
         version: 8.3.2
+    devDependencies:
+      '@types/uuid':
+        specifier: ^8.3.1
+        version: 8.3.1
 
 packages:
 

@@ -1,2 +1,2 @@
 export * from './sqs-transport-configuration'
-export * from './sqs-transport'
+export { SqsTransport } from './sqs-transport'

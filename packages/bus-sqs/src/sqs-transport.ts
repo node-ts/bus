@@ -44,7 +44,7 @@ import {
 } from './queue-resolvers'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
-type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
+export type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
 
 export const MAX_SQS_DELAY_SECONDS: Seconds = 900
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
@@ -85,10 +85,10 @@ export class SqsTransport implements Transport<SQSMessage> {
 
   private coreDependencies: CoreDependencies
   private logger: Logger
-  private readonly queueUrl: string
+  readonly queueUrl: string
   private readonly queueArn: string
   private readonly deadLetterQueueName: string
-  private readonly deadLetterQueueUrl: string
+  readonly deadLetterQueueUrl: string
   private readonly deadLetterQueueArn: string
   private readonly sqs: SQSClient
   private readonly sns: SNSClient
@@ -470,7 +470,7 @@ export class SqsTransport implements Transport<SQSMessage> {
     const command = new ChangeMessageVisibilityCommand({
       QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!,
-      VisibilityTimeout: this.calculateVisibilityTimeout(sqsMessage)
+      VisibilityTimeout: Math.round(this.calculateVisibilityTimeout(sqsMessage))
     })
 
     await this.sqs.send(command)

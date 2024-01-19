@@ -1,13 +1,23 @@
 import {
-  fromMessageAttributeMap,
-  SQSMessageBody,
-  SqsTransport
-} from './sqs-transport'
-import { SQS, SNS } from 'aws-sdk'
-import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { resolveQueueUrl } from './queue-resolvers'
-import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
+  CreateTopicCommand,
+  PublishCommand,
+  SNSClient
+} from '@aws-sdk/client-sns'
+import {
+  DeleteMessageCommand,
+  DeleteQueueCommand,
+  PurgeQueueCommand,
+  ReceiveMessageCommand,
+  SQSClient
+} from '@aws-sdk/client-sqs'
 import { Message } from '@node-ts/bus-messages'
+import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
+import {
+  SQSMessageBody,
+  SqsTransport,
+  fromMessageAttributeMap
+} from './sqs-transport'
+import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
 function getEnvVar(key: string): string {
   const value = process.env[key]
@@ -20,9 +30,6 @@ function getEnvVar(key: string): string {
 // Use a randomize number otherwise aws will disallow recreate just deleted queue
 // const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
 const resourcePrefix = `integration-bus-sqs-1`
-const invalidSqsSnsCharacters = new RegExp('[^a-zA-Z0-9_-]', 'g')
-const normalizeMessageName = (messageName: string) =>
-  messageName.replace(invalidSqsSnsCharacters, '-')
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
 
@@ -39,30 +46,35 @@ const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.e
 jest.setTimeout(15000)
 
 describe('SqsTransport', () => {
-  const sqs = new SQS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
-  const sns = new SNS({ endpoint: 'http://localhost:4566', region: AWS_REGION })
-  const deadLetterQueueUrl = `${sqs.endpoint.href}${process.env.AWS_ACCOUNT_ID}/${sqsConfiguration.deadLetterQueueName}`
+  const sqs = new SQSClient({
+    endpoint: 'http://localhost:4566',
+    region: AWS_REGION
+  })
+  const sns = new SNSClient({
+    endpoint: 'http://localhost:4566',
+    region: AWS_REGION
+  })
   const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
+  const deadLetterQueueUrl = sqsTransport.deadLetterQueueUrl
 
   beforeAll(async () => {
-    await sns.createTopic({ Name: manualTopicName }).promise()
+    const createTopic = new CreateTopicCommand({
+      Name: manualTopicName
+    })
+    await sns.send(createTopic)
   })
 
   afterAll(async () => {
-    const appQueueUrl = resolveQueueUrl(
-      sqs.endpoint.href,
-      sqsConfiguration.awsAccountId,
-      normalizeMessageName(sqsConfiguration.queueName)
-    )
-    await sqs.purgeQueue({ QueueUrl: appQueueUrl }).promise()
-    await sqs.deleteQueue({ QueueUrl: appQueueUrl }).promise()
-    await sqs.deleteQueue({ QueueUrl: deadLetterQueueUrl }).promise()
+    const appQueueUrl = sqsTransport.queueUrl
+    await sqs.send(new PurgeQueueCommand({ QueueUrl: appQueueUrl }))
+    await sqs.send(new DeleteQueueCommand({ QueueUrl: appQueueUrl }))
+    await sqs.send(new DeleteQueueCommand({ QueueUrl: deadLetterQueueUrl }))
   })
 
   const message = new TestSystemMessage()
   const publishSystemMessage = async (systemMessageAttribute: string) => {
-    await sns
-      .publish({
+    await sns.send(
+      new PublishCommand({
         Message: JSON.stringify(message),
         TopicArn: manualTopicIdentifier,
         MessageAttributes: {
@@ -72,29 +84,29 @@ describe('SqsTransport', () => {
           }
         }
       })
-      .promise()
+    )
   }
 
   const readAllFromDeadLetterQueue = async () => {
-    const result = await sqs
-      .receiveMessage({
+    const result = await sqs.send(
+      new ReceiveMessageCommand({
         QueueUrl: deadLetterQueueUrl,
         WaitTimeSeconds: 5,
         MaxNumberOfMessages: 10,
         AttributeNames: ['All']
       })
-      .promise()
+    )
 
     const transportMessages = result.Messages || []
 
     await Promise.all(
       transportMessages.map(message =>
-        sqs
-          .deleteMessage({
+        sqs.send(
+          new DeleteMessageCommand({
             QueueUrl: deadLetterQueueUrl,
             ReceiptHandle: message.ReceiptHandle!
           })
-          .promise()
+        )
       )
     )
 

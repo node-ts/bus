@@ -94,12 +94,12 @@ export const transportTests = (
     describe('when a system message is received', () => {
       const attrValue = uuid.v4()
 
-      beforeAll(async () => publishSystemMessage(attrValue))
-
       it('should handle the system message', async () => {
-        await new Promise<void>(resolve =>
+        const messageHandled = new Promise<void>(resolve =>
           testSystemMessageHandlerEmitter.on('event', resolve)
         )
+        await publishSystemMessage(attrValue)
+        await messageHandled
         handleChecker.verify(
           h =>
             h.check(
@@ -128,10 +128,11 @@ export const transportTests = (
       }
 
       it('should receive and dispatch to the handler', async () => {
-        await bus.send(testCommand, messageOptions)
-        await new Promise(resolve =>
+        const messageHandled = new Promise(resolve =>
           testCommandHandlerEmitter.on('received', resolve)
         )
+        await bus.send(testCommand, messageOptions)
+        await messageHandled
         handleChecker.verify(
           h =>
             h.check(
@@ -154,10 +155,11 @@ export const transportTests = (
       }
 
       it('should receive and dispatch to the handler', async () => {
-        await bus.publish(testEvent, messageOptions)
-        await new Promise(resolve =>
+        const messageHandled = new Promise(resolve =>
           testEventHandlerEmitter.on('received', resolve)
         )
+        await bus.publish(testEvent, messageOptions)
+        await messageHandled
         handleChecker.verify(
           h =>
             h.check(
@@ -174,14 +176,15 @@ export const transportTests = (
       let deadMessages: { message: Message; attributes: MessageAttributes }[]
 
       beforeAll(async () => {
-        await bus.publish(poisonedMessage)
-        await new Promise<void>(resolve => {
+        const messageHandled = new Promise<void>(resolve => {
           testPoisonedMessageHandlerEmitter.on('received', attempts => {
             if (attempts >= 10) {
               resolve()
             }
           })
         })
+        await bus.publish(poisonedMessage)
+        await messageHandled
 
         deadMessages = await readAllFromDeadLetterQueue()
       })
