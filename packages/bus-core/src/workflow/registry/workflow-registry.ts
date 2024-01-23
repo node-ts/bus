@@ -90,6 +90,11 @@ export class WorkflowRegistry {
     })
     this.isInitializing = true
 
+    if (this.persistence.initialize) {
+      this.logger.info('Initializing persistence...')
+      await this.persistence.initialize!()
+    }
+
     for (const WorkflowCtor of this.workflowRegistry) {
       this.logger.debug('Initializing workflow', {
         workflow: WorkflowCtor.prototype.constructor.name
@@ -133,11 +138,6 @@ export class WorkflowRegistry {
     }
 
     this.workflowRegistry = []
-
-    if (this.persistence.initialize) {
-      this.logger.info('Initializing persistence...')
-      await this.persistence.initialize!()
-    }
 
     this.isInitialized = true
     this.isInitializing = false

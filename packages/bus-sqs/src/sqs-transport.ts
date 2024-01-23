@@ -43,6 +43,7 @@ import {
   resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
+import { TransportInitializationOptions } from '@node-ts/bus-core/dist/transport'
 
 export type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
 
@@ -85,16 +86,16 @@ export class SqsTransport implements Transport<SQSMessage> {
 
   private coreDependencies: CoreDependencies
   private logger: Logger
-  readonly queueUrl: string
-  private readonly queueArn: string
-  private readonly deadLetterQueueName: string
-  readonly deadLetterQueueUrl: string
-  private readonly deadLetterQueueArn: string
+  queueUrl: string
+  private queueArn: string
+  private deadLetterQueueName: string
+  deadLetterQueueUrl: string
+  private deadLetterQueueArn: string
   private readonly sqs: SQSClient
   private readonly sns: SNSClient
 
-  private readonly resolveTopicName: typeof defaultResolveTopicName
-  private readonly resolveTopicArn: typeof defaultResolveTopicArn
+  private resolveTopicName: typeof defaultResolveTopicName
+  private resolveTopicArn: typeof defaultResolveTopicArn
 
   /**
    * An AWS SQS Transport adapter for @node-ts/bus
@@ -107,66 +108,8 @@ export class SqsTransport implements Transport<SQSMessage> {
     sqs?: SQSClient,
     sns?: SNSClient
   ) {
-    if (
-      !sqsConfiguration.queueArn &&
-      !(
-        sqsConfiguration.awsAccountId &&
-        sqsConfiguration.awsRegion &&
-        sqsConfiguration.queueName
-      )
-    )
-      throw new AssertionError({
-        message:
-          'SqsTransportConfiguration requires one of: awsAccountId and awsRegion and queueName, or queueArn'
-      })
-
-    this.resolveTopicName =
-      sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
-    this.resolveTopicArn =
-      sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
-
-    if (sqsConfiguration.queueArn) {
-      const { accountId, region, resource } = parse(sqsConfiguration.queueArn)
-      sqsConfiguration.awsAccountId = accountId
-      sqsConfiguration.awsRegion = region
-      sqsConfiguration.queueName = resource
-      this.queueArn = sqsConfiguration.queueArn
-    } else {
-      this.queueArn = resolveQueueArn(
-        sqsConfiguration.awsAccountId!,
-        sqsConfiguration.awsRegion!,
-        sqsConfiguration.queueName!
-      )
-    }
-
     this.sqs = sqs || new SQSClient({ region: sqsConfiguration.awsRegion })
     this.sns = sns || new SNSClient({ region: sqsConfiguration.awsRegion })
-
-    this.queueUrl = resolveQueueUrl(
-      sqsConfiguration,
-      sqsConfiguration.queueName!
-    )
-
-    if (sqsConfiguration.deadLetterQueueArn) {
-      const { resource } = parse(sqsConfiguration.deadLetterQueueArn)
-      this.deadLetterQueueArn = sqsConfiguration.deadLetterQueueArn
-      this.deadLetterQueueName = resource
-    } else {
-      this.deadLetterQueueName = sqsConfiguration.deadLetterQueueName
-        ? normalizeMessageName(sqsConfiguration.deadLetterQueueName)
-        : resolveDeadLetterQueueName()
-
-      this.deadLetterQueueArn = resolveQueueArn(
-        sqsConfiguration.awsAccountId!,
-        sqsConfiguration.awsRegion!,
-        this.deadLetterQueueName
-      )
-    }
-
-    this.deadLetterQueueUrl = resolveQueueUrl(
-      sqsConfiguration,
-      this.deadLetterQueueName
-    )
   }
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -293,8 +236,72 @@ export class SqsTransport implements Transport<SQSMessage> {
     await this.makeMessageVisible(message.raw)
   }
 
-  async initialize(): Promise<void> {
-    await this.assertServiceQueue()
+  async initialize({
+    sendOnly
+  }: TransportInitializationOptions): Promise<void> {
+    if (!sendOnly) {
+      if (
+        !this.sqsConfiguration.queueArn &&
+        !(
+          this.sqsConfiguration.awsAccountId &&
+          this.sqsConfiguration.awsRegion &&
+          this.sqsConfiguration.queueName
+        )
+      )
+        throw new AssertionError({
+          message:
+            'SqsTransportConfiguration requires one of: awsAccountId and awsRegion and queueName, or queueArn'
+        })
+
+      this.resolveTopicName =
+        this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
+      this.resolveTopicArn =
+        this.sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
+
+      if (this.sqsConfiguration.queueArn) {
+        const { accountId, region, resource } = parse(
+          this.sqsConfiguration.queueArn
+        )
+        this.sqsConfiguration.awsAccountId = accountId
+        this.sqsConfiguration.awsRegion = region
+        this.sqsConfiguration.queueName = resource
+        this.queueArn = this.sqsConfiguration.queueArn
+      } else {
+        this.queueArn = resolveQueueArn(
+          this.sqsConfiguration.awsAccountId!,
+          this.sqsConfiguration.awsRegion!,
+          this.sqsConfiguration.queueName!
+        )
+      }
+
+      this.queueUrl = resolveQueueUrl(
+        this.sqsConfiguration,
+        this.sqsConfiguration.queueName!
+      )
+
+      if (this.sqsConfiguration.deadLetterQueueArn) {
+        const { resource } = parse(this.sqsConfiguration.deadLetterQueueArn)
+        this.deadLetterQueueArn = this.sqsConfiguration.deadLetterQueueArn
+        this.deadLetterQueueName = resource
+      } else {
+        this.deadLetterQueueName = this.sqsConfiguration.deadLetterQueueName
+          ? normalizeMessageName(this.sqsConfiguration.deadLetterQueueName)
+          : resolveDeadLetterQueueName()
+
+        this.deadLetterQueueArn = resolveQueueArn(
+          this.sqsConfiguration.awsAccountId!,
+          this.sqsConfiguration.awsRegion!,
+          this.deadLetterQueueName
+        )
+      }
+
+      this.deadLetterQueueUrl = resolveQueueUrl(
+        this.sqsConfiguration,
+        this.deadLetterQueueName
+      )
+
+      await this.assertServiceQueue()
+    }
   }
 
   private async assertServiceQueue(): Promise<void> {
@@ -369,8 +376,10 @@ export class SqsTransport implements Transport<SQSMessage> {
       if (error.code === 'QueueAlreadyExists') {
         this.logger.trace('Queue already exists', { queueName })
       } else {
+        const endpoint = await this.sqs.config.endpoint!()
         this.logger.error('SQS queue could not be created', {
           queueName,
+          endpoint,
           error
         })
         throw err
