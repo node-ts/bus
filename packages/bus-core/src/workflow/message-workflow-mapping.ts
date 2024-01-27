@@ -13,7 +13,7 @@ export interface MessageWorkflowMapping<
    */
   lookup: (
     message: MessageType,
-    attributes: MessageAttributes
+    attributes: MessageAttributes<any, any>
   ) => string | undefined
 
   /**

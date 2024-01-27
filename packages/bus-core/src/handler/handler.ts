@@ -1,5 +1,6 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor } from '../util'
+import { CustomHandler } from './custom-handler'
 
 /**
  * Defines the types of messages that the bus can handle
@@ -32,16 +33,17 @@ export interface Handler<
 }
 
 export type FunctionHandler<
-  TMessage extends MessageBase,
+  TMessage,
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > = (message: TMessage, attributes: TMessageAttributes) => void | Promise<void>
 
 export type HandlerDefinition<
-  TMessage extends MessageBase = MessageBase,
+  TMessage = any,
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > =
   | FunctionHandler<TMessage, TMessageAttributes>
-  | ClassConstructor<Handler<TMessage, TMessageAttributes>>
+  | ClassConstructor<Handler<MessageBase, TMessageAttributes>>
+  | ClassConstructor<CustomHandler<TMessage>>
 
 /**
  * A naive but best guess effort into if a handler is class based and should be resolved from a container

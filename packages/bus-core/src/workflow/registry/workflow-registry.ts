@@ -17,8 +17,10 @@ import { Persistence } from '../persistence'
  * stored in the sticky attributes
  */
 const workflowLookup: MessageWorkflowMapping = {
-  lookup: (_, attributes) =>
-    attributes.stickyAttributes.workflowId as string | undefined,
+  lookup: (
+    _: Message,
+    attributes: MessageAttributes<{}, { workflowId: string }>
+  ) => attributes.stickyAttributes.workflowId as string | undefined,
   mapsTo: '$workflowId'
 }
 

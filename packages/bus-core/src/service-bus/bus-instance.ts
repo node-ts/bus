@@ -37,33 +37,45 @@ import { ContainerAdapter } from 'src/container'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
+export interface BeforeSend {
+  command: Command
+  attributes: MessageAttributes
+}
+
+export class BeforePublish {
+  event: Event
+  attributes: MessageAttributes
+}
+
+export class OnError<TTransportMessage> {
+  message: Message
+  error: Error
+  attributes?: MessageAttributes
+  rawMessage?: TransportMessage<TTransportMessage>
+}
+
+export class AfterReceive<TTransportMessage> {
+  message: TransportMessage<TTransportMessage>
+}
+
+export class BeforeDispatch {
+  message: Message
+  attributes: MessageAttributes
+  handlers: HandlerDefinition[]
+}
+
+export class AfterDispatch {
+  message: Message
+  attributes: MessageAttributes
+}
+
 export class BusInstance<TTransportMessage = {}> {
-  readonly beforeSend = new TypedEmitter<{
-    command: Command
-    attributes: MessageAttributes
-  }>()
-  readonly beforePublish = new TypedEmitter<{
-    event: Event
-    attributes: MessageAttributes
-  }>()
-  readonly onError = new TypedEmitter<{
-    message: Message
-    error: Error
-    attributes?: MessageAttributes
-    rawMessage?: TransportMessage<TTransportMessage>
-  }>()
-  readonly afterReceive = new TypedEmitter<
-    TransportMessage<TTransportMessage>
-  >()
-  readonly beforeDispatch = new TypedEmitter<{
-    message: Message
-    attributes: MessageAttributes
-    handlers: HandlerDefinition[]
-  }>()
-  readonly afterDispatch = new TypedEmitter<{
-    message: Message
-    attributes: MessageAttributes
-  }>()
+  readonly beforeSend = new TypedEmitter<BeforeSend>()
+  readonly beforePublish = new TypedEmitter<BeforePublish>()
+  readonly onError = new TypedEmitter<OnError<TTransportMessage>>()
+  readonly afterReceive = new TypedEmitter<AfterReceive<TTransportMessage>>()
+  readonly beforeDispatch = new TypedEmitter<BeforeDispatch>()
+  readonly afterDispatch = new TypedEmitter<AfterDispatch>()
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
@@ -287,7 +299,7 @@ export class BusInstance<TTransportMessage = {}> {
 
       if (message) {
         this.logger.debug('Message read from transport', { message })
-        this.afterReceive.emit(message)
+        this.afterReceive.emit({ message })
 
         try {
           messageHandlingContext.set(message)

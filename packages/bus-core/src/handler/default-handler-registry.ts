@@ -21,7 +21,7 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
   private unhandledMessages: MessageName[] = []
   private handlerResolvers: HandlerResolver[] = []
 
-  registerCustom<TMessage extends MessageBase>(
+  registerCustom<TMessage>(
     handler: HandlerDefinition<TMessage>,
     customResolver: CustomResolver<TMessage>
   ): void {

@@ -1,11 +1,16 @@
 import { Message } from '@node-ts/bus-messages'
-import { DefaultHandlerRegistry, Handler } from '../handler'
+import { ContainerAdapter } from '../container'
+import { ContainerNotRegistered } from '../error'
+import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
 import {
   HandlerDefinition,
   MessageBase,
   isClassHandler
 } from '../handler/handler'
+import { LoggerFactory, defaultLoggerFactory } from '../logger'
+import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, Serializer } from '../serialization'
+import { MessageSerializer } from '../serialization/message-serializer'
 import { MemoryQueue, Transport, TransportMessage } from '../transport'
 import {
   ClassConstructor,
@@ -13,16 +18,11 @@ import {
   Middleware,
   MiddlewareDispatcher
 } from '../util'
-import { BusInstance } from './bus-instance'
 import { Persistence, Workflow, WorkflowState } from '../workflow'
-import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
-import { BusAlreadyInitialized } from './error'
-import { ContainerAdapter } from '../container'
-import { defaultLoggerFactory, LoggerFactory } from '../logger'
-import { ContainerNotRegistered } from '../error'
-import { MessageSerializer } from '../serialization/message-serializer'
 import { InMemoryPersistence } from '../workflow/persistence'
-import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
+import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
+import { BusInstance } from './bus-instance'
+import { BusAlreadyInitialized } from './error'
 
 export interface BusInitializeOptions {
   /**
@@ -138,6 +138,7 @@ export class BusConfiguration {
           handlerToAdd.messageType,
           handlerToAdd.messageHandler
         )
+      } else if ('messageResolver' in handlerToAdd) {
       } else if (isClassHandler(handlerToAdd)) {
         const handlerInstance = new handlerToAdd()
         this.handlerRegistry.register(handlerInstance.messageType, handlerToAdd)
@@ -153,12 +154,9 @@ export class BusConfiguration {
    * @param messageHandler A handler that receives the custom message
    * @param customResolver A discriminator that determines if an incoming message should be mapped to this handler.
    */
-  withCustomHandler<MessageType extends Message | object>(
+  withCustomHandler<MessageType>(
     messageHandler: HandlerDefinition<MessageType>,
-    customResolver: {
-      resolveWith: (message: MessageType) => boolean
-      topicIdentifier?: string
-    }
+    customResolver: CustomResolver<MessageType>
   ): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
