@@ -8,7 +8,7 @@
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc --project tsconfig.json --declaration",
+    "build": "tsc",
     "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
   },
   "publishConfig": {

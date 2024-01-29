@@ -1,7 +1,6 @@
 {
   "extends": "@tsconfig/node18/tsconfig.json",
   "compilerOptions": {
-    "composite": true,
     "lib": ["ES2020"],
     "skipLibCheck": true,
     "declaration": true,
