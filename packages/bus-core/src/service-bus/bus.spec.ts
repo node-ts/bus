@@ -5,6 +5,7 @@ import { Transport } from '../transport'
 import { Persistence } from '../workflow'
 import { Bus } from './bus'
 import { BusAlreadyInitialized } from './error'
+import { BusState } from './bus-state'
 
 describe('Bus', () => {
   describe('when configuring Bus after initialization', () => {
@@ -53,6 +54,26 @@ describe('Bus', () => {
       await bus.initialize()
       await bus.start()
       process.emit('SIGINT')
+      expect(bus.state).toBe(BusState.Stopped)
+    })
+
+    it('should stop the bus on SIGTERM', async () => {
+      const bus = Bus.configure().build()
+      await bus.initialize()
+      await bus.start()
+      process.emit('SIGTERM')
+      expect(bus.state).toBe(BusState.Stopped)
+    })
+
+    it('should stop the bus on provided interrupts', async () => {
+      const additionalInterrupts: NodeJS.Signals[] = ['SIGUSR2']
+      const bus = Bus.configure()
+        .withAdditionalInterruptSignal(...additionalInterrupts)
+        .build()
+      await bus.initialize()
+      await bus.start()
+      process.emit('SIGUSR2')
+      expect(bus.state).toBe(BusState.Stopped)
     })
   })
 
