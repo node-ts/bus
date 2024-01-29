@@ -45,10 +45,11 @@ export class BusConfiguration {
   private serializer = new JsonSerializer()
   private persistence: Persistence = new InMemoryPersistence()
   private messageReadMiddlewares = new MiddlewareDispatcher<
-    TransportMessage<unknown>
+    TransportMessage<any>
   >()
   private retryStrategy: RetryStrategy = new DefaultRetryStrategy()
   private sendOnly = false
+  private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
 
   /**
    * Constructs an instance of a bus from the configuration
@@ -72,7 +73,8 @@ export class BusConfiguration {
         this.serializer,
         this.handlerRegistry
       ),
-      retryStrategy: this.retryStrategy
+      retryStrategy: this.retryStrategy,
+      interruptSignals: this.interruptSignals
     }
 
     if (!this.sendOnly) {
@@ -278,6 +280,17 @@ export class BusConfiguration {
    */
   withRetryStrategy(retryStrategy: RetryStrategy): this {
     this.retryStrategy = retryStrategy
+    return this
+  }
+
+  /**
+   * Register additional signals that will cause the bus to gracefully shutdown
+   * @default [SIGINT, SIGTERM]
+   */
+  withAdditionalInterruptSignal(...signals: NodeJS.Signals[]): this {
+    this.interruptSignals = Array.from(
+      new Set([...this.interruptSignals, ...signals])
+    )
     return this
   }
 }

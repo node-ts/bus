@@ -9,7 +9,7 @@ import { TransportMessage } from './transport-message'
 import { EventEmitter } from 'stream'
 import { CoreDependencies } from '../util'
 import { Logger } from '../logger'
-import { Milliseconds } from 'src/retry-strategy'
+import { Milliseconds } from '../retry-strategy'
 import { MemoryQueueConfiguration } from './memory-queue-configuration'
 import { DefaultMemoryQueueConfiguration } from './default-memory-queue-configuration'
 
@@ -41,9 +41,9 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   private queue: TransportMessage<InMemoryMessage>[] = []
   private queuePushed: EventEmitter = new EventEmitter()
   private _deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
-  private messagesWithHandlers: { [key: string]: {} }
-  private logger: Logger
-  private coreDependencies: CoreDependencies
+  private messagesWithHandlers!: { [key: string]: {} }
+  private logger!: Logger
+  private coreDependencies!: CoreDependencies
 
   constructor(
     private memoryQueueConfiguration: MemoryQueueConfiguration = new DefaultMemoryQueueConfiguration()

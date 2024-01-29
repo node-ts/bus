@@ -19,7 +19,7 @@
     "@aws-sdk/client-sqs": "3.428.0",
     "@aws-sdk/util-arn-parser": "^3.495.0",
     "@node-ts/bus-messages": "workspace:^",
-    "tslib": "^1.9.3",
+    "tslib": "^2.6.2",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
@@ -33,7 +33,7 @@
     "faker": "^4.1.0",
     "reflect-metadata": "^0.1.13",
     "typemoq": "^2.1.0",
-    "typescript": "^4.3.5"
+    "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "@node-ts/bus-core": "^1.0.15"

@@ -1,17 +1,17 @@
+import { Logger } from '../logger'
+import { Serializer } from '../serialization'
+import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { Transport } from '../transport'
+import { Persistence } from '../workflow'
 import { Bus } from './bus'
 import { BusAlreadyInitialized } from './error'
-import { TestEvent } from '../test'
-import { Persistence } from '../workflow'
-import { Serializer } from '../serialization'
-import { Logger } from '../logger'
-import { Transport } from '../transport'
 
 describe('Bus', () => {
   describe('when configuring Bus after initialization', () => {
     it('should reject', async () => {
       const config = Bus.configure()
-      const bus = await config.initialize()
-      expect(() => config.withHandler(TestEvent, () => undefined)).toThrowError(
+      const bus = config.build()
+      expect(() => config.withHandler(TestEventClassHandler)).toThrowError(
         BusAlreadyInitialized
       )
       expect(() => config.withLogger(() => ({} as Logger))).toThrowError(
@@ -47,10 +47,20 @@ describe('Bus', () => {
     })
   })
 
+  describe('when interrupt signals are sent', () => {
+    it('should stop the bus on SIGINT', async () => {
+      const bus = Bus.configure().build()
+      await bus.initialize()
+      await bus.start()
+      process.emit('SIGINT')
+    })
+  })
+
   describe('when disposing the bus', () => {
     describe('after its been initialized', () => {
       it('should dispose', async () => {
-        const bus = await Bus.configure().initialize()
+        const bus = Bus.configure().build()
+        await bus.initialize()
         await bus.dispose()
       })
     })

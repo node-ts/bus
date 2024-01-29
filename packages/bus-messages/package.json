@@ -8,18 +8,18 @@
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc --project tsconfig.json --declaration",
+    "build": "tsc",
     "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "tslib": "^1.13.0"
+    "tslib": "^2.6.2"
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "typescript": "^4.3.5"
+    "typescript": "^5.3.3"
   },
   "keywords": [
     "esb",

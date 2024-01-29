@@ -17,4 +17,5 @@ export interface CoreDependencies {
   loggerFactory: LoggerFactory
   container: ContainerAdapter | undefined
   retryStrategy: RetryStrategy
+  interruptSignals: NodeJS.Signals[]
 }

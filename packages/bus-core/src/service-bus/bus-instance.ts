@@ -33,7 +33,7 @@ import { v4 as generateUuid } from 'uuid'
 import { WorkflowRegistry } from '../workflow/registry'
 import { Logger } from '../logger'
 import { InvalidBusState, InvalidOperation } from './error'
-import { ContainerAdapter } from 'src/container'
+import { ContainerAdapter } from '../container'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -42,29 +42,29 @@ export interface BeforeSend {
   attributes: MessageAttributes
 }
 
-export class BeforePublish {
+export interface BeforePublish {
   event: Event
   attributes: MessageAttributes
 }
 
-export class OnError<TTransportMessage> {
+export interface OnError<TTransportMessage> {
   message: Message
   error: Error
   attributes?: MessageAttributes
   rawMessage?: TransportMessage<TTransportMessage>
 }
 
-export class AfterReceive<TTransportMessage> {
+export interface AfterReceive<TTransportMessage> {
   message: TransportMessage<TTransportMessage>
 }
 
-export class BeforeDispatch {
+export interface BeforeDispatch {
   message: Message
   attributes: MessageAttributes
   handlers: HandlerDefinition[]
 }
 
-export class AfterDispatch {
+export interface AfterDispatch {
   message: Message
   attributes: MessageAttributes
 }
@@ -88,7 +88,7 @@ export class BusInstance<TTransportMessage = {}> {
     private readonly workflowRegistry: WorkflowRegistry,
     private readonly coreDependencies: CoreDependencies,
     private readonly messageReadMiddleware: MiddlewareDispatcher<
-      TransportMessage<unknown>
+      TransportMessage<any>
     >,
     private readonly handlerRegistry: HandlerRegistry,
     private readonly container: ContainerAdapter | undefined,
@@ -131,6 +131,7 @@ export class BusInstance<TTransportMessage = {}> {
       })
     }
 
+    this.subscribeToInterruptSignals(this.coreDependencies.interruptSignals)
     this.isInitialized = true
     this.logger.debug('Bus initialized', {
       sendOnly: this.sendOnly,
@@ -156,7 +157,7 @@ export class BusInstance<TTransportMessage = {}> {
   /**
    * Sends a command to the transport
    * @param command A command to send
-   * @param messageAttributes A set of attributes to attach to the outgoing messsage when sent
+   * @param messageAttributes A set of attributes to attach to the outgoing message when sent
    */
   async send<TCommand extends Command>(
     command: TCommand,
@@ -317,7 +318,7 @@ export class BusInstance<TTransportMessage = {}> {
           )
           this.onError.emit({
             message: message.domainMessage,
-            error,
+            error: error as Error,
             attributes: message.attributes,
             rawMessage: message
           })
@@ -429,7 +430,7 @@ export class BusInstance<TTransportMessage = {}> {
           throw new Error('Container failed to resolve an instance.')
         }
       } catch (e) {
-        throw new ClassHandlerNotResolved(e.message)
+        throw new ClassHandlerNotResolved((e as Error).message)
       }
 
       return handlerInstance.handle(message, attributes)
@@ -456,5 +457,27 @@ export class BusInstance<TTransportMessage = {}> {
     )
     await this.transport.deleteMessage(message)
     return next()
+  }
+
+  /**
+   * Subscribes to the interrupt signals to gracefully stop the bus
+   */
+  private subscribeToInterruptSignals(signals: NodeJS.Signals[]): void {
+    if (this.sendOnly) {
+      // Only applies to message handling buses
+      return
+    }
+
+    const startedStates = [BusState.Started, BusState.Starting]
+    signals.forEach(signal => {
+      process.on(signal, async () => {
+        if (!startedStates.includes(this.state)) {
+          // No need to stop a non-started bus
+          return
+        }
+        this.logger.info(`Received ${signal} signal. Stopping bus...`)
+        await this.stop()
+      })
+    })
   }
 }

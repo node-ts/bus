@@ -83,7 +83,7 @@ export interface SqsTransportConfiguration
   /**
    * The wait time on sqs.receiveMessage, setting it to 0 will essentially turn it to short polling.
    *
-   * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptable action.
+   * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptible action.
    *
    * @default 10
    */
