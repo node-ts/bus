@@ -28,11 +28,13 @@ describe('BusInstance - Concurrency', () => {
     queue = new MemoryQueue()
     callback = Mock.ofType<Callback>()
 
-    bus = await Bus.configure()
+    bus = Bus.configure()
       .withTransport(queue)
       .withHandler(handler)
       .withConcurrency(CONCURRENCY)
-      .initialize()
+      .build()
+
+    await bus.initialize()
     await bus.start()
   })
 

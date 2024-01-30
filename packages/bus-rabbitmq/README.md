@@ -32,7 +32,8 @@ const rabbitMqTransport = new RabbitMqTransport(rabbitConfiguration)
 
 // Configure Bus to use RabbitMQ as a transport
 const run = async () => {
-  await Bus.configure().withTransport(rabbitMqTransport).initialize()
+  const bus = Bus.configure().withTransport(rabbitMqTransport).build()
+  await bus.initialize()
 }
 run.catch(console.error)
 ```

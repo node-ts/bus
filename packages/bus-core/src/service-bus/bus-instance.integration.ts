@@ -39,11 +39,12 @@ describe('BusInstance', () => {
       messageReadMiddleware =
         Mock.ofType<Middleware<TransportMessage<unknown>>>()
 
-      bus = await Bus.configure()
+      bus = Bus.configure()
         .withTransport(queue)
         .withHandler(handler)
         .withMessageReadMiddleware(messageReadMiddleware.object)
-        .initialize()
+        .build()
+      await bus.initialize()
     })
 
     describe('when starting the service bus', () => {
@@ -243,12 +244,12 @@ describe('BusInstance', () => {
 
   describe('when a class handler is used', () => {
     describe('without registering a container', () => {
-      it('should throw a ContainerNotRegistered error', async () => {
-        await expect(
+      it('should throw a ContainerNotRegistered error', () => {
+        expect(
           Bus.configure()
             .withConcurrency(1)
             .withHandler(TestEventClassHandler)
-            .initialize()
+            .build()
         ).rejects.toBeInstanceOf(ContainerNotRegistered)
       })
     })
@@ -258,7 +259,7 @@ describe('BusInstance', () => {
     describe('which results in another message being sent', () => {
       it('should attach sticky attributes', async () => {
         const events = new EventEmitter()
-        const bus = await Bus.configure()
+        const bus = Bus.configure()
           .withHandler(
             handlerFor(
               TestCommand,
@@ -276,8 +277,9 @@ describe('BusInstance', () => {
               }
             )
           )
-          .initialize()
+          .build()
 
+        await bus.initialize()
         await bus.start()
 
         const stickyAttributes = { test: 'attribute' }
@@ -297,9 +299,9 @@ describe('BusInstance', () => {
   describe('when handling messages originating from an external system', () => {
     it('should fail when a custom resolver is not provided', async () => {
       try {
-        await Bus.configure()
+        Bus.configure()
           .withHandler(handlerFor(TestSystemMessage, async () => undefined))
-          .initialize()
+          .build()
         fail('Registry should throw an SystemMessageMissingResolver error')
       } catch (error) {
         console.log(error)
@@ -310,7 +312,7 @@ describe('BusInstance', () => {
     it('should handle the external message', async () => {
       const events = new EventEmitter()
       const queue = new MemoryQueue()
-      const bus = await Bus.configure()
+      const bus = Bus.configure()
         .withTransport(queue)
         .withCustomHandler(
           async (message: TestSystemMessage) => {
@@ -320,8 +322,9 @@ describe('BusInstance', () => {
             resolveWith: m => m.name === TestSystemMessage.NAME
           }
         )
-        .initialize()
+        .build()
 
+      await bus.initialize()
       await bus.start()
 
       const systemMessageReceived = new Promise(resolve =>
@@ -347,10 +350,12 @@ describe('BusInstance', () => {
       const logger = Mock.ofType<Logger>()
       const queue = Mock.ofType<MemoryQueue>()
       const events = new EventEmitter()
-      const bus = await Bus.configure()
+      const bus = Bus.configure()
         .withTransport(queue.object)
         .withLogger(() => logger.object)
-        .initialize()
+        .build()
+
+      await bus.initialize()
       await bus.start()
 
       queue
@@ -380,10 +385,12 @@ describe('BusInstance', () => {
       const logger = Mock.ofType<Logger>()
       const queue = Mock.ofType<MemoryQueue>()
       const events = new EventEmitter()
-      const bus = await Bus.configure()
+      const bus = Bus.configure()
         .withTransport(queue.object)
         .withLogger(() => logger.object)
-        .initialize()
+        .build()
+
+      await bus.initialize()
       await bus.start()
 
       queue
@@ -412,15 +419,17 @@ describe('BusInstance', () => {
   describe('when failing a message', () => {
     describe('when there is no message handling context', () => {
       it('should throw a FailMessageOutsideHandlingContext error', async () => {
-        let bus: BusInstance
+        let bus: BusInstance | undefined
         try {
-          bus = await Bus.configure().initialize()
+          bus = Bus.configure().build()
           await bus.fail()
           fail('Expected FailMessageOutsideHandlingContext to have been thrown')
         } catch (error) {
           expect(error).toBeInstanceOf(FailMessageOutsideHandlingContext)
         } finally {
-          await bus.dispose()
+          if (bus) {
+            await bus.dispose()
+          }
         }
       })
     })
@@ -431,7 +440,7 @@ describe('BusInstance', () => {
 
         const queue = new MemoryQueue()
         const queueMock = jest.spyOn(queue, 'fail')
-        const bus = await Bus.configure()
+        const bus = Bus.configure()
           .withTransport(queue)
           .withHandler(
             handlerFor(TestCommand, async () => {
@@ -439,8 +448,9 @@ describe('BusInstance', () => {
               events.emit('event')
             })
           )
-          .initialize()
+          .build()
 
+        await bus.initialize()
         await bus.start()
         const messageFailed = new Promise<void>(resolve =>
           events.on('event', resolve)

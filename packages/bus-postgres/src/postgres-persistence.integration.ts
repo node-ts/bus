@@ -31,12 +31,13 @@ describe('PostgresPersistence', () => {
       'create schema if not exists ' + configuration.schemaName
     )
     sut = new PostgresPersistence(configuration, postgres)
-    bus = await Bus.configure()
+    bus = Bus.configure()
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
-      .initialize()
+      .build()
 
+    await bus.initialize()
     await bus.start()
   })
 

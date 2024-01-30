@@ -27,7 +27,7 @@ describe('Workflow', () => {
   const inMemoryPersistence = new InMemoryPersistence()
 
   beforeAll(async () => {
-    bus = await Bus.configure()
+    bus = Bus.configure()
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get<T>(workflowType: ClassConstructor<T>) {
@@ -37,8 +37,9 @@ describe('Workflow', () => {
       .withWorkflow(TestWorkflow)
       .withWorkflow(TestWorkflowStartedByCompletes)
       .withWorkflow(TestWorkflowStartedByDiscard)
-      .initialize()
+      .build()
 
+    await bus.initialize()
     await bus.start()
     await bus.send(command)
     await sleep(CONSUME_TIMEOUT)

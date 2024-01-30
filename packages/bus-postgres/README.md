@@ -30,10 +30,12 @@ const postgresPersistence = new PostgresPersistence(configuration)
 
 // Configure bus to use postgres as a persistence
 const run = async () => {
-  await Bus
+  const bus = Bus
     .configure()
     .withPersistence(postgresPersistence)
-    .initialize()
+    .build()
+  await bus.initialize()
+  await bus.start()
 }
 run.then(() => void)
 ```

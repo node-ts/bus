@@ -54,18 +54,18 @@ describe('RabbitMqTransport', () => {
     const rabbitMessage = await new Promise<ConsumeMessage>(async resolve => {
       const consumerTag = uuid.v4()
       channel.consume(
-        configuration.deadLetterQueueName,
+        configuration.deadLetterQueueName!,
         message => {
-          channel.ack(message)
+          channel.ack(message!)
           channel.cancel(consumerTag)
-          resolve(message)
+          resolve(message!)
         },
         {
           consumerTag
         }
       )
     })
-    await channel.purgeQueue(configuration.deadLetterQueueName)
+    await channel.purgeQueue(configuration.deadLetterQueueName!)
 
     const payload = rabbitMessage.content.toString('utf8')
     const message = messageSerializer.deserialize(payload) as Message
@@ -97,7 +97,7 @@ describe('RabbitMqTransport', () => {
     // Ignore failures due to queues that don't yet exist
     await Promise.allSettled([
       channel.purgeQueue(configuration.queueName),
-      channel.purgeQueue(configuration.deadLetterQueueName)
+      channel.purgeQueue(configuration.deadLetterQueueName!)
     ])
   })
 

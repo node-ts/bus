@@ -30,11 +30,11 @@ import { Bus } from '@node-ts/bus-core'
 import { handleSendWelcomeEmail } from './handle-send-welcome-email'
 
 const run = async () => {
-  await Bus.configure()
+  const bus = Bus.configure()
     .withHandler(SendWelcomeEmail, handleSendWelcomeEmail)
-    .initialize()
-
-  await Bus.start()
+    .build()
+  await bus.initialize()
+  await bus.start()
 }
 
 run.then(() => undefined)

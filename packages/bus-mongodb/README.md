@@ -28,10 +28,12 @@ const mongodbPersistence = new MongodbPersistence(configuration)
 
 // Configure bus to use mongodb as a persistence
 const run = async () => {
-  await Bus
+  const bus = Bus
     .configure()
     .withPersistence(mongodbPersistence)
-    .initialize()
+    .build()
+  await bus.initialize()
+  await bus.start()
 }
 run.then(() => void)
 ```

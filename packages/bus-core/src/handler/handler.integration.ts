@@ -53,7 +53,7 @@ describe('Handler', () => {
       )
 
     beforeAll(async () => {
-      bus = await Bus.configure()
+      bus = Bus.configure()
         .withConcurrency(2)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
@@ -64,8 +64,9 @@ describe('Handler', () => {
         .withHandler(TestEventClassHandler)
         .withHandler(command2Handler)
         .withHandler(command3Handler(messageLogger.object))
-        .initialize()
+        .build()
 
+      await bus.initialize()
       await bus.start()
       await bus.publish(event)
       await bus.publish(event, attributes)
@@ -123,12 +124,12 @@ describe('Handler', () => {
         await messagesHandled
 
         messageLogger.verify(
-          logger => logger.log(attributes1.stickyAttributes.value),
+          logger => logger.log(attributes1.stickyAttributes!.value),
           Times.once()
         )
 
         messageLogger.verify(
-          logger => logger.log(attributes2.stickyAttributes.value),
+          logger => logger.log(attributes2.stickyAttributes!.value),
           Times.once()
         )
       })

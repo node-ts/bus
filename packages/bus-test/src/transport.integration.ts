@@ -43,7 +43,7 @@ export const transportTests = (
 
   return describe('when the transport has been initialized', () => {
     beforeAll(async () => {
-      bus = await Bus.configure()
+      bus = Bus.configure()
         .withTransport(transport)
         .withHandler(
           handlerFor(TestCommand, (message, attributes) => {
@@ -84,8 +84,9 @@ export const transportTests = (
             return RETRY_DELAY
           }
         })
-        .initialize()
+        .build()
 
+      await bus.initialize()
       await bus.start()
     })
 
