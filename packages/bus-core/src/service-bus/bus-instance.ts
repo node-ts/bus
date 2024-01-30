@@ -124,13 +124,14 @@ export class BusInstance<TTransportMessage = {}> {
         concurrency: this.concurrency
       })
     }
-    if (!this.sendOnly && this.transport.initialize) {
+    if (this.transport.initialize) {
       await this.transport.initialize({
         handlerRegistry: this.handlerRegistry,
         sendOnly: this.sendOnly
       })
     }
 
+    messageHandlingContext.enable()
     this.subscribeToInterruptSignals(this.coreDependencies.interruptSignals)
     this.isInitialized = true
     this.logger.debug('Bus initialized', {
@@ -209,7 +210,6 @@ export class BusInstance<TTransportMessage = {}> {
     }
     this.internalState = BusState.Starting
     this.logger.info('Bus starting...')
-    messageHandlingContext.enable()
 
     if (this.transport.start) {
       await this.transport.start()

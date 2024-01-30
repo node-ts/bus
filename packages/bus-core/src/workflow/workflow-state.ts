@@ -23,7 +23,7 @@ export abstract class WorkflowState {
   /**
    * Unique identifier of the workflow state
    */
-  abstract $workflowId: string
+  $workflowId: string
 
   /**
    * Used to manage concurrency when storing the workflow state. This value is incremented
@@ -34,7 +34,7 @@ export abstract class WorkflowState {
   /**
    * Marks if the workflow is currently running or has ended
    */
-  abstract $status: WorkflowStatus
+  $status: WorkflowStatus
 
   /**
    * A unique name for the workflow state. This should be formatted in a namespace style,

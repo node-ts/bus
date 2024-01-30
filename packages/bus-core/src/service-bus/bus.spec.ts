@@ -65,7 +65,7 @@ describe('Bus', () => {
       expect(bus.state).toBe(BusState.Stopped)
     })
 
-    it('should stop the bus on provided interrupts', async () => {
+    it('should stop the bus on user provided interrupts', async () => {
       const additionalInterrupts: NodeJS.Signals[] = ['SIGUSR2']
       const bus = Bus.configure()
         .withAdditionalInterruptSignal(...additionalInterrupts)

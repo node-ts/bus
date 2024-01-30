@@ -247,16 +247,12 @@ export class SqsTransport implements Transport<SQSMessage> {
           this.sqsConfiguration.awsRegion &&
           this.sqsConfiguration.queueName
         )
-      )
+      ) {
         throw new AssertionError({
           message:
             'SqsTransportConfiguration requires one of: awsAccountId and awsRegion and queueName, or queueArn'
         })
-
-      this.resolveTopicName =
-        this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
-      this.resolveTopicArn =
-        this.sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
+      }
 
       if (this.sqsConfiguration.queueArn) {
         const { accountId, region, resource } = parse(
@@ -302,6 +298,19 @@ export class SqsTransport implements Transport<SQSMessage> {
 
       await this.assertServiceQueue()
     }
+
+    if (
+      !(this.sqsConfiguration.awsAccountId && this.sqsConfiguration.awsRegion)
+    ) {
+      throw new Error(
+        `SqsTransportConfiguration must provide awsAccountId and awsRegion`
+      )
+    }
+
+    this.resolveTopicName =
+      this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
+    this.resolveTopicArn =
+      this.sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
   }
 
   private async assertServiceQueue(): Promise<void> {
@@ -348,7 +357,7 @@ export class SqsTransport implements Transport<SQSMessage> {
       const snsTopicArn = this.resolveTopicArn(
         this.sqsConfiguration.awsAccountId!,
         this.sqsConfiguration.awsRegion!,
-        messageName
+        snsTopicName
       )
       await this.createSnsTopic(snsTopicName)
       this.registeredMessages[messageName] = snsTopicArn
