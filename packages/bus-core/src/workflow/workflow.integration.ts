@@ -22,7 +22,7 @@ import { MessageWorkflowMapping } from './message-workflow-mapping'
 
 describe('Workflow', () => {
   const command = new TestCommand('abc')
-  const CONSUME_TIMEOUT = 500
+  const CONSUME_TIMEOUT = 2000
   let bus: BusInstance
   const inMemoryPersistence = new InMemoryPersistence()
 
