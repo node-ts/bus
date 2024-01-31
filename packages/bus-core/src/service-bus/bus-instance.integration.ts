@@ -1,23 +1,23 @@
-import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
-import { Bus } from './bus'
-import { BusState } from './bus-state'
-import { TestEvent } from '../test/test-event'
-import { Middleware, sleep } from '../util'
-import { Mock, IMock, Times, It } from 'typemoq'
-import { handlerFor, SystemMessageMissingResolver } from '../handler'
-import { TestCommand } from '../test/test-command'
-import { TestEvent2 } from '../test/test-event-2'
+import { Command, MessageAttributes } from '@node-ts/bus-messages'
+import { EventEmitter } from 'stream'
+import { IMock, It, Mock, Times } from 'typemoq'
 import {
   ContainerNotRegistered,
   FailMessageOutsideHandlingContext
 } from '../error'
-import { TestEventClassHandler } from '../test/test-event-class-handler'
-import { EventEmitter } from 'stream'
-import { TestSystemMessage } from '../test/test-system-message'
-import { Command, MessageAttributes } from '@node-ts/bus-messages'
-import { toTransportMessage } from '../transport/memory-queue'
+import { SystemMessageMissingResolver, handlerFor } from '../handler'
 import { Logger } from '../logger'
+import { TestCommand } from '../test/test-command'
+import { TestEvent } from '../test/test-event'
+import { TestEvent2 } from '../test/test-event-2'
+import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { TestSystemMessage } from '../test/test-system-message'
+import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
+import { toTransportMessage } from '../transport/memory-queue'
+import { Middleware, sleep } from '../util'
+import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
+import { BusState } from './bus-state'
 import { InvalidBusState } from './error'
 
 const event = new TestEvent()
@@ -245,12 +245,12 @@ describe('BusInstance', () => {
   describe('when a class handler is used', () => {
     describe('without registering a container', () => {
       it('should throw a ContainerNotRegistered error', () => {
-        expect(
+        expect(() =>
           Bus.configure()
             .withConcurrency(1)
             .withHandler(TestEventClassHandler)
             .build()
-        ).rejects.toBeInstanceOf(ContainerNotRegistered)
+        ).toThrow(ContainerNotRegistered)
       })
     })
   })
@@ -259,7 +259,7 @@ describe('BusInstance', () => {
     describe('which results in another message being sent', () => {
       it('should attach sticky attributes', async () => {
         const events = new EventEmitter()
-        const bus = Bus.configure()
+        const bus: BusInstance = Bus.configure()
           .withHandler(
             handlerFor(
               TestCommand,

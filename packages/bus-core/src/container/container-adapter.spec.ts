@@ -1,8 +1,8 @@
-import { Bus, BusInstance } from '../service-bus'
+import { Bus, BusInstance, OnError } from '../service-bus'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { Mock, Times } from 'typemoq'
 import { MessageLogger } from '../test/test-event-handler'
-import { ClassConstructor, sleep } from '../util'
+import { ClassConstructor, Listener, sleep } from '../util'
 import { TestEvent, TestEvent2 } from '../test'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
 import { Handler, HandlerDispatchRejected } from '../handler'
@@ -18,7 +18,7 @@ class UnregisteredClassHandler implements Handler<TestEvent2> {
 
 const waitForError = (bus: BusInstance, onError: (error: Error) => void) =>
   new Promise<void>((resolve, reject) => {
-    const callback = ({ error }) => {
+    const callback: Listener<OnError<unknown>> = ({ error }) => {
       try {
         onError(error)
         resolve()

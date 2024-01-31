@@ -6,7 +6,7 @@ describe('DebugLogger', () => {
   it.each(['debug', 'trace', 'info', 'warn', 'error', 'fatal'])(
     `should log at error level %s`,
     errorLevel => {
-      sut[errorLevel]('hello world', { meta: 'example' })
+      sut[errorLevel as keyof DebugLogger]('hello world', { meta: 'example' })
     }
   )
 })

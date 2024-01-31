@@ -15,7 +15,11 @@ import {
   DebugLogger
 } from '@node-ts/bus-core'
 import { Mock, It, Times } from 'typemoq'
-import { ChangeMessageVisibilityCommand, SQSClient } from '@aws-sdk/client-sqs'
+import {
+  ChangeMessageVisibilityCommand,
+  Message,
+  SQSClient
+} from '@aws-sdk/client-sqs'
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
@@ -139,7 +143,7 @@ describe('sqs-transport', () => {
         .returns(() => ({ promise: async () => undefined } as any))
         .verifiable(Times.once())
 
-      await sut.returnMessage({ raw: {} } as TransportMessage<SQS.Message>)
+      await sut.returnMessage({ raw: {} } as TransportMessage<Message>)
       sqs.verifyAll()
     })
   })

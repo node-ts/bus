@@ -147,7 +147,7 @@ describe('MongodbPersistence', () => {
           try {
             await sut.saveWorkflowState(updates)
           } catch (err) {
-            error = err
+            error = err as Error
           }
         })
 
