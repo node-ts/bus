@@ -147,6 +147,12 @@ export class WorkflowRegistry {
   }
 
   async dispose(): Promise<void> {
+    const isPrepared = this.persistence !== undefined
+    if (!isPrepared) {
+      // If the registry has not been prepared, then there is no logger or persistence available
+      return
+    }
+
     this.logger.debug('Disposing workflow registry')
     try {
       if (this.persistence.dispose) {
