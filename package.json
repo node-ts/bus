@@ -40,7 +40,6 @@
     "@types/jest": "^29.5.11",
     "dotenv-cli": "^4.0.0",
     "esbuild": "^0.20.0",
-    "esbuild-jest": "^0.5.0",
     "husky": "^8.0.3",
     "jest": "^29.7.0",
     "lint-staged": "^13.2.2",
@@ -48,6 +47,7 @@
     "prettier-plugin-organize-imports": "^3.2.2",
     "reflect-metadata": "^0.1.13",
     "supports-color": "^9.0.1",
+    "ts-jest": "^29.1.2",
     "ts-node": "^10.9.2",
     "tslib": "^2.6.2",
     "typescript": "^5.3.3"

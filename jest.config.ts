@@ -1,6 +1,7 @@
 import type { Config } from 'jest'
 
 const config: Config = {
+  preset: 'ts-jest',
   testTimeout: 5000,
   setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
   collectCoverageFrom: [
@@ -12,20 +13,16 @@ const config: Config = {
     '!**/error/*'
   ],
   testRegex: '(src\\/.+\\.|/)(integration|spec)\\.ts$',
+  testEnvironment: 'node',
+  testPathIgnorePatterns: ['node_modules/', 'dist/', 'bus-test/'],
   transform: {
     '^.+\\.tsx?$': [
-      'esbuild-jest',
+      'ts-jest',
       {
-        sourcemap: true,
-        loaders: {
-          '.spec.ts': 'tsx',
-          '.integration.ts': 'tsx'
-        }
+        tsconfig: 'tsconfig.test.json'
       }
     ]
-  },
-  testEnvironment: 'node',
-  testPathIgnorePatterns: ['node_modules/', 'dist/', 'bus-test/']
+  }
 }
 
 export default config
