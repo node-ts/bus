@@ -19,7 +19,8 @@ import {
   FunctionHandler,
   HandlerDefinition,
   isClassHandler,
-  HandlerDispatchRejected
+  HandlerDispatchRejected,
+  HandlerRegistry
 } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus-state'
@@ -31,53 +32,112 @@ import {
 import { v4 as generateUuid } from 'uuid'
 import { WorkflowRegistry } from '../workflow/registry'
 import { Logger } from '../logger'
-import { InvalidBusState } from './error'
+import { InvalidBusState, InvalidOperation } from './error'
+import { ContainerAdapter } from '../container'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
-export class BusInstance {
-  readonly beforeSend = new TypedEmitter<{
-    command: Command
-    attributes: MessageAttributes
-  }>()
-  readonly beforePublish = new TypedEmitter<{
-    event: Event
-    attributes: MessageAttributes
-  }>()
-  readonly onError = new TypedEmitter<{
-    message: Message
-    error: Error
-    attributes?: MessageAttributes
-    rawMessage?: TransportMessage<unknown>
-  }>()
-  readonly afterReceive = new TypedEmitter<TransportMessage<unknown>>()
-  readonly beforeDispatch = new TypedEmitter<{
-    message: Message
-    attributes: MessageAttributes
-    handlers: HandlerDefinition[]
-  }>()
-  readonly afterDispatch = new TypedEmitter<{
-    message: Message
-    attributes: MessageAttributes
-  }>()
+export interface BeforeSend {
+  command: Command
+  attributes: MessageAttributes
+}
+
+export interface BeforePublish {
+  event: Event
+  attributes: MessageAttributes
+}
+
+export interface OnError<TTransportMessage> {
+  message: Message
+  error: Error
+  attributes?: MessageAttributes
+  rawMessage?: TransportMessage<TTransportMessage>
+}
+
+export interface AfterReceive<TTransportMessage> {
+  message: TransportMessage<TTransportMessage>
+}
+
+export interface BeforeDispatch {
+  message: Message
+  attributes: MessageAttributes
+  handlers: HandlerDefinition[]
+}
+
+export interface AfterDispatch {
+  message: Message
+  attributes: MessageAttributes
+}
+
+export class BusInstance<TTransportMessage = {}> {
+  readonly beforeSend = new TypedEmitter<BeforeSend>()
+  readonly beforePublish = new TypedEmitter<BeforePublish>()
+  readonly onError = new TypedEmitter<OnError<TTransportMessage>>()
+  readonly afterReceive = new TypedEmitter<AfterReceive<TTransportMessage>>()
+  readonly beforeDispatch = new TypedEmitter<BeforeDispatch>()
+  readonly afterDispatch = new TypedEmitter<AfterDispatch>()
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
   private logger: Logger
+  private isInitialized = false
 
   constructor(
-    private readonly transport: Transport<{}>,
+    private readonly transport: Transport<TTransportMessage>,
     private readonly concurrency: number,
     private readonly workflowRegistry: WorkflowRegistry,
     private readonly coreDependencies: CoreDependencies,
     private readonly messageReadMiddleware: MiddlewareDispatcher<
-      TransportMessage<unknown>
-    >
+      TransportMessage<any>
+    >,
+    private readonly handlerRegistry: HandlerRegistry,
+    private readonly container: ContainerAdapter | undefined,
+    private readonly sendOnly: boolean
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
     )
     this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
+  }
+
+  /**
+   * Initializes the bus with the provided configuration. This must be called before `.start()`
+   *
+   * @throws InvalidOperation if the bus has already been initialized
+   */
+  async initialize(): Promise<void> {
+    this.logger.debug('Initializing bus')
+
+    if (this.isInitialized) {
+      throw new InvalidOperation('Bus has already been initialized')
+    }
+
+    if (!this.sendOnly) {
+      await this.workflowRegistry.initialize(
+        this.handlerRegistry,
+        this.container
+      )
+    }
+
+    if (this.transport.connect) {
+      await this.transport.connect({
+        concurrency: this.concurrency
+      })
+    }
+    if (this.transport.initialize) {
+      await this.transport.initialize({
+        handlerRegistry: this.handlerRegistry,
+        sendOnly: this.sendOnly
+      })
+    }
+
+    messageHandlingContext.enable()
+    this.subscribeToInterruptSignals(this.coreDependencies.interruptSignals)
+    this.isInitialized = true
+    this.logger.debug('Bus initialized', {
+      sendOnly: this.sendOnly,
+      registeredMessages: this.handlerRegistry.getMessageNames()
+    })
   }
 
   /**
@@ -98,7 +158,7 @@ export class BusInstance {
   /**
    * Sends a command to the transport
    * @param command A command to send
-   * @param messageAttributes A set of attributes to attach to the outgoing messsage when sent
+   * @param messageAttributes A set of attributes to attach to the outgoing message when sent
    */
   async send<TCommand extends Command>(
     command: TCommand,
@@ -129,9 +189,17 @@ export class BusInstance {
    * Instructs the bus to start reading messages from the underlying service queue
    * and dispatching to message handlers.
    *
+   * @throws InvalidOperation if the bus is configured to be send-only
+   * @throws InvalidOperation if the bus has not been initialized
    * @throws InvalidBusState if the bus is already started or in a starting state
    */
   async start(): Promise<void> {
+    if (this.sendOnly) {
+      throw new InvalidOperation('Cannot start a send-only bus')
+    }
+    if (!this.isInitialized) {
+      throw new InvalidOperation('Bus must be initialized before starting')
+    }
     const startedStates = [BusState.Started, BusState.Starting]
     if (startedStates.includes(this.state)) {
       throw new InvalidBusState(
@@ -142,7 +210,6 @@ export class BusInstance {
     }
     this.internalState = BusState.Starting
     this.logger.info('Bus starting...')
-    messageHandlingContext.enable()
 
     if (this.transport.start) {
       await this.transport.start()
@@ -204,7 +271,7 @@ export class BusInstance {
     }
     await this.workflowRegistry.dispose()
     this.coreDependencies.handlerRegistry.reset()
-    this.logger.info('Bus disposed')
+    this.logger.info('Bus instance disposed')
   }
 
   /**
@@ -233,7 +300,7 @@ export class BusInstance {
 
       if (message) {
         this.logger.debug('Message read from transport', { message })
-        this.afterReceive.emit(message)
+        this.afterReceive.emit({ message })
 
         try {
           messageHandlingContext.set(message)
@@ -247,11 +314,11 @@ export class BusInstance {
         } catch (error) {
           this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
-            { message, error: serializeError(error) }
+            { busMessage: message, error: serializeError(error) }
           )
           this.onError.emit({
             message: message.domainMessage,
-            error,
+            error: error as Error,
             attributes: message.attributes,
             rawMessage: message
           })
@@ -363,7 +430,7 @@ export class BusInstance {
           throw new Error('Container failed to resolve an instance.')
         }
       } catch (e) {
-        throw new ClassHandlerNotResolved(e.message)
+        throw new ClassHandlerNotResolved((e as Error).message)
       }
 
       return handlerInstance.handle(message, attributes)
@@ -378,8 +445,10 @@ export class BusInstance {
    * It dispatches a message that has been polled from the queue
    * and deletes the message from the transport
    */
-  private handleNextMessagePolled: Middleware<TransportMessage<{}>> = async (
-    message: TransportMessage<{}>,
+  private handleNextMessagePolled: Middleware<
+    TransportMessage<TTransportMessage>
+  > = async (
+    message: TransportMessage<TTransportMessage>,
     next: Next
   ): Promise<void> => {
     await this.dispatchMessageToHandlers(
@@ -388,5 +457,27 @@ export class BusInstance {
     )
     await this.transport.deleteMessage(message)
     return next()
+  }
+
+  /**
+   * Subscribes to the interrupt signals to gracefully stop the bus
+   */
+  private subscribeToInterruptSignals(signals: NodeJS.Signals[]): void {
+    if (this.sendOnly) {
+      // Only applies to message handling buses
+      return
+    }
+
+    const startedStates = [BusState.Started, BusState.Starting]
+    signals.forEach(signal => {
+      process.on(signal, async () => {
+        if (!startedStates.includes(this.state)) {
+          // No need to stop a non-started bus
+          return
+        }
+        this.logger.info(`Received ${signal} signal. Stopping bus...`)
+        await this.stop()
+      })
+    })
   }
 }

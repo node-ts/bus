@@ -16,7 +16,7 @@ export interface HandlerRegistrations {
  * Provide a way for externally managed messages to be handled
  * by the Bus
  */
-export interface CustomResolver<MessageType> {
+export interface CustomResolver<MessageType = any> {
   /**
    * A resolver function that will be executed for each read message
    * to determine if it's to be handled by the handler declaring this resolver

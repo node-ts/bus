@@ -47,7 +47,8 @@ describe('MemoryQueue', () => {
       loggerFactory,
       messageSerializer,
       serializer,
-      retryStrategy: retryStrategy.object
+      retryStrategy: retryStrategy.object,
+      interruptSignals: []
     })
 
     handlerRegistry.register(TestEvent, () => undefined)
@@ -196,7 +197,7 @@ describe('MemoryQueue', () => {
 
     it('should only fail the handled message', async () => {
       const emitter = new EventEmitter()
-      const bus = await Bus.configure()
+      const bus = Bus.configure()
         .withConcurrency(1)
         .withHandler(
           handlerFor(TestEvent, async () => {
@@ -209,8 +210,9 @@ describe('MemoryQueue', () => {
             emitter.emit('done')
           })
         )
-        .initialize()
+        .build()
 
+      await bus.initialize()
       await bus.start()
 
       const completion = new Promise<void>(resolve =>

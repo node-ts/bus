@@ -1,10 +1,5 @@
-import { Serializer, ClassConstructor } from '@node-ts/bus-core'
-import {
-  instanceToPlain,
-  plainToInstance,
-  serialize,
-  deserialize
-} from 'class-transformer'
+import { ClassConstructor, Serializer } from '@node-ts/bus-core'
+import { instanceToPlain, plainToInstance } from 'class-transformer'
 
 /**
  * A JSON-based serializer that uses `class-transformer` to transform to and from
@@ -14,14 +9,14 @@ import {
  */
 export class ClassSerializer implements Serializer {
   serialize<ObjectType extends object>(obj: ObjectType): string {
-    return serialize(obj)
+    return JSON.stringify(instanceToPlain(obj))
   }
 
   deserialize<ObjectType extends object>(
     serialized: string,
     classConstructor: ClassConstructor<ObjectType>
   ): ObjectType {
-    return deserialize<ObjectType>(classConstructor, serialized)
+    return plainToInstance(classConstructor, JSON.parse(serialized) as object)
   }
 
   toPlain<T extends object>(obj: T): object {

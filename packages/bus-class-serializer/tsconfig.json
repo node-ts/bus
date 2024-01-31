@@ -5,7 +5,10 @@
   "compilerOptions": {
     "outDir": "./dist",
     "baseUrl": "./",
-    // bullmq types are busted
-    "skipLibCheck": true
+
+    "target": "ES6",
+
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   }
 }

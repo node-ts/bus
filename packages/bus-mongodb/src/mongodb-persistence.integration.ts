@@ -32,12 +32,13 @@ describe('MongodbPersistence', () => {
     database = client.db(configuration.databaseName) as Db
     collection = database.collection('testworkflowstate') as Collection
     sut = new MongodbPersistence(configuration)
-    bus = await Bus.configure()
+    bus = Bus.configure()
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
-      .initialize()
+      .build()
 
+    await bus.initialize()
     await bus.start()
   })
 
@@ -146,7 +147,7 @@ describe('MongodbPersistence', () => {
           try {
             await sut.saveWorkflowState(updates)
           } catch (err) {
-            error = err
+            error = err as Error
           }
         })
 

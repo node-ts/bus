@@ -205,7 +205,9 @@ import { Bus } from '@node-ts/bus-core'
 import { userSignupWorkflow } from './user-signup-workflow'
 
 const run = async () => {
-  await Bus.configure().withWorkflow(userSignupWorkflow).initialize()
+  const bus = Bus.configure().withWorkflow(userSignupWorkflow).build()
+  await bus.initialize()
+  await bus.start()
 }
 
 run.catch(console.error)

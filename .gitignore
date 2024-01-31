@@ -345,3 +345,4 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+tsconfig.tsbuildinfo

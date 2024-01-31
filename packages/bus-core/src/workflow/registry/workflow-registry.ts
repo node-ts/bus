@@ -17,8 +17,10 @@ import { Persistence } from '../persistence'
  * stored in the sticky attributes
  */
 const workflowLookup: MessageWorkflowMapping = {
-  lookup: (_, attributes) =>
-    attributes.stickyAttributes.workflowId as string | undefined,
+  lookup: (
+    _: Message,
+    attributes: MessageAttributes<{}, { workflowId: string }>
+  ) => attributes.stickyAttributes.workflowId as string | undefined,
   mapsTo: '$workflowId'
 }
 
@@ -90,6 +92,11 @@ export class WorkflowRegistry {
     })
     this.isInitializing = true
 
+    if (this.persistence.initialize) {
+      this.logger.info('Initializing persistence...')
+      await this.persistence.initialize!()
+    }
+
     for (const WorkflowCtor of this.workflowRegistry) {
       this.logger.debug('Initializing workflow', {
         workflow: WorkflowCtor.prototype.constructor.name
@@ -133,11 +140,6 @@ export class WorkflowRegistry {
     }
 
     this.workflowRegistry = []
-
-    if (this.persistence.initialize) {
-      this.logger.info('Initializing persistence...')
-      await this.persistence.initialize!()
-    }
 
     this.isInitialized = true
     this.isInitializing = false

@@ -3,6 +3,19 @@ import { CoreDependencies } from '../util'
 import { HandlerRegistry } from '../handler'
 import { TransportMessage } from './transport-message'
 
+export interface TransportInitializationOptions {
+  /**
+   * The handler registry that contains all of the message handlers that the transport needs to
+   * subscribe to.
+   */
+  handlerRegistry: HandlerRegistry
+
+  /**
+   * If the transport is being initialized in send-only mode
+   */
+  sendOnly: boolean
+}
+
 export interface TransportConnectionOptions {
   concurrency: number
 }
@@ -106,7 +119,7 @@ export interface Transport<TransportMessageType = {}> {
    * to the topics can be created.
    * @param handlerRegistry The list of messages being handled by the bus that the transport needs to subscribe to.
    */
-  initialize?(handlerRegistry: HandlerRegistry): Promise<void>
+  initialize?(options: TransportInitializationOptions): Promise<void>
 
   /**
    * An optional function that will be called when the service bus is shutting down. This is an

@@ -1,16 +1,15 @@
-import { Mock, IMock, It, Times } from 'typemoq'
+import { IMock, It, Mock, Times } from 'typemoq'
+import { Logger, LoggerFactory } from '../logger'
 import {
-  TestEvent,
-  testEventHandler,
   MessageLogger,
   TestCommand,
-  TestCommand2
+  TestCommand2,
+  TestEvent,
+  testEventHandler
 } from '../test'
-import { HandlerAlreadyRegistered } from './error'
-import { Logger, LoggerFactory } from '../logger'
-import { Handler } from './handler'
-import { Message } from '@node-ts/bus-messages'
 import { DefaultHandlerRegistry } from './default-handler-registry'
+import { HandlerAlreadyRegistered } from './error'
+import { HandlerDefinition, MessageBase } from './handler'
 
 describe('HandlerRegistry', () => {
   let logger: IMock<Logger>
@@ -30,7 +29,9 @@ describe('HandlerRegistry', () => {
   afterEach(() => handlerRegistry.reset())
 
   describe('when registering a handler', () => {
-    beforeEach(() => handlerRegistry.register(messageType, handler))
+    beforeEach(() =>
+      handlerRegistry.register(handler.messageType, handler.messageHandler)
+    )
 
     it('should register the handler', () => {
       const handlers = handlerRegistry.get(loggerFactory, new messageType())
@@ -40,10 +41,10 @@ describe('HandlerRegistry', () => {
 
   describe('when registering a handler twice', () => {
     it('should throw a HandlerAlreadyRegistered error', () => {
-      handlerRegistry.register(messageType, handler)
-      expect(() => handlerRegistry.register(messageType, handler)).toThrowError(
-        HandlerAlreadyRegistered
-      )
+      handlerRegistry.register(handler.messageType, handler.messageHandler)
+      expect(() =>
+        handlerRegistry.register(handler.messageType, handler.messageHandler)
+      ).toThrow(HandlerAlreadyRegistered)
     })
   })
 
@@ -53,14 +54,14 @@ describe('HandlerRegistry', () => {
     })
 
     it('should return a single handler for a single registration', () => {
-      handlerRegistry.register(messageType, handler)
+      handlerRegistry.register(handler.messageType, handler.messageHandler)
       expect(
         handlerRegistry.get(loggerFactory, new messageType())
       ).toHaveLength(1)
     })
 
     it('should return a multiple handlers for multiple registrations', () => {
-      handlerRegistry.register(messageType, handler)
+      handlerRegistry.register(handler.messageType, handler.messageHandler)
       handlerRegistry.register(messageType, () => undefined)
       expect(
         handlerRegistry.get(loggerFactory, new messageType())
@@ -69,7 +70,7 @@ describe('HandlerRegistry', () => {
   })
 
   describe('when getting a handler for a message with no registered handlers', () => {
-    let handlers: Handler<Message>[]
+    let handlers: HandlerDefinition<MessageBase>[]
     const unregisteredMessage = { $name: 'unregistered-message' }
     beforeEach(() => {
       handlers = handlerRegistry.get(loggerFactory, unregisteredMessage)

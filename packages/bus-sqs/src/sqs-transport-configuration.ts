@@ -4,22 +4,40 @@ import {
   resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 
-export interface SqsTransportConfiguration extends TransportConfiguration {
+export interface SqsTransportConfiguration
+  extends Omit<TransportConfiguration, 'queueName'> {
   /**
    * The AWS Account Id of the account where queues and topics will be created
    */
-  awsAccountId: string
+  awsAccountId?: string
 
   /**
    * The AWS region to create queues and topics in
    */
-  awsRegion: string
+  awsRegion?: string
+
+  /**
+   * An optional AWS ARN of the dead letter queue to fail messages to
+   * @default undefined
+   */
+  deadLetterQueueArn?: string
 
   /**
    * The number of seconds to retain messages in the service and dead letter queues
    * @default 1209600 (14 days)
    */
   messageRetentionPeriod?: number
+
+  /**
+   * The AWS ARN for the target SQS Queue
+   */
+  queueArn?: string
+
+  /**
+   * The name of the queue that receives incoming messages
+   * @example order-booking-service
+   */
+  queueName?: string
 
   /**
    * An optional custom queue policy to apply to any created SQS queues.
@@ -65,7 +83,7 @@ export interface SqsTransportConfiguration extends TransportConfiguration {
   /**
    * The wait time on sqs.receiveMessage, setting it to 0 will essentially turn it to short polling.
    *
-   * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptable action.
+   * It also has a impact on shutdown duration because sqs,receiveMessage is a non interruptible action.
    *
    * @default 10
    */

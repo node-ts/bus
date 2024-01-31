@@ -3,7 +3,7 @@ import { MemoryQueueConfiguration } from './memory-queue-configuration'
 export class DefaultMemoryQueueConfiguration
   implements MemoryQueueConfiguration
 {
-  maxRetries: 10
+  maxRetries = 10
 
-  receiveTimeoutMs: 1000
+  receiveTimeoutMs = 1000
 }

@@ -1,13 +1,16 @@
 {
-  "extends": "./node_modules/@node-ts/code-standards/tsconfig.json",
+  "extends": "@tsconfig/node18/tsconfig.json",
   "compilerOptions": {
-    "baseUrl": "./packages",
-    "paths": {
-      "@node-ts/*": ["./*/src"]
-    },
     "lib": ["ES2020"],
-    "noUnusedLocals": false,
+    "target": "ES6",
+    "skipLibCheck": true,
+    "declaration": true,
+    "strictPropertyInitialization": false,
+
+    // Handled in linting, useful for testing
+    "allowUnreachableCode": true,
     "noUnusedParameters": false,
-    "skipLibCheck": true
+    "noUnusedLocals": false,
+    "importHelpers": true
   }
 }

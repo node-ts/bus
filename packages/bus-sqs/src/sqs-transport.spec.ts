@@ -2,9 +2,9 @@ import {
   toMessageAttributeMap,
   SqsMessageAttributes,
   fromMessageAttributeMap,
-  SqsTransport
+  SqsTransport,
+  SnsMessageAttributeMap
 } from './sqs-transport'
-import { SNS, SQS } from 'aws-sdk'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
@@ -12,10 +12,14 @@ import {
   CoreDependencies,
   TransportMessage,
   RetryStrategy,
-  LoggerFactory,
   DebugLogger
 } from '@node-ts/bus-core'
-import { Mock, It, IMock, Times } from 'typemoq'
+import { Mock, It, Times } from 'typemoq'
+import {
+  ChangeMessageVisibilityCommand,
+  Message,
+  SQSClient
+} from '@aws-sdk/client-sqs'
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
@@ -67,7 +71,7 @@ describe('sqs-transport', () => {
       }
     }
 
-    let messageAttributes: SNS.MessageAttributeMap
+    let messageAttributes: SnsMessageAttributeMap
 
     beforeEach(() => {
       messageAttributes = toMessageAttributeMap(messageOptions)
@@ -108,8 +112,13 @@ describe('sqs-transport', () => {
 
   describe('when returning a message to the queue', () => {
     it('should use the retry strategy delay', async () => {
-      const sqs = Mock.ofType(SQS)
-      const sut = new SqsTransport({} as SqsTransportConfiguration, sqs.object)
+      const sqs = Mock.ofType<SQSClient>()
+      const sut = new SqsTransport(
+        {
+          queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
+        } as SqsTransportConfiguration,
+        sqs.object
+      )
 
       const retryStrategy: RetryStrategy = {
         calculateRetryDelay() {
@@ -124,14 +133,17 @@ describe('sqs-transport', () => {
 
       sqs
         .setup(s =>
-          s.changeMessageVisibility(
-            It.isObjectWith<any>({ VisibilityTimeout: 3 })
+          s.send(
+            It.is(
+              (command: ChangeMessageVisibilityCommand) =>
+                command.input.VisibilityTimeout === 3
+            )
           )
         )
         .returns(() => ({ promise: async () => undefined } as any))
         .verifiable(Times.once())
 
-      await sut.returnMessage({ raw: {} } as TransportMessage<SQS.Message>)
+      await sut.returnMessage({ raw: {} } as TransportMessage<Message>)
       sqs.verifyAll()
     })
   })

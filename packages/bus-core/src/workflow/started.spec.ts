@@ -160,14 +160,15 @@ describe('Workflow', () => {
   const inMemoryPersistence = new InMemoryPersistence()
 
   beforeAll(async () => {
-    bus = await Bus.configure()
+    bus = Bus.configure()
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get: type => new type(bus)
       })
       .withWorkflow(AssignmentWorkflow)
-      .initialize()
+      .build()
 
+    await bus.initialize()
     await bus.send(event)
     await bus.start()
     await sleep(CONSUME_TIMEOUT)

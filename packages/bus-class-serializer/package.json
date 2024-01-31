@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-class-serializer",
-  "version": "1.0.17",
+  "version": "1.1.0-beta.0",
   "description": "A JSON serializer for @node-ts/bus based on class-transformer for strong marshalling of messages",
   "homepage": "https://github.com/node-ts/bus#readme",
   "license": "MIT",
@@ -9,19 +9,19 @@
   "repository": "github:node-ts/bus.git",
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc --project tsconfig.json --declaration",
+    "build": "tsc",
     "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "@node-ts/bus-core": "^1.0.15",
+    "@node-ts/bus-core": "workspace:^",
     "class-transformer": "^0.5.1",
-    "reflect-metadata": "^0.1.13"
+    "reflect-metadata": "^0.2.1"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^1.0.0-alpha.0",
+    "@node-ts/bus-core": "workspace:^",
     "class-transformer": "^0.5.1"
   },
   "keywords": [
