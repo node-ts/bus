@@ -30,9 +30,9 @@ import {
   Transport,
   TransportMessage,
   CoreDependencies,
-  Logger
+  Logger,
+  TransportInitializationOptions
 } from '@node-ts/bus-core'
-
 import { generatePolicy } from './generate-policy'
 import {
   normalizeMessageName,
@@ -43,7 +43,6 @@ import {
   resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { TransportInitializationOptions } from '@node-ts/bus-core/dist/transport'
 
 export type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
 
@@ -239,6 +238,11 @@ export class SqsTransport implements Transport<SQSMessage> {
   async initialize({
     sendOnly
   }: TransportInitializationOptions): Promise<void> {
+    this.resolveTopicName =
+      this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
+    this.resolveTopicArn =
+      this.sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
+
     if (!sendOnly) {
       if (
         !this.sqsConfiguration.queueArn &&
@@ -306,11 +310,6 @@ export class SqsTransport implements Transport<SQSMessage> {
         `SqsTransportConfiguration must provide awsAccountId and awsRegion`
       )
     }
-
-    this.resolveTopicName =
-      this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
-    this.resolveTopicArn =
-      this.sqsConfiguration.resolveTopicArn ?? defaultResolveTopicArn
   }
 
   private async assertServiceQueue(): Promise<void> {
