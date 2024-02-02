@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sns": "3.428.0",
-    "@aws-sdk/client-sqs": "3.428.0",
+    "@aws-sdk/client-sqs": "3.504.0",
     "@aws-sdk/util-arn-parser": "^3.495.0",
     "@node-ts/bus-messages": "workspace:^",
     "tslib": "^2.6.2",
