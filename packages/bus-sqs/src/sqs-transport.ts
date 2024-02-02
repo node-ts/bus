@@ -469,6 +469,9 @@ export class SqsTransport implements Transport<SQSMessage> {
     queueArn: string,
     topicArn: string
   ): Promise<void> {
+    // Ensure the topic exists before subscribing to it
+    await this.createSnsTopic(topicArn.split(':').pop()!)
+
     const command = new SubscribeCommand({
       TopicArn: topicArn,
       Protocol: 'sqs',
