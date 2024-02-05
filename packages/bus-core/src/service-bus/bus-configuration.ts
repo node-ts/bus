@@ -1,4 +1,3 @@
-import { Message } from '@node-ts/bus-messages'
 import { ContainerAdapter } from '../container'
 import { ContainerNotRegistered } from '../error'
 import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
@@ -11,7 +10,7 @@ import { LoggerFactory, defaultLoggerFactory } from '../logger'
 import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, Serializer } from '../serialization'
 import { MessageSerializer } from '../serialization/message-serializer'
-import { MemoryQueue, Transport, TransportMessage } from '../transport'
+import { InMemoryQueue, Transport, TransportMessage } from '../transport'
 import {
   ClassConstructor,
   CoreDependencies,
@@ -82,7 +81,7 @@ export class BusConfiguration {
       this.workflowRegistry.prepare(coreDependencies, this.persistence)
     }
 
-    const transport: Transport = this.configuredTransport || new MemoryQueue()
+    const transport: Transport = this.configuredTransport || new InMemoryQueue()
     transport.prepare(coreDependencies)
 
     this.busInstance = new BusInstance(

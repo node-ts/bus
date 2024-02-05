@@ -12,7 +12,7 @@ import { TestEvent } from '../test/test-event'
 import { TestEvent2 } from '../test/test-event-2'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { TestSystemMessage } from '../test/test-system-message'
-import { InMemoryMessage, MemoryQueue, TransportMessage } from '../transport'
+import { InMemoryMessage, InMemoryQueue, TransportMessage } from '../transport'
 import { toTransportMessage } from '../transport/memory-queue'
 import { Middleware, sleep } from '../util'
 import { Bus } from './bus'
@@ -26,7 +26,7 @@ type Callback = () => void
 describe('BusInstance', () => {
   describe('when the bus is configured correctly', () => {
     let bus: BusInstance
-    let queue: MemoryQueue
+    let queue: InMemoryQueue
     let callback: IMock<Callback>
     const handler = handlerFor(TestEvent, async (_: TestEvent) =>
       callback.object()
@@ -34,7 +34,7 @@ describe('BusInstance', () => {
     let messageReadMiddleware: IMock<Middleware<TransportMessage<unknown>>>
 
     beforeAll(async () => {
-      queue = new MemoryQueue()
+      queue = new InMemoryQueue()
       callback = Mock.ofType<Callback>()
       messageReadMiddleware =
         Mock.ofType<Middleware<TransportMessage<unknown>>>()
@@ -311,7 +311,7 @@ describe('BusInstance', () => {
 
     it('should handle the external message', async () => {
       const events = new EventEmitter()
-      const queue = new MemoryQueue()
+      const queue = new InMemoryQueue()
       const bus = Bus.configure()
         .withTransport(queue)
         .withCustomHandler(
@@ -348,7 +348,7 @@ describe('BusInstance', () => {
   describe('when a failure occurs when receiving the next message from the transport', () => {
     it('should log the error', async () => {
       const logger = Mock.ofType<Logger>()
-      const queue = Mock.ofType<MemoryQueue>()
+      const queue = Mock.ofType<InMemoryQueue>()
       const events = new EventEmitter()
       const bus = Bus.configure()
         .withTransport(queue.object)
@@ -383,7 +383,7 @@ describe('BusInstance', () => {
   describe('when there are no handlers for the incoming message', () => {
     it('should log an error', async () => {
       const logger = Mock.ofType<Logger>()
-      const queue = Mock.ofType<MemoryQueue>()
+      const queue = Mock.ofType<InMemoryQueue>()
       const events = new EventEmitter()
       const bus = Bus.configure()
         .withTransport(queue.object)
@@ -438,7 +438,7 @@ describe('BusInstance', () => {
       it('should fail the message on the transport', async () => {
         const events = new EventEmitter()
 
-        const queue = new MemoryQueue()
+        const queue = new InMemoryQueue()
         const queueMock = jest.spyOn(queue, 'fail')
         const bus = Bus.configure()
           .withTransport(queue)

@@ -1,6 +1,6 @@
 # Transports
 
-Transports are the underlying message broker that `@node-ts/bus-core` uses to communicate. By default this package includes an in-memory queue, but can (and should) be replaced with a durable transport.
+Transports are the underlying message broker that `@node-ts/bus-core` uses to communicate. By default this package includes an in-memory queue (`InMemoryQueue`), but can (and should) be replaced with a durable transport.
 
 Currently adapters for two technologies are implemented and available for use:
 

@@ -7,7 +7,10 @@ import { FinalTask } from './final-task'
 import { BusInstance } from '../../service-bus'
 
 export class TestWorkflow extends Workflow<TestWorkflowState> {
-  constructor(private bus: BusInstance) {
+  constructor(
+    private bus: BusInstance,
+    private completionCallback?: () => void
+  ) {
     super()
   }
 
@@ -35,6 +38,9 @@ export class TestWorkflow extends Workflow<TestWorkflowState> {
   }
 
   async step3() {
+    if (this.completionCallback) {
+      this.completionCallback()
+    }
     return this.completeWorkflow()
   }
 }

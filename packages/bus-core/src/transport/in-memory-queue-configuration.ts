@@ -1,4 +1,4 @@
-export interface MemoryQueueConfiguration {
+export interface InMemoryQueueConfiguration {
   /**
    * Maximum number of attempts to retry a failed message before routing it to the DLQ
    */

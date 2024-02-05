@@ -19,8 +19,8 @@ import { Persistence } from '../persistence'
 const workflowLookup: MessageWorkflowMapping = {
   lookup: (
     _: Message,
-    attributes: MessageAttributes<{}, { workflowId: string }>
-  ) => attributes.stickyAttributes.workflowId as string | undefined,
+    attributes: MessageAttributes<{}, { $workflowId: string | undefined }>
+  ) => attributes.stickyAttributes.$workflowId,
   mapsTo: '$workflowId'
 }
 
@@ -264,9 +264,9 @@ export class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            this.logger.info(
+            this.logger.warn(
               'No existing workflow state found for message. Ignoring.',
-              { message }
+              { busMessage: message, attributes }
             )
             return
           }
@@ -327,10 +327,8 @@ export class WorkflowRegistry {
       workflowState
     })
     const handlingContext = messageHandlingContext.get()!.message
-    const workflowHandlingContext = JSON.parse(
-      JSON.stringify(handlingContext)
-    ) as typeof handlingContext
-    workflowHandlingContext.attributes.stickyAttributes.workflowId =
+    const workflowHandlingContext = structuredClone(handlingContext)
+    workflowHandlingContext.attributes.stickyAttributes.$workflowId =
       workflowState.$workflowId
     messageHandlingContext.set(workflowHandlingContext)
   }
