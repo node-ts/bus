@@ -218,10 +218,9 @@ export class WorkflowRegistry {
             })
 
             if (result) {
-              await this.persistence.saveWorkflowState({
-                ...workflowState,
-                ...result
-              })
+              // Update the original state to ensure that it remains a strongly-typed class instance
+              Object.assign(workflowState, result)
+              await this.persistence.saveWorkflowState(workflowState)
             }
           } finally {
             this.endWorkflowHandlingContext()
