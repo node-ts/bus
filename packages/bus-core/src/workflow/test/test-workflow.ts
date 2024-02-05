@@ -39,6 +39,7 @@ export class TestWorkflow extends Workflow<TestWorkflowState> {
 
   async step3() {
     if (this.completionCallback) {
+      // Optional chaining (?.) doesn't work with typemoq
       this.completionCallback()
     }
     return this.completeWorkflow()
