@@ -89,10 +89,6 @@ describe('WorkflowRegistry', () => {
     })
   })
 
-  describe('when dispatching to handlers', () => {
-    describe('when there are no workflows resolved', () => {})
-  })
-
   describe('when a message is sent from a workflow', () => {
     let container: IMock<ContainerAdapter>
     let callback: IMock<
