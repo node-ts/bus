@@ -19,8 +19,8 @@ import { Persistence } from '../persistence'
 const workflowLookup: MessageWorkflowMapping = {
   lookup: (
     _: Message,
-    attributes: MessageAttributes<{}, { $workflowId: string | undefined }>
-  ) => attributes.stickyAttributes.$workflowId,
+    attributes: MessageAttributes<{}, { workflowId: string | undefined }>
+  ) => attributes.stickyAttributes.workflowId,
   mapsTo: '$workflowId'
 }
 
@@ -318,7 +318,7 @@ export class WorkflowRegistry {
 
   /**
    * Creates a new handling context for a single workflow. This is used so
-   * that the `$workflowId` is attached to outgoing messages in sticky
+   * that the `workflowId` is attached to outgoing messages in sticky
    * attributes. This allows message chains to be automatically mapped
    * back to the workflow if handled.
    */
@@ -328,7 +328,7 @@ export class WorkflowRegistry {
     })
     const handlingContext = messageHandlingContext.get()!.message
     const workflowHandlingContext = structuredClone(handlingContext)
-    workflowHandlingContext.attributes.stickyAttributes.$workflowId =
+    workflowHandlingContext.attributes.stickyAttributes.workflowId =
       workflowState.$workflowId
     messageHandlingContext.set(workflowHandlingContext)
   }

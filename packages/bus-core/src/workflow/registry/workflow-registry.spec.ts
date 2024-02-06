@@ -144,7 +144,7 @@ describe('WorkflowRegistry', () => {
             cb =>
               cb(
                 It.isAny(),
-                It.is(attributes => !!attributes.stickyAttributes!.$workflowId)
+                It.is(attributes => !!attributes.stickyAttributes!.workflowId)
               ),
             Times.once()
           )
