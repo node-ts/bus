@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-class-serializer",
-  "version": "1.1.0-beta.0",
+  "version": "1.1.0",
   "description": "A JSON serializer for @node-ts/bus based on class-transformer for strong marshalling of messages",
   "homepage": "https://github.com/node-ts/bus#readme",
   "license": "MIT",

@@ -1,6 +1,6 @@
-import { MemoryQueue, InMemoryMessage } from './memory-queue'
+import { InMemoryQueue, InMemoryMessage } from './in-memory-queue'
 import { TestCommand, TestEvent, TestCommand2, TestEvent2 } from '../test'
-import { TransportMessage } from '../transport'
+import { TransportMessage } from '.'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import * as faker from 'faker'
 import { IMock, It, Mock, Times } from 'typemoq'
@@ -16,8 +16,8 @@ const event = new TestEvent()
 const command = new TestCommand()
 const command2 = new TestCommand2()
 
-describe('MemoryQueue', () => {
-  let sut: MemoryQueue
+describe('InMemoryQueue', () => {
+  let sut: InMemoryQueue
   const messageOptions: MessageAttributes = {
     correlationId: faker.random.uuid(),
     attributes: {},
@@ -37,7 +37,7 @@ describe('MemoryQueue', () => {
     logger = Mock.ofType<Logger>()
     loggerFactory = () => logger.object
 
-    sut = new MemoryQueue({
+    sut = new InMemoryQueue({
       maxRetries: 3,
       receiveTimeoutMs: 1000
     })

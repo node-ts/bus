@@ -1,6 +1,10 @@
 import { Logger } from './logger'
 import debug, { Debugger } from 'debug'
 
+/**
+ * The default logger based on the `debug` package. To see log output, run
+ * the application with `DEBUG=@node-ts/bus-*` set as an environment variable.
+ */
 export class DebugLogger implements Logger {
   private logger: Debugger
 

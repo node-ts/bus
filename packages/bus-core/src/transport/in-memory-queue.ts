@@ -10,8 +10,8 @@ import { EventEmitter } from 'stream'
 import { CoreDependencies } from '../util'
 import { Logger } from '../logger'
 import { Milliseconds } from '../retry-strategy'
-import { MemoryQueueConfiguration } from './memory-queue-configuration'
-import { DefaultMemoryQueueConfiguration } from './default-memory-queue-configuration'
+import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
+import { DefaultInMemoryQueueConfiguration } from './default-in-memory-queue-configuration'
 
 export interface InMemoryMessage {
   /**
@@ -37,7 +37,7 @@ export interface InMemoryMessage {
  * There are however legitimate uses for in-memory queues such as decoupling of non-mission
  * critical code inside of larger applications; so use at your own discretion.
  */
-export class MemoryQueue implements Transport<InMemoryMessage> {
+export class InMemoryQueue implements Transport<InMemoryMessage> {
   private queue: TransportMessage<InMemoryMessage>[] = []
   private queuePushed: EventEmitter = new EventEmitter()
   private _deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
@@ -46,13 +46,13 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   private coreDependencies!: CoreDependencies
 
   constructor(
-    private memoryQueueConfiguration: MemoryQueueConfiguration = new DefaultMemoryQueueConfiguration()
+    private memoryQueueConfiguration: InMemoryQueueConfiguration = new DefaultInMemoryQueueConfiguration()
   ) {}
 
   prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
-      '@node-ts/bus-core:memory-queue'
+      '@node-ts/bus-core:in-memory-queue'
     )
   }
 
@@ -66,7 +66,7 @@ export class MemoryQueue implements Transport<InMemoryMessage> {
   async dispose(): Promise<void> {
     if (this.queue.length > 0) {
       this.logger.warn(
-        'Memory queue being shut down, all messages will be lost.',
+        'In-Memory queue being shut down, all messages will be lost.',
         { queueSize: this.queue.length }
       )
     }

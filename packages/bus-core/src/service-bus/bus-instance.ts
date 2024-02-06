@@ -314,7 +314,10 @@ export class BusInstance<TTransportMessage = {}> {
         } catch (error) {
           this.logger.warn(
             'Message was unsuccessfully handled. Returning to queue',
-            { busMessage: message, error: serializeError(error) }
+            {
+              busMessage: message,
+              error: JSON.stringify(serializeError(error))
+            }
           )
           this.onError.emit({
             message: message.domainMessage,

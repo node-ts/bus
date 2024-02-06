@@ -1,4 +1,4 @@
-import { MemoryQueue } from '../transport'
+import { InMemoryQueue } from '../transport'
 import { Bus } from './bus'
 import { TestEvent } from '../test/test-event'
 import { sleep } from '../util'
@@ -10,7 +10,7 @@ const event = new TestEvent()
 type Callback = () => void
 
 describe('BusInstance - Concurrency', () => {
-  let queue: MemoryQueue
+  let queue: InMemoryQueue
   let callback: IMock<Callback>
   let handleCount = 0
   const resolutions: ((_: unknown) => void)[] = []
@@ -25,7 +25,7 @@ describe('BusInstance - Concurrency', () => {
   })
 
   beforeAll(async () => {
-    queue = new MemoryQueue()
+    queue = new InMemoryQueue()
     callback = Mock.ofType<Callback>()
 
     bus = Bus.configure()
