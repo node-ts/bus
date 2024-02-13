@@ -131,7 +131,6 @@ export class BusInstance<TTransportMessage = {}> {
       })
     }
 
-    messageHandlingContext.enable()
     this.subscribeToInterruptSignals(this.coreDependencies.interruptSignals)
     this.isInitialized = true
     this.logger.debug('Bus initialized', {
@@ -176,11 +175,10 @@ export class BusInstance<TTransportMessage = {}> {
    * @throws FailMessageOutsideHandlingContext if called outside a message handling context
    */
   async fail(): Promise<void> {
-    const context = messageHandlingContext.get()
-    if (!context) {
+    const message = messageHandlingContext.get()
+    if (!message) {
       throw new FailMessageOutsideHandlingContext()
     }
-    const message = context.message
     this.logger.debug('Failing message', { message })
     return this.transport.fail(message)
   }
@@ -214,6 +212,7 @@ export class BusInstance<TTransportMessage = {}> {
     if (this.transport.start) {
       await this.transport.start()
     }
+    messageHandlingContext.enable()
 
     this.internalState = BusState.Started
     for (var i = 0; i < this.concurrency; i++) {
@@ -230,6 +229,7 @@ export class BusInstance<TTransportMessage = {}> {
    * @throws InvalidBusState if the bus is already stopped or stopping
    */
   async stop(): Promise<void> {
+    messageHandlingContext.disable()
     const stoppedStates = [BusState.Stopped, BusState.Stopping]
     if (stoppedStates.includes(this.state)) {
       throw new InvalidBusState(
@@ -283,14 +283,18 @@ export class BusInstance<TTransportMessage = {}> {
 
   private async applicationLoop(): Promise<void> {
     this.runningWorkerCount++
-    while (this.internalState === BusState.Started) {
-      const messageHandled = await this.handleNextMessage()
 
-      // Avoids locking up CPU when there's no messages to be processed
-      if (!messageHandled) {
-        await sleep(EMPTY_QUEUE_SLEEP_MS)
+    // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
+    messageHandlingContext.run(async () => {
+      while (this.internalState === BusState.Started) {
+        const messageHandled = await this.handleNextMessage()
+
+        // Avoids locking up CPU when there's no messages to be processed
+        if (!messageHandled) {
+          await sleep(EMPTY_QUEUE_SLEEP_MS)
+        }
       }
-    }
+    })
     this.runningWorkerCount--
   }
 
@@ -301,10 +305,9 @@ export class BusInstance<TTransportMessage = {}> {
       if (message) {
         this.logger.debug('Message read from transport', { message })
         this.afterReceive.emit({ message })
+        messageHandlingContext.set(message)
 
         try {
-          messageHandlingContext.set(message)
-
           await this.messageReadMiddleware.dispatch(message)
 
           this.afterDispatch.emit({
@@ -327,8 +330,6 @@ export class BusInstance<TTransportMessage = {}> {
           })
           await this.transport.returnMessage(message)
           return false
-        } finally {
-          messageHandlingContext.destroy()
         }
         return true
       }
@@ -392,14 +393,12 @@ export class BusInstance<TTransportMessage = {}> {
       correlationId:
         clientOptions.correlationId ||
         (handlingContext
-          ? handlingContext.message.attributes.correlationId
+          ? handlingContext.attributes.correlationId
           : undefined) ||
         generateUuid(),
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
-        ...(handlingContext
-          ? handlingContext.message.attributes.stickyAttributes
-          : {}),
+        ...(handlingContext ? handlingContext.attributes.stickyAttributes : {}),
         ...clientOptions.stickyAttributes
       }
     }

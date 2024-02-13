@@ -79,7 +79,9 @@ export class WorkflowRegistry {
     container: ContainerAdapter | undefined
   ): Promise<void> {
     if (this.workflowRegistry.length === 0) {
-      this.logger.info('No workflows registered, skipping this step.')
+      this.logger.info(
+        'No workflows registered, skipping workflow initialization.'
+      )
       return
     }
 
@@ -178,16 +180,17 @@ export class WorkflowRegistry {
       handlerRegistry.register(
         messageConstructor,
         async (message, messageAttributes) => {
-          this.logger.debug('Starting new workflow instance', {
-            workflow: options.workflowCtor,
-            msg: message
-          })
-          const workflowState = this.createWorkflowState(
-            mapper.workflowStateCtor!
-          )
-          const immutableWorkflowState = Object.freeze({ ...workflowState })
-          this.startWorkflowHandlingContext(immutableWorkflowState)
-          try {
+          // Extend the current message handling context, and augment with workflow-specific context data
+          messageHandlingContext.run(async () => {
+            this.logger.debug('Starting new workflow instance', {
+              workflow: options.workflowCtor,
+              msg: message
+            })
+            const workflowState = this.createWorkflowState(
+              mapper.workflowStateCtor!
+            )
+            const immutableWorkflowState = Object.freeze({ ...workflowState })
+            this.startWorkflowHandlingContext(immutableWorkflowState)
             let workflow: Workflow<WorkflowState>
             if (container) {
               const workflowFromContainer = container.get(
@@ -222,9 +225,7 @@ export class WorkflowRegistry {
               Object.assign(workflowState, result)
               await this.persistence.saveWorkflowState(workflowState)
             }
-          } finally {
-            this.endWorkflowHandlingContext()
-          }
+          })
         }
       )
     )
@@ -272,7 +273,8 @@ export class WorkflowRegistry {
           }
 
           const workflowHandlers = workflowState.map(async state => {
-            try {
+            // Extend the current message handling context, and augment with workflow-specific context data
+            messageHandlingContext.run(async () => {
               this.startWorkflowHandlingContext(state)
               await this.dispatchMessageToWorkflow(
                 message,
@@ -283,9 +285,7 @@ export class WorkflowRegistry {
                 handler.workflowHandler,
                 container
               )
-            } finally {
-              this.endWorkflowHandlingContext()
-            }
+            })
           })
 
           const handlerResults = await Promise.allSettled(workflowHandlers)
@@ -326,16 +326,11 @@ export class WorkflowRegistry {
     this.logger.debug('Starting new workflow handling context', {
       workflowState
     })
-    const handlingContext = messageHandlingContext.get()!.message
+    const handlingContext = messageHandlingContext.get()!
     const workflowHandlingContext = structuredClone(handlingContext)
     workflowHandlingContext.attributes.stickyAttributes.workflowId =
       workflowState.$workflowId
     messageHandlingContext.set(workflowHandlingContext)
-  }
-
-  private endWorkflowHandlingContext() {
-    this.logger.debug('Ending workflow handling context')
-    messageHandlingContext.destroy()
   }
 
   private async dispatchMessageToWorkflow(
@@ -368,6 +363,8 @@ export class WorkflowRegistry {
 
     const immutableWorkflowState = Object.freeze({ ...workflowState })
     const handler = workflow[workflowHandler] as Function
+
+    // Invoke the workflow handler
     const workflowStateOutput = await handler.bind(workflow)(
       message,
       immutableWorkflowState,
