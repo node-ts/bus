@@ -22,11 +22,11 @@ export const messageHandlingContext = {
    * only call this if they want to create a new context with themselves at the root.
    */
   set: (message: TransportMessage<unknown>) =>
-    namespace.set('message', message),
+    namespace?.set('message', message),
   /**
    * Fetches the message handling context of the active async stack
    */
-  get: () => namespace.get('message') as TransportMessage<unknown>,
+  get: () => namespace?.get('message') as TransportMessage<unknown>,
   /**
    * Hooks into the async_hooks module to track the current execution context. Must be called before other operations.
    */

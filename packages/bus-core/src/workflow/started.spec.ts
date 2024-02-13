@@ -169,8 +169,8 @@ describe('Workflow', () => {
       .build()
 
     await bus.initialize()
-    await bus.send(event)
     await bus.start()
+    await bus.send(event)
     await sleep(CONSUME_TIMEOUT)
   })
 
