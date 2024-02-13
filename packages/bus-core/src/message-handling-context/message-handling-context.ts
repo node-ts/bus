@@ -1,4 +1,9 @@
-import { createNamespace, destroyNamespace, Namespace } from 'cls-hooked'
+import {
+  createNamespace,
+  destroyNamespace,
+  getNamespace,
+  Namespace
+} from 'cls-hooked'
 import { TransportMessage } from '../transport'
 
 const NAMESPACE = 'message-handling-context'
@@ -34,5 +39,9 @@ export const messageHandlingContext = {
   /**
    * Stops tracking the current execution context.
    */
-  disable: () => destroyNamespace(NAMESPACE)
+  disable: () => {
+    if (getNamespace(NAMESPACE)) {
+      destroyNamespace(NAMESPACE)
+    }
+  }
 }
