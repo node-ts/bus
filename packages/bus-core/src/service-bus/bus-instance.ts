@@ -285,7 +285,7 @@ export class BusInstance<TTransportMessage = {}> {
     this.runningWorkerCount++
 
     // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
-    await messageHandlingContext.runPromise(async () => {
+    await messageHandlingContext.runAndReturn(async () => {
       while (this.internalState === BusState.Started) {
         const messageHandled = await this.handleNextMessage()
 

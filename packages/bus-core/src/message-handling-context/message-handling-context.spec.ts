@@ -19,7 +19,7 @@ describe('messageHandlingContext', () => {
 
   describe('when a message is added', () => {
     it('should retrieve the message from within the same context', () => {
-      messageHandlingContext.run(() => {
+      messageHandlingContext.runAndReturn(() => {
         const message = buildTransportMessage()
         messageHandlingContext.set(message)
         const retrievedMessage = messageHandlingContext.get()!
@@ -28,7 +28,7 @@ describe('messageHandlingContext', () => {
     })
 
     it('should not retrieve a message from a different context', async () => {
-      await messageHandlingContext.runPromise(async () => {
+      await messageHandlingContext.runAndReturn(async () => {
         const context1 = new Promise<void>(resolve => {
           const message = buildTransportMessage()
           messageHandlingContext.set(message)
@@ -48,7 +48,7 @@ describe('messageHandlingContext', () => {
     })
 
     it('should retrieve a message from a nested async chain', async () => {
-      await messageHandlingContext.runPromise(async () => {
+      await messageHandlingContext.runAndReturn(async () => {
         const message = buildTransportMessage()
         messageHandlingContext.set(message)
 

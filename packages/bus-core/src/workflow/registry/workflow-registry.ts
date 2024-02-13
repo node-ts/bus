@@ -181,7 +181,7 @@ export class WorkflowRegistry {
         messageConstructor,
         async (message, messageAttributes) => {
           // Extend the current message handling context, and augment with workflow-specific context data
-          await messageHandlingContext.runPromise(async () => {
+          await messageHandlingContext.runAndReturn(async () => {
             this.logger.debug('Starting new workflow instance', {
               workflow: options.workflowCtor,
               msg: message
@@ -274,7 +274,7 @@ export class WorkflowRegistry {
 
           const workflowHandlers = workflowState.map(async state => {
             // Extend the current message handling context, and augment with workflow-specific context data
-            await messageHandlingContext.runPromise(async () => {
+            await messageHandlingContext.runAndReturn(async () => {
               this.startWorkflowHandlingContext(state)
               await this.dispatchMessageToWorkflow(
                 message,

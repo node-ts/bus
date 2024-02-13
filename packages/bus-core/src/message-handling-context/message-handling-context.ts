@@ -19,14 +19,9 @@ let namespace: Namespace
  */
 export const messageHandlingContext = {
   /**
-   * Executes a function within a context of cls-hooked
+   * Executes a function within a context of cls-hooked and returns the result
    */
-  run: (fn: (...args: any[]) => void) => namespace.run(fn),
-
-  /**
-   * Executes a function within a context of cls-hooked and returns a promise
-   */
-  runPromise: <T>(fn: () => Promise<T>) => namespace.runPromise(fn),
+  runAndReturn: <T>(fn: (...args: any[]) => T) => namespace.runAndReturn(fn),
 
   /**
    * Sets a new handling context for the current execution async id. Child asyncs should
