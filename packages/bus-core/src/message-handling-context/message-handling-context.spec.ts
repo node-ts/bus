@@ -19,53 +19,45 @@ describe('messageHandlingContext', () => {
 
   describe('when a message is added', () => {
     it('should retrieve the message from within the same context', async () => {
-      const message = buildTransportMessage()
-      messageHandlingContext.set(message)
-      const retrievedMessage = messageHandlingContext.get()!.message
-      expect(retrievedMessage).toEqual(message)
-      messageHandlingContext.destroy()
-    })
-
-    it('should not retrieve a message after the context is destroyed', async () => {
-      const message = buildTransportMessage()
-      messageHandlingContext.set(message)
-      messageHandlingContext.destroy()
-
-      const context = messageHandlingContext.get()
-      expect(context).toBeUndefined()
+      messageHandlingContext.run(() => {
+        const message = buildTransportMessage()
+        messageHandlingContext.set(message)
+        const retrievedMessage = messageHandlingContext.get()!
+        expect(retrievedMessage).toEqual(message)
+      })
     })
 
     it('should not retrieve a message from a different context', async () => {
-      const context1 = new Promise<void>(resolve => {
-        const message = buildTransportMessage()
-        messageHandlingContext.set(message)
-        const retrievedMessage = messageHandlingContext.get()!.message
-        expect(retrievedMessage).toEqual(message)
-        messageHandlingContext.destroy()
-        resolve()
+      messageHandlingContext.run(async () => {
+        const context1 = new Promise<void>(resolve => {
+          const message = buildTransportMessage()
+          messageHandlingContext.set(message)
+          const retrievedMessage = messageHandlingContext.get()!
+          expect(retrievedMessage).toEqual(message)
+          resolve()
+        })
+        const context2 = new Promise<void>(resolve => {
+          const message = buildTransportMessage()
+          messageHandlingContext.set(message)
+          const retrievedMessage = messageHandlingContext.get()!
+          expect(retrievedMessage).toEqual(message)
+          resolve()
+        })
+        await Promise.all([context1, context2])
       })
-      const context2 = new Promise<void>(resolve => {
-        const message = buildTransportMessage()
-        messageHandlingContext.set(message)
-        const retrievedMessage = messageHandlingContext.get()!.message
-        expect(retrievedMessage).toEqual(message)
-        messageHandlingContext.destroy()
-        resolve()
-      })
-      await Promise.all([context1, context2])
     })
 
     it('should retrieve a message from a nested async chain', async () => {
-      const message = buildTransportMessage()
-      messageHandlingContext.set(message)
+      messageHandlingContext.run(async () => {
+        const message = buildTransportMessage()
+        messageHandlingContext.set(message)
 
-      await new Promise<void>(resolve => {
-        const retrievedMessage = messageHandlingContext.get()!.message
-        expect(retrievedMessage).toEqual(message)
-        resolve()
+        await new Promise<void>(resolve => {
+          const retrievedMessage = messageHandlingContext.get()!
+          expect(retrievedMessage).toEqual(message)
+          resolve()
+        })
       })
-
-      messageHandlingContext.destroy()
     })
   })
 })

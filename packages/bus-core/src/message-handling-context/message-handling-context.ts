@@ -1,40 +1,13 @@
-import * as asyncHooks from 'async_hooks'
+import {
+  createNamespace,
+  destroyNamespace,
+  getNamespace,
+  Namespace
+} from 'cls-hooked'
 import { TransportMessage } from '../transport'
 
-interface HandlingContext {
-  /**
-   * A list of child async process ids that are running in the same execution context
-   * and need to be destroyed when the parent is destroyed.
-   *
-   * This can be handled with regular destroy hooks, however this is subject to GC
-   * and runs the risk of keeping a large number of contexts open after their parent
-   * context has closed.
-   */
-  childAsyncIds: number[]
-  message: TransportMessage<unknown>
-}
-
-const handlingContexts = new Map<number, HandlingContext>()
-
-const init = (asyncId: number, _: string, triggerAsyncId: number) => {
-  // Ensures that child promises inherit the same context as their parent
-  if (handlingContexts.has(triggerAsyncId)) {
-    const context = handlingContexts.get(triggerAsyncId)!
-    context.childAsyncIds.push(asyncId)
-    handlingContexts.set(asyncId, context)
-  }
-}
-
-const destroy = (asyncId: number) => {
-  if (handlingContexts.has(asyncId)) {
-    handlingContexts.delete(asyncId)
-  }
-}
-
-const hooks = asyncHooks.createHook({
-  init,
-  destroy
-})
+const NAMESPACE = 'message-handling-context'
+let namespace: Namespace
 
 /**
  * This is an internal coordinator that tracks the execution context for
@@ -46,27 +19,29 @@ const hooks = asyncHooks.createHook({
  */
 export const messageHandlingContext = {
   /**
+   * Executes a function within a context of cls-hooked
+   */
+  run: (fn: (...args: any[]) => void) => namespace.run(fn),
+  /**
    * Sets a new handling context for the current execution async id. Child asyncs should
    * only call this if they want to create a new context with themselves at the root.
    */
   set: (message: TransportMessage<unknown>) =>
-    handlingContexts.set(asyncHooks.executionAsyncId(), {
-      childAsyncIds: [],
-      message
-    }),
-  get: () => handlingContexts.get(asyncHooks.executionAsyncId()),
-  destroy: () => {
-    const asyncId = asyncHooks.executionAsyncId()
-    const context = handlingContexts.get(asyncId)
-    if (!context) {
-      return
+    namespace?.set('message', message),
+  /**
+   * Fetches the message handling context of the active async stack
+   */
+  get: () => namespace?.get('message') as TransportMessage<unknown>,
+  /**
+   * Hooks into the async_hooks module to track the current execution context. Must be called before other operations.
+   */
+  enable: () => (namespace = createNamespace(NAMESPACE)),
+  /**
+   * Stops tracking the current execution context.
+   */
+  disable: () => {
+    if (getNamespace(NAMESPACE)) {
+      destroyNamespace(NAMESPACE)
     }
-
-    context.childAsyncIds.forEach(childAsyncId =>
-      handlingContexts.delete(childAsyncId)
-    )
-    handlingContexts.delete(asyncId)
-  },
-  enable: () => hooks.enable(),
-  disable: () => hooks.disable()
+  }
 }
