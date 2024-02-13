@@ -22,6 +22,12 @@ export const messageHandlingContext = {
    * Executes a function within a context of cls-hooked
    */
   run: (fn: (...args: any[]) => void) => namespace.run(fn),
+
+  /**
+   * Executes a function within a context of cls-hooked and returns a promise
+   */
+  runPromise: <T>(fn: () => Promise<T>) => namespace.runPromise(fn),
+
   /**
    * Sets a new handling context for the current execution async id. Child asyncs should
    * only call this if they want to create a new context with themselves at the root.
