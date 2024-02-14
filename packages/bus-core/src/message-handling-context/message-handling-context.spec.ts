@@ -9,49 +9,38 @@ const buildTransportMessage = (): TransportMessage<unknown> => ({
 })
 
 describe('messageHandlingContext', () => {
-  beforeAll(() => {
-    messageHandlingContext.enable()
-  })
-
-  afterAll(() => {
-    messageHandlingContext.disable()
-  })
-
   describe('when a message is added', () => {
     it('should retrieve the message from within the same context', () => {
-      messageHandlingContext.runAndReturn(() => {
-        const message = buildTransportMessage()
-        messageHandlingContext.set(message)
-        const retrievedMessage = messageHandlingContext.get()!
+      const message = buildTransportMessage()
+      messageHandlingContext.run(message, () => {
+        const retrievedMessage = messageHandlingContext.get()
         expect(retrievedMessage).toEqual(message)
       })
     })
 
     it('should not retrieve a message from a different context', async () => {
-      await messageHandlingContext.runAndReturn(async () => {
-        const context1 = new Promise<void>(resolve => {
-          const message = buildTransportMessage()
-          messageHandlingContext.set(message)
+      const context1 = new Promise<void>(resolve => {
+        const message = buildTransportMessage()
+        messageHandlingContext.run(message, async () => {
           const retrievedMessage = messageHandlingContext.get()!
           expect(retrievedMessage).toEqual(message)
           resolve()
         })
-        const context2 = new Promise<void>(resolve => {
-          const message = buildTransportMessage()
-          messageHandlingContext.set(message)
-          const retrievedMessage = messageHandlingContext.get()!
-          expect(retrievedMessage).toEqual(message)
-          resolve()
-        })
-        await Promise.all([context1, context2])
       })
+      const context2 = new Promise<void>(resolve => {
+        const message = buildTransportMessage()
+        messageHandlingContext.run(message, async () => {
+          const retrievedMessage = messageHandlingContext.get()!
+          expect(retrievedMessage).toEqual(message)
+          resolve()
+        })
+      })
+      await Promise.all([context1, context2])
     })
 
     it('should retrieve a message from a nested async chain', async () => {
-      await messageHandlingContext.runAndReturn(async () => {
-        const message = buildTransportMessage()
-        messageHandlingContext.set(message)
-
+      const message = buildTransportMessage()
+      await messageHandlingContext.run(message, async () => {
         await new Promise<void>(resolve => {
           const retrievedMessage = messageHandlingContext.get()!
           expect(retrievedMessage).toEqual(message)
