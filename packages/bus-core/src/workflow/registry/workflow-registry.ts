@@ -11,6 +11,7 @@ import { ContainerAdapter } from '../../container'
 import { HandlerDispatchRejected, HandlerRegistry } from '../../handler'
 import { Logger } from '../../logger'
 import { Persistence } from '../persistence'
+import { TransportMessage } from '../../transport'
 
 /**
  * A default lookup that will match a workflow by its id with the workflowId
@@ -180,17 +181,20 @@ export class WorkflowRegistry {
       handlerRegistry.register(
         messageConstructor,
         async (message, messageAttributes) => {
+          this.logger.debug('Starting new workflow instance', {
+            workflow: options.workflowCtor,
+            msg: message
+          })
+          const workflowState = this.createWorkflowState(
+            mapper.workflowStateCtor!
+          )
+          const immutableWorkflowState = Object.freeze({ ...workflowState })
+          const workflowContext = this.buildWorkflowHandlingContext(
+            immutableWorkflowState
+          )
+
           // Extend the current message handling context, and augment with workflow-specific context data
-          await messageHandlingContext.runAndReturn(async () => {
-            this.logger.debug('Starting new workflow instance', {
-              workflow: options.workflowCtor,
-              msg: message
-            })
-            const workflowState = this.createWorkflowState(
-              mapper.workflowStateCtor!
-            )
-            const immutableWorkflowState = Object.freeze({ ...workflowState })
-            this.startWorkflowHandlingContext(immutableWorkflowState)
+          await messageHandlingContext.run(workflowContext, async () => {
             let workflow: Workflow<WorkflowState>
             if (container) {
               const workflowFromContainer = container.get(
@@ -274,8 +278,8 @@ export class WorkflowRegistry {
 
           const workflowHandlers = workflowState.map(async state => {
             // Extend the current message handling context, and augment with workflow-specific context data
-            await messageHandlingContext.runAndReturn(async () => {
-              this.startWorkflowHandlingContext(state)
+            const workflowContext = this.buildWorkflowHandlingContext(state)
+            await messageHandlingContext.run(workflowContext, async () => {
               await this.dispatchMessageToWorkflow(
                 message,
                 attributes,
@@ -322,7 +326,9 @@ export class WorkflowRegistry {
    * attributes. This allows message chains to be automatically mapped
    * back to the workflow if handled.
    */
-  private async startWorkflowHandlingContext(workflowState: WorkflowState) {
+  private buildWorkflowHandlingContext(
+    workflowState: WorkflowState
+  ): TransportMessage<unknown> {
     this.logger.debug('Starting new workflow handling context', {
       workflowState
     })
@@ -330,7 +336,7 @@ export class WorkflowRegistry {
     const workflowHandlingContext = structuredClone(handlingContext)
     workflowHandlingContext.attributes.stickyAttributes.workflowId =
       workflowState.$workflowId
-    messageHandlingContext.set(workflowHandlingContext)
+    return workflowHandlingContext
   }
 
   private async dispatchMessageToWorkflow(

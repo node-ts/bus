@@ -212,7 +212,6 @@ export class BusInstance<TTransportMessage = {}> {
     if (this.transport.start) {
       await this.transport.start()
     }
-    messageHandlingContext.enable()
 
     this.internalState = BusState.Started
     for (var i = 0; i < this.concurrency; i++) {
@@ -229,7 +228,6 @@ export class BusInstance<TTransportMessage = {}> {
    * @throws InvalidBusState if the bus is already stopped or stopping
    */
   async stop(): Promise<void> {
-    messageHandlingContext.disable()
     const stoppedStates = [BusState.Stopped, BusState.Stopping]
     if (stoppedStates.includes(this.state)) {
       throw new InvalidBusState(
@@ -285,16 +283,14 @@ export class BusInstance<TTransportMessage = {}> {
     this.runningWorkerCount++
 
     // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
-    await messageHandlingContext.runAndReturn(async () => {
-      while (this.internalState === BusState.Started) {
-        const messageHandled = await this.handleNextMessage()
+    while (this.internalState === BusState.Started) {
+      const messageHandled = await this.handleNextMessage()
 
-        // Avoids locking up CPU when there's no messages to be processed
-        if (!messageHandled) {
-          await sleep(EMPTY_QUEUE_SLEEP_MS)
-        }
+      // Avoids locking up CPU when there's no messages to be processed
+      if (!messageHandled) {
+        await sleep(EMPTY_QUEUE_SLEEP_MS)
       }
-    })
+    }
     this.runningWorkerCount--
   }
 
@@ -305,33 +301,34 @@ export class BusInstance<TTransportMessage = {}> {
       if (message) {
         this.logger.debug('Message read from transport', { message })
         this.afterReceive.emit({ message })
-        messageHandlingContext.set(message)
 
-        try {
-          await this.messageReadMiddleware.dispatch(message)
+        return await messageHandlingContext.run(message, async () => {
+          try {
+            await this.messageReadMiddleware.dispatch(message)
 
-          this.afterDispatch.emit({
-            message: message.domainMessage,
-            attributes: message.attributes
-          })
-        } catch (error) {
-          this.logger.error(
-            'Message was unsuccessfully handled. Returning to queue.',
-            {
-              busMessage: message,
-              error: serializeError(error)
-            }
-          )
-          this.onError.emit({
-            message: message.domainMessage,
-            error: error as Error,
-            attributes: message.attributes,
-            rawMessage: message
-          })
-          await this.transport.returnMessage(message)
-          return false
-        }
-        return true
+            this.afterDispatch.emit({
+              message: message.domainMessage,
+              attributes: message.attributes
+            })
+            return true
+          } catch (error) {
+            this.logger.error(
+              'Message was unsuccessfully handled. Returning to queue.',
+              {
+                busMessage: message,
+                error: serializeError(error)
+              }
+            )
+            this.onError.emit({
+              message: message.domainMessage,
+              error: error as Error,
+              attributes: message.attributes,
+              rawMessage: message
+            })
+            await this.transport.returnMessage(message)
+            return false
+          }
+        })
       }
     } catch (error) {
       this.logger.error(
