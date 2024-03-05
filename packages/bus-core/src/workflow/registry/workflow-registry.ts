@@ -269,7 +269,7 @@ export class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            this.logger.warn(
+            this.logger.error(
               'No existing workflow state found for message. Ignoring.',
               { busMessage: message, attributes }
             )
