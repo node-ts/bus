@@ -9,7 +9,7 @@ export class RunTaskHandler implements Handler<RunTask> {
   constructor(private readonly bus: BusInstance) {}
 
   async handle(command: RunTask): Promise<void> {
-    const event = new TaskRan(command.value)
+    const event = new TaskRan(command.value, command.correlationId)
     await this.bus.publish(event)
   }
 }
