@@ -95,8 +95,6 @@ describe('Handler Concurrency', () => {
     constructor(private bus: BusInstance) {}
 
     async handle(message: RunTask) {
-      console.log(message.listId)
-
       if (RunTaskHandler.retryCount < 3) {
         RunTaskHandler.retryCount++
         throw new Error('Test error')
