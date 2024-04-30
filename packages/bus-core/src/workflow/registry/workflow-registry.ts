@@ -192,43 +192,17 @@ export class WorkflowRegistry {
           const workflowContext = this.buildWorkflowHandlingContext(
             immutableWorkflowState
           )
-
           // Extend the current message handling context, and augment with workflow-specific context data
           await messageHandlingContext.run(workflowContext, async () => {
-            let workflow: Workflow<WorkflowState>
-            if (container) {
-              const workflowFromContainer = container.get(
-                options.workflowCtor,
-                { message, messageAttributes }
-              )
-              if (workflowFromContainer instanceof Promise) {
-                workflow = await workflowFromContainer
-              } else {
-                workflow = workflowFromContainer
-              }
-            } else {
-              workflow = new options.workflowCtor()
-            }
-            const handler = workflow[
-              options.workflowHandler as keyof Workflow<WorkflowState>
-            ] as Function
-            const result = await handler.bind(workflow)(
+            await this.dispatchMessageToWorkflow(
               message,
+              messageAttributes,
+              options.workflowCtor,
               immutableWorkflowState,
-              messageAttributes
+              mapper.workflowStateCtor!,
+              options.workflowHandler as keyof Workflow<any>,
+              container
             )
-
-            this.logger.debug('Finished handling for new workflow', {
-              workflow: options.workflowCtor,
-              msg: message,
-              workflowState: result
-            })
-
-            if (result) {
-              // Update the original state to ensure that it remains a strongly-typed class instance
-              Object.assign(workflowState, result)
-              await this.persistence.saveWorkflowState(workflowState)
-            }
           })
         }
       )
@@ -278,13 +252,16 @@ export class WorkflowRegistry {
 
           const workflowHandlers = workflowState.map(async state => {
             // Extend the current message handling context, and augment with workflow-specific context data
-            const workflowContext = this.buildWorkflowHandlingContext(state)
+            const immutableWorkflowState = Object.freeze({ ...state })
+            const workflowContext = this.buildWorkflowHandlingContext(
+              immutableWorkflowState
+            )
             await messageHandlingContext.run(workflowContext, async () => {
               await this.dispatchMessageToWorkflow(
                 message,
                 attributes,
                 workflowCtor,
-                state,
+                immutableWorkflowState,
                 mapper.workflowStateCtor!,
                 handler.workflowHandler,
                 container
@@ -311,6 +288,7 @@ export class WorkflowRegistry {
     workflowStateType: ClassConstructor<TWorkflowState>
   ) {
     const data = new workflowStateType()
+    data.$version = 0
     data.$status = WorkflowStatus.Running
     data.$workflowId = uuid.v4()
     this.logger.debug('Created new workflow state', {
@@ -343,7 +321,7 @@ export class WorkflowRegistry {
     message: Message,
     attributes: MessageAttributes,
     workflowCtor: ClassConstructor<Workflow<WorkflowState>>,
-    workflowState: WorkflowState,
+    immutableWorkflowState: WorkflowState,
     workflowStateConstructor: ClassConstructor<WorkflowState>,
     workflowHandler: keyof Workflow<WorkflowState>,
     container: ContainerAdapter | undefined
@@ -367,7 +345,6 @@ export class WorkflowRegistry {
       workflow = new workflowCtor()
     }
 
-    const immutableWorkflowState = Object.freeze({ ...workflowState })
     const handler = workflow[workflowHandler] as Function
 
     // Invoke the workflow handler
@@ -386,20 +363,23 @@ export class WorkflowRegistry {
         'Workflow step is discarding state changes. State changes will not be persisted',
         { workflowId: immutableWorkflowState.$workflowId, workflowName }
       )
-    } else if (workflowStateOutput) {
+    } else if (workflowStateOutput || immutableWorkflowState.$version === 0) {
+      // Persist the original workflow state if nothing's returned from the workflow startedBy function
+      const workflowStateToChange =
+        workflowStateOutput ?? immutableWorkflowState
       this.logger.debug(
         'Changes detected in workflow state and will be persisted.',
         {
           workflowId: immutableWorkflowState.$workflowId,
           workflowName,
-          changes: workflowStateOutput
+          changes: workflowStateToChange
         }
       )
 
       const updatedWorkflowState = Object.assign(
         new workflowStateConstructor(),
-        workflowState,
-        workflowStateOutput
+        immutableWorkflowState,
+        workflowStateToChange
       )
 
       try {
