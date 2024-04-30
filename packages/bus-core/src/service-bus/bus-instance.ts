@@ -18,9 +18,9 @@ import {
   Handler,
   FunctionHandler,
   HandlerDefinition,
-  isClassHandler,
   HandlerDispatchRejected,
-  HandlerRegistry
+  HandlerRegistry,
+  isClassHandler
 } from '../handler'
 import { serializeError } from 'serialize-error'
 import { BusState } from './bus-state'
@@ -34,6 +34,7 @@ import { WorkflowRegistry } from '../workflow/registry'
 import { Logger } from '../logger'
 import { InvalidBusState, InvalidOperation } from './error'
 import { ContainerAdapter } from '../container'
+import ALS from 'alscontext/dist/als/als'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -68,7 +69,6 @@ export interface AfterDispatch {
   message: Message
   attributes: MessageAttributes
 }
-
 export class BusInstance<TTransportMessage = {}> {
   readonly beforeSend = new TypedEmitter<BeforeSend>()
   readonly beforePublish = new TypedEmitter<BeforePublish>()
@@ -81,6 +81,7 @@ export class BusInstance<TTransportMessage = {}> {
   private runningWorkerCount = 0
   private logger: Logger
   private isInitialized = false
+  private outbox: ALS<(() => Promise<void>)[]> = new ALS()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -151,7 +152,16 @@ export class BusInstance<TTransportMessage = {}> {
     this.logger.debug('Publishing event', { event, messageAttributes })
     const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforePublish.emit({ event, attributes })
-    return this.transport.publish(event, attributes)
+
+    const isInMessageHandler = messageHandlingContext.get()
+    if (isInMessageHandler) {
+      // Add message to outbox and only send when the handler resolves
+      const outbox = this.outbox.get('outbox')!
+      outbox.push(async () => this.transport.publish(event, attributes))
+      this.outbox.set('outbox', outbox)
+    } else {
+      return this.transport.publish(event, attributes)
+    }
   }
 
   /**
@@ -166,7 +176,16 @@ export class BusInstance<TTransportMessage = {}> {
     this.logger.debug('Sending command', { command, messageAttributes })
     const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforeSend.emit({ command, attributes })
-    return this.transport.send(command, attributes)
+
+    const isInMessageHandler = messageHandlingContext.get()
+    if (isInMessageHandler) {
+      // Add message to outbox and only send when the handler resolves
+      const outbox = this.outbox.get('outbox')!
+      outbox.push(async () => this.transport.send(command, attributes))
+      this.outbox.set('outbox', outbox)
+    } else {
+      return this.transport.send(command, attributes)
+    }
   }
 
   /**
@@ -297,6 +316,7 @@ export class BusInstance<TTransportMessage = {}> {
   private async handleNextMessage(): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
+      Object.freeze(message)
 
       if (message) {
         this.logger.debug('Message read from transport', { message })
@@ -410,6 +430,8 @@ export class BusInstance<TTransportMessage = {}> {
     attributes: MessageAttributes,
     handler: HandlerDefinition<Message>
   ): Promise<void> {
+    let handlerCallback: () => Promise<void>
+
     if (isClassHandler(handler)) {
       const classHandler = handler as ClassConstructor<Handler<Message>>
 
@@ -432,11 +454,25 @@ export class BusInstance<TTransportMessage = {}> {
         throw new ClassHandlerNotResolved((e as Error).message)
       }
 
-      return handlerInstance.handle(message, attributes)
+      handlerCallback = async () => handlerInstance!.handle(message, attributes)
     } else {
       const fnHandler = handler as FunctionHandler<Message>
-      return fnHandler(message, attributes)
+      handlerCallback = async () => fnHandler(message, attributes)
     }
+
+    await this.outbox.run({ outbox: [] }, async () => {
+      await handlerCallback()
+
+      // Flush outboxed messages for the handler
+      const outboxedMessages = this.outbox.get('outbox')
+      if (outboxedMessages) {
+        await Promise.all(
+          outboxedMessages.map(dispatchOutboxedMessage =>
+            dispatchOutboxedMessage()
+          )
+        )
+      }
+    })
   }
 
   /**
