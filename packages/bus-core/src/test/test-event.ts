@@ -5,5 +5,11 @@ export class TestEvent extends Event {
   $name = TestEvent.NAME
   $version = 1
 
+  property1: string | undefined
   property2: string
+
+  constructor(property1?: string) {
+    super()
+    this.property1 = property1
+  }
 }
