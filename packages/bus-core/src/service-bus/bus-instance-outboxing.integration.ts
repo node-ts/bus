@@ -5,10 +5,36 @@ import { TestEvent } from '../test/test-event'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 import { sleep } from '../util'
-import { InMemoryQueue } from '../transport'
+import { InMemoryQueue, TransportMessage } from '../transport'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
+import { messageHandlingContext } from '../message-handling-context'
 
 describe('BusInstance Outboxing', () => {
+  describe('when a message is sent from outside of a handler', () => {
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      bus = Bus.configure().build()
+
+      await bus.initialize()
+    })
+
+    it('should not outbox the message', async () => {
+      await messageHandlingContext.run(
+        {
+          attributes: {
+            stickyAttributes: {
+              originatorIP: '127.0.0.1',
+              originatorClientUserId: 2
+            }
+          } as any
+        } as TransportMessage<unknown>,
+        async () => {
+          await bus.send(new TestCommand())
+        }
+      )
+    })
+  })
   describe('when a message is sent from two handlers, and one fails', () => {
     let bus: BusInstance
     const testEventCallback = Mock.ofType<(source: string) => void>()

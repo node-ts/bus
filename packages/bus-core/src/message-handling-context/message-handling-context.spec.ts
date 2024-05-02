@@ -10,6 +10,24 @@ const buildTransportMessage = (): TransportMessage<unknown> => ({
 
 describe('messageHandlingContext', () => {
   describe('when a message is added', () => {
+    it('should default to not being in a handler context', () => {
+      const message = buildTransportMessage()
+      messageHandlingContext.run(message, () => {
+        expect(messageHandlingContext.isInHandlerContext).toEqual(false)
+      })
+    })
+
+    it('should override being in a handler context', () => {
+      const message = buildTransportMessage()
+      messageHandlingContext.run(
+        message,
+        () => {
+          expect(messageHandlingContext.isInHandlerContext).toEqual(true)
+        },
+        true
+      )
+    })
+
     it('should retrieve the message from within the same context', () => {
       const message = buildTransportMessage()
       messageHandlingContext.run(message, () => {

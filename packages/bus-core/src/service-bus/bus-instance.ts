@@ -153,8 +153,7 @@ export class BusInstance<TTransportMessage = {}> {
     const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforePublish.emit({ event, attributes })
 
-    const isInMessageHandler = messageHandlingContext.get()
-    if (isInMessageHandler) {
+    if (messageHandlingContext.isInHandlerContext) {
       // Add message to outbox and only send when the handler resolves
       const outbox = this.outbox.get('outbox')!
       outbox.push(async () => this.transport.publish(event, attributes))
@@ -177,8 +176,7 @@ export class BusInstance<TTransportMessage = {}> {
     const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforeSend.emit({ command, attributes })
 
-    const isInMessageHandler = messageHandlingContext.get()
-    if (isInMessageHandler) {
+    if (messageHandlingContext.isInHandlerContext) {
       // Add message to outbox and only send when the handler resolves
       const outbox = this.outbox.get('outbox')!
       outbox.push(async () => this.transport.send(command, attributes))
@@ -322,33 +320,37 @@ export class BusInstance<TTransportMessage = {}> {
         this.logger.debug('Message read from transport', { message })
         this.afterReceive.emit({ message })
 
-        return await messageHandlingContext.run(message, async () => {
-          try {
-            await this.messageReadMiddleware.dispatch(message)
+        return await messageHandlingContext.run(
+          message,
+          async () => {
+            try {
+              await this.messageReadMiddleware.dispatch(message)
 
-            this.afterDispatch.emit({
-              message: message.domainMessage,
-              attributes: message.attributes
-            })
-            return true
-          } catch (error) {
-            this.logger.error(
-              'Message was unsuccessfully handled. Returning to queue.',
-              {
-                busMessage: message,
-                error: serializeError(error)
-              }
-            )
-            this.onError.emit({
-              message: message.domainMessage,
-              error: error as Error,
-              attributes: message.attributes,
-              rawMessage: message
-            })
-            await this.transport.returnMessage(message)
-            return false
-          }
-        })
+              this.afterDispatch.emit({
+                message: message.domainMessage,
+                attributes: message.attributes
+              })
+              return true
+            } catch (error) {
+              this.logger.error(
+                'Message was unsuccessfully handled. Returning to queue.',
+                {
+                  busMessage: message,
+                  error: serializeError(error)
+                }
+              )
+              this.onError.emit({
+                message: message.domainMessage,
+                error: error as Error,
+                attributes: message.attributes,
+                rawMessage: message
+              })
+              await this.transport.returnMessage(message)
+              return false
+            }
+          },
+          true
+        )
       }
     } catch (error) {
       this.logger.error(

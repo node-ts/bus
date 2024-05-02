@@ -193,17 +193,21 @@ export class WorkflowRegistry {
             immutableWorkflowState
           )
           // Extend the current message handling context, and augment with workflow-specific context data
-          await messageHandlingContext.run(workflowContext, async () => {
-            await this.dispatchMessageToWorkflow(
-              message,
-              messageAttributes,
-              options.workflowCtor,
-              immutableWorkflowState,
-              mapper.workflowStateCtor!,
-              options.workflowHandler as keyof Workflow<any>,
-              container
-            )
-          })
+          await messageHandlingContext.run(
+            workflowContext,
+            async () => {
+              await this.dispatchMessageToWorkflow(
+                message,
+                messageAttributes,
+                options.workflowCtor,
+                immutableWorkflowState,
+                mapper.workflowStateCtor!,
+                options.workflowHandler as keyof Workflow<any>,
+                container
+              )
+            },
+            true
+          )
         }
       )
     )
@@ -256,17 +260,21 @@ export class WorkflowRegistry {
             const workflowContext = this.buildWorkflowHandlingContext(
               immutableWorkflowState
             )
-            await messageHandlingContext.run(workflowContext, async () => {
-              await this.dispatchMessageToWorkflow(
-                message,
-                attributes,
-                workflowCtor,
-                immutableWorkflowState,
-                mapper.workflowStateCtor!,
-                handler.workflowHandler,
-                container
-              )
-            })
+            await messageHandlingContext.run(
+              workflowContext,
+              async () => {
+                await this.dispatchMessageToWorkflow(
+                  message,
+                  attributes,
+                  workflowCtor,
+                  immutableWorkflowState,
+                  mapper.workflowStateCtor!,
+                  handler.workflowHandler,
+                  container
+                )
+              },
+              true
+            )
           })
 
           const handlerResults = await Promise.allSettled(workflowHandlers)
