@@ -48,6 +48,16 @@ export interface BeforePublish {
   attributes: MessageAttributes
 }
 
+export interface AfterSend {
+  command: Command
+  attributes?: MessageAttributes
+}
+
+export interface AfterPublish {
+  event: Event
+  attributes?: MessageAttributes
+}
+
 export interface OnError<TTransportMessage> {
   message: Message
   error: Error
@@ -70,18 +80,46 @@ export interface AfterDispatch {
   attributes: MessageAttributes
 }
 export class BusInstance<TTransportMessage = {}> {
+  /**
+   * Emitted before a command is sent to the transport
+   */
   readonly beforeSend = new TypedEmitter<BeforeSend>()
+  /**
+   * Emitted before an event is published to the transport
+   */
   readonly beforePublish = new TypedEmitter<BeforePublish>()
+  /**
+   * Emitted after a command has been sent to the transport
+   */
+  readonly afterSend = new TypedEmitter<AfterSend>()
+  /**
+   * Emitted after an event has been published to the transport
+   */
+  readonly afterPublish = new TypedEmitter<AfterPublish>()
+  /**
+   * Emitted when an error occurs during message handling
+   */
   readonly onError = new TypedEmitter<OnError<TTransportMessage>>()
+  /**
+   * Emitted immediately after a message has been received from the transport
+   */
   readonly afterReceive = new TypedEmitter<AfterReceive<TTransportMessage>>()
+  /**
+   * Emitted before a message is dispatched to handlers
+   */
   readonly beforeDispatch = new TypedEmitter<BeforeDispatch>()
+  /**
+   * Emitted after a message has been dispatched and completed all handler invocations
+   */
   readonly afterDispatch = new TypedEmitter<AfterDispatch>()
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
   private logger: Logger
   private isInitialized = false
-  private outbox: ALS<(() => Promise<void>)[]> = new ALS()
+  private outbox: ALS<
+    { command?: Command; event?: Event; attributes?: MessageAttributes }[]
+  > = new ALS()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -156,7 +194,7 @@ export class BusInstance<TTransportMessage = {}> {
     if (messageHandlingContext.isInHandlerContext) {
       // Add message to outbox and only send when the handler resolves
       const outbox = this.outbox.get('outbox')!
-      outbox.push(async () => this.transport.publish(event, attributes))
+      outbox.push({ event, attributes })
       this.outbox.set('outbox', outbox)
     } else {
       return this.transport.publish(event, attributes)
@@ -179,7 +217,7 @@ export class BusInstance<TTransportMessage = {}> {
     if (messageHandlingContext.isInHandlerContext) {
       // Add message to outbox and only send when the handler resolves
       const outbox = this.outbox.get('outbox')!
-      outbox.push(async () => this.transport.send(command, attributes))
+      outbox.push({ command, attributes })
       this.outbox.set('outbox', outbox)
     } else {
       return this.transport.send(command, attributes)
@@ -467,12 +505,30 @@ export class BusInstance<TTransportMessage = {}> {
 
       // Flush outboxed messages for the handler
       const outboxedMessages = this.outbox.get('outbox')
-      if (outboxedMessages) {
-        await Promise.all(
-          outboxedMessages.map(dispatchOutboxedMessage =>
-            dispatchOutboxedMessage()
-          )
-        )
+      if (outboxedMessages && outboxedMessages.length > 0) {
+        // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
+        const dispatchWorkerCount = Math.min(outboxedMessages.length, 10)
+        const workers = new Array(dispatchWorkerCount)
+          .fill(undefined)
+          .map(async () => {
+            while (true) {
+              const messageToSend = outboxedMessages.shift()
+              if (messageToSend === undefined) {
+                break
+              }
+
+              const { command, event, attributes } = messageToSend
+              if (command) {
+                await this.transport.send(command, attributes)
+                this.afterSend.emit({ command, attributes })
+              } else if (event) {
+                await this.transport.publish(event, attributes)
+                this.afterPublish.emit({ event, attributes })
+              }
+            }
+          })
+
+        await Promise.all(workers)
       }
     })
   }

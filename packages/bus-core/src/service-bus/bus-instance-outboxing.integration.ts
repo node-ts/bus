@@ -9,6 +9,8 @@ import { InMemoryQueue, TransportMessage } from '../transport'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { messageHandlingContext } from '../message-handling-context'
 
+jest.setTimeout(20_000)
+
 describe('BusInstance Outboxing', () => {
   describe('when a message is sent from outside of a handler', () => {
     let bus: BusInstance
@@ -33,6 +35,47 @@ describe('BusInstance Outboxing', () => {
           await bus.send(new TestCommand())
         }
       )
+    })
+  })
+
+  describe('when a large number of messages are sent from inside a handler', () => {
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      const numberOfMessages = 20_000
+
+      bus = Bus.configure()
+        .withHandler(
+          handlerFor(TestCommand, async () => {
+            const publishMessages = new Array(numberOfMessages)
+              .fill(undefined)
+              .map(async () => bus.publish(new TestEvent()))
+            await Promise.all(publishMessages)
+          })
+        )
+        .build()
+
+      let messagesPublishedCount = 0
+      const messagesPublished = new Promise<void>(resolve => {
+        bus.afterPublish.on(() => {
+          if (++messagesPublishedCount === numberOfMessages) {
+            resolve()
+          }
+        })
+      })
+
+      await bus.initialize()
+      await bus.start()
+      await bus.send(new TestCommand())
+      await messagesPublished
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should dispatch all messages without exhausting the heap', () => {
+      // If code execution reaches this point, the test has passed and not run out of memory
     })
   })
   describe('when a message is sent from two handlers, and one fails', () => {
@@ -83,7 +126,6 @@ describe('BusInstance Outboxing', () => {
       testEventCallback.verify(t => t('failing-handler'), Times.never())
     })
   })
-
   describe('when a message is sent in a workflow handler, that fails to persist', () => {
     let bus: BusInstance
     const testCommandCallback = Mock.ofType<() => void>()
