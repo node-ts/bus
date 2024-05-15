@@ -144,7 +144,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   ): Promise<void> {
     const messageIndex = this.queue.indexOf(message)
     if (messageIndex < 0) {
-      // actions like .fail() will cause the message to already be deleted
+      // actions like .failMessage() will cause the message to already be deleted
       this.logger.debug('Message already deleted', { message, messageIndex })
       return
     }

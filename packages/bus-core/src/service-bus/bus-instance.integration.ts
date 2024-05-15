@@ -422,7 +422,7 @@ describe('BusInstance', () => {
         let bus: BusInstance | undefined
         try {
           bus = Bus.configure().build()
-          await bus.fail()
+          await bus.failMessage()
           fail('Expected FailMessageOutsideHandlingContext to have been thrown')
         } catch (error) {
           expect(error).toBeInstanceOf(FailMessageOutsideHandlingContext)
@@ -444,7 +444,7 @@ describe('BusInstance', () => {
           .withTransport(queue)
           .withHandler(
             handlerFor(TestCommand, async () => {
-              await bus.fail()
+              await bus.failMessage()
               events.emit('event')
             })
           )

@@ -188,7 +188,7 @@ describe('InMemoryQueue', () => {
     beforeEach(async () => {
       await sut.publish(message)
       const receivedMessage = await sut.readNextMessage()
-      await sut.fail(receivedMessage!)
+      await sut.failMessage(receivedMessage!)
     })
 
     it('should forward it to the dead letter queue', () => {
@@ -202,7 +202,7 @@ describe('InMemoryQueue', () => {
         .withHandler(
           handlerFor(TestEvent, async () => {
             await bus.send(new TestCommand())
-            await bus.fail()
+            await bus.failMessage()
           })
         )
         .withHandler(

@@ -237,7 +237,7 @@ export class BusInstance<TTransportMessage = {}> {
       throw new FailMessageOutsideHandlingContext()
     }
     this.logger.debug('Failing message', { message })
-    return this.transport.fail(message)
+    return this.transport.failMessage(message)
   }
 
   /**
