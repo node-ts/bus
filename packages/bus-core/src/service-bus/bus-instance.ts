@@ -27,7 +27,8 @@ import { BusState } from './bus-state'
 import { messageHandlingContext } from '../message-handling-context'
 import {
   ClassHandlerNotResolved,
-  FailMessageOutsideHandlingContext
+  FailMessageOutsideHandlingContext,
+  ReturnMessageOutsideHandlingContext
 } from '../error'
 import { v4 as generateUuid } from 'uuid'
 import { WorkflowRegistry } from '../workflow/registry'
@@ -35,6 +36,7 @@ import { Logger } from '../logger'
 import { InvalidBusState, InvalidOperation } from './error'
 import { ContainerAdapter } from '../container'
 import ALS from 'alscontext/dist/als/als'
+import { messageLifecycleContext } from '../message-lifecycle-context'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -229,13 +231,31 @@ export class BusInstance<TTransportMessage = {}> {
    * retries and instead should immediately be routed to the dead letter queue
    * @throws FailMessageOutsideHandlingContext if called outside a message handling context
    */
-  async fail(): Promise<void> {
+  async failMessage(): Promise<void> {
     const message = messageHandlingContext.get()
     if (!message) {
       throw new FailMessageOutsideHandlingContext()
     }
     this.logger.debug('Failing message', { message })
     return this.transport.fail(message)
+  }
+
+  /**
+   * Instructs that the current message should be returned to the queue for retry.
+   * @throws ReturnMessageOutsideHandlingContext if called outside a message handling context
+   */
+  async returnMessage(): Promise<void> {
+    const context = messageLifecycleContext.get()
+    const message = messageHandlingContext.get()
+    if (!context || !message) {
+      throw new ReturnMessageOutsideHandlingContext()
+    }
+    messageLifecycleContext.set({
+      ...context,
+      messageReturnedToQueue: true
+    })
+    this.logger.debug('Returning message', { message })
+    return this.transport.returnMessage(message)
   }
 
   /**
@@ -362,12 +382,18 @@ export class BusInstance<TTransportMessage = {}> {
           message,
           async () => {
             try {
-              await this.messageReadMiddleware.dispatch(message)
+              await messageLifecycleContext.run(
+                { messageReturnedToQueue: false },
+                async () => {
+                  await this.messageReadMiddleware.dispatch(message)
 
-              this.afterDispatch.emit({
-                message: message.domainMessage,
-                attributes: message.attributes
-              })
+                  this.afterDispatch.emit({
+                    message: message.domainMessage,
+                    attributes: message.attributes
+                  })
+                }
+              )
+
               return true
             } catch (error) {
               this.logger.error(
@@ -548,7 +574,16 @@ export class BusInstance<TTransportMessage = {}> {
       message.domainMessage,
       message.attributes
     )
-    await this.transport.deleteMessage(message)
+
+    const { messageReturnedToQueue } = messageLifecycleContext.get()
+    if (!messageReturnedToQueue) {
+      this.logger.debug(
+        'Message was returned to queue by a handler and will not be deleted',
+        { message }
+      )
+      await this.transport.deleteMessage(message)
+    }
+
     return next()
   }
 

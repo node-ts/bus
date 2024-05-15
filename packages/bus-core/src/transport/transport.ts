@@ -64,7 +64,7 @@ export interface Transport<TransportMessageType = {}> {
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
    * should be returned.
    *
-   * @returns The message construct from the underlying transport, that inclues both the raw message envelope
+   * @returns The message construct from the underlying transport, that includes both the raw message envelope
    * plus the contents or body that contains the `@node-ts/bus-messages` message.
    */
   readNextMessage(): Promise<TransportMessage<TransportMessageType> | undefined>
@@ -81,7 +81,7 @@ export interface Transport<TransportMessageType = {}> {
    * trying to process a message.
    * @param message The message to be returned to the queue for reprocessing
    */
-  returnMessage(message: TransportMessage<TransportMessageType>): Promise<void>
+  returnMessage(message: TransportMessage<unknown>): Promise<void>
 
   /**
    * An optional function that is called before startup that will provide core dependencies
