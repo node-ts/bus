@@ -78,7 +78,7 @@ export const transportTests = (
             topicIdentifier: systemMessageTopicIdentifier
           }
         )
-        .withHandler(handlerFor(TestFailMessage, async () => bus.fail()))
+        .withHandler(handlerFor(TestFailMessage, async () => bus.failMessage()))
         .withRetryStrategy({
           calculateRetryDelay(_: number): number {
             return RETRY_DELAY

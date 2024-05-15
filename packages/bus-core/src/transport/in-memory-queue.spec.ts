@@ -202,7 +202,7 @@ describe('InMemoryQueue', () => {
         .withHandler(
           handlerFor(TestEvent, async () => {
             await bus.send(new TestCommand())
-            await bus.fail()
+            await bus.failMessage()
           })
         )
         .withHandler(
