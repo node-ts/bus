@@ -400,7 +400,7 @@ export class WorkflowRegistry {
         throw error
       }
     } else {
-      this.logger.trace('No changes detected in workflow state.', {
+      this.logger.debug('No changes detected in workflow state.', {
         workflowId: immutableWorkflowState.$workflowId
       })
     }
@@ -409,7 +409,7 @@ export class WorkflowRegistry {
   private async persist(data: WorkflowState) {
     try {
       await this.persistence.saveWorkflowState(data)
-      this.logger.info('Workflow state saved', { data })
+      this.logger.debug('Workflow state saved', { data })
     } catch (err) {
       this.logger.error('Error persisting workflow state', { err })
       throw err
