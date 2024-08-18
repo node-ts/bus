@@ -1,3 +1,4 @@
+import { TransportMessage } from 'src/transport'
 import { MessageSerializer } from '../serialization'
 
 /**
@@ -5,7 +6,10 @@ import { MessageSerializer } from '../serialization'
  * to the transport. This can be useful for local testing or in serverless environments, where the cloud
  * will manage receiving a message from the transport and passing it directly to the serverless container.
  */
-export interface Receiver<TReceivedMessage, TTransportMessage> {
+export interface Receiver<
+  TReceivedMessage = object,
+  TTransportMessage extends TransportMessage<unknown> = TransportMessage<unknown>
+> {
   /**
    * Invoked when a message is received by the application and needs to be converted into a transport message
    * so that it can be passed to the dispatcher and send to handlers.
