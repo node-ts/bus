@@ -1,4 +1,4 @@
-import { Receiver } from 'src/receiver'
+import { Receiver } from '../receiver'
 import { ContainerAdapter } from '../container'
 import { ContainerNotRegistered } from '../error'
 import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
