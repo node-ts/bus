@@ -162,7 +162,11 @@ export class BusInstance<TTransportMessage = {}> {
     const throttle = throat(this.concurrency)
     await Promise.all(
       messagesToDispatch.map(message =>
-        throttle(() => this.handleReceivedMessage(message))
+        throttle(() =>
+          this.handleReceivedMessage(
+            message as TransportMessage<TTransportMessage>
+          )
+        )
       )
     )
   }
