@@ -37,6 +37,7 @@ import { InvalidBusState, InvalidOperation } from './error'
 import { ContainerAdapter } from '../container'
 import ALS from 'alscontext/dist/als/als'
 import { messageLifecycleContext } from '../message-lifecycle-context'
+import { Receiver } from '../receiver'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -133,12 +134,21 @@ export class BusInstance<TTransportMessage = {}> {
     >,
     private readonly handlerRegistry: HandlerRegistry,
     private readonly container: ContainerAdapter | undefined,
-    private readonly sendOnly: boolean
+    private readonly sendOnly: boolean,
+    private readonly receiver: Receiver | undefined
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
     )
     this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
+  }
+
+  async handler(): Promise<void> {
+    if (!this.receiver) {
+      throw new InvalidOperation(
+        'Cannot use handler when a Receiver is not set. Use Bus.configure().withReceiver() to set a Receiver.'
+      )
+    }
   }
 
   /**
@@ -264,6 +274,7 @@ export class BusInstance<TTransportMessage = {}> {
    *
    * @throws InvalidOperation if the bus is configured to be send-only
    * @throws InvalidOperation if the bus has not been initialized
+   * @throws InvalidOperation if the bus has a receiver set
    * @throws InvalidBusState if the bus is already started or in a starting state
    */
   async start(): Promise<void> {
@@ -272,6 +283,11 @@ export class BusInstance<TTransportMessage = {}> {
     }
     if (!this.isInitialized) {
       throw new InvalidOperation('Bus must be initialized before starting')
+    }
+    if (this.receiver) {
+      throw new InvalidOperation(
+        'Cannot start a bus with a Receiver. Pass incoming messages for dispatch by invoking bus.receive()'
+      )
     }
     const startedStates = [BusState.Started, BusState.Starting]
     if (startedStates.includes(this.state)) {
