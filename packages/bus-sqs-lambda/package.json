@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@node-ts/bus-core": "workspace:^",
+    "@node-ts/bus-sqs": "workspace:^",
     "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
     "@types/aws-lambda": "^8.10.143",
