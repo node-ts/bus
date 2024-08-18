@@ -20,6 +20,7 @@
     "reflect-metadata": "^0.1.13",
     "serialize-error": "8",
     "supports-color": "^9.0.1",
+    "throat": "^6.0.2",
     "tslib": "^2.6.2",
     "uuid": "^8.3.2"
   },

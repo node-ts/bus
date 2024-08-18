@@ -7,7 +7,7 @@ import { MessageSerializer } from '../serialization'
  * will manage receiving a message from the transport and passing it directly to the serverless container.
  */
 export interface Receiver<
-  TReceivedMessage = object,
+  TReceivedMessage = unknown,
   TTransportMessage extends TransportMessage<unknown> = TransportMessage<unknown>
 > {
   /**
