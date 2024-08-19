@@ -144,12 +144,17 @@ export class BusInstance<TTransportMessage = {}> {
     this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
   }
 
+  /**
+   * Receive one or more messages to dispatch directly to handlers. This can only be called when a Receiver
+   * has been configured using Bus.configure().withReceiver()
+   */
   async receive(message: unknown): Promise<void> {
     if (!this.receiver) {
       throw new InvalidOperation(
         'Cannot use handler when a Receiver is not set. Use Bus.configure().withReceiver() to set a Receiver.'
       )
     }
+    this.logger.info('Received messages to process')
     const messagesReceived = await this.receiver.receive(
       message,
       this.coreDependencies.messageSerializer
@@ -157,6 +162,10 @@ export class BusInstance<TTransportMessage = {}> {
     const messagesToDispatch = Array.isArray(messagesReceived)
       ? messagesReceived
       : [messagesReceived]
+
+    this.logger.debug('Parsed messages from receiver', {
+      numMessages: messagesToDispatch.length
+    })
 
     // Throttle back to concurrency, since batch sizes can be far beyond this limit.
     const throttle = throat(this.concurrency)
@@ -169,6 +178,8 @@ export class BusInstance<TTransportMessage = {}> {
         )
       )
     )
+
+    this.logger.debug('All received messages dispatched to handlers')
   }
 
   /**
