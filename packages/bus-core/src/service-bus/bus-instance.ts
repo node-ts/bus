@@ -37,6 +37,8 @@ import { InvalidBusState, InvalidOperation } from './error'
 import { ContainerAdapter } from '../container'
 import ALS from 'alscontext/dist/als/als'
 import { messageLifecycleContext } from '../message-lifecycle-context'
+import { Receiver } from '../receiver'
+import throat from 'throat'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
@@ -133,12 +135,51 @@ export class BusInstance<TTransportMessage = {}> {
     >,
     private readonly handlerRegistry: HandlerRegistry,
     private readonly container: ContainerAdapter | undefined,
-    private readonly sendOnly: boolean
+    private readonly sendOnly: boolean,
+    private readonly receiver: Receiver | undefined
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
     )
     this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
+  }
+
+  /**
+   * Receive one or more messages to dispatch directly to handlers. This can only be called when a Receiver
+   * has been configured using Bus.configure().withReceiver()
+   */
+  async receive(message: unknown): Promise<void> {
+    if (!this.receiver) {
+      throw new InvalidOperation(
+        'Cannot use handler when a Receiver is not set. Use Bus.configure().withReceiver() to set a Receiver.'
+      )
+    }
+    this.logger.info('Received messages to process')
+    const messagesReceived = await this.receiver.receive(
+      message,
+      this.coreDependencies.messageSerializer
+    )
+    const messagesToDispatch = Array.isArray(messagesReceived)
+      ? messagesReceived
+      : [messagesReceived]
+
+    this.logger.debug('Parsed messages from receiver', {
+      numMessages: messagesToDispatch.length
+    })
+
+    // Throttle back to concurrency, since batch sizes can be far beyond this limit.
+    const throttle = throat(this.concurrency)
+    await Promise.all(
+      messagesToDispatch.map(message =>
+        throttle(() =>
+          this.handleReceivedMessage(
+            message as TransportMessage<TTransportMessage>
+          )
+        )
+      )
+    )
+
+    this.logger.debug('All received messages dispatched to handlers')
   }
 
   /**
@@ -264,6 +305,7 @@ export class BusInstance<TTransportMessage = {}> {
    *
    * @throws InvalidOperation if the bus is configured to be send-only
    * @throws InvalidOperation if the bus has not been initialized
+   * @throws InvalidOperation if the bus has a receiver set
    * @throws InvalidBusState if the bus is already started or in a starting state
    */
   async start(): Promise<void> {
@@ -272,6 +314,11 @@ export class BusInstance<TTransportMessage = {}> {
     }
     if (!this.isInitialized) {
       throw new InvalidOperation('Bus must be initialized before starting')
+    }
+    if (this.receiver) {
+      throw new InvalidOperation(
+        'Cannot start a bus with a Receiver. Pass incoming messages for dispatch by invoking bus.receive()'
+      )
     }
     const startedStates = [BusState.Started, BusState.Starting]
     if (startedStates.includes(this.state)) {
@@ -361,7 +408,7 @@ export class BusInstance<TTransportMessage = {}> {
     while (this.internalState === BusState.Started) {
       const messageHandled = await this.handleNextMessage()
 
-      // Avoids locking up CPU when there's no messages to be processed
+      // Avoids locking up CPU when there are no messages to be processed
       if (!messageHandled) {
         await sleep(EMPTY_QUEUE_SLEEP_MS)
       }
@@ -372,50 +419,64 @@ export class BusInstance<TTransportMessage = {}> {
   private async handleNextMessage(): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
+      if (message) {
+        return this.handleReceivedMessage(message)
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to handle and dispatch message from transport',
+        { error: serializeError(error) }
+      )
+    }
+    return false
+  }
+
+  private async handleReceivedMessage(
+    message: TransportMessage<TTransportMessage>
+  ): Promise<boolean> {
+    try {
       Object.freeze(message)
 
-      if (message) {
-        this.logger.debug('Message read from transport', { message })
-        this.afterReceive.emit({ message })
+      this.logger.debug('Message read from transport', { message })
+      this.afterReceive.emit({ message })
 
-        return await messageHandlingContext.run(
-          message,
-          async () => {
-            try {
-              await messageLifecycleContext.run(
-                { messageReturnedToQueue: false },
-                async () => {
-                  await this.messageReadMiddleware.dispatch(message)
+      return await messageHandlingContext.run(
+        message,
+        async () => {
+          try {
+            await messageLifecycleContext.run(
+              { messageReturnedToQueue: false },
+              async () => {
+                await this.messageReadMiddleware.dispatch(message)
 
-                  this.afterDispatch.emit({
-                    message: message.domainMessage,
-                    attributes: message.attributes
-                  })
-                }
-              )
+                this.afterDispatch.emit({
+                  message: message.domainMessage,
+                  attributes: message.attributes
+                })
+              }
+            )
 
-              return true
-            } catch (error) {
-              this.logger.error(
-                'Message was unsuccessfully handled. Returning to queue.',
-                {
-                  busMessage: message,
-                  error: serializeError(error)
-                }
-              )
-              this.onError.emit({
-                message: message.domainMessage,
-                error: error as Error,
-                attributes: message.attributes,
-                rawMessage: message
-              })
-              await this.transport.returnMessage(message)
-              return false
-            }
-          },
-          true
-        )
-      }
+            return true
+          } catch (error) {
+            this.logger.error(
+              'Message was unsuccessfully handled. Returning to queue.',
+              {
+                busMessage: message,
+                error: serializeError(error)
+              }
+            )
+            this.onError.emit({
+              message: message.domainMessage,
+              error: error as Error,
+              attributes: message.attributes,
+              rawMessage: message
+            })
+            await this.transport.returnMessage(message)
+            return false
+          }
+        },
+        true
+      )
     } catch (error) {
       this.logger.error(
         'Failed to handle and dispatch message from transport',

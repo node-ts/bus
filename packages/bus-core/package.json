@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-core",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "A service bus for message-based, distributed node applications",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,6 +20,7 @@
     "reflect-metadata": "^0.1.13",
     "serialize-error": "8",
     "supports-color": "^9.0.1",
+    "throat": "^6.0.2",
     "tslib": "^2.6.2",
     "uuid": "^8.3.2"
   },

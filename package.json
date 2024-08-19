@@ -29,8 +29,8 @@
     "node"
   ],
   "engines": {
-    "pnpm": "^8.8.0",
-    "node": ">=16.15.1"
+    "pnpm": "^9.6.0",
+    "node": ">=20.12.2"
   },
   "workspaces": [
     "packages/*"
@@ -49,8 +49,8 @@
     "supports-color": "^9.0.1",
     "ts-jest": "^29.1.2",
     "ts-node": "^10.9.2",
-    "tslib": "^2.6.2",
-    "typescript": "^5.3.3"
+    "tslib": "^2.6.3",
+    "typescript": "^5.5.4"
   },
   "lint-staged": {
     "*.(ts|tsx|js|md|css|html|json)": "prettier --ignore-path .gitignore --write --config .prettierrc.js"

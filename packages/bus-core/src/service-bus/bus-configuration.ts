@@ -1,3 +1,4 @@
+import { Receiver } from '../receiver'
 import { ContainerAdapter } from '../container'
 import { ContainerNotRegistered } from '../error'
 import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
@@ -49,6 +50,7 @@ export class BusConfiguration {
   private retryStrategy: RetryStrategy = new DefaultRetryStrategy()
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+  private receiver: Receiver | undefined
 
   /**
    * Constructs an instance of a bus from the configuration
@@ -92,7 +94,8 @@ export class BusConfiguration {
       this.messageReadMiddlewares,
       this.handlerRegistry,
       this.container,
-      this.sendOnly
+      this.sendOnly,
+      this.receiver
     )
     return this.busInstance
   }
@@ -290,6 +293,22 @@ export class BusConfiguration {
     this.interruptSignals = Array.from(
       new Set([...this.interruptSignals, ...signals])
     )
+    return this
+  }
+
+  /**
+   * Register a receiving mechanism that will be used to receive messages and deliver
+   * them to the dispatcher.
+   *
+   * Usually the bus will connect to a transport and receive messages directly. However
+   * a different receiver plugin can be used that will become responsible for this instead.
+   *
+   * Once the bus is configured, messages can be received by passing the received message into bus.receive().
+   *
+   * @param receiver The receiver mechanism to use, or `undefined` to use the default behaviour
+   */
+  withReceiver(receiver: Receiver | undefined): this {
+    this.receiver = receiver
     return this
   }
 }
