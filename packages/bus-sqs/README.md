@@ -29,10 +29,8 @@ const sqsConfiguration: SqsTransportConfiguration = {
 const sqsTransport = new SqsTransport(sqsConfiguration)
 
 // Configure Bus to use SQS as a transport
-const run = async () => {
-  await Bus.configure().withTransport(sqsTransport).initialize()
-}
-run.catch(console.error)
+const bus = Bus.configure().withTransport(sqsTransport).build()
+await bus.initialize()
 ```
 
 ## Development
