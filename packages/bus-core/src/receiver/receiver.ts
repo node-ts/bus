@@ -1,4 +1,4 @@
-import { TransportMessage } from 'src/transport'
+import { TransportMessage } from '../transport'
 import { MessageSerializer } from '../serialization'
 
 /**
