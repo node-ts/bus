@@ -380,8 +380,9 @@ export class SqsTransport implements Transport<SQSMessage> {
     try {
       await this.sqs.send(command)
     } catch (err) {
-      const error = err as { code: string }
-      if (error.code === 'QueueAlreadyExists') {
+      const error = err as { code?: string; Error?: { Code: string } }
+      const code = error.code ?? error.Error?.Code
+      if (code === 'QueueAlreadyExists') {
         this.logger.trace('Queue already exists', { queueName })
       } else {
         const endpoint = await this.sqs.config.endpoint?.()
