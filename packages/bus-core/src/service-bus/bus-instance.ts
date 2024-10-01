@@ -471,6 +471,11 @@ export class BusInstance<TTransportMessage = {}> {
               attributes: message.attributes,
               rawMessage: message
             })
+
+            // Receivers expect the host to return the message to the queue for retry
+            if (this.receiver) {
+              throw error
+            }
             await this.transport.returnMessage(message)
             return false
           }
@@ -482,6 +487,10 @@ export class BusInstance<TTransportMessage = {}> {
         'Failed to handle and dispatch message from transport',
         { error: serializeError(error) }
       )
+      // Receivers expect the host to return the message to the queue for retry
+      if (this.receiver) {
+        throw error
+      }
     }
     return false
   }
@@ -637,11 +646,13 @@ export class BusInstance<TTransportMessage = {}> {
     )
 
     const { messageReturnedToQueue } = messageLifecycleContext.get()
-    if (!messageReturnedToQueue) {
+    if (messageReturnedToQueue) {
       this.logger.debug(
         'Message was returned to queue by a handler and will not be deleted',
         { message }
       )
+      // Receivers assume that the the host is responsible for deleting successful messages
+    } else if (!this.receiver) {
       await this.transport.deleteMessage(message)
     }
 

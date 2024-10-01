@@ -1,12 +1,13 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Receiver } from '../receiver'
 import { MessageSerializer } from '../serialization'
-import { TransportMessage } from '../transport'
+import { InMemoryQueue, TransportMessage } from '../transport'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 import { InvalidOperation } from './error'
 import { handlerFor } from '../handler'
-import { TestCommand } from '../test'
+import { TestCommand, TestEvent } from '../test'
+import { It, Mock, Times } from 'typemoq'
 
 const emptyAttributes: MessageAttributes = {
   attributes: {},
@@ -39,11 +40,17 @@ describe('BusInstance Receiver', () => {
     let bus: BusInstance
     let commandHandler = jest.fn()
     let testCommandHandler = handlerFor(TestCommand, commandHandler)
+    const handlerThatThrows = handlerFor(TestEvent, () => {
+      throw new Error()
+    })
+    const queue = Mock.ofType<InMemoryQueue>()
 
     beforeAll(async () => {
       bus = Bus.configure()
         .withReceiver(receiver)
         .withHandler(testCommandHandler)
+        .withHandler(handlerThatThrows)
+        .withTransport(queue.object)
         .build()
       await bus.initialize()
     })
@@ -67,6 +74,19 @@ describe('BusInstance Receiver', () => {
 
       it('should dispatch to handlers', () => {
         expect(commandHandler).toHaveBeenCalledWith(command, emptyAttributes)
+      })
+
+      it('should not call delete message, as the receiver implementation should handle it', () => {
+        queue.verify(q => q.deleteMessage(It.isAny()), Times.never())
+      })
+    })
+
+    describe('when an error is thrown when receiving a message', () => {
+      it('the error should be re-thrown so the receiver host can retry the message', async () => {
+        const event = new TestEvent()
+        await expect(bus.receive(event)).rejects.toThrow()
+        // Receiver host should return the message, not the application
+        queue.verify(q => q.returnMessage(It.isAny()), Times.never())
       })
     })
 

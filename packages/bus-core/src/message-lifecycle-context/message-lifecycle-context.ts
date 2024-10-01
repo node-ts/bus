@@ -1,6 +1,10 @@
 import ALS from 'alscontext'
 
 type Context = {
+  /**
+   * Flags that the application has requested that the current message be
+   * returned to the queue for retry.
+   */
   messageReturnedToQueue: boolean
 }
 
