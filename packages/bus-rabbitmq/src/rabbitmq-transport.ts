@@ -103,6 +103,22 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.publishMessage(command, messageAttributes)
   }
 
+  async sendBatch<TCommand extends Command>(
+    _commands: TCommand[],
+    _messageOptions?: MessageAttributes
+  ): Promise<void> {
+    this.logger.warn('sendBatch is called but not supported by RabbitMqTransport.');
+    throw new Error('Batch operations are not supported by RabbitMqTransport.');
+  }
+
+  async publishBatch<TEvent extends Event>(
+    _events: TEvent[],
+    _messageOptions?: MessageAttributes
+  ): Promise<void> {
+    this.logger.warn('publishBatch is called but not supported by RabbitMqTransport.');
+    throw new Error('Batch operations are not supported by RabbitMqTransport.');
+  }
+
   async fail(transportMessage: TransportMessage<unknown>): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
     const serializedPayload = this.coreDependencies.messageSerializer.serialize(

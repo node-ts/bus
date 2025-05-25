@@ -234,5 +234,125 @@ export const transportTests = (
         )
       })
     })
+
+    describe('when sending a batch of commands', () => {
+      const command1 = new TestCommand(uuid.v4(), new Date())
+      const command2 = new TestCommand(uuid.v4(), new Date())
+      const batchCommands = [command1, command2]
+      const messageOptions: MessageAttributes = {
+        correlationId: uuid.v4(),
+        attributes: { batch: 'true', sender: 'sendBatch-test' }
+      }
+      let receivedCount = 0
+      const totalMessages = batchCommands.length
+      let allMessagesHandled: Promise<void>
+
+      beforeEach(() => {
+        handleChecker.reset() // Reset mock before each test in this describe
+        receivedCount = 0
+        allMessagesHandled = new Promise<void>(resolve => {
+          const onCommandReceived = () => {
+            receivedCount++
+            if (receivedCount === totalMessages) {
+              testCommandHandlerEmitter.off('received', onCommandReceived)
+              resolve()
+            }
+          }
+          testCommandHandlerEmitter.on('received', onCommandReceived)
+        })
+      })
+
+      it('should handle all commands in the batch or throw not supported error', async () => {
+        try {
+          await bus.sendBatch(batchCommands, messageOptions)
+          // If no error, transport supports batching
+          await allMessagesHandled
+
+          handleChecker.verify(
+            h => h.check(
+              It.is((cmd: TestCommand) => cmd.id === command1.id),
+              It.isObjectWith(messageOptions)
+            ),
+            Times.once()
+          )
+          handleChecker.verify(
+            h => h.check(
+              It.is((cmd: TestCommand) => cmd.id === command2.id),
+              It.isObjectWith(messageOptions)
+            ),
+            Times.once()
+          )
+        } catch (e: any) {
+          // Transport does not support batching
+          expect(e.message).toEqual(
+            'Batch operations are not supported by RabbitMqTransport.'
+          )
+          handleChecker.verify(
+            h => h.check(It.isAny(), It.isAny()),
+            Times.never()
+          )
+        }
+      })
+    })
+
+    describe('when publishing a batch of events', () => {
+      const event1 = new TestEvent(uuid.v4())
+      const event2 = new TestEvent(uuid.v4())
+      const batchEvents = [event1, event2]
+      const messageOptions: MessageAttributes = {
+        correlationId: uuid.v4(),
+        attributes: { batch: 'true', publisher: 'publishBatch-test' }
+      }
+      let receivedCount = 0
+      const totalMessages = batchEvents.length
+      let allMessagesHandled: Promise<void>
+
+      beforeEach(() => {
+        handleChecker.reset() // Reset mock before each test in this describe
+        receivedCount = 0
+        allMessagesHandled = new Promise<void>(resolve => {
+          const onEventReceived = () => {
+            receivedCount++
+            if (receivedCount === totalMessages) {
+              testEventHandlerEmitter.off('received', onEventReceived)
+              resolve()
+            }
+          }
+          testEventHandlerEmitter.on('received', onEventReceived)
+        })
+      })
+
+      it('should handle all events in the batch or throw not supported error', async () => {
+        try {
+          await bus.publishBatch(batchEvents, messageOptions)
+          // If no error, transport supports batching
+          await allMessagesHandled
+
+          handleChecker.verify(
+            h => h.check(
+              It.is((evt: TestEvent) => evt.id === event1.id),
+              It.isObjectWith(messageOptions)
+            ),
+            Times.once()
+          )
+          handleChecker.verify(
+            h => h.check(
+              It.is((evt: TestEvent) => evt.id === event2.id),
+              It.isObjectWith(messageOptions)
+            ),
+            Times.once()
+          )
+        } catch (e: any) {
+          // Transport does not support batching
+          expect(e.message).toEqual(
+            'Batch operations are not supported by RabbitMqTransport.'
+          )
+          handleChecker.verify(
+            h => h.check(It.isAny(), It.isAny()),
+            Times.never()
+          )
+        }
+      })
+    })
   })
 }
