@@ -4,6 +4,9 @@ import {
   CreateTopicCommand,
   MessageAttributeValue,
   PublishCommand,
+  PublishBatchCommand,
+  PublishBatchCommandInput,
+  PublishBatchRequestEntry,
   SNSClient,
   SubscribeCommand
 } from '@aws-sdk/client-sns'
@@ -31,7 +34,8 @@ import {
   TransportMessage,
   CoreDependencies,
   Logger,
-  TransportInitializationOptions
+  TransportInitializationOptions,
+  uuid
 } from '@node-ts/bus-core'
 import { generatePolicy } from './generate-policy'
 import {
@@ -130,6 +134,114 @@ export class SqsTransport implements Transport<SQSMessage> {
     messageAttributes?: MessageAttributes
   ): Promise<void> {
     await this.publishMessage(command, messageAttributes)
+  }
+
+  async sendBatch<TCommand extends Command>(
+    commands: TCommand[],
+    messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+  ): Promise<void> {
+    if (commands.length === 0) {
+      this.logger.debug('sendBatch called with an empty command list.')
+      return
+    }
+
+    this.logger.info(`Attempting to send a batch of ${commands.length} commands.`)
+    await this.assertSnsTopicsForMessages(commands)
+
+    const messagesByTopic = await this.groupMessagesByTopic(commands)
+
+    for (const [topicArn, topicMessages] of messagesByTopic.entries()) {
+      this.logger.debug(`Sending batch for topic ${topicArn}`, { count: topicMessages.length })
+      await this.executePublishBatchInternal(topicMessages, topicArn, messageOptions)
+    }
+  }
+
+  async publishBatch<TEvent extends Event>(
+    events: TEvent[],
+    messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+  ): Promise<void> {
+    if (events.length === 0) {
+      this.logger.debug('publishBatch called with an empty event list.')
+      return
+    }
+
+    this.logger.info(`Attempting to publish a batch of ${events.length} events.`)
+    await this.assertSnsTopicsForMessages(events)
+
+    const messagesByTopic = await this.groupMessagesByTopic(events)
+
+    for (const [topicArn, topicMessages] of messagesByTopic.entries()) {
+      this.logger.debug(`Publishing batch for topic ${topicArn}`, { count: topicMessages.length })
+      await this.executePublishBatchInternal(topicMessages, topicArn, messageOptions)
+    }
+  }
+
+  private async assertSnsTopicsForMessages(messages: Message[]): Promise<void> {
+    const uniqueMessageNames = [...new Set(messages.map(m => m.$name))];
+    this.logger.debug('Asserting SNS topics for message types in batch', { uniqueMessageNames });
+    for (const messageName of uniqueMessageNames) {
+      const sampleMessage = messages.find(m => m.$name === messageName);
+      if (sampleMessage) {
+          await this.assertSnsTopic(sampleMessage);
+      }
+    }
+  }
+
+  private async groupMessagesByTopic(messages: Message[]): Promise<Map<string, Message[]>> {
+    const messagesByTopic: Map<string, Message[]> = new Map();
+    for (const message of messages) {
+      const topicName = this.resolveTopicName(message.$name);
+      const topicArn = this.resolveTopicArn(
+        this.sqsConfiguration.awsAccountId!,
+        this.sqsConfiguration.awsRegion!,
+        topicName
+      );
+      if (!messagesByTopic.has(topicArn)) {
+        messagesByTopic.set(topicArn, []);
+      }
+      messagesByTopic.get(topicArn)!.push(message);
+    }
+    return messagesByTopic;
+  }
+
+  private async executePublishBatchInternal(
+    messages: Message[],
+    topicArn: string,
+    commonMessageAttributes: MessageAttributes
+  ): Promise<void> {
+    const attributeMap = toMessageAttributeMap(commonMessageAttributes)
+    const batchSize = 10; // SNS PublishBatch limit
+
+    for (let i = 0; i < messages.length; i += batchSize) {
+      const chunk = messages.slice(i, i + batchSize);
+      const entries: PublishBatchRequestEntry[] = chunk.map(message => ({
+        Id: message.id || uuid(), // Ensure message has an ID or generate one. uuid() is from @node-ts/bus-core
+        Message: this.coreDependencies.messageSerializer.serialize(message),
+        MessageAttributes: attributeMap, // Apply common attributes to all messages in batch
+        Subject: message.$name
+      }));
+
+      const commandInput: PublishBatchCommandInput = {
+        TopicArn: topicArn,
+        PublishBatchRequestEntries: entries
+      };
+      const command = new PublishBatchCommand(commandInput);
+
+      this.logger.debug(`Sending chunk of ${entries.length} messages to SNS topic ${topicArn}`, { commandInput });
+      try {
+        const result = await this.sns.send(command);
+        if (result.Failed && result.Failed.length > 0) {
+          this.logger.error('Some messages failed to publish in batch', { failedMessages: result.Failed, topicArn });
+          // Potentially throw an error or handle partial failures as needed by the application
+        }
+        if (result.Successful && result.Successful.length > 0) {
+          this.logger.debug(`${result.Successful.length} messages successfully published in batch to topic ${topicArn}`);
+        }
+      } catch (error) {
+        this.logger.error(`Error sending message batch to SNS topic ${topicArn}`, { error, topicArn });
+        throw error; // Rethrow or handle as appropriate
+      }
+    }
   }
 
   async fail(transportMessage: TransportMessage<SQSMessage>): Promise<void> {

@@ -49,6 +49,28 @@ export interface Transport<TransportMessageType = {}> {
   ): Promise<void>
 
   /**
+   * Sends a batch of commands to the underlying transport.
+   * @param commands An array of domain commands to be sent
+   * @param messageOptions Options that control the behaviour around how the messages are sent and
+   * additional information that travels with them.
+   */
+  sendBatch<TCommand extends Command>(
+    commands: TCommand[],
+    messageOptions?: MessageAttributes
+  ): Promise<void>
+
+  /**
+   * Publishes a batch of events to the underlying transport.
+   * @param events An array of domain events to be published
+   * @param messageOptions Options that control the behaviour around how the messages are sent and
+   * additional information that travels with them.
+   */
+  publishBatch<TEvent extends Event>(
+    events: TEvent[],
+    messageOptions?: MessageAttributes
+  ): Promise<void>
+
+  /**
    * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
    * queue and have a receipt handle.
    */

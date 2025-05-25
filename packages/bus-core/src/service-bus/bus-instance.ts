@@ -268,6 +268,38 @@ export class BusInstance<TTransportMessage = {}> {
   }
 
   /**
+   * Sends a batch of commands to the transport
+   * @param commands An array of commands to send
+   * @param messageAttributes A set of attributes to attach to the outgoing message when sent
+   */
+  async sendBatch<TCommand extends Command>(
+    commands: TCommand[],
+    messageAttributes: Partial<MessageAttributes> = {}
+  ): Promise<void> {
+    this.logger.debug('Sending command batch', { commands, messageAttributes });
+    const attributes = this.prepareTransportOptions(messageAttributes);
+    // TODO: Consider outbox pattern for batch operations if required in future.
+    // For now, directly calling transport.
+    return this.transport.sendBatch(commands, attributes);
+  }
+
+  /**
+   * Publishes a batch of events to the transport
+   * @param events An array of events to publish
+   * @param messageAttributes A set of attributes to attach to the outgoing message when published
+   */
+  async publishBatch<TEvent extends Event>(
+    events: TEvent[],
+    messageAttributes: Partial<MessageAttributes> = {}
+  ): Promise<void> {
+    this.logger.debug('Publishing event batch', { events, messageAttributes });
+    const attributes = this.prepareTransportOptions(messageAttributes);
+    // TODO: Consider outbox pattern for batch operations if required in future.
+    // For now, directly calling transport.
+    return this.transport.publishBatch(events, attributes);
+  }
+
+  /**
    * Instructs the bus that the current message being handled cannot be processed even with
    * retries and instead should immediately be routed to the dead letter queue
    * @throws FailMessageOutsideHandlingContext if called outside a message handling context
