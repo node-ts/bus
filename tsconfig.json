@@ -1,11 +1,14 @@
 {
-  "extends": "@tsconfig/node18/tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2020"],
-    "target": "ES6",
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "skipLibCheck": true,
     "declaration": true,
     "strictPropertyInitialization": false,
+    "strict": true,
+    "alwaysStrict": true,
+    "esModuleInterop": true,
 
     // Handled in linting, useful for testing
     "allowUnreachableCode": true,

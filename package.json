@@ -30,27 +30,28 @@
   ],
   "engines": {
     "pnpm": "^9.6.0",
-    "node": ">=20.12.2"
+    "node": ">=22"
   },
+  "engineStrict": true,
   "workspaces": [
     "packages/*"
   ],
   "devDependencies": {
-    "@tsconfig/node18": "^18.2.2",
-    "@types/jest": "^29.5.11",
-    "dotenv-cli": "^4.0.0",
-    "esbuild": "^0.20.0",
+    "@tsconfig/node18": "^18.2.4",
+    "@types/jest": "^29.5.14",
+    "dotenv-cli": "^4.1.1",
+    "esbuild": "^0.20.2",
     "husky": "^8.0.3",
     "jest": "^29.7.0",
-    "lint-staged": "^13.2.2",
+    "lint-staged": "^13.3.0",
     "prettier": "^2.8.8",
-    "prettier-plugin-organize-imports": "^3.2.2",
-    "reflect-metadata": "^0.1.13",
-    "supports-color": "^9.0.1",
-    "ts-jest": "^29.1.2",
+    "prettier-plugin-organize-imports": "^3.2.4",
+    "reflect-metadata": "^0.1.14",
+    "supports-color": "^9.4.0",
+    "ts-jest": "^29.4.0",
     "ts-node": "^10.9.2",
-    "tslib": "^2.6.3",
-    "typescript": "^5.5.4"
+    "tslib": "^2.8.1",
+    "typescript": "^5.8.3"
   },
   "lint-staged": {
     "*.(ts|tsx|js|md|css|html|json)": "prettier --ignore-path .gitignore --write --config .prettierrc.js"
