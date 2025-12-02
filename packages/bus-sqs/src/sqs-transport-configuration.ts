@@ -106,4 +106,17 @@ export interface SqsTransportConfiguration
    *   `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
    */
   resolveTopicArn?: typeof defaultResolveTopicArn
+
+  /*
+   * Controls whether the library automatically provisions necessary AWS resources (SNS topics, SQS queues, and subscriptions).
+   *
+   * By default, this is set to 'true', meaning the library will attempt to create
+   * these resources on startup.
+   *
+   * Set this to 'false' if your application manages resource provisioning using
+   * separate tools (e.g., AWS CDK, CloudFormation, or IaC/IoC frameworks).
+   *
+   * @default true
+   */
+  autoProvision: boolean
 }

@@ -5,7 +5,10 @@ import {
   MessageAttributeValue,
   PublishCommand,
   SNSClient,
-  SubscribeCommand
+  SubscribeCommand,
+  GetTopicAttributesCommand,
+  ListSubscriptionsByTopicCommand,
+  ListSubscriptionsByTopicResponse
 } from '@aws-sdk/client-sns'
 import {
   ChangeMessageVisibilityCommand,
@@ -16,7 +19,9 @@ import {
   ReceiveMessageCommand,
   SendMessageCommand,
   SetQueueAttributesCommand,
-  SQSClient
+  SQSClient,
+  QueueDoesNotExist,
+  GetQueueUrlCommand
 } from '@aws-sdk/client-sqs'
 import { parse } from '@aws-sdk/util-arn-parser'
 import {
@@ -92,6 +97,7 @@ export class SqsTransport implements Transport<SQSMessage> {
   private deadLetterQueueArn: string
   private readonly sqs: SQSClient
   private readonly sns: SNSClient
+  private autoProvision = true
 
   private resolveTopicName: typeof defaultResolveTopicName
   private resolveTopicArn: typeof defaultResolveTopicArn
@@ -109,6 +115,7 @@ export class SqsTransport implements Transport<SQSMessage> {
   ) {
     this.sqs = sqs || new SQSClient({ region: sqsConfiguration.awsRegion })
     this.sns = sns || new SNSClient({ region: sqsConfiguration.awsRegion })
+    this.autoProvision = sqsConfiguration.autoProvision ?? true
   }
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -378,7 +385,11 @@ export class SqsTransport implements Transport<SQSMessage> {
     })
 
     try {
-      await this.sqs.send(command)
+      if (this.autoProvision) {
+        await this.sqs.send(command)
+      } else {
+        await this.assertQueueExistsByName(queueName)
+      }
     } catch (err) {
       const error = err as { code?: string; Error?: { Code: string } }
       const code = error.code ?? error.Error?.Code
@@ -461,9 +472,19 @@ export class SqsTransport implements Transport<SQSMessage> {
       This action is idempotent, so if the topic exists then this will just return. This
       is preferable to checking `sns.listTopics` first as it can't be run in a transaction.
     */
-    const command = new CreateTopicCommand({ Name: topicName })
-    const result = await this.sns.send(command)
-    return result.TopicArn!
+    if (this.autoProvision) {
+      const command = new CreateTopicCommand({ Name: topicName })
+      const result = await this.sns.send(command)
+      return result.TopicArn!
+    }
+
+    const topicArn = this.resolveTopicArn(
+      this.sqsConfiguration.awsAccountId!,
+      this.sqsConfiguration.awsRegion!,
+      topicName
+    )
+    await this.assertTopicExistsByArn(topicArn)
+    return topicArn
   }
 
   private async subscribeToTopic(
@@ -473,18 +494,22 @@ export class SqsTransport implements Transport<SQSMessage> {
     // Ensure the topic exists before subscribing to it
     await this.createSnsTopic(topicArn.split(':').pop()!)
 
-    const command = new SubscribeCommand({
-      TopicArn: topicArn,
-      Protocol: 'sqs',
-      Endpoint: queueArn
-    })
+    if (this.autoProvision) {
+      const command = new SubscribeCommand({
+        TopicArn: topicArn,
+        Protocol: 'sqs',
+        Endpoint: queueArn
+      })
 
-    this.logger.info('Subscribing sqs queue to sns topic', {
-      serviceQueueArn: queueArn,
-      topicArn
-    })
+      this.logger.info('Subscribing sqs queue to sns topic', {
+        serviceQueueArn: queueArn,
+        topicArn
+      })
 
-    await this.sns.send(command)
+      await this.sns.send(command)
+    } else {
+      await this.assertSnsSqsSubscriptionByArn(topicArn, queueArn)
+    }
   }
 
   private async makeMessageVisible(sqsMessage: SQSMessage): Promise<void> {
@@ -511,6 +536,14 @@ export class SqsTransport implements Transport<SQSMessage> {
     awsAccountId: string,
     awsRegion: string
   ): Promise<void> {
+    if (!this.autoProvision) {
+      this.logger.info(
+        'Bypass IAM policy attachment when autoProvision is disabled',
+        { queueUrl }
+      )
+      return
+    }
+
     const policy =
       this.sqsConfiguration.queuePolicy ||
       generatePolicy(awsAccountId, awsRegion)
@@ -562,6 +595,71 @@ export class SqsTransport implements Transport<SQSMessage> {
         currentReceiveCount
       )
     return delay / MILLISECONDS_IN_SECONDS
+  }
+
+  private async assertSnsSqsSubscriptionByArn(
+    topicArn: string,
+    sqsQueueArn: string
+  ) {
+    let nextToken = undefined
+    try {
+      do {
+        const command = new ListSubscriptionsByTopicCommand({
+          TopicArn: topicArn,
+          NextToken: nextToken
+        })
+
+        const response: ListSubscriptionsByTopicResponse = await this.sns.send(
+          command
+        )
+        const subscriptions = response.Subscriptions
+
+        if (subscriptions) {
+          for (const sub of subscriptions) {
+            return sub.Protocol === 'sqs' && sub.Endpoint === sqsQueueArn
+          }
+        }
+
+        nextToken = response.NextToken
+      } while (nextToken)
+
+      throw new Error(
+        `SNS-SQS subscription not found tpoic ${topicArn} and queue ${sqsQueueArn}`
+      )
+    } catch (err) {
+      this.logger.error('Error checking SNS-SQS subscription', {
+        err,
+        topicArn,
+        sqsQueueArn
+      })
+      throw err
+    }
+  }
+
+  private async assertTopicExistsByArn(topicArn: string) {
+    const command = new GetTopicAttributesCommand({ TopicArn: topicArn })
+
+    try {
+      await this.sns.send(command)
+      return true
+    } catch (error) {
+      this.logger.error('Error checking topic attributes:', { topicArn, error })
+      throw error
+    }
+  }
+
+  private async assertQueueExistsByName(queueName: string) {
+    const params = {
+      QueueName: queueName
+    }
+
+    try {
+      const command = new GetQueueUrlCommand(params)
+      await this.sqs.send(command)
+    } catch (error) {
+      this.logger.error('Error checking queue existence:', { queueName, error })
+      throw error
+    }
   }
 }
 
