@@ -613,18 +613,18 @@ export class SqsTransport implements Transport<SQSMessage> {
           command
         )
         const subscriptions = response.Subscriptions
-
-        if (subscriptions) {
-          for (const sub of subscriptions) {
-            return sub.Protocol === 'sqs' && sub.Endpoint === sqsQueueArn
-          }
+        const isQueueSubscribed = subscriptions?.some(
+          sub => sub.Protocol === 'sqs' && sub.Endpoint === sqsQueueArn
+        )
+        if (isQueueSubscribed) {
+          return true
         }
 
         nextToken = response.NextToken
       } while (nextToken)
 
       throw new Error(
-        `SNS-SQS subscription not found tpoic ${topicArn} and queue ${sqsQueueArn}`
+        `SNS-SQS subscription not found topic ${topicArn} and queue ${sqsQueueArn}`
       )
     } catch (err) {
       this.logger.error('Error checking SNS-SQS subscription', {
