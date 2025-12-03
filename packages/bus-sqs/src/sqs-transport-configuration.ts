@@ -118,5 +118,5 @@ export interface SqsTransportConfiguration
    *
    * @default true
    */
-  autoProvision: boolean
+  autoProvision?: boolean
 }
