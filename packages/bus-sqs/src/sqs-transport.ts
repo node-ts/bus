@@ -379,13 +379,13 @@ export class SqsTransport implements Transport<SQSMessage> {
   ): Promise<void> {
     this.logger.info('Asserting sqs queue...', { queueName, queueAttributes })
 
-    const command = new CreateQueueCommand({
-      QueueName: queueName,
-      Attributes: queueAttributes
-    })
-
     try {
       if (this.autoProvision) {
+        const command = new CreateQueueCommand({
+          QueueName: queueName,
+          Attributes: queueAttributes
+        })
+
         await this.sqs.send(command)
       } else {
         await this.assertQueueExistsByName(queueName)
@@ -600,9 +600,10 @@ export class SqsTransport implements Transport<SQSMessage> {
   private async assertSnsSqsSubscriptionByArn(
     topicArn: string,
     sqsQueueArn: string
-  ) {
+  ): Promise<void> {
     let nextToken = undefined
     try {
+      let isQueueSubscribed = false
       do {
         const command = new ListSubscriptionsByTopicCommand({
           TopicArn: topicArn,
@@ -613,19 +614,21 @@ export class SqsTransport implements Transport<SQSMessage> {
           command
         )
         const subscriptions = response.Subscriptions
-        const isQueueSubscribed = subscriptions?.some(
+        isQueueSubscribed = !!subscriptions?.some(
           sub => sub.Protocol === 'sqs' && sub.Endpoint === sqsQueueArn
         )
         if (isQueueSubscribed) {
-          return true
+          break
         }
 
         nextToken = response.NextToken
       } while (nextToken)
 
-      throw new Error(
-        `SNS-SQS subscription not found topic ${topicArn} and queue ${sqsQueueArn}`
-      )
+      if (!isQueueSubscribed) {
+        throw new Error(
+          `SNS-SQS subscription not found topic ${topicArn} and queue ${sqsQueueArn}`
+        )
+      }
     } catch (err) {
       this.logger.error('Error checking SNS-SQS subscription', {
         err,
@@ -636,19 +639,18 @@ export class SqsTransport implements Transport<SQSMessage> {
     }
   }
 
-  private async assertTopicExistsByArn(topicArn: string) {
+  private async assertTopicExistsByArn(topicArn: string): Promise<void> {
     const command = new GetTopicAttributesCommand({ TopicArn: topicArn })
 
     try {
       await this.sns.send(command)
-      return true
     } catch (error) {
       this.logger.error('Error checking topic attributes:', { topicArn, error })
       throw error
     }
   }
 
-  private async assertQueueExistsByName(queueName: string) {
+  private async assertQueueExistsByName(queueName: string): Promise<void> {
     const params = {
       QueueName: queueName
     }
