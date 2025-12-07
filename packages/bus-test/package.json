@@ -1,6 +1,6 @@
 {
   "name": "@node-ts/bus-test",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "description": "A dev-dependency package used to test transport implementations.",
   "homepage": "https://github.com/node-ts/bus#readme",
   "main": "./src/index.ts",
