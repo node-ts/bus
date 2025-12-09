@@ -565,6 +565,14 @@ export class SqsTransport implements Transport<SQSMessage> {
     queueUrl: string,
     attributes?: Record<string, string>
   ): Promise<void> {
+    if (!this.autoProvision) {
+      this.logger.info(
+        'Bypass syncing queue attributes when autoProvision is disabled',
+        { queueUrl, attributes }
+      )
+      return
+    }
+
     // Check equality first to avoid potential API rate limit
     const existing = await this.sqs.send(
       new GetQueueAttributesCommand({
