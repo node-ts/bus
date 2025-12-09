@@ -1,7 +1,7 @@
 {
   "name": "@node-ts/bus-sqs-lambda",
   "description": "A retrieval mechanism that receives messages from SQS-subscribed lambda.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
