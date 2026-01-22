@@ -86,6 +86,26 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     this.addToQueue(command, messageOptions)
   }
 
+  async sendBatch<TCommand extends Command>(
+    commands: TCommand[],
+    messageOptions?: MessageAttributes
+  ): Promise<void> {
+    this.logger.debug(`Sending batch of ${commands.length} commands to in-memory queue.`);
+    await Promise.all(
+      commands.map(command => this.send(command, messageOptions))
+    );
+  }
+
+  async publishBatch<TEvent extends Event>(
+    events: TEvent[],
+    messageOptions?: MessageAttributes
+  ): Promise<void> {
+    this.logger.debug(`Publishing batch of ${events.length} events to in-memory queue.`);
+    await Promise.all(
+      events.map(event => this.publish(event, messageOptions))
+    );
+  }
+
   async fail(
     transportMessage: TransportMessage<InMemoryMessage>
   ): Promise<void> {
