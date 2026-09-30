@@ -31,7 +31,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - **Build before testing across packages**: every package except `bus-test` has `main: ./dist/index.js`, so e.g. bus-sqs tests import the built bus-core, not its source. Changes in bus-core need `pnpm build` before they're visible to other packages.
 - Integration tests for adapters need local infra; `docker compose up -d` starts it all from the root `docker-compose.yml`. Endpoints default to the compose ports and can be overridden with env vars (listed in `test.env`): `LOCALSTACK_ENDPOINT` (default `http://localhost:4566`, dummy AWS creds in `test.env`), `RABBITMQ_URL` (`amqp://guest:guest@0.0.0.0`), `POSTGRES_URL` (`postgres://postgres:password@localhost:6432/postgres`), `MONGODB_URL` (`mongodb://localhost:27017/workflows`). CI runs all integration tests against CircleCI secondary containers (`.circleci/config.yml`).
 - Formatting is automatic: a `.claude/settings.json` hook runs prettier on every file Claude edits, and husky + lint-staged format on commit.
-- Releases use [changesets](https://changesets.dev) with independent package versions (`.changeset/config.json`, workflow in `CONTRIBUTING.md`). On master, CircleCI's deploy job runs `pnpm changeset publish` (publishes any package whose version isn't on npm yet) and then `.circleci/create-github-releases.mjs` (a GitHub Release and `<pkg>@<version>` tag per new version, with its CHANGELOG section as notes).
+- Releases use [changesets](https://changesets.dev) with linked package versions (`.changeset/config.json`, workflow in `CONTRIBUTING.md`, 1.x → 2.0 upgrade notes in `MIGRATING.md`). On master, CircleCI's deploy job runs `pnpm changeset publish` (publishes any package whose version isn't on npm yet) and then `.circleci/create-github-releases.mjs` (a GitHub Release and `<pkg>@<version>` tag per new version, with its CHANGELOG section as notes).
 - Package-specific notes (design, config defaults, local infra, gotchas) live in `packages/<pkg>/CLAUDE.md`. Scaffolding new adapters is covered by the `add-transport` and `add-persistence` skills in `.claude/skills/`.
 
 ## Architecture
@@ -95,7 +95,7 @@ Follow these when writing code. The file named on each line is a good example to
 ### Commits and releases
 
 - Commit subjects are short, lowercase and imperative. `feat:` is sometimes used. Squash-merged PRs end with `(#NNN)`. Versions are bumped only by the maintainer's `pnpm changeset version` release PR, never in a feature PR.
-- In an adapter, depend on `@node-ts/bus-core` as a `peerDependency` (`^1.0.15` style) and as a `workspace:^` devDependency. Other internal dependencies use `workspace:^`.
+- In an adapter, depend on `@node-ts/bus-core` as a `peerDependency` (`^2.0.0` style, raised by `changeset version` on a bus-core major) and as a `workspace:^` devDependency. Other internal dependencies use `workspace:^`.
 
 ### Roadmap workflow
 
