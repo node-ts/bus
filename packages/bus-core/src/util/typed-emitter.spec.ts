@@ -21,6 +21,25 @@ describe('TypedEmitter', () => {
     })
   })
 
+  describe('when an async listener rejects', () => {
+    const error = new Error('Listener failed')
+    const onListenerRejected = Mock.ofType<(error: unknown) => void>()
+
+    beforeEach(async () => {
+      sut = new TypedEmitter(onListenerRejected.object)
+      sut.on(async () => {
+        throw error
+      })
+      sut.emit('one')
+      // Let the listener's rejection settle
+      await new Promise(resolve => setImmediate(resolve))
+    })
+
+    it('should pass the rejection to the rejection handler', () => {
+      onListenerRejected.verify(invocation => invocation(error), Times.once())
+    })
+  })
+
   describe('when piping', () => {
     const destinationTypedEmitter = new TypedEmitter<string>()
     const callback = Mock.ofType<(event: string) => void>()
