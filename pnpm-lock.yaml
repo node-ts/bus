@@ -232,15 +232,9 @@ importers:
       '@node-ts/bus-messages':
         specifier: workspace:^
         version: link:../bus-messages
-      alscontext:
-        specifier: ^0.0.3
-        version: 0.0.3
       debug:
         specifier: ^4.4.3
         version: 4.4.3(supports-color@11.0.0)
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       serialize-error:
         specifier: '8'
         version: 8.1.0
@@ -1510,10 +1504,6 @@ packages:
     resolution: {integrity: sha512-Y9rRfJG5jcKOE0CLisYbojUjIrIEE7AGMzA/Sm4BslANhbS+cDMpgBdcPT91oJ7OuJ9hYJBx59RjbhxVnrF8Xg==}
     engines: {node: '>=0.4.0'}
     hasBin: true
-
-  alscontext@0.0.3:
-    resolution: {integrity: sha512-7MqsMB7f0AkNJf9UbCfbPL+5t2J0nMSKdSFUuo3MEWFhG5WOOEqqg5J1nuNlNlLj1u189PgQwMSrr515ffQxcg==}
-    engines: {node: '>=8.12.0'}
 
   amqplib@2.2.0:
     resolution: {integrity: sha512-VifzN9aHs/Q3zTruVHXh2yCisQyXexBN91CQ2E5iSyUKyNjH6ilYhJGte5AXZH/Bj1PaH7SwPhyuSf6Msd2udw==}
@@ -3982,8 +3972,6 @@ snapshots:
   acorn-walk@8.3.2: {}
 
   acorn@8.11.3: {}
-
-  alscontext@0.0.3: {}
 
   amqplib@2.2.0: {}
 

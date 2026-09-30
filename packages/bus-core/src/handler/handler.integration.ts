@@ -11,6 +11,7 @@ import {
 } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestCommand3 } from '../test/test-command-3'
+import { TestCommandGetterClassHandler } from '../test/test-command-getter-class-handler'
 import { TestEvent } from '../test/test-event'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { ClassConstructor, sleep } from '../util'
@@ -218,6 +219,48 @@ describe('Handler', () => {
           Times.once()
         )
       })
+    })
+  })
+
+  describe('when a class handler declares messageType as a getter', () => {
+    const messageLogger = Mock.ofType<MessageLogger>()
+    const events = new EventEmitter()
+    const getterCommand = new TestCommand()
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      messageLogger
+        .setup(m => m.log(getterCommand))
+        .callback(() => events.emit('received'))
+
+      bus = Bus.configure()
+        .withContainer({
+          get<T>(type: ClassConstructor<T>) {
+            return new type(messageLogger.object)
+          }
+        })
+        .withHandler(TestCommandGetterClassHandler)
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+
+      const received = new Promise(resolve => events.once('received', resolve))
+      await bus.send(getterCommand)
+      await received
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should only construct the handler through the container', () => {
+      messageLogger.verify(
+        m => m.log('TestCommandGetterClassHandler constructed'),
+        Times.once()
+      )
+    })
+
+    it('should dispatch the message to the handler', () => {
+      messageLogger.verify(m => m.log(getterCommand), Times.once())
     })
   })
 })

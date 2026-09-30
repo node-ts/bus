@@ -14,6 +14,8 @@ For example, to get the full debug output of Bus:
 DEBUG=@node-ts/bus-* npm run index.js
 ```
 
+Warnings, errors and fatal errors are always written to stderr (via `console.warn` and `console.error`), even without `DEBUG` set, so that failures such as errors thrown in handlers and workflows are visible. When `DEBUG` is enabled for a namespace, they're written by `debug` along with the rest of that namespace's output instead.
+
 ## Providing a new logger
 
 A third party or custom logger can be provided by using the `.withLogger()` function when configuring the bus.

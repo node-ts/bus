@@ -18,9 +18,7 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "workspace:^",
-    "alscontext": "^0.0.3",
     "debug": "^4.4.3",
-    "reflect-metadata": "^0.2.2",
     "serialize-error": "8",
     "supports-color": "^11.0.0",
     "throat": "^6.0.2",

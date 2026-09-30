@@ -138,7 +138,7 @@ export class WorkflowRegistry {
         messageWorkflowMappings
       )
       this.logger.debug('Workflow initialized', {
-        workflowName: WorkflowCtor.prototype.name
+        workflowName: WorkflowCtor.name
       })
     }
 
@@ -225,7 +225,6 @@ export class WorkflowRegistry {
     })
 
     mapper.onWhen.forEach((handler, messageConstructor) => {
-      // TODO implement outbound tagging of workflowId to stickyAttributes
       const messageMapping = handler.customLookup || workflowLookup
 
       handlerRegistry.register(
@@ -369,7 +368,7 @@ export class WorkflowRegistry {
       attributes
     )
 
-    const workflowName = workflowCtor.prototype.name
+    const workflowName = workflowCtor.name
     if (
       workflowStateOutput &&
       workflowStateOutput.$status === WorkflowStatus.Discard

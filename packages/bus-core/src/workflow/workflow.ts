@@ -7,14 +7,21 @@ import {
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
 
+/**
+ * A workflow handler function. Parameters are in the order the workflow registry invokes them with.
+ * @param message The message that was received
+ * @param workflowState The current, read-only state of the workflow instance
+ * @param attributes Attributes of the message that was received
+ * @returns Changes to the workflow state to persist, or nothing to leave it unchanged
+ */
 export type WorkflowHandler<
   TMessage extends Message,
   TMessageAttributes extends MessageAttributes,
   WorkflowStateType extends WorkflowState
 > = (
   message?: TMessage,
-  attributes?: TMessageAttributes,
-  workflowState?: WorkflowStateType
+  workflowState?: Readonly<WorkflowStateType>,
+  attributes?: TMessageAttributes
 ) =>
   void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
 
@@ -69,10 +76,20 @@ export class WorkflowMapper<
     return this
   }
 
+  /**
+   * Starts a new instance of the workflow each time `message` is handled.
+   *
+   * Messages are delivered at least once and starts aren't deduplicated, so a `message` that's retried after the
+   * new workflow state was saved (for example because another handler of the same message failed) starts a second
+   * workflow instance. Make the handler idempotent, such as by returning `discardWorkflow()` when a workflow already
+   * exists for the message, if that matters.
+   * @param message The message that starts the workflow
+   * @param workflowHandler The name of the workflow method that handles `message`
+   * @throws WorkflowAlreadyStartedByMessage if the workflow is already started by `message`
+   */
   startedBy<MessageType extends Message>(
     message: ClassConstructor<MessageType>,
     workflowHandler: KeyOfType<WorkflowType, Function>
-    // workflowHandler: (workflow: WorkflowType) => WorkflowHandler<MessageType, WorkflowStateType>
   ): this {
     if (this.onStartedBy.has(message)) {
       throw new WorkflowAlreadyStartedByMessage(this.workflow.name, message)

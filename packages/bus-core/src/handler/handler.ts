@@ -17,7 +17,9 @@ export interface Handler<
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > {
   /**
-   * The type of message the class handles
+   * The type of message the class handles. Define it as a getter (`get messageType() { return MyEvent }`) so that
+   * `withHandler()` can read it without constructing the handler. A class field is only readable from an instance,
+   * so the handler is constructed without its dependencies when it's registered.
    */
   messageType: ClassConstructor<TMessage>
 

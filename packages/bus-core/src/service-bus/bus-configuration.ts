@@ -24,6 +24,16 @@ import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { BusInstance } from './bus-instance'
 import { BusAlreadyInitialized } from './error'
 
+/**
+ * Gets the message type a class handler handles. A `messageType` getter is read from the prototype without
+ * constructing the handler. A `messageType` class field only exists on instances, so for backwards compatibility
+ * the handler is constructed without its dependencies just to read it.
+ */
+const resolveClassHandlerMessageType = (
+  handler: ClassConstructor<Handler>
+): ClassConstructor<MessageBase> =>
+  handler.prototype.messageType ?? new handler().messageType
+
 export interface BusInitializeOptions {
   /**
    * If true, will initialize the bus in send only mode.
@@ -148,10 +158,11 @@ export class BusConfiguration {
           handlerToAdd.messageType,
           handlerToAdd.messageHandler
         )
-      } else if ('messageResolver' in handlerToAdd) {
       } else if (isClassHandler(handlerToAdd)) {
-        const handlerInstance = new handlerToAdd()
-        this.handlerRegistry.register(handlerInstance.messageType, handlerToAdd)
+        this.handlerRegistry.register(
+          resolveClassHandlerMessageType(handlerToAdd),
+          handlerToAdd
+        )
       }
     }
 
