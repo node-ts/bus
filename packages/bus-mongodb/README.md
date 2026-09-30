@@ -30,14 +30,11 @@ const mongodbPersistence = new MongodbPersistence(configuration)
 
 // Configure bus to use mongodb as a persistence
 const run = async () => {
-  const bus = Bus
-    .configure()
-    .withPersistence(mongodbPersistence)
-    .build()
+  const bus = Bus.configure().withPersistence(mongodbPersistence).build()
   await bus.initialize()
   await bus.start()
 }
-run.then(() => void)
+run().catch(console.error)
 ```
 
 ## Configuration Options
@@ -45,7 +42,7 @@ run.then(() => void)
 The Mongodb persistence has the following configuration:
 
 - **connection** _(required)_ The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
-- **schemaName** _(required)_ The database name to create workflow collections inside.
+- **databaseName** _(required)_ The database name to create workflow collections inside.
 
 ## Development
 

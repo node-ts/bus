@@ -7,7 +7,7 @@ import {
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Db, MongoClient } from 'mongodb'
+import { Db, Document, MongoClient, MongoServerError } from 'mongodb'
 import { WorkflowStateNotFound } from './error'
 import { MongodbConfiguration } from './mongodb-configuration'
 
@@ -15,6 +15,19 @@ import { MongodbConfiguration } from './mongodb-configuration'
  * The name of the field that stores workflow state as JSON in the database row.
  */
 const WORKFLOW_DATA_FIELD_NAME = 'data'
+
+/**
+ * The mongodb server error code returned when dropping an index that doesn't exist.
+ */
+const INDEX_NOT_FOUND_ERROR_CODE = 27
+
+/**
+ * An index that this persistence manages on a workflow state collection.
+ */
+interface IndexDefinition {
+  name: string
+  key: Record<string, 1>
+}
 
 export class MongodbPersistence implements Persistence {
   private coreDependencies: CoreDependencies
@@ -49,8 +62,6 @@ export class MongodbPersistence implements Persistence {
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
-    await this.client.connect()
-    this.database = this.client.db(this.configuration.databaseName)
     const workflowStateName = new workflowStateConstructor().$name
     this.logger.info('Initializing workflow', {
       workflowState: workflowStateName
@@ -149,71 +160,73 @@ export class MongodbPersistence implements Persistence {
     }
   }
 
+  /**
+   * Ensures the indexes this persistence relies on exist with the right keys.
+   * Indexes it doesn't manage, such as ones added by users, are left alone. A
+   * managed index whose key is out of date (as created by earlier versions of
+   * this package) is rebuilt.
+   */
   private async ensureIndexesExist(
     collectionName: string,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
     const collection = this.database.collection(collectionName)
     const existingIndexes = (await collection.listIndexes().toArray()) ?? []
-    const existingIndexNames = existingIndexes
-      .map(index => index.name)
-      .filter(x => x !== '_id_')
-    const createPrimaryIndex = this.createPrimaryIndex(
-      collectionName,
-      existingIndexNames as string[]
-    )
 
-    const allWorkflowFields = messageWorkflowMappings.map(
-      mapping => mapping.mapsTo
+    const distinctWorkflowFields = new Set(
+      messageWorkflowMappings.map(mapping => mapping.mapsTo)
     )
-    const distinctWorkflowFields = new Set(allWorkflowFields)
-    const workflowFields: string[] = [...distinctWorkflowFields]
+    const requiredIndexes: IndexDefinition[] = [
+      {
+        name: resolveIndexName(collectionName, 'id', 'version'),
+        key: { id: 1, version: 1 }
+      },
+      ...[...distinctWorkflowFields].map(workflowField => ({
+        name: resolveIndexName(collectionName, workflowField),
+        key: {
+          [`${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty(workflowField)}`]: 1
+        } as Record<string, 1>
+      }))
+    ]
 
-    const createSecondaryIndexes = workflowFields.map(async workflowField => {
-      const indexName = resolveIndexName(collectionName, workflowField)
-      const existingIndexLocation = existingIndexNames.indexOf(indexName)
-      if (existingIndexLocation !== -1) {
-        this.logger.debug('Index already exists', { indexName })
-        existingIndexNames.splice(existingIndexLocation, 1)
-        return
-      }
-      const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}.'${workflowField}'`
-      this.logger.debug('Ensuring secondary index exists', {
-        indexName
-      })
-      await collection.createIndex(
-        { [workflowStateField]: 1 },
-        { name: indexName }
+    // One at a time, so that an outdated index is dropped before it's recreated
+    for (const requiredIndex of requiredIndexes) {
+      await this.ensureIndexExists(
+        collectionName,
+        requiredIndex,
+        existingIndexes
       )
-    })
-    const dropIndexes = existingIndexNames.map(async indexName => {
-      await collection.dropIndex(indexName)
-    })
-    await Promise.all([
-      createPrimaryIndex,
-      ...createSecondaryIndexes,
-      ...dropIndexes
-    ])
+    }
   }
 
-  private async createPrimaryIndex(
+  private async ensureIndexExists(
     collectionName: string,
-    existingIndexesNames: string[]
+    { name, key }: IndexDefinition,
+    existingIndexes: Document[]
   ): Promise<void> {
     const collection = this.database.collection(collectionName)
-    const primaryIndexName = resolveIndexName(collectionName, 'id', 'version')
-    const primaryIndexLocation = existingIndexesNames.indexOf(primaryIndexName)
-    if (primaryIndexLocation !== -1) {
-      existingIndexesNames.splice(primaryIndexLocation, 1)
-      return
+    const existingIndex = existingIndexes.find(index => index.name === name)
+    if (existingIndex) {
+      if (isSameIndexKey(existingIndex.key, key)) {
+        this.logger.debug('Index already exists', { indexName: name })
+        return
+      }
+      this.logger.info('Rebuilding index with an outdated key', {
+        indexName: name,
+        existingKey: existingIndex.key,
+        key
+      })
+      try {
+        await collection.dropIndex(name)
+      } catch (error) {
+        // Another instance starting at the same time may have dropped it first
+        if ((error as MongoServerError).code !== INDEX_NOT_FOUND_ERROR_CODE) {
+          throw error
+        }
+      }
     }
-    this.logger.debug('Ensuring primary index exists', {
-      primaryIndexName
-    })
-    await collection.createIndex(
-      { _id: 1, version: 1 },
-      { name: primaryIndexName }
-    )
+    this.logger.debug('Ensuring index exists', { indexName: name, key })
+    await collection.createIndex(key, { name })
   }
 
   private async upsertWorkflowState(
@@ -303,9 +316,26 @@ function resolveIndexName(tableName: string, ...fields: string[]): string {
   const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
   return `"${normalizedTableName}_${fields.join('_')}_idx"`
 }
-function normalizeProperty(property: string): string {
-  return property.replace('$', '__')
+
+/**
+ * Checks if two index keys cover the same fields in the same order and direction
+ */
+function isSameIndexKey(a: Document, b: Document): boolean {
+  return JSON.stringify(Object.entries(a)) === JSON.stringify(Object.entries(b))
 }
+
+/**
+ * Escapes a leading `$` in a workflow state key, since mongodb field names can't
+ * start with one (eg: `$workflowId` => `__workflowId`). The rest of the key is kept
+ * as-is, so keys containing `$` or `__` elsewhere round-trip unchanged.
+ */
+function normalizeProperty(property: string): string {
+  return property.replace(/^\$/, '__')
+}
+
+/**
+ * Reverses `normalizeProperty` (eg: `__workflowId` => `$workflowId`)
+ */
 function denormalizeProperty(property: string): string {
-  return property.replace('__', '$')
+  return property.replace(/^__/, '$')
 }

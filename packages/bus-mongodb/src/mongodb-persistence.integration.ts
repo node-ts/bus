@@ -6,7 +6,7 @@ import {
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { Collection, Db, MongoClient } from 'mongodb'
+import { Collection, Db, Document, MongoClient } from 'mongodb'
 import { Mock } from 'typemoq'
 import * as uuid from 'uuid'
 import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
@@ -18,6 +18,10 @@ const configuration: MongodbConfiguration = {
   connection: process.env.MONGODB_URL || 'mongodb://localhost:27017/workflows',
   databaseName: 'workflows'
 }
+
+const PRIMARY_INDEX_NAME = '"testworkflowstate_id_version_idx"'
+const PROPERTY1_INDEX_NAME = '"testworkflowstate_property1_idx"'
+const WORKFLOW_ID_INDEX_NAME = '"testworkflowstate_$workflowId_idx"'
 
 describe('MongodbPersistence', () => {
   let sut: MongodbPersistence
@@ -49,9 +53,89 @@ describe('MongodbPersistence', () => {
   })
 
   describe('when initializing the persistence', () => {
+    let indexes: Document[]
+
+    beforeAll(async () => {
+      indexes = await collection.listIndexes().toArray()
+    })
+
     it('should create a workflow table', async () => {
       const count = await collection.countDocuments()
       expect(count).toEqual(0)
+    })
+
+    it('should index the id and version fields', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: PRIMARY_INDEX_NAME,
+          key: { id: 1, version: 1 }
+        })
+      )
+    })
+
+    it('should index the mapped property at its stored path', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: PROPERTY1_INDEX_NAME,
+          key: { 'data.property1': 1 }
+        })
+      )
+    })
+  })
+
+  describe('when initializing a workflow again', () => {
+    const userIndexName = 'user_event_value_idx'
+    let indexes: Document[]
+
+    beforeAll(async () => {
+      await collection.createIndex(
+        { 'data.eventValue': 1 },
+        { name: userIndexName }
+      )
+      // Recreate the index with the key that earlier versions of this package used
+      await collection.dropIndex(PROPERTY1_INDEX_NAME)
+      await collection.createIndex(
+        { "data.'property1'": 1 },
+        { name: PROPERTY1_INDEX_NAME }
+      )
+
+      const mappings: MessageWorkflowMapping<TestCommand, TestWorkflowState>[] =
+        [
+          { lookup: message => message.property1, mapsTo: 'property1' },
+          { lookup: () => undefined, mapsTo: '$workflowId' }
+        ]
+      await sut.initializeWorkflow(
+        TestWorkflowState,
+        mappings as unknown as MessageWorkflowMapping[]
+      )
+      indexes = await collection.listIndexes().toArray()
+    })
+
+    it('should keep indexes it does not manage', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: userIndexName,
+          key: { 'data.eventValue': 1 }
+        })
+      )
+    })
+
+    it('should index a $-prefixed mapped property at its escaped path', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: WORKFLOW_ID_INDEX_NAME,
+          key: { 'data.__workflowId': 1 }
+        })
+      )
+    })
+
+    it('should rebuild a managed index with an outdated key', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: PROPERTY1_INDEX_NAME,
+          key: { 'data.property1': 1 }
+        })
+      )
     })
   })
 
@@ -155,6 +239,48 @@ describe('MongodbPersistence', () => {
         it('should throw WorkflowStateNotFound', async () => {
           expect(error).toBeInstanceOf(WorkflowStateNotFound)
         })
+      })
+    })
+  })
+
+  describe('when saving workflow state with keys containing $ and __', () => {
+    const workflowState = Object.assign(new TestWorkflowState(), {
+      $workflowId: uuid.v4(),
+      $status: WorkflowStatus.Running,
+      $version: 0,
+      property1: uuid.v4(),
+      $multiple$dollars: 'a',
+      multiple__under__scores: 'b'
+    })
+    let storedData: Document
+    let results: TestWorkflowState[]
+
+    beforeAll(async () => {
+      await sut.saveWorkflowState(workflowState)
+      const document = await collection.findOne({
+        id: workflowState.$workflowId
+      })
+      storedData = document!.data
+      results = await sut.getWorkflowState(
+        TestWorkflowState,
+        { lookup: () => workflowState.property1, mapsTo: 'property1' },
+        new TestCommand(workflowState.property1),
+        { attributes: {}, stickyAttributes: {} }
+      )
+    })
+
+    it('should only escape a leading $', () => {
+      expect(storedData).toMatchObject({
+        __multiple$dollars: 'a',
+        multiple__under__scores: 'b'
+      })
+    })
+
+    it('should read the keys back unchanged', () => {
+      expect(results).toHaveLength(1)
+      expect(results[0]).toMatchObject({
+        $multiple$dollars: 'a',
+        multiple__under__scores: 'b'
       })
     })
   })
