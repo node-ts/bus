@@ -95,6 +95,22 @@ Follow these when writing code. The file named on each line is a good example to
 - Commit subjects are short, lowercase and imperative. `feat:` is sometimes used. Squash-merged PRs end with `(#NNN)`. Version bumps go in their own "patch version" commit.
 - In an adapter, depend on `@node-ts/bus-core` as a `peerDependency` (`^1.0.15` style) and as a `workspace:^` devDependency. Other internal dependencies use `workspace:^`.
 
+### Roadmap workflow
+
+Roadmap work is tracked in the project board https://github.com/orgs/node-ts/projects/1 (overview in #271).
+
+- Complete the milestones in order: every issue in `Phase N` is closed before any `Phase N+1` issue starts.
+- Before starting an issue, check it isn't blocked: `gh api repos/node-ts/bus/issues/<N>/dependencies/blocked_by --jq '.[] | select(.state=="open") | .number'` must print nothing. Blocked issues aren't started, not even in draft.
+- If the work turns up a new dependency, add it as a "blocked by" relationship on the issue before going on.
+- One issue per branch and PR, branched from `master`. Move the card to In Progress when starting and In Review when the PR is opened.
+- An issue is done only when its PR is approved and merged. Put `Closes #N` in the PR so the merge closes it, and never close roadmap issues by hand. Dependent issues start only after that merge, not when the PR is opened or approved.
+- PR descriptions follow `.github/pull_request_template.md` and stay concise:
+  - **Summary**: 1-2 lines.
+  - **Background**: brief context on what the issue is about.
+  - **Problem**: the bug, gap or thing that needs addressing.
+  - **Approach**: how it was fixed or addressed.
+- The `Dependency gate` GitHub Action fails a PR whose linked issue has open blockers, whose earlier milestone still has open issues, or whose description is missing a section. PRs with no linked issue need the `no-issue` label.
+
 ### Keeping this file current
 
 When the user corrects how something should be done in this repo, add the rule to the right section of this file, or to the package's `CLAUDE.md` if it only applies there. Keep entries short and point to an example file.
