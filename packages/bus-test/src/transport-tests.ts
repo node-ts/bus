@@ -1,6 +1,6 @@
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { EventEmitter } from 'stream'
+import { EventEmitter } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
 import * as uuid from 'uuid'
 import {
@@ -32,7 +32,7 @@ export const transportTests = (
   readAllFromDeadLetterQueue: () => Promise<
     { message: Message; attributes: MessageAttributes }[]
   >
-) => {
+): void => {
   const testCommandHandlerEmitter = new EventEmitter()
   const testEventHandlerEmitter = new EventEmitter()
   const testPoisonedMessageHandlerEmitter = new EventEmitter()
@@ -41,7 +41,7 @@ export const transportTests = (
   let poisonedMessageReceiptAttempts = 0
   let bus: BusInstance
 
-  return describe('when the transport has been initialized', () => {
+  describe('when the transport has been initialized', () => {
     beforeAll(async () => {
       bus = Bus.configure()
         .withTransport(transport)

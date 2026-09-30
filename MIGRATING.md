@@ -34,3 +34,8 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
 
 - **Partial batch failures are opt-in.** Pass `new BusSqsLambdaReceiver({ reportBatchItemFailures: true })` and enable `ReportBatchItemFailures` on the event source mapping to retry only the failed records. Without it, a failure still fails the whole batch.
 - The `aws-lambda` CLI is no longer a dependency. Install `@types/aws-lambda` yourself if you use the typings.
+
+## @node-ts/bus-test
+
+- **The package ships compiled JavaScript from `dist`** instead of its TypeScript source. If you added `@node-ts/bus-test` to jest's `transformIgnorePatterns` exceptions so ts-jest would compile it, you can remove that. Import `transportTests` and the test messages from the package root, since paths such as `@node-ts/bus-test/src/...` no longer exist.
+- **`@node-ts/bus-core` is a peer dependency.** Install it next to `@node-ts/bus-test` (your transport already needs it). `typescript`, `class-transformer` and `reflect-metadata` are no longer installed with the suite, so add them to your own dev dependencies if you relied on getting them through it.
