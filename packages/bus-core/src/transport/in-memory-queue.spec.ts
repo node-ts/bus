@@ -75,9 +75,24 @@ describe('InMemoryQueue', () => {
   })
 
   describe('when sending a message that is not handled', () => {
-    it('should not push the message onto the queue', async () => {
+    beforeEach(async () => {
       await sut.send(command2, messageOptions)
+    })
+
+    it('should not push the message onto the queue', () => {
       expect(sut.depth).toEqual(0)
+    })
+
+    it('should log the discard at debug level rather than warn', () => {
+      logger.verify(
+        l =>
+          l.debug(
+            'Message was not sent as it has no registered handlers',
+            It.isAny()
+          ),
+        Times.once()
+      )
+      logger.verify(l => l.warn(It.isAny(), It.isAny()), Times.never())
     })
   })
 

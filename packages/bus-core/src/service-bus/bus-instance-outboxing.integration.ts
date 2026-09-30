@@ -360,7 +360,9 @@ describe('BusInstance Outboxing', () => {
     beforeAll(async () => {
       const numberOfMessages = 20_000
 
+      // TestEvent has no handler, so the queue logs a discard for every publish
       bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
         .withHandler(
           handlerFor(TestCommand, async () => {
             const publishMessages = new Array(numberOfMessages)
