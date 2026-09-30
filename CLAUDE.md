@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-pnpm only (enforced by `preinstall`; pnpm ^9.6, node >=20.12).
+pnpm only (enforced by `preinstall`). The versions are pinned to pnpm 12.4.1 (`packageManager`) and node 24.11.1 (`.nvmrc`); CircleCI uses the same versions. pnpm 12 fails the install if a dependency's build script hasn't been approved or denied in `allowBuilds` in `pnpm-workspace.yaml`. When you add a dependency that has a build script, add it there.
 
 ```sh
 pnpm i
