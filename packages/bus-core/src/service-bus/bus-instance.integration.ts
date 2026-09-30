@@ -395,7 +395,7 @@ describe('BusInstance', () => {
 
       queue
         .setup(q => q.readNextMessage())
-        .returns(async () => ({ domainMessage: new TestCommand() } as any))
+        .returns(async () => ({ domainMessage: new TestCommand() }) as any)
 
       queue
         .setup(q => q.readNextMessage())

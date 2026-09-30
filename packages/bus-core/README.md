@@ -8,6 +8,8 @@ The core messaging framework. This package provides an in-memory queue and persi
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Download and install the packages:
 
 ```bash

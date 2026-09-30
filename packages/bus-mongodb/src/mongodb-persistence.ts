@@ -8,8 +8,8 @@ import {
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Db, MongoClient } from 'mongodb'
-import { MongodbConfiguration } from './mongodb-configuration'
 import { WorkflowStateNotFound } from './error'
+import { MongodbConfiguration } from './mongodb-configuration'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
@@ -254,7 +254,11 @@ export class MongodbPersistence implements Persistence {
             version: newVersion,
             [WORKFLOW_DATA_FIELD_NAME]: plainWorkflowState
           }
-        }
+        },
+        // mongodb 6+ returns the bare document by default while 5.x returns the
+        // metadata wrapper. Ask for the wrapper so the check below behaves the
+        // same whichever driver a user-supplied MongoClient comes from.
+        { includeResultMetadata: true }
       )
       if (!result?.value) {
         throw new WorkflowStateNotFound(workflowId, collectionName, oldVersion)
@@ -263,11 +267,14 @@ export class MongodbPersistence implements Persistence {
   }
 }
 function mapKeys(obj: any, fn: (key: string, value: any) => string) {
-  return Object.keys(obj).reduce((acc, oldKey) => {
-    const newKey = fn(oldKey, obj[oldKey])
-    acc[newKey] = obj[oldKey]
-    return acc
-  }, {} as Record<string, unknown>)
+  return Object.keys(obj).reduce(
+    (acc, oldKey) => {
+      const newKey = fn(oldKey, obj[oldKey])
+      acc[newKey] = obj[oldKey]
+      return acc
+    },
+    {} as Record<string, unknown>
+  )
 }
 /**
  * Returns a legal fully qualified schema + table name

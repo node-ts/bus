@@ -1,8 +1,8 @@
-import { MessageSerializer, Serializer } from '../serialization'
+import { ContainerAdapter } from '../container'
 import { HandlerRegistry } from '../handler'
 import { LoggerFactory } from '../logger'
-import { ContainerAdapter } from '../container'
 import { RetryStrategy } from '../retry-strategy'
+import { MessageSerializer, Serializer } from '../serialization'
 
 /**
  * A core set of dependencies that are shared around the service.

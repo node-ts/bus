@@ -4,14 +4,14 @@ import { ContainerAdapter } from '../../container'
 import { DefaultHandlerRegistry, Handler } from '../../handler'
 import { DebugLogger } from '../../logger'
 import { Bus, BusInstance } from '../../service-bus'
+import { InMemoryQueue } from '../../transport'
 import { CoreDependencies, sleep } from '../../util'
 import { InMemoryPersistence } from '../persistence'
 import { FinalTask } from '../test/final-task'
+import { RunTaskHandler } from '../test/run-task-handler'
+import { TestCommand } from '../test/test-command'
 import { TestWorkflow } from '../test/test-workflow'
 import { WorkflowRegistry } from './workflow-registry'
-import { InMemoryQueue } from '../../transport'
-import { TestCommand } from '../test/test-command'
-import { RunTaskHandler } from '../test/run-task-handler'
 
 class TestFinalTaskHandler implements Handler<FinalTask> {
   messageType = FinalTask

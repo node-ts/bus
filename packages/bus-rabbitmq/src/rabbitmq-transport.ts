@@ -1,29 +1,29 @@
 import {
-  Event,
-  Command,
-  Message,
-  MessageAttributes,
-  MessageAttributeMap
-} from '@node-ts/bus-messages'
-import {
-  Transport,
-  TransportMessage,
-  DEFAULT_DEAD_LETTER_QUEUE_NAME,
   CoreDependencies,
+  DEFAULT_DEAD_LETTER_QUEUE_NAME,
   Logger,
-  TransportConnectionOptions
+  Transport,
+  TransportConnectionOptions,
+  TransportMessage
 } from '@node-ts/bus-core'
 import {
-  Connection,
+  Command,
+  Event,
+  Message,
+  MessageAttributeMap,
+  MessageAttributes
+} from '@node-ts/bus-messages'
+import {
   Channel,
-  Message as RabbitMqMessage,
-  GetMessage,
+  ChannelModel,
   connect,
-  ConsumeMessage
+  ConsumeMessage,
+  GetMessage,
+  Message as RabbitMqMessage
 } from 'amqplib'
-import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
-import * as uuid from 'uuid'
 import { EventEmitter } from 'events'
+import * as uuid from 'uuid'
+import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 export const DEFAULT_MAX_RETRIES = 10
 
@@ -36,7 +36,7 @@ enum ConsumptionQueueEvent {
  * A RabbitMQ transport adapter for @node-ts/bus.
  */
 export class RabbitMqTransport implements Transport<RabbitMqMessage> {
-  private connection: Connection
+  private connection: ChannelModel
   private channel: Channel
   private assertedExchanges: { [key: string]: boolean } = {}
   private maxRetries: number
@@ -194,8 +194,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
     const attributes = {
       correlationId: rabbitMessage.properties.correlationId as
-        | string
-        | undefined,
+        string | undefined,
       attributes:
         rabbitMessage.properties.headers &&
         rabbitMessage.properties.headers.attributes
@@ -239,7 +238,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
     // Makes attempt indexed from 1
     const attempt =
-      (message.raw.properties.headers['x-death']?.find(
+      (message.raw.properties.headers?.['x-death']?.find(
         death => death.exchange === this.retryQueueExchange
       )?.count || 0) + 1
     const meta = { attempt, message: msg, rawMessage: message.raw }

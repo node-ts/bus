@@ -1,13 +1,13 @@
 import { Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
+import { messageHandlingContext } from '../message-handling-context'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
+import { InMemoryQueue, TransportMessage } from '../transport'
+import { sleep } from '../util'
+import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
-import { sleep } from '../util'
-import { InMemoryQueue, TransportMessage } from '../transport'
-import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
-import { messageHandlingContext } from '../message-handling-context'
 
 jest.setTimeout(20_000)
 

@@ -1,17 +1,17 @@
 import {
   Bus,
-  WorkflowStatus,
-  MessageWorkflowMapping,
+  BusInstance,
   Logger,
-  BusInstance
+  MessageWorkflowMapping,
+  WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { PostgresPersistence } from './postgres-persistence'
-import { PostgresConfiguration } from './postgres-configuration'
-import { Mock } from 'typemoq'
-import { TestWorkflowState, TestCommand, TestWorkflow } from '../test'
 import { Pool } from 'pg'
+import { Mock } from 'typemoq'
 import * as uuid from 'uuid'
+import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
+import { PostgresConfiguration } from './postgres-configuration'
+import { PostgresPersistence } from './postgres-persistence'
 
 const configuration: PostgresConfiguration = {
   connection: {

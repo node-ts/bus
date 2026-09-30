@@ -15,4 +15,4 @@ export const toLambdaRecord = (message: SqsMessage): SQSRecord =>
     eventSource: 'aws:sqs',
     eventSourceARN: '',
     awsRegion: process.env.AWS_REGION!
-  } as SQSRecord)
+  }) as SQSRecord

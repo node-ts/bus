@@ -4,6 +4,9 @@
   "description": "A JSON serializer for @node-ts/bus based on class-transformer for strong marshalling of messages",
   "homepage": "https://github.com/node-ts/bus#readme",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",
@@ -18,7 +21,7 @@
   "devDependencies": {
     "@node-ts/bus-core": "workspace:^",
     "class-transformer": "^0.5.1",
-    "reflect-metadata": "^0.2.1"
+    "reflect-metadata": "^0.2.2"
   },
   "peerDependencies": {
     "@node-ts/bus-core": "workspace:^",

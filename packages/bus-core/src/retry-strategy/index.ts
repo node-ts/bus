@@ -1,2 +1,2 @@
-export * from './retry-strategy'
 export * from './default-retry-strategy'
+export * from './retry-strategy'

@@ -1,12 +1,11 @@
+import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
 import * as uuid from 'uuid'
-import { Workflow, WorkflowMapper } from './workflow'
 import { Bus, BusInstance } from '../service-bus'
-import { Event, Command, MessageAttributes } from '@node-ts/bus-messages'
-import { InMemoryPersistence } from './persistence'
-import { WorkflowStatus } from './workflow-state'
-import { WorkflowState } from './workflow-state'
 import { sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
+import { InMemoryPersistence } from './persistence'
+import { Workflow, WorkflowMapper } from './workflow'
+import { WorkflowState, WorkflowStatus } from './workflow-state'
 
 class AssignmentCreated extends Event {
   $name = 'my-app/accounts/assignment-created'
@@ -21,7 +20,10 @@ class AssignmentAssigned extends Event {
   $name = 'my-app/accounts/assignment-assigned'
   $version = 1
 
-  constructor(readonly assignmentId: string, readonly assigneeId: string) {
+  constructor(
+    readonly assignmentId: string,
+    readonly assigneeId: string
+  ) {
     super()
   }
 }
@@ -30,7 +32,10 @@ class CreateAssignmentBundle extends Command {
   $name = 'my-app/accounts/create-assignment-bundle'
   $version = 1
 
-  constructor(readonly assignmentId: string, readonly bundleId: string) {
+  constructor(
+    readonly assignmentId: string,
+    readonly bundleId: string
+  ) {
     super()
   }
 }

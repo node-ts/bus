@@ -4,6 +4,8 @@ A JSON-based serializer for [@node-ts/bus](https://bus.node-ts.com) that deseria
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install this package and its dependencies
 
 ```sh

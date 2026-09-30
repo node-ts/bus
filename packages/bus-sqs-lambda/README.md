@@ -10,6 +10,8 @@ This package allows the host application to receive SQS messages via a Lambda ha
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install packages and their dependencies
 
 ```bash

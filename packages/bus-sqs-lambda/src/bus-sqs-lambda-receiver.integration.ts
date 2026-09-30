@@ -2,10 +2,10 @@ import { SNSClient } from '@aws-sdk/client-sns'
 import {
   DeleteMessageCommand,
   DeleteQueueCommand,
-  Message as SqsMessage,
   ReceiveMessageCommand,
   SendMessageCommand,
-  SQSClient
+  SQSClient,
+  Message as SqsMessage
 } from '@aws-sdk/client-sqs'
 import {
   Bus,
@@ -75,7 +75,7 @@ const readMessages = async (
         MaxNumberOfMessages: 10,
         WaitTimeSeconds: 1,
         VisibilityTimeout: VISIBILITY_TIMEOUT_SECONDS,
-        AttributeNames: ['All'],
+        MessageSystemAttributeNames: ['All'],
         MessageAttributeNames: ['All']
       })
     )

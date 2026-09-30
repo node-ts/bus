@@ -4,8 +4,10 @@ import {
   resolveTopicName as defaultResolveTopicName
 } from './queue-resolvers'
 
-export interface SqsTransportConfiguration
-  extends Omit<TransportConfiguration, 'queueName'> {
+export interface SqsTransportConfiguration extends Omit<
+  TransportConfiguration,
+  'queueName'
+> {
   /**
    * The AWS Account Id of the account where queues and topics will be created
    */

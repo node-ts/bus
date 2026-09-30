@@ -1,18 +1,18 @@
-import { RabbitMqTransport } from './rabbitmq-transport'
-import { Connection, Channel, connect, ConsumeMessage } from 'amqplib'
 import {
   DefaultHandlerRegistry,
   JsonSerializer,
   MessageSerializer
 } from '@node-ts/bus-core'
-import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import {
   Message,
   MessageAttributeMap,
   MessageAttributes
 } from '@node-ts/bus-messages'
+import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
+import { Channel, ChannelModel, connect, ConsumeMessage } from 'amqplib'
 import * as uuid from 'uuid'
-import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
+import { RabbitMqTransport } from './rabbitmq-transport'
+import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',
@@ -25,7 +25,7 @@ describe('RabbitMqTransport', () => {
   jest.setTimeout(10000)
 
   let rabbitMqTransport = new RabbitMqTransport(configuration)
-  let connection: Connection
+  let connection: ChannelModel
   let channel: Channel
   const messageSerializer = new MessageSerializer(
     new JsonSerializer(),

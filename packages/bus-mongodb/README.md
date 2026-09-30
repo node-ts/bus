@@ -8,6 +8,8 @@ A Mongodb based persistence for workflow storage in [@node-ts/bus](https://bus.n
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install all packages and their dependencies
 
 ```bash

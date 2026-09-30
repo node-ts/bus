@@ -2,50 +2,49 @@ import { AssertionError } from 'assert'
 
 import {
   CreateTopicCommand,
+  GetTopicAttributesCommand,
+  ListSubscriptionsByTopicCommand,
+  ListSubscriptionsByTopicResponse,
   MessageAttributeValue,
   PublishCommand,
   SNSClient,
-  SubscribeCommand,
-  GetTopicAttributesCommand,
-  ListSubscriptionsByTopicCommand,
-  ListSubscriptionsByTopicResponse
+  SubscribeCommand
 } from '@aws-sdk/client-sns'
 import {
   ChangeMessageVisibilityCommand,
   CreateQueueCommand,
   DeleteMessageCommand,
   GetQueueAttributesCommand,
-  Message as SQSMessage,
+  GetQueueUrlCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
   SetQueueAttributesCommand,
   SQSClient,
-  QueueDoesNotExist,
-  GetQueueUrlCommand
+  Message as SQSMessage
 } from '@aws-sdk/client-sqs'
 import { parse } from '@aws-sdk/util-arn-parser'
+import {
+  CoreDependencies,
+  Logger,
+  Transport,
+  TransportInitializationOptions,
+  TransportMessage
+} from '@node-ts/bus-core'
 import {
   Command,
   Event,
   Message,
-  MessageAttributes,
-  MessageAttributeMap
+  MessageAttributeMap,
+  MessageAttributes
 } from '@node-ts/bus-messages'
-import {
-  Transport,
-  TransportMessage,
-  CoreDependencies,
-  Logger,
-  TransportInitializationOptions
-} from '@node-ts/bus-core'
 import { generatePolicy } from './generate-policy'
 import {
+  resolveTopicArn as defaultResolveTopicArn,
+  resolveTopicName as defaultResolveTopicName,
   normalizeMessageName,
   resolveDeadLetterQueueName,
   resolveQueueArn,
-  resolveQueueUrl,
-  resolveTopicArn as defaultResolveTopicArn,
-  resolveTopicName as defaultResolveTopicName
+  resolveQueueUrl
 } from './queue-resolvers'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
@@ -166,7 +165,7 @@ export class SqsTransport implements Transport<SQSMessage> {
         this.sqsConfiguration.waitTimeSeconds || DEFAULT_WAIT_TIME_SECONDS,
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ['.*'],
-      AttributeNames: ['ApproximateReceiveCount']
+      MessageSystemAttributeNames: ['ApproximateReceiveCount']
     })
 
     const result = await this.sqs.send(command)
@@ -310,9 +309,9 @@ export class SqsTransport implements Transport<SQSMessage> {
       await this.assertServiceQueue()
     }
 
-    if (
-      !(this.sqsConfiguration.awsAccountId && this.sqsConfiguration.awsRegion)
-    ) {
+    if (!(
+      this.sqsConfiguration.awsAccountId && this.sqsConfiguration.awsRegion
+    )) {
       throw new Error(
         `SqsTransportConfiguration must provide awsAccountId and awsRegion`
       )
@@ -618,9 +617,8 @@ export class SqsTransport implements Transport<SQSMessage> {
           NextToken: nextToken
         })
 
-        const response: ListSubscriptionsByTopicResponse = await this.sns.send(
-          command
-        )
+        const response: ListSubscriptionsByTopicResponse =
+          await this.sns.send(command)
         const subscriptions = response.Subscriptions
         isQueueSubscribed = !!subscriptions?.some(
           sub => sub.Protocol === 'sqs' && sub.Endpoint === sqsQueueArn
@@ -684,8 +682,8 @@ export function toMessageAttributeMap(
         typeof value === 'number'
           ? 'Number'
           : typeof value === 'boolean'
-          ? 'Boolean'
-          : 'String',
+            ? 'Boolean'
+            : 'String',
       StringValue: value.toString()
     }
 
@@ -764,7 +762,7 @@ function getAttributeValue(
     attribute.Type === 'Number'
       ? Number(attribute.Value)
       : attribute.Type === 'Boolean'
-      ? attribute.Value === 'true'
-      : attribute.Value
+        ? attribute.Value === 'true'
+        : attribute.Value
   return value
 }

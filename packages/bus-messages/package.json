@@ -3,6 +3,9 @@
   "description": "A core set of message definitions for distributed applications.",
   "version": "1.1.2",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",
@@ -15,11 +18,11 @@
     "access": "public"
   },
   "dependencies": {
-    "tslib": "^2.6.2"
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "@node-ts/code-standards": "^0.0.10",
-    "typescript": "^5.3.3"
+    "typescript": "^6.0.3"
   },
   "keywords": [
     "esb",

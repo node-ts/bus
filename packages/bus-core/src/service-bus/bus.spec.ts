@@ -1,18 +1,18 @@
+import { Mock } from 'typemoq'
+import { ContainerAdapter } from '../container'
 import { Logger } from '../logger'
+import { Receiver } from '../receiver'
+import { RetryStrategy } from '../retry-strategy'
 import { Serializer } from '../serialization'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { Transport } from '../transport'
+import { sleep } from '../util'
 import { Persistence } from '../workflow'
 import { Bus } from './bus'
-import { BusAlreadyInitialized } from './error'
-import { BusState } from './bus-state'
-import { BusInstance } from './bus-instance'
-import { sleep } from '../util'
-import { Mock } from 'typemoq'
 import { BusConfiguration } from './bus-configuration'
-import { ContainerAdapter } from '../container'
-import { RetryStrategy } from '../retry-strategy'
-import { Receiver } from '../receiver'
+import { BusInstance } from './bus-instance'
+import { BusState } from './bus-state'
+import { BusAlreadyInitialized } from './error'
 
 describe('Bus', () => {
   describe('when configuring Bus after initialization', () => {
@@ -38,7 +38,7 @@ describe('Bus', () => {
       ],
       ['withWorkflow', config => config.withWorkflow({} as any)],
       ['withTransport', config => config.withTransport({} as Transport)],
-      ['withLogger', config => config.withLogger(() => ({} as Logger))],
+      ['withLogger', config => config.withLogger(() => ({}) as Logger)],
       ['withSerializer', config => config.withSerializer({} as Serializer)],
       ['withPersistence', config => config.withPersistence({} as Persistence)],
       ['withConcurrency', config => config.withConcurrency(2)],
@@ -61,7 +61,7 @@ describe('Bus', () => {
     it.each(configurationCalls)(
       'should reject %s with BusAlreadyInitialized',
       (_, configure) => {
-        expect(() => configure(sut)).toThrowError(BusAlreadyInitialized)
+        expect(() => configure(sut)).toThrow(BusAlreadyInitialized)
       }
     )
   })
@@ -76,7 +76,7 @@ describe('Bus', () => {
     })
 
     it('should throw an error when concurrency < 1', () => {
-      expect(() => Bus.configure().withConcurrency(0)).toThrowError()
+      expect(() => Bus.configure().withConcurrency(0)).toThrow()
     })
   })
 

@@ -6,6 +6,8 @@
 
 Additionally, the library provides message workflows, or sagas, to help developers coordinate multiple messages and handlers in longer running processes. As a result, applications built with @node-ts/bus can be more robust, self-healing, and resistant to data loss or corruption.
 
+Requires Node.js 24 or later.
+
 ## Further info
 
 🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥

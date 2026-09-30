@@ -1,5 +1,5 @@
-import { Serializer } from './serializer'
 import { ClassConstructor } from '../util'
+import { Serializer } from './serializer'
 
 /**
  * A naive and generally unsafe default JSON serializer. This relies on

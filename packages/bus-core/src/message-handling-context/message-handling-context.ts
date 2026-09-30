@@ -1,5 +1,5 @@
-import { TransportMessage } from '../transport'
 import ALS from 'alscontext'
+import { TransportMessage } from '../transport'
 
 type Context = TransportMessage<unknown> & { isInHandlerContext?: boolean }
 

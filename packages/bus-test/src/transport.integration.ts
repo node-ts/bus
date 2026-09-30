@@ -1,4 +1,8 @@
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { EventEmitter } from 'stream'
+import { It, Mock, Times } from 'typemoq'
+import * as uuid from 'uuid'
 import {
   HandleChecker,
   TestCommand,
@@ -6,10 +10,6 @@ import {
   TestFailMessage,
   TestPoisonedMessage
 } from './helpers'
-import { EventEmitter } from 'stream'
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import * as uuid from 'uuid'
-import { Mock, It, Times } from 'typemoq'
 import { TestSystemMessage } from './helpers/test-system-message'
 
 const RETRY_DELAY = 5

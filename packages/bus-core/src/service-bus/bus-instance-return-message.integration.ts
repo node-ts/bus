@@ -2,9 +2,9 @@ import { Mock, Times } from 'typemoq'
 import { ReturnMessageOutsideHandlingContext } from '../error'
 import { handlerFor } from '../handler'
 import { TestCommand } from '../test/test-command'
+import { sleep } from '../util'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
-import { sleep } from '../util'
 
 describe('BusInstance - Return Message', () => {
   let bus: BusInstance

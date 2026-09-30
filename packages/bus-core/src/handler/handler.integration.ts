@@ -1,21 +1,26 @@
-import { handlerFor } from './handler-for'
-import { TestEvent } from '../test/test-event'
-import { Bus, BusInstance } from '../service-bus'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { TestCommand3 } from '../test/test-command-3'
-import { TestCommand } from '../test/test-command'
-import { TestEventClassHandler } from '../test/test-event-class-handler'
-import { MessageLogger, TestCommand2, testEventHandler } from '../test'
-import { ClassConstructor, sleep } from '../util'
-import * as faker from 'faker'
-import { Mock, Times, It } from 'typemoq'
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'stream'
+import { It, Mock, Times } from 'typemoq'
+import { Bus, BusInstance } from '../service-bus'
+import {
+  MessageLogger,
+  randomInt,
+  TestCommand2,
+  testEventHandler
+} from '../test'
+import { TestCommand } from '../test/test-command'
+import { TestCommand3 } from '../test/test-command-3'
+import { TestEvent } from '../test/test-event'
+import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { ClassConstructor, sleep } from '../util'
+import { handlerFor } from './handler-for'
 
 const event = new TestEvent()
 const command = new TestCommand()
 
 const attributes: MessageAttributes = {
-  correlationId: faker.random.uuid(),
+  correlationId: randomUUID(),
   attributes: {
     one: 1
   },
@@ -103,12 +108,12 @@ describe('Handler', () => {
         const command2 = new TestCommand2()
         const attributes1: Partial<MessageAttributes> = {
           stickyAttributes: {
-            value: faker.random.number()
+            value: randomInt()
           }
         }
         const attributes2: Partial<MessageAttributes> = {
           stickyAttributes: {
-            value: faker.random.number()
+            value: randomInt()
           }
         }
         const messagesHandled = new Promise<void>(resolve => {
@@ -145,7 +150,7 @@ describe('Handler', () => {
       it('should propagate the correlationId over multiple hops', async () => {
         const command2 = new TestCommand2()
         const attributes: Partial<MessageAttributes> = {
-          correlationId: faker.random.uuid()
+          correlationId: randomUUID()
         }
         const messageHandled = new Promise<void>(resolve => {
           events.on('command3Handler', resolve)

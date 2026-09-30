@@ -1,7 +1,7 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { WorkflowState } from '../workflow-state'
-import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { ClassConstructor, CoreDependencies } from '../../util'
+import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { WorkflowState } from '../workflow-state'
 
 /**
  * Infrastructure that provides the ability to persist workflow state for long running processes

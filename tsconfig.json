@@ -1,11 +1,13 @@
 {
-  "extends": "@tsconfig/node18/tsconfig.json",
+  "extends": "@tsconfig/node24/tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2020"],
-    "target": "ES6",
     "skipLibCheck": true,
     "declaration": true,
     "strictPropertyInitialization": false,
+    // Targets from ES2022 up default this to true, which turns declared-only
+    // fields into own properties set to undefined. Keep the assignment
+    // semantics the packages were built with.
+    "useDefineForClassFields": false,
 
     // Handled in linting, useful for testing
     "allowUnreachableCode": true,

@@ -1,11 +1,11 @@
-import { InMemoryQueue } from '../transport'
-import { Bus } from './bus'
-import { TestEvent } from '../test/test-event'
-import { sleep } from '../util'
-import { Mock, IMock, Times } from 'typemoq'
-import { BusInstance } from './bus-instance'
+import { IMock, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { TestCommand } from '../test/test-command'
+import { TestEvent } from '../test/test-event'
+import { InMemoryQueue } from '../transport'
+import { sleep } from '../util'
+import { Bus } from './bus'
+import { BusInstance } from './bus-instance'
 
 const event = new TestEvent()
 type Callback = (correlationId: string) => void

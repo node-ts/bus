@@ -1,12 +1,12 @@
-import { InMemoryPersistence } from './in-memory-persistence'
-import { TestWorkflowState, TestCommand } from '../test'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { TestCommand, TestWorkflowState } from '../test'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import {
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './error'
+import { InMemoryPersistence } from './in-memory-persistence'
 
 describe('InMemoryPersistence', () => {
   let sut: InMemoryPersistence

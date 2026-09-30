@@ -1,17 +1,17 @@
-import { Transport, TransportInitializationOptions } from './transport'
 import {
-  Event,
   Command,
+  Event,
   Message,
   MessageAttributes
 } from '@node-ts/bus-messages'
-import { TransportMessage } from './transport-message'
 import { EventEmitter } from 'events'
-import { CoreDependencies } from '../util'
 import { Logger } from '../logger'
 import { Milliseconds } from '../retry-strategy'
-import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
+import { CoreDependencies } from '../util'
 import { DefaultInMemoryQueueConfiguration } from './default-in-memory-queue-configuration'
+import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
+import { Transport, TransportInitializationOptions } from './transport'
+import { TransportMessage } from './transport-message'
 
 export interface InMemoryMessage {
   /**

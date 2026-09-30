@@ -8,6 +8,8 @@ A Postgres based persistence for workflow storage in [@node-ts/bus](https://bus.
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install all packages and their dependencies
 
 ```bash

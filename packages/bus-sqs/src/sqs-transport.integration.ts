@@ -28,7 +28,7 @@ function getEnvVar(key: string): string {
 }
 
 // Use a randomize number otherwise aws will disallow recreate just deleted queue
-// const resourcePrefix = `integration-bus-sqs-${faker.random.number()}`
+// const resourcePrefix = `integration-bus-sqs-${randomUUID()}`
 const resourcePrefix = `integration-bus-sqs-1`
 const AWS_REGION = getEnvVar('AWS_REGION')
 const AWS_ACCOUNT_ID = getEnvVar('AWS_ACCOUNT_ID')
@@ -98,7 +98,7 @@ describe('SqsTransport', () => {
         QueueUrl: deadLetterQueueUrl,
         WaitTimeSeconds: 5,
         MaxNumberOfMessages: 10,
-        AttributeNames: ['All']
+        MessageSystemAttributeNames: ['All']
       })
     )
 

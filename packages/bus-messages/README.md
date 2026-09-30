@@ -8,6 +8,8 @@ This package should be consumed wherever your application defines message contra
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install the **@node-ts/bus-messages** package via npm:
 
 ```sh

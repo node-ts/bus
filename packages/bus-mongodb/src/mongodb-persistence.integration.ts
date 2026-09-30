@@ -1,18 +1,18 @@
 import {
   Bus,
-  WorkflowStatus,
-  MessageWorkflowMapping,
+  BusInstance,
   Logger,
-  BusInstance
+  MessageWorkflowMapping,
+  WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { MongodbPersistence } from './mongodb-persistence'
-import { MongodbConfiguration } from './mongodb-configuration'
-import { Mock } from 'typemoq'
-import { TestWorkflowState, TestCommand, TestWorkflow } from '../test'
-import * as uuid from 'uuid'
 import { Collection, Db, MongoClient } from 'mongodb'
+import { Mock } from 'typemoq'
+import * as uuid from 'uuid'
+import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
 import { WorkflowStateNotFound } from './error'
+import { MongodbConfiguration } from './mongodb-configuration'
+import { MongodbPersistence } from './mongodb-persistence'
 
 const configuration: MongodbConfiguration = {
   connection: process.env.MONGODB_URL || 'mongodb://localhost:27017/workflows',
