@@ -15,7 +15,9 @@ import * as uuid from 'uuid'
 
 const configuration: PostgresConfiguration = {
   connection: {
-    connectionString: 'postgres://postgres:password@localhost:6432/postgres'
+    connectionString:
+      process.env.POSTGRES_URL ||
+      'postgres://postgres:password@localhost:6432/postgres'
   },
   schemaName: 'workflows'
 }

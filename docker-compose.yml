@@ -1,0 +1,28 @@
+# Local infrastructure for the adapter integration tests (`pnpm test:integration`).
+# Ports match the defaults the tests use; override them with the env vars
+# documented in test.env if you map them elsewhere.
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: sqs,sns,iam,sts
+    ports:
+      - '4566:4566'
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - '6432:5432'
+
+  mongo:
+    image: mongo:7
+    ports:
+      - '27017:27017'

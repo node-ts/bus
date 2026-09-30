@@ -15,7 +15,7 @@ import { Collection, Db, MongoClient } from 'mongodb'
 import { WorkflowStateNotFound } from './error'
 
 const configuration: MongodbConfiguration = {
-  connection: 'mongodb://localhost:27017/workflows',
+  connection: process.env.MONGODB_URL || 'mongodb://localhost:27017/workflows',
   databaseName: 'workflows'
 }
 
@@ -45,6 +45,7 @@ describe('MongodbPersistence', () => {
   afterAll(async () => {
     await client.db(configuration.databaseName).dropDatabase()
     await bus.dispose()
+    await client.close()
   })
 
   describe('when initializing the persistence', () => {
