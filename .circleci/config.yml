@@ -1,19 +1,14 @@
-version: 2
+version: 2.1
 
 defaults: &defaults
   working_directory: ~/repo
-  build: # this can be any name you choose
-    docker:
-      - image: node:20
-
+  docker:
+    - image: node:24.11.1
 
 jobs:
   build:
     <<: *defaults
-    docker:
-      - image: node:20
     resource_class: large
-    parallelism: 10
     steps:
       - checkout
       - restore_cache:
@@ -23,7 +18,7 @@ jobs:
       - run:
           name: Install pnpm package manager
           command: |
-            curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@9.6.0
+            npm install --global pnpm@12.4.1
       - run:
           name: Install dependencies
           command: pnpm i
@@ -55,8 +50,6 @@ jobs:
 
   deploy:
     <<: *defaults
-    docker:
-      - image: node:20
     steps:
       # Reuse the workspace from the build job
       - attach_workspace:
@@ -68,7 +61,7 @@ jobs:
       - run:
           name: Install pnpm package manager
           command: |
-            curl -L https://pnpm.js.org/pnpm.js | node - add --global pnpm@9.6.0
+            npm install --global pnpm@12.4.1
       - run:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
@@ -78,7 +71,6 @@ jobs:
           command: pnpm publish --recursive --no-git-checks
 
 workflows:
-  version: 2
   build-deploy:
     jobs:
       - build

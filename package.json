@@ -29,9 +29,10 @@
     "node"
   ],
   "engines": {
-    "pnpm": "^9.6.0",
-    "node": ">=20.12.2"
+    "pnpm": "^12.4.1",
+    "node": ">=24.11.1"
   },
+  "packageManager": "pnpm@12.4.1",
   "workspaces": [
     "packages/*"
   ],
