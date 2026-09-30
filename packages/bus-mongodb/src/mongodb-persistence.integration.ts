@@ -23,6 +23,19 @@ const PRIMARY_INDEX_NAME = '"testworkflowstate_id_version_idx"'
 const PROPERTY1_INDEX_NAME = '"testworkflowstate_property1_idx"'
 const WORKFLOW_ID_INDEX_NAME = '"testworkflowstate_$workflowId_idx"'
 
+const collectKeys = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap(collectKeys)
+  }
+  if (value === null || typeof value !== 'object') {
+    return []
+  }
+  return Object.entries(value).flatMap(([key, child]) => [
+    key,
+    ...collectKeys(child)
+  ])
+}
+
 describe('MongodbPersistence', () => {
   let sut: MongodbPersistence
   let client: MongoClient
@@ -92,12 +105,6 @@ describe('MongodbPersistence', () => {
         { 'data.eventValue': 1 },
         { name: userIndexName }
       )
-      // Recreate the index with the key that earlier versions of this package used
-      await collection.dropIndex(PROPERTY1_INDEX_NAME)
-      await collection.createIndex(
-        { "data.'property1'": 1 },
-        { name: PROPERTY1_INDEX_NAME }
-      )
 
       const mappings: MessageWorkflowMapping<TestCommand, TestWorkflowState>[] =
         [
@@ -120,20 +127,11 @@ describe('MongodbPersistence', () => {
       )
     })
 
-    it('should index a $-prefixed mapped property at its escaped path', () => {
+    it('should index a $-prefixed mapped property at its encoded path', () => {
       expect(indexes).toContainEqual(
         expect.objectContaining({
           name: WORKFLOW_ID_INDEX_NAME,
-          key: { 'data.__workflowId': 1 }
-        })
-      )
-    })
-
-    it('should rebuild a managed index with an outdated key', () => {
-      expect(indexes).toContainEqual(
-        expect.objectContaining({
-          name: PROPERTY1_INDEX_NAME,
-          key: { 'data.property1': 1 }
+          key: { 'data.%24workflowId': 1 }
         })
       )
     })
@@ -158,10 +156,10 @@ describe('MongodbPersistence', () => {
         id: workflowState.$workflowId,
         version: 1,
         data: {
-          __workflowId: workflowState.$workflowId,
-          __status: WorkflowStatus.Running,
-          __version: 1,
-          __name: 'TestWorkflowState',
+          '%24workflowId': workflowState.$workflowId,
+          '%24status': WorkflowStatus.Running,
+          '%24version': 1,
+          '%24name': 'TestWorkflowState',
           eventValue: 'abc',
           property1: 'something'
         }
@@ -243,16 +241,25 @@ describe('MongodbPersistence', () => {
     })
   })
 
-  describe('when saving workflow state with keys containing $ and __', () => {
+  describe('when saving workflow state with keys mongodb cannot store as-is', () => {
+    const trickyKeys = {
+      $a: 1,
+      a$b: 2,
+      'a.b': 3,
+      '%24': 4,
+      a__b: 5,
+      '%': 6,
+      $$: 7
+    }
     const workflowState = Object.assign(new TestWorkflowState(), {
       $workflowId: uuid.v4(),
       $status: WorkflowStatus.Running,
       $version: 0,
       property1: uuid.v4(),
-      $multiple$dollars: 'a',
-      multiple__under__scores: 'b'
+      ...trickyKeys,
+      nested: { ...trickyKeys, $deeper: [{ ...trickyKeys }] }
     })
-    let storedData: Document
+    let storedKeys: string[]
     let results: TestWorkflowState[]
 
     beforeAll(async () => {
@@ -260,28 +267,28 @@ describe('MongodbPersistence', () => {
       const document = await collection.findOne({
         id: workflowState.$workflowId
       })
-      storedData = document!.data
+      storedKeys = collectKeys(document!.data)
       results = await sut.getWorkflowState(
         TestWorkflowState,
-        { lookup: () => workflowState.property1, mapsTo: 'property1' },
+        {
+          lookup: () => workflowState.$workflowId,
+          mapsTo: '$workflowId'
+        },
         new TestCommand(workflowState.property1),
         { attributes: {}, stickyAttributes: {} }
       )
     })
 
-    it('should only escape a leading $', () => {
-      expect(storedData).toMatchObject({
-        __multiple$dollars: 'a',
-        multiple__under__scores: 'b'
-      })
+    it('should store every key without $ or .', () => {
+      expect(storedKeys.filter(key => /[$.]/.test(key))).toEqual([])
     })
 
-    it('should read the keys back unchanged', () => {
+    it('should find the state by an encoded mapped property', () => {
       expect(results).toHaveLength(1)
-      expect(results[0]).toMatchObject({
-        $multiple$dollars: 'a',
-        multiple__under__scores: 'b'
-      })
+    })
+
+    it('should read every key back unchanged', () => {
+      expect({ ...results[0] }).toEqual({ ...workflowState, $version: 1 })
     })
   })
 })

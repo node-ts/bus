@@ -32,9 +32,6 @@ describe('MongodbPersistence', () => {
     database
       .setup(d => d.collection(It.isAny()))
       .returns(() => collection.object)
-    collection
-      .setup(c => c.listIndexes())
-      .returns(() => ({ toArray: async () => [] }) as any)
 
     sut = new MongodbPersistence(configuration, client.object)
     sut.prepare({

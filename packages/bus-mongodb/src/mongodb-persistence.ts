@@ -7,27 +7,15 @@ import {
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Db, Document, MongoClient, MongoServerError } from 'mongodb'
+import { Db, MongoClient } from 'mongodb'
 import { WorkflowStateNotFound } from './error'
+import { decodeKeys, encodeKey, encodeKeys } from './key-encoding'
 import { MongodbConfiguration } from './mongodb-configuration'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
  */
 const WORKFLOW_DATA_FIELD_NAME = 'data'
-
-/**
- * The mongodb server error code returned when dropping an index that doesn't exist.
- */
-const INDEX_NOT_FOUND_ERROR_CODE = 27
-
-/**
- * An index that this persistence manages on a workflow state collection.
- */
-interface IndexDefinition {
-  name: string
-  key: Record<string, 1>
-}
 
 export class MongodbPersistence implements Persistence {
   private coreDependencies: CoreDependencies
@@ -88,17 +76,12 @@ export class MongodbPersistence implements Persistence {
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName)
     const matcherValue = messageMap.lookup(message, attributes)
-    const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty(
-      messageMap.mapsTo
-    )}`
     const collection = this.database.collection(tableName)
     const findObject = {
-      [workflowStateField]: matcherValue
+      [resolveWorkflowStateFieldPath(messageMap.mapsTo)]: matcherValue
     }
     if (!includeCompleted) {
-      findObject[
-        `${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty('$status')}`
-      ] = 'running'
+      findObject[resolveWorkflowStateFieldPath('$status')] = 'running'
     }
     const documents = await collection.find(findObject).toArray()
     this.logger.debug('Querying workflow state', { findObject })
@@ -109,11 +92,10 @@ export class MongodbPersistence implements Persistence {
 
     const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
     return rows
-      .map(row => mapKeys(row, (key, _) => denormalizeProperty(key)))
-      .filter(workflowState => workflowState !== undefined)
-      .map(workflowState =>
+      .filter(row => row !== undefined)
+      .map(row =>
         this.coreDependencies.serializer.toClass(
-          workflowState,
+          decodeKeys(row),
           workflowStateConstructor
         )
       )
@@ -130,14 +112,11 @@ export class MongodbPersistence implements Persistence {
 
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
-    const modifiedState = mapKeys(workflowState, (key, _) =>
-      normalizeProperty(key)
-    )
 
-    const plainWorkflowState = {
-      ...this.coreDependencies.serializer.toPlain(modifiedState),
-      __version: newVersion
-    }
+    const plainWorkflowState = encodeKeys({
+      ...this.coreDependencies.serializer.toPlain(workflowState),
+      $version: newVersion
+    })
 
     await this.upsertWorkflowState(
       collectionName,
@@ -161,72 +140,35 @@ export class MongodbPersistence implements Persistence {
   }
 
   /**
-   * Ensures the indexes this persistence relies on exist with the right keys.
-   * Indexes it doesn't manage, such as ones added by users, are left alone. A
-   * managed index whose key is out of date (as created by earlier versions of
-   * this package) is rebuilt.
+   * Creates the indexes this persistence relies on. Creating an index that already
+   * exists is a no-op, and no other index is ever dropped, so indexes added by users
+   * are left alone.
    */
   private async ensureIndexesExist(
     collectionName: string,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
     const collection = this.database.collection(collectionName)
-    const existingIndexes = (await collection.listIndexes().toArray()) ?? []
-
     const distinctWorkflowFields = new Set(
       messageWorkflowMappings.map(mapping => mapping.mapsTo)
     )
-    const requiredIndexes: IndexDefinition[] = [
-      {
-        name: resolveIndexName(collectionName, 'id', 'version'),
-        key: { id: 1, version: 1 }
-      },
-      ...[...distinctWorkflowFields].map(workflowField => ({
-        name: resolveIndexName(collectionName, workflowField),
-        key: {
-          [`${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty(workflowField)}`]: 1
-        } as Record<string, 1>
-      }))
-    ]
 
-    // One at a time, so that an outdated index is dropped before it's recreated
-    for (const requiredIndex of requiredIndexes) {
-      await this.ensureIndexExists(
-        collectionName,
-        requiredIndex,
-        existingIndexes
+    this.logger.debug('Ensuring indexes exist', {
+      collectionName,
+      workflowFields: [...distinctWorkflowFields]
+    })
+    await Promise.all([
+      collection.createIndex(
+        { id: 1, version: 1 },
+        { name: resolveIndexName(collectionName, 'id', 'version') }
+      ),
+      ...[...distinctWorkflowFields].map(workflowField =>
+        collection.createIndex(
+          { [resolveWorkflowStateFieldPath(workflowField)]: 1 },
+          { name: resolveIndexName(collectionName, workflowField) }
+        )
       )
-    }
-  }
-
-  private async ensureIndexExists(
-    collectionName: string,
-    { name, key }: IndexDefinition,
-    existingIndexes: Document[]
-  ): Promise<void> {
-    const collection = this.database.collection(collectionName)
-    const existingIndex = existingIndexes.find(index => index.name === name)
-    if (existingIndex) {
-      if (isSameIndexKey(existingIndex.key, key)) {
-        this.logger.debug('Index already exists', { indexName: name })
-        return
-      }
-      this.logger.info('Rebuilding index with an outdated key', {
-        indexName: name,
-        existingKey: existingIndex.key,
-        key
-      })
-      try {
-        await collection.dropIndex(name)
-      } catch (error) {
-        // Another instance starting at the same time may have dropped it first
-        if ((error as MongoServerError).code !== INDEX_NOT_FOUND_ERROR_CODE) {
-          throw error
-        }
-      }
-    }
-    this.logger.debug('Ensuring index exists', { indexName: name, key })
-    await collection.createIndex(key, { name })
+    ])
   }
 
   private async upsertWorkflowState(
@@ -279,16 +221,16 @@ export class MongodbPersistence implements Persistence {
     }
   }
 }
-function mapKeys(obj: any, fn: (key: string, value: any) => string) {
-  return Object.keys(obj).reduce(
-    (acc, oldKey) => {
-      const newKey = fn(oldKey, obj[oldKey])
-      acc[newKey] = obj[oldKey]
-      return acc
-    },
-    {} as Record<string, unknown>
-  )
+
+/**
+ * Resolves the stored path of a workflow state property, as used by both queries
+ * and indexes
+ * @example resolveWorkflowStateFieldPath('$workflowId') => 'data.%24workflowId'
+ */
+function resolveWorkflowStateFieldPath(property: string): string {
+  return `${WORKFLOW_DATA_FIELD_NAME}.${encodeKey(property)}`
 }
+
 /**
  * Returns a legal fully qualified schema + table name
  */
@@ -315,27 +257,4 @@ function toSnakeCase(value: string): string {
 function resolveIndexName(tableName: string, ...fields: string[]): string {
   const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
   return `"${normalizedTableName}_${fields.join('_')}_idx"`
-}
-
-/**
- * Checks if two index keys cover the same fields in the same order and direction
- */
-function isSameIndexKey(a: Document, b: Document): boolean {
-  return JSON.stringify(Object.entries(a)) === JSON.stringify(Object.entries(b))
-}
-
-/**
- * Escapes a leading `$` in a workflow state key, since mongodb field names can't
- * start with one (eg: `$workflowId` => `__workflowId`). The rest of the key is kept
- * as-is, so keys containing `$` or `__` elsewhere round-trip unchanged.
- */
-function normalizeProperty(property: string): string {
-  return property.replace(/^\$/, '__')
-}
-
-/**
- * Reverses `normalizeProperty` (eg: `__workflowId` => `$workflowId`)
- */
-function denormalizeProperty(property: string): string {
-  return property.replace(/^__/, '$')
 }
