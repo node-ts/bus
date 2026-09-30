@@ -25,7 +25,12 @@ import * as uuid from 'uuid'
 import { RabbitMqConnectionRecoveryFailed } from './error'
 import { RabbitMqTransport } from './rabbitmq-transport'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
-import { closeConnections, TestCommand } from './test'
+import {
+  closeConnections,
+  getQueues,
+  TestCommand,
+  TestRetryCommand
+} from './test'
 
 const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',
@@ -289,6 +294,180 @@ describe('RabbitMqTransport', () => {
 
       it('should not log any errors', () => {
         logger.verify(l => l.error(It.isAny(), It.isAny()), Times.never())
+      })
+    })
+  })
+
+  describe('with a retry strategy', () => {
+    const retryConfiguration: RabbitMqTransportConfiguration = {
+      queueName: '@node-ts/bus-rabbitmq-retry-test',
+      deadLetterQueueName: '@node-ts/bus-rabbitmq-retry-test-dead-letter',
+      connectionString: configuration.connectionString,
+      maxRetries: 3
+    }
+    const sut = new RabbitMqTransport(retryConfiguration)
+    const handlerEvents = new EventEmitter()
+    /**
+     * When each command was handled, by value
+     */
+    const handlings = new Map<string, number[]>()
+    /**
+     * The attempts the retry strategy was called with
+     */
+    let retryAttempts: number[] = []
+    /**
+     * The delays the retry strategy returns, in the order it's called
+     */
+    let retryDelays: number[] = []
+    let bus: BusInstance
+
+    /**
+     * Resolves once the command with the given value has been handled `count` times
+     */
+    const handled = (value: string, count: number) =>
+      new Promise<void>(resolve => {
+        const listener = (command: TestRetryCommand) => {
+          if (
+            command.value === value &&
+            handlings.get(value)!.length === count
+          ) {
+            handlerEvents.off('received', listener)
+            resolve()
+          }
+        }
+        handlerEvents.on('received', listener)
+      })
+
+    const readFromDeadLetterQueue = async () => {
+      const deadLetterChannel = await connection.createChannel()
+      const rabbitMessage = await new Promise<ConsumeMessage>(resolve =>
+        deadLetterChannel.consume(
+          retryConfiguration.deadLetterQueueName!,
+          message => {
+            deadLetterChannel.ack(message!)
+            resolve(message!)
+          }
+        )
+      )
+      await deadLetterChannel.close()
+      return JSON.parse(rabbitMessage.content.toString()) as TestRetryCommand
+    }
+
+    beforeAll(async () => {
+      for (const queueName of [
+        retryConfiguration.queueName,
+        retryConfiguration.deadLetterQueueName!
+      ]) {
+        const purgeChannel = await connection.createChannel()
+        purgeChannel.on('error', () => undefined)
+        await purgeChannel.purgeQueue(queueName).catch(() => undefined)
+      }
+
+      bus = Bus.configure()
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withConcurrency(2)
+        .withRetryStrategy({
+          calculateRetryDelay(attempt: number): number {
+            retryAttempts.push(attempt)
+            return retryDelays.shift() ?? 0
+          }
+        })
+        .withHandler(
+          handlerFor(TestRetryCommand, async command => {
+            const times = handlings.get(command.value) ?? []
+            times.push(Date.now())
+            handlings.set(command.value, times)
+            handlerEvents.emit('received', command)
+            if (times.length <= command.failures) {
+              throw new Error('Test handler failure')
+            }
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await channel.deleteExchange(TestRetryCommand.NAME)
+    })
+
+    describe('when a message fails', () => {
+      const retryDelay = 1000
+
+      beforeAll(async () => {
+        retryAttempts = []
+        retryDelays = [retryDelay]
+        const retried = handled('backoff', 2)
+        await bus.send(new TestRetryCommand('backoff', 1))
+        await retried
+      })
+
+      it('should wait for the retry delay before redelivering it', () => {
+        const [firstHandled, secondHandled] = handlings.get('backoff')!
+        expect(secondHandled - firstHandled).toBeGreaterThanOrEqual(retryDelay)
+      })
+
+      it('should pass the number of failed attempts to the retry strategy', () => {
+        expect(retryAttempts).toEqual([0])
+      })
+
+      it('should declare the retry queues as durable', async () => {
+        const retryQueues = await getQueues(
+          `${retryConfiguration.queueName}-retry`
+        )
+        expect(retryQueues.length).toBeGreaterThan(0)
+        retryQueues.forEach(queue => expect(queue.durable).toEqual(true))
+      })
+    })
+
+    describe('when a message with a long delay fails before one with a short delay', () => {
+      const longDelay = 3000
+      const shortDelay = 100
+
+      beforeAll(async () => {
+        retryDelays = [longDelay, shortDelay]
+        const slowRetried = handled('slow', 2)
+        const fastHandled = handled('fast', 1)
+        const fastRetried = handled('fast', 2)
+
+        await bus.send(new TestRetryCommand('slow', 1))
+        await handled('slow', 1)
+        await bus.send(new TestRetryCommand('fast', 1))
+        await fastHandled
+        await fastRetried
+        await slowRetried
+      })
+
+      it('should not hold the short delay back behind the long one', () => {
+        const [fastFirst, fastSecond] = handlings.get('fast')!
+        const [, slowSecond] = handlings.get('slow')!
+        expect(fastSecond).toBeLessThan(slowSecond)
+        expect(fastSecond - fastFirst).toBeLessThan(longDelay / 2)
+      })
+    })
+
+    describe('when a message keeps failing', () => {
+      let deadLetter: TestRetryCommand
+
+      beforeAll(async () => {
+        retryAttempts = []
+        retryDelays = [10, 10, 10]
+        await bus.send(new TestRetryCommand('poisoned', 100))
+        deadLetter = await readFromDeadLetterQueue()
+      })
+
+      it('should retry until maxRetries then send it to the dead letter queue', () => {
+        expect(deadLetter.value).toEqual('poisoned')
+        expect(handlings.get('poisoned')).toHaveLength(
+          retryConfiguration.maxRetries!
+        )
+      })
+
+      it('should count each failed attempt', () => {
+        expect(retryAttempts).toEqual([0, 1])
       })
     })
   })

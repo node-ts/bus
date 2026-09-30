@@ -45,3 +45,22 @@ export const closeConnections = async (connectionName: string) => {
   }
   throw new Error(`No RabbitMQ connection named ${connectionName} was found`)
 }
+
+/**
+ * A queue as listed by the management API
+ */
+export interface ManagementQueue {
+  name: string
+  durable: boolean
+  arguments: Record<string, unknown>
+}
+
+/**
+ * Lists the queues on the default vhost whose names start with the given prefix
+ */
+export const getQueues = async (
+  namePrefix: string
+): Promise<ManagementQueue[]> => {
+  const queues = await request<ManagementQueue[]>('/queues/%2F')
+  return queues.filter(q => q.name.startsWith(namePrefix))
+}

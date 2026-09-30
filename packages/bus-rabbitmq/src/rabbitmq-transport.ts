@@ -29,8 +29,14 @@ import * as uuid from 'uuid'
 import { RabbitMqConnectionRecoveryFailed } from './error'
 import { RabbitMqConnectionRecoveryConfiguration } from './rabbitmq-connection-recovery-configuration'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
+import { toRetryDelay, toRetryQueueDelay } from './retry-delay'
 
 export const DEFAULT_MAX_RETRIES = 10
+
+/**
+ * The message header that counts how many times handling the message has failed
+ */
+const FAILED_ATTEMPTS_HEADER = 'failedAttempts'
 
 export const DEFAULT_CONNECTION_RECOVERY: Required<RabbitMqConnectionRecoveryConfiguration> =
   {
@@ -77,6 +83,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    */
   private channel: Channel | undefined
   private assertedExchanges: { [key: string]: boolean } = {}
+  private assertedRetryQueues = new Set<string>()
   private maxRetries: number
 
   private deadLetterQueue: string
@@ -307,20 +314,24 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     )
   }
 
+  /**
+   * Returns a message to the service queue after the delay from the retry strategy, or sends it to
+   * the dead letter queue once it has been attempted `maxRetries` times.
+   *
+   * The message is copied into a retry queue with a per-message TTL, and acked. When the TTL
+   * expires, the retry queue dead-letters it back to the service queue.
+   */
   async returnMessage(
     message: TransportMessage<RabbitMqMessage>
   ): Promise<void> {
     const msg = JSON.parse(message.raw.content.toString())
-
+    const failedAttempts = this.getFailedAttempts(message.raw)
     // Makes attempt indexed from 1
-    const attempt =
-      (message.raw.properties.headers?.['x-death']?.find(
-        death => death.exchange === this.retryQueueExchange
-      )?.count || 0) + 1
+    const attempt = failedAttempts + 1
     const meta = { attempt, message: msg, rawMessage: message.raw }
 
-    this.settleMessage(message.raw, 'returned', channel => {
-      if (attempt >= this.maxRetries) {
+    if (attempt >= this.maxRetries) {
+      this.settleMessage(message.raw, 'returned', channel => {
         this.logger.debug(
           'Message retries failed, sending to dead letter queue',
           meta
@@ -333,11 +344,78 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
           message.raw.properties
         )
         channel.ack(message.raw, false)
-      } else {
-        this.logger.debug('Returning message', meta)
-        channel.nack(message.raw, false, false)
+      })
+      return
+    }
+
+    const delay = toRetryDelay(
+      this.coreDependencies.retryStrategy.calculateRetryDelay(failedAttempts)
+    )
+    const retryQueue = `${this.retryQueue}-${toRetryQueueDelay(delay)}ms`
+    const channel = this.messageChannels.get(message.raw) ?? this.channel
+    if (channel && this.isChannelOpen(channel)) {
+      try {
+        await this.assertRetryQueue(channel, retryQueue)
+      } catch (error) {
+        // A closed channel is logged as stale when settling below
+        if (
+          !(error instanceof IllegalOperationError) &&
+          this.isChannelOpen(channel)
+        ) {
+          throw error
+        }
       }
+    }
+
+    this.settleMessage(message.raw, 'returned', channel => {
+      this.logger.debug('Returning message', { ...meta, delay, retryQueue })
+      // Copy to the retry queue before ack'ing to avoid dropping messages in case of SIGKILL happening in between
+      channel.sendToQueue(retryQueue, message.raw.content, {
+        ...message.raw.properties,
+        expiration: String(delay),
+        headers: {
+          ...message.raw.properties.headers,
+          [FAILED_ATTEMPTS_HEADER]: attempt
+        }
+      })
+      channel.ack(message.raw, false)
     })
+  }
+
+  /**
+   * Counts how many times handling a message has failed before this attempt
+   */
+  private getFailedAttempts(message: RabbitMqMessage): number {
+    const headers = message.properties.headers
+    const failedAttempts: unknown = headers?.[FAILED_ATTEMPTS_HEADER]
+    // Messages returned by earlier versions were counted by the broker as they passed through the retry exchange
+    const legacyFailedAttempts =
+      headers?.['x-death']?.find(
+        death => death.exchange === this.retryQueueExchange
+      )?.count || 0
+    return Math.max(
+      typeof failedAttempts === 'number' ? failedAttempts : 0,
+      legacyFailedAttempts
+    )
+  }
+
+  /**
+   * Declares a retry queue that dead-letters expired messages back to the service queue
+   */
+  private async assertRetryQueue(
+    channel: Channel,
+    retryQueue: string
+  ): Promise<void> {
+    if (this.assertedRetryQueues.has(retryQueue)) {
+      return
+    }
+    this.logger.debug('Asserting retry queue', { retryQueue })
+    await channel.assertQueue(retryQueue, {
+      durable: true,
+      deadLetterExchange: this.serviceQueueExchange,
+      deadLetterRoutingKey: ''
+    })
+    this.assertedRetryQueues.add(retryQueue)
   }
 
   private async openConnection(): Promise<
@@ -420,6 +498,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       await channel.prefetch(this.concurrency)
       // The broker may have lost non-durable state, so declare everything again
       this.assertedExchanges = {}
+      this.assertedRetryQueues = new Set()
       if (this.isInitialized) {
         await this.bindExchangesToQueue(channel)
       }
@@ -676,12 +755,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   private async createQueues(channel: Channel): Promise<void> {
     /*
-     RabbitMQ doesn't have a concept of retries and messages are immutable (including headers).
-     One way to achieve retries is to fail messages to a retry queue that uses a short ttl.
-
-     The downside to this approach is the message is requeued at the end of the service queue, so
-     it doesn't act as a traditional retry mechanism and can cause issues for queues with large
-     message depth and FIFO-esque processing.
+     Returned messages are delayed in per-delay retry queues that are declared as they're needed
+     (see returnMessage). This retry queue, with its 1 ms TTL, is what earlier versions nacked
+     messages into. It's kept so messages already in it drain back to the service queue, and
+     because the service queue's dead-letter arguments point at it: changing them would make
+     declaring an existing service queue fail.
     */
     await channel.assertQueue(this.configuration.queueName, {
       durable: true,
