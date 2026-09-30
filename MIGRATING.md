@@ -5,6 +5,8 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
 ## All packages
 
 - **Node.js 24 or later is required.** Every package declares `engines.node >=24` and is compiled for ES2024.
+- **Import only from the package root.** Each package now has an `exports` map. Deep imports such as `@node-ts/bus-core/dist/service-bus/error` fail at runtime with `ERR_PACKAGE_PATH_NOT_EXPORTED`, and TypeScript can't resolve them under `moduleResolution` `node16`, `nodenext` or `bundler`. Import from `@node-ts/bus-core` (or the adapter's root) instead. The errors the packages throw, such as `BusAlreadyInitialized` and bus-mongodb's `WorkflowStateNotFound`, are now exported there. If you need something else that isn't exported, please open an issue.
+- **ES modules get their own entry point.** `import` loads an ES module entry and `require` loads the CommonJS build. You don't need to change anything, and named imports like `import { Command } from '@node-ts/bus-messages'` work from ES modules. The ES module entry re-exports the CommonJS build, so code that mixes `import` and `require` still gets one copy of each class and of `messageHandlingContext`.
 
 ## @node-ts/bus-core
 
