@@ -19,25 +19,63 @@ import {
   connect,
   ConsumeMessage,
   GetMessage,
-  Message as RabbitMqMessage
+  IllegalOperationError,
+  Message as RabbitMqMessage,
+  RecoveringChannelModel
 } from 'amqplib'
 import { EventEmitter } from 'events'
+import { serializeError } from 'serialize-error'
 import * as uuid from 'uuid'
+import { RabbitMqConnectionRecoveryFailed } from './error'
+import { RabbitMqConnectionRecoveryConfiguration } from './rabbitmq-connection-recovery-configuration'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 export const DEFAULT_MAX_RETRIES = 10
+
+export const DEFAULT_CONNECTION_RECOVERY: Required<RabbitMqConnectionRecoveryConfiguration> =
+  {
+    enabled: true,
+    initialDelay: 100,
+    maxDelay: 30_000,
+    factor: 2,
+    jitter: 0.2,
+    maxRetries: Infinity
+  }
+
+/**
+ * Swallows the error amqplib throws when closing a channel or connection that's already closing or
+ * has been lost
+ */
+const ignoreIllegalOperation = (error: unknown): void => {
+  if (!(error instanceof IllegalOperationError)) {
+    throw error
+  }
+}
 
 enum ConsumptionQueueEvent {
   Pushed = 'pushed',
   Stopped = 'stopped'
 }
 
+enum ChannelEvent {
+  Opened = 'opened',
+  RecoveryFailed = 'recovery-failed'
+}
+
 /**
  * A RabbitMQ transport adapter for @node-ts/bus.
+ *
+ * If the connection or channel to the broker is lost, the transport reconnects with backoff (see
+ * `connectionRecovery` in `RabbitMqTransportConfiguration`), re-declares its topology and resumes
+ * consuming. Publishing and sending wait for the reconnect. Messages that were received on the lost
+ * channel can no longer be acked, so the broker redelivers them.
  */
 export class RabbitMqTransport implements Transport<RabbitMqMessage> {
-  private connection: ChannelModel
-  private channel: Channel
+  private connection: ChannelModel | RecoveringChannelModel | undefined
+  /**
+   * The open channel, or undefined while it's being reopened after being lost
+   */
+  private channel: Channel | undefined
   private assertedExchanges: { [key: string]: boolean } = {}
   private maxRetries: number
 
@@ -53,6 +91,22 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private consumptionQueueEvents = new EventEmitter()
   private persistentMessages: boolean
 
+  private connectionRecovery: Required<RabbitMqConnectionRecoveryConfiguration>
+  private concurrency = 1
+  private isInitialized = false
+  private isStarted = false
+  private isDisconnecting = false
+  private isRecoveringChannel = false
+  private recoveryFailure: RabbitMqConnectionRecoveryFailed | undefined
+  private cancelRecoveryDelay: (() => void) | undefined
+  private readonly channelEvents = new EventEmitter()
+  private readonly closedChannels = new WeakSet<Channel>()
+  private readonly consumingChannels = new WeakSet<Channel>()
+  /**
+   * The channel each message was received on. Acks are only valid on that channel.
+   */
+  private readonly messageChannels = new WeakMap<RabbitMqMessage, Channel>()
+
   constructor(private readonly configuration: RabbitMqTransportConfiguration) {
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
     this.deadLetterQueue =
@@ -61,6 +115,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.retryQueueExchange = `${configuration.queueName}-retry`
     this.serviceQueueExchange = configuration.queueName
     this.persistentMessages = configuration.persistentMessages ?? false
+    this.connectionRecovery = {
+      ...DEFAULT_CONNECTION_RECOVERY,
+      ...configuration.connectionRecovery
+    }
   }
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -72,21 +130,34 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   async connect(options: TransportConnectionOptions): Promise<void> {
     this.logger.info('Connecting to RabbitMQ...')
-    this.connection = await connect(this.configuration.connectionString)
-    this.channel = await this.connection.createChannel()
-    this.channel.prefetch(options.concurrency)
+    this.concurrency = options.concurrency
+    this.isDisconnecting = false
+    this.recoveryFailure = undefined
+    this.connection = await this.openConnection()
+    const channel = await this.openChannel()
+    if (channel) {
+      this.channel = channel
+    } else {
+      void this.recoverChannel()
+    }
     this.logger.info('Connected to RabbitMQ')
   }
 
   async initialize(): Promise<void> {
     this.logger.info('Initializing RabbitMQ transport')
-    await this.bindExchangesToQueue()
+    this.isInitialized = true
+    const channel = await this.getChannel()
+    await this.bindExchangesToQueue(channel)
     this.logger.info('RabbitMQ transport initialized')
   }
 
   async disconnect(): Promise<void> {
-    await this.channel.close()
-    await this.connection.close()
+    this.isDisconnecting = true
+    this.cancelRecoveryDelay?.()
+    if (this.channel && !this.closedChannels.has(this.channel)) {
+      await this.channel.close().catch(ignoreIllegalOperation)
+    }
+    await this.connection?.close().catch(ignoreIllegalOperation)
   }
 
   async publish<TEvent extends Event>(
@@ -105,35 +176,38 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   async fail(transportMessage: TransportMessage<unknown>): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
-    const serializedPayload = this.coreDependencies.messageSerializer.serialize(
-      transportMessage.domainMessage
-    )
-    this.channel.sendToQueue(
-      this.deadLetterQueue,
-      Buffer.from(serializedPayload),
-      rawMessage.properties
-    )
-    this.logger.debug('Message failed immediately to dead letter queue', {
-      rawMessage,
-      deadLetterQueue: this.deadLetterQueue
+    this.settleMessage(rawMessage, 'failed', channel => {
+      const serializedPayload =
+        this.coreDependencies.messageSerializer.serialize(
+          transportMessage.domainMessage
+        )
+      channel.sendToQueue(
+        this.deadLetterQueue,
+        Buffer.from(serializedPayload),
+        rawMessage.properties
+      )
+      this.logger.debug('Message failed immediately to dead letter queue', {
+        rawMessage,
+        deadLetterQueue: this.deadLetterQueue
+      })
     })
   }
 
   async start(): Promise<void> {
-    await this.channel.consume(
-      this.configuration.queueName,
-      (msg: ConsumeMessage | null) => {
-        if (!msg) {
-          return
-        }
-        this.consumptionQueue.push(msg)
-        this.consumptionQueueEvents.emit(ConsumptionQueueEvent.Pushed)
-      },
-      { noAck: false }
-    )
+    this.isStarted = true
+    const channel = await this.getChannel()
+    try {
+      await this.consume(channel)
+    } catch (error) {
+      // A lost channel resumes consuming once it's reopened
+      if (this.isChannelOpen(channel)) {
+        throw error
+      }
+    }
   }
 
   async stop(): Promise<void> {
+    this.isStarted = false
     // Tell the .consume() subscription to exit
     this.consumptionQueueEvents.emit(ConsumptionQueueEvent.Stopped)
   }
@@ -228,7 +302,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         content: message.raw.content.toString()
       }
     })
-    this.channel.ack(message.raw)
+    this.settleMessage(message.raw, 'deleted', channel =>
+      channel.ack(message.raw)
+    )
   }
 
   async returnMessage(
@@ -243,39 +319,315 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       )?.count || 0) + 1
     const meta = { attempt, message: msg, rawMessage: message.raw }
 
-    if (attempt >= this.maxRetries) {
-      this.logger.debug(
-        'Message retries failed, sending to dead letter queue',
-        meta
-      )
+    this.settleMessage(message.raw, 'returned', channel => {
+      if (attempt >= this.maxRetries) {
+        this.logger.debug(
+          'Message retries failed, sending to dead letter queue',
+          meta
+        )
 
-      // Send to DLQ before ack'ing to avoid dropping messages in case of SIGKILL happening in between
-      this.channel.sendToQueue(
-        this.deadLetterQueue,
-        message.raw.content,
-        message.raw.properties
+        // Send to DLQ before ack'ing to avoid dropping messages in case of SIGKILL happening in between
+        channel.sendToQueue(
+          this.deadLetterQueue,
+          message.raw.content,
+          message.raw.properties
+        )
+        channel.ack(message.raw, false)
+      } else {
+        this.logger.debug('Returning message', meta)
+        channel.nack(message.raw, false, false)
+      }
+    })
+  }
+
+  private async openConnection(): Promise<
+    ChannelModel | RecoveringChannelModel
+  > {
+    const socketOptions = {
+      clientProperties: { connection_name: this.configuration.queueName }
+    }
+
+    if (!this.connectionRecovery.enabled) {
+      const connection = await connect(
+        this.configuration.connectionString,
+        socketOptions
       )
-      this.channel.ack(message.raw, false)
-    } else {
-      this.logger.debug('Returning message', meta)
-      this.channel.nack(message.raw, false, false)
+      connection.on('error', error =>
+        this.logger.warn('RabbitMQ connection error', {
+          error: serializeError(error)
+        })
+      )
+      connection.on('close', error => {
+        if (!this.isDisconnecting) {
+          this.failRecovery(error)
+        }
+      })
+      return connection
+    }
+
+    const { initialDelay, maxDelay, factor, jitter, maxRetries } =
+      this.connectionRecovery
+    const connection = await connect(this.configuration.connectionString, {
+      ...socketOptions,
+      recovery: {
+        initialDelay,
+        maxDelay,
+        factor,
+        jitter,
+        maxRetries,
+        // Keep failing fast if the broker can't be reached on startup
+        initialMaxRetries: 0
+      }
+    })
+    connection.on('error', error =>
+      this.logger.warn('RabbitMQ connection error', {
+        error: serializeError(error)
+      })
+    )
+    connection.on('disconnect', error =>
+      this.logger.warn('Lost connection to RabbitMQ, reconnecting', {
+        error: serializeError(error)
+      })
+    )
+    connection.on('reconnect-scheduled', ({ attempt, delay, error }) =>
+      this.logger.debug('Reconnecting to RabbitMQ', {
+        attempt,
+        delay,
+        error: serializeError(error)
+      })
+    )
+    connection.on('connect', () => this.logger.info('Reconnected to RabbitMQ'))
+    connection.on('reconnect-failed', error => this.failRecovery(error))
+    return connection
+  }
+
+  /**
+   * Opens a channel and restores everything the transport had set up on the previous one: prefetch,
+   * the topology once initialized, and the consumer once started.
+   * @returns the channel, or undefined if it closed while it was being set up
+   */
+  private async openChannel(): Promise<Channel | undefined> {
+    const channel = await this.connection!.createChannel()
+    // A channel without an error listener crashes the process when the broker closes it
+    channel.on('error', error =>
+      this.logger.warn('RabbitMQ channel error', {
+        error: serializeError(error)
+      })
+    )
+    channel.on('close', () => this.channelClosed(channel))
+
+    try {
+      await channel.prefetch(this.concurrency)
+      // The broker may have lost non-durable state, so declare everything again
+      this.assertedExchanges = {}
+      if (this.isInitialized) {
+        await this.bindExchangesToQueue(channel)
+      }
+      if (this.isStarted) {
+        await this.consume(channel)
+      }
+    } catch (error) {
+      if (!this.closedChannels.has(channel)) {
+        await channel.close().catch(() => undefined)
+      }
+      throw error
+    }
+
+    return this.closedChannels.has(channel) ? undefined : channel
+  }
+
+  private channelClosed(channel: Channel): void {
+    this.closedChannels.add(channel)
+    if (channel !== this.channel || this.isDisconnecting) {
+      return
+    }
+
+    this.channel = undefined
+    // Messages received on the closed channel can't be acked. The broker redelivers them.
+    this.consumptionQueue = this.consumptionQueue.filter(
+      message => this.messageChannels.get(message) !== channel
+    )
+
+    if (!this.connectionRecovery.enabled) {
+      this.failRecovery(undefined)
+      return
+    }
+
+    this.logger.warn('RabbitMQ channel closed, reopening')
+    void this.recoverChannel()
+  }
+
+  private async recoverChannel(): Promise<void> {
+    if (this.isRecoveringChannel) {
+      return
+    }
+    this.isRecoveringChannel = true
+
+    try {
+      for (
+        let attempt = 1;
+        !this.isDisconnecting && !this.recoveryFailure;
+        attempt++
+      ) {
+        try {
+          const channel = await this.openChannel()
+          if (channel && this.isDisconnecting) {
+            await channel.close().catch(() => undefined)
+            return
+          }
+          if (channel) {
+            this.channel = channel
+            this.logger.info('RabbitMQ channel reopened')
+            this.channelEvents.emit(ChannelEvent.Opened, channel)
+            return
+          }
+        } catch (error) {
+          if (attempt > this.connectionRecovery.maxRetries) {
+            this.failRecovery(error)
+            return
+          }
+          this.logger.debug('Failed to reopen RabbitMQ channel', {
+            attempt,
+            error: serializeError(error)
+          })
+        }
+
+        const { initialDelay, factor, maxDelay } = this.connectionRecovery
+        await this.waitBeforeRecovering(
+          Math.min(maxDelay, initialDelay * factor ** (attempt - 1))
+        )
+      }
+    } finally {
+      this.isRecoveringChannel = false
     }
   }
 
-  private async assertExchange(topicIdentifier: string): Promise<void> {
+  private async waitBeforeRecovering(delay: number): Promise<void> {
+    await new Promise<void>(resolve => {
+      const timeout = setTimeout(done, delay)
+      function done() {
+        clearTimeout(timeout)
+        resolve()
+      }
+      this.cancelRecoveryDelay = done
+    })
+    this.cancelRecoveryDelay = undefined
+  }
+
+  private failRecovery(error: unknown): void {
+    if (this.recoveryFailure) {
+      return
+    }
+    this.recoveryFailure = new RabbitMqConnectionRecoveryFailed(error)
+    this.logger.error(
+      'Unable to recover the connection to RabbitMQ. No more messages will be sent or received',
+      { error: serializeError(error) }
+    )
+    this.channelEvents.emit(ChannelEvent.RecoveryFailed)
+  }
+
+  /**
+   * Gets the open channel, waiting for it to be reopened if it was lost.
+   * @throws {RabbitMqConnectionRecoveryFailed} if the channel can't be reopened
+   */
+  private async getChannel(): Promise<Channel> {
+    if (this.channel) {
+      return this.channel
+    }
+    if (this.recoveryFailure) {
+      throw this.recoveryFailure
+    }
+
+    return new Promise<Channel>((resolve, reject) => {
+      const onOpened = (channel: Channel) => {
+        unsubscribe()
+        resolve(channel)
+      }
+      const onRecoveryFailed = () => {
+        unsubscribe()
+        reject(this.recoveryFailure)
+      }
+      const unsubscribe = () => {
+        this.channelEvents.off(ChannelEvent.Opened, onOpened)
+        this.channelEvents.off(ChannelEvent.RecoveryFailed, onRecoveryFailed)
+      }
+      this.channelEvents.on(ChannelEvent.Opened, onOpened)
+      this.channelEvents.on(ChannelEvent.RecoveryFailed, onRecoveryFailed)
+    })
+  }
+
+  private isChannelOpen(channel: Channel): boolean {
+    return channel === this.channel && !this.closedChannels.has(channel)
+  }
+
+  /**
+   * Acks, nacks or dead-letters a message on the channel it was received on. If that channel has
+   * closed, the delivery can't be settled and the broker redelivers the message, so this is skipped.
+   */
+  private settleMessage(
+    message: RabbitMqMessage,
+    action: string,
+    settle: (channel: Channel) => void
+  ): void {
+    const channel = this.messageChannels.get(message) ?? this.channel
+    const logStaleMessage = () =>
+      this.logger.warn(
+        `Message can't be ${action} because the channel it was received on has closed. The broker will redeliver it`,
+        { messageId: message.properties.messageId }
+      )
+
+    if (!channel || !this.isChannelOpen(channel)) {
+      logStaleMessage()
+      return
+    }
+
+    try {
+      settle(channel)
+    } catch (error) {
+      if (!(error instanceof IllegalOperationError)) {
+        throw error
+      }
+      // The channel is closing but hasn't emitted 'close' yet
+      logStaleMessage()
+    }
+  }
+
+  private async consume(channel: Channel): Promise<void> {
+    if (this.consumingChannels.has(channel)) {
+      return
+    }
+    this.consumingChannels.add(channel)
+    await channel.consume(
+      this.configuration.queueName,
+      (msg: ConsumeMessage | null) => {
+        if (!msg) {
+          return
+        }
+        this.messageChannels.set(msg, channel)
+        this.consumptionQueue.push(msg)
+        this.consumptionQueueEvents.emit(ConsumptionQueueEvent.Pushed)
+      },
+      { noAck: false }
+    )
+  }
+
+  private async assertExchange(
+    channel: Channel,
+    topicIdentifier: string
+  ): Promise<void> {
     if (!this.assertedExchanges[topicIdentifier]) {
       this.logger.debug('Asserting exchange', { messageName: topicIdentifier })
-      await this.channel.assertExchange(topicIdentifier, 'fanout', {
+      await channel.assertExchange(topicIdentifier, 'fanout', {
         durable: true
       })
       this.assertedExchanges[topicIdentifier] = true
     }
   }
 
-  private async bindExchangesToQueue(): Promise<void> {
-    await this.createExchanges()
-    await this.createQueues()
-    await this.bindQueues()
+  private async bindExchangesToQueue(channel: Channel): Promise<void> {
+    await this.createExchanges(channel)
+    await this.createQueues(channel)
+    await this.bindQueues(channel)
 
     const subscriptionPromises = this.coreDependencies.handlerRegistry
       .getMessageNames()
@@ -284,53 +636,45 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       )
       .map(async topicIdentifier => {
         const exchangeName = topicIdentifier
-        await this.assertExchange(exchangeName)
+        await this.assertExchange(channel, exchangeName)
 
         this.logger.debug('Binding exchange to queue.', {
           exchangeName,
           queueName: this.configuration.queueName
         })
-        await this.channel.bindQueue(
-          this.configuration.queueName,
-          exchangeName,
-          ''
-        )
+        await channel.bindQueue(this.configuration.queueName, exchangeName, '')
       })
 
     await Promise.all(subscriptionPromises)
   }
 
-  private async createExchanges(): Promise<void> {
-    await this.channel.assertExchange(this.retryQueueExchange, 'direct', {
+  private async createExchanges(channel: Channel): Promise<void> {
+    await channel.assertExchange(this.retryQueueExchange, 'direct', {
       durable: true
     })
 
-    await this.channel.assertExchange(this.serviceQueueExchange, 'direct', {
+    await channel.assertExchange(this.serviceQueueExchange, 'direct', {
       durable: true
     })
   }
 
-  private async bindQueues(): Promise<void> {
-    await this.channel.bindQueue(
-      this.retryQueue,
-      this.retryQueueExchange,
-      'retry'
-    )
+  private async bindQueues(channel: Channel): Promise<void> {
+    await channel.bindQueue(this.retryQueue, this.retryQueueExchange, 'retry')
 
-    await this.channel.bindQueue(
+    await channel.bindQueue(
       this.deadLetterQueue,
       this.retryQueueExchange,
       'error'
     )
 
-    await this.channel.bindQueue(
+    await channel.bindQueue(
       this.configuration.queueName,
       this.serviceQueueExchange,
       ''
     )
   }
 
-  private async createQueues(): Promise<void> {
+  private async createQueues(channel: Channel): Promise<void> {
     /*
      RabbitMQ doesn't have a concept of retries and messages are immutable (including headers).
      One way to achieve retries is to fail messages to a retry queue that uses a short ttl.
@@ -339,40 +683,64 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
      it doesn't act as a traditional retry mechanism and can cause issues for queues with large
      message depth and FIFO-esque processing.
     */
-    await this.channel.assertQueue(this.configuration.queueName, {
+    await channel.assertQueue(this.configuration.queueName, {
       durable: true,
       deadLetterExchange: this.retryQueueExchange,
       deadLetterRoutingKey: 'retry'
     })
 
-    await this.channel.assertQueue(this.retryQueue, {
+    await channel.assertQueue(this.retryQueue, {
       arguments: {
         'x-message-ttl': 1,
         'x-dead-letter-exchange': this.serviceQueueExchange,
         'x-dead-letter-routing-key': ''
       }
     })
-    await this.channel.assertQueue(this.deadLetterQueue, { durable: true })
+    await channel.assertQueue(this.deadLetterQueue, { durable: true })
   }
 
+  /**
+   * Publishes a message, waiting for the channel to be reopened and trying again if it's lost.
+   */
   private async publishMessage(
     message: Message,
     messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): Promise<void> {
-    await this.assertExchange(message.$name)
     const payload = this.coreDependencies.messageSerializer.serialize(message)
-    this.channel.publish(message.$name, '', Buffer.from(payload), {
-      correlationId: messageOptions.correlationId,
-      messageId: uuid.v4(),
-      persistent: this.persistentMessages,
-      headers: {
-        attributes: messageOptions.attributes
-          ? JSON.stringify(messageOptions.attributes)
-          : undefined,
-        stickyAttributes: messageOptions.stickyAttributes
-          ? JSON.stringify(messageOptions.stickyAttributes)
-          : undefined
+
+    while (true) {
+      const channel = await this.getChannel()
+      try {
+        await this.assertExchange(channel, message.$name)
+        channel.publish(message.$name, '', Buffer.from(payload), {
+          correlationId: messageOptions.correlationId,
+          messageId: uuid.v4(),
+          persistent: this.persistentMessages,
+          headers: {
+            attributes: messageOptions.attributes
+              ? JSON.stringify(messageOptions.attributes)
+              : undefined,
+            stickyAttributes: messageOptions.stickyAttributes
+              ? JSON.stringify(messageOptions.stickyAttributes)
+              : undefined
+          }
+        })
+        return
+      } catch (error) {
+        if (this.isDisconnecting) {
+          throw error
+        }
+        if (this.isChannelOpen(channel)) {
+          if (!(error instanceof IllegalOperationError)) {
+            throw error
+          }
+          // The channel is closing, so wait until it's closed and being reopened
+          await new Promise(resolve => channel.once('close', resolve))
+        }
+        this.logger.debug('Channel was lost while publishing, retrying', {
+          messageName: message.$name
+        })
       }
-    })
+    }
   }
 }
