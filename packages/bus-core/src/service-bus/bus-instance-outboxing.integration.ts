@@ -1,6 +1,15 @@
-import { Mock, Times } from 'typemoq'
+import {
+  Command,
+  Event,
+  Message,
+  MessageAttributes
+} from '@node-ts/bus-messages'
+import { EventEmitter, once } from 'events'
+import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
+import { Logger } from '../logger'
 import { messageHandlingContext } from '../message-handling-context'
+import { Receiver } from '../receiver'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
 import { InMemoryQueue, TransportMessage } from '../transport'
@@ -14,14 +23,13 @@ jest.setTimeout(20_000)
 describe('BusInstance Outboxing', () => {
   describe('when a message is sent from outside of a handler', () => {
     let bus: BusInstance
+    const afterSendCallback = Mock.ofType<(command: Command) => void>()
 
     beforeAll(async () => {
       bus = Bus.configure().build()
+      bus.afterSend.on(({ command }) => afterSendCallback.object(command))
 
       await bus.initialize()
-    })
-
-    it('should not outbox the message', async () => {
       await messageHandlingContext.run(
         {
           attributes: {
@@ -35,6 +43,314 @@ describe('BusInstance Outboxing', () => {
           await bus.send(new TestCommand())
         }
       )
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should send the message and emit afterSend', () => {
+      afterSendCallback.verify(
+        c => c(It.isObjectWith<Command>({ $name: TestCommand.NAME })),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when a message is sent from read middleware', () => {
+    let bus: BusInstance
+    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+    const events = new EventEmitter()
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageReadMiddleware(async (message, next) => {
+          if (message.domainMessage.$name === TestCommand.NAME) {
+            await bus.publish(new TestEvent('from-middleware'))
+          }
+          return next()
+        })
+        .withHandler(handlerFor(TestCommand, async () => undefined))
+        .withHandler(
+          handlerFor(TestEvent, async (event: TestEvent) => {
+            events.emit('received', event)
+          })
+        )
+        .build()
+      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
+
+      await bus.initialize()
+      await bus.start()
+      const received = once(events, 'received')
+      await bus.send(new TestCommand())
+      await received
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should publish the message and emit afterPublish', () => {
+      afterPublishCallback.verify(
+        c => c(It.isObjectWith<TestEvent>({ property1: 'from-middleware' })),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when a message is sent from an onError listener', () => {
+    let bus: BusInstance
+    let receivedEvent: TestEvent
+
+    beforeAll(async () => {
+      const events = new EventEmitter()
+      bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(
+          new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
+        )
+        .withHandler(
+          handlerFor(TestCommand, async () => {
+            throw new Error('Failing Handler')
+          })
+        )
+        .withHandler(
+          handlerFor(TestEvent, async (event: TestEvent) => {
+            events.emit('received', event)
+          })
+        )
+        .build()
+      bus.onError.once(async () => bus.publish(new TestEvent('from-on-error')))
+
+      await bus.initialize()
+      await bus.start()
+      const received = once(events, 'received')
+      await bus.send(new TestCommand())
+      ;[receivedEvent] = await received
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should publish the message', () => {
+      expect(receivedEvent.property1).toEqual('from-on-error')
+    })
+  })
+
+  describe('when a message is sent after its handler resolved', () => {
+    let bus: BusInstance
+    const logger = Mock.ofType<Logger>()
+    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+
+    beforeAll(async () => {
+      let lateSendCompleted: () => void
+      const lateSend = new Promise<void>(resolve => {
+        lateSendCompleted = resolve
+      })
+      bus = Bus.configure()
+        .withLogger(() => logger.object)
+        .withHandler(
+          handlerFor(TestCommand, async () => {
+            // Deliberately not awaited, so the send happens after the handler resolves
+            setTimeout(async () => {
+              await bus.publish(new TestEvent('late'))
+              lateSendCompleted()
+            }, 50)
+          })
+        )
+        .build()
+      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
+
+      await bus.initialize()
+      await bus.start()
+      await bus.send(new TestCommand())
+      await lateSend
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should publish the message straight away', () => {
+      afterPublishCallback.verify(
+        c => c(It.isObjectWith<TestEvent>({ property1: 'late' })),
+        Times.once()
+      )
+    })
+
+    it('should log a warning', () => {
+      logger.verify(
+        l =>
+          l.warn(
+            It.is<string>(m => m.includes('after its handler resolved')),
+            It.isAny()
+          ),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when a message is sent after its handler failed', () => {
+    let bus: BusInstance
+    const logger = Mock.ofType<Logger>()
+    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+
+    beforeAll(async () => {
+      let lateSendCompleted: () => void
+      const lateSend = new Promise<void>(resolve => {
+        lateSendCompleted = resolve
+      })
+      bus = Bus.configure()
+        .withLogger(() => logger.object)
+        .withTransport(
+          new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
+        )
+        .withHandler(
+          handlerFor(TestCommand, async () => {
+            // Deliberately not awaited, so the send happens after the handler fails
+            setTimeout(async () => {
+              await bus.publish(new TestEvent('late'))
+              lateSendCompleted()
+            }, 50)
+            throw new Error('Failing Handler')
+          })
+        )
+        .build()
+      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
+
+      await bus.initialize()
+      await bus.start()
+      await bus.send(new TestCommand())
+      await lateSend
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should drop the message', () => {
+      afterPublishCallback.verify(c => c(It.isAny()), Times.never())
+    })
+
+    it('should log a warning', () => {
+      logger.verify(
+        l =>
+          l.warn(
+            It.is<string>(m => m.includes('after its handler failed')),
+            It.isAny()
+          ),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when an async lifecycle listener rejects', () => {
+    let bus: BusInstance
+    const logger = Mock.ofType<Logger>()
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withLogger(() => logger.object)
+        .build()
+      bus.afterSend.on(async () => {
+        throw new Error('Listener failed')
+      })
+
+      await bus.initialize()
+      await bus.send(new TestCommand())
+      // Let the listener's rejection settle
+      await new Promise(resolve => setImmediate(resolve))
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should log the rejection', () => {
+      logger.verify(
+        l =>
+          l.error(
+            'Async lifecycle listener rejected',
+            It.isObjectWith({ emitterName: 'afterSend' })
+          ),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when a workflow handles a message whose raw transport message cannot be cloned', () => {
+    let bus: BusInstance
+    let receiveError: unknown
+    let workflowStickyAttributes: MessageAttributes['stickyAttributes']
+
+    class UncloneableRawReceiver implements Receiver<
+      Message,
+      TransportMessage<unknown>
+    > {
+      async receive(
+        domainMessage: Message
+      ): Promise<TransportMessage<unknown>> {
+        return {
+          id: crypto.randomUUID(),
+          attributes: { attributes: {}, stickyAttributes: {} },
+          domainMessage,
+          // Functions can't be structured cloned
+          raw: { acknowledge: () => undefined }
+        }
+      }
+    }
+
+    class UncloneableRawWorkflowState extends WorkflowState {
+      static NAME = 'UncloneableRawWorkflowState'
+      $name = UncloneableRawWorkflowState.NAME
+    }
+
+    class UncloneableRawWorkflow extends Workflow<UncloneableRawWorkflowState> {
+      configureWorkflow(
+        mapper: WorkflowMapper<
+          UncloneableRawWorkflowState,
+          UncloneableRawWorkflow
+        >
+      ): void {
+        mapper
+          .withState(UncloneableRawWorkflowState)
+          .startedBy(TestCommand, 'step1')
+      }
+
+      async step1(): Promise<Partial<UncloneableRawWorkflowState>> {
+        workflowStickyAttributes =
+          messageHandlingContext.get().attributes.stickyAttributes
+        return {}
+      }
+    }
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withReceiver(new UncloneableRawReceiver())
+        .withWorkflow(UncloneableRawWorkflow)
+        .build()
+
+      await bus.initialize()
+      try {
+        await bus.receive(new TestCommand())
+      } catch (error) {
+        receiveError = error
+      }
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should handle the message', () => {
+      expect(receiveError).toBeUndefined()
+    })
+
+    it('should add the workflow id to the sticky attributes', () => {
+      expect(workflowStickyAttributes.workflowId).toEqual(expect.any(String))
     })
   })
 

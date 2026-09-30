@@ -319,10 +319,17 @@ export class WorkflowRegistry {
       workflowState
     })
     const handlingContext = messageHandlingContext.get()!
-    const workflowHandlingContext = structuredClone(handlingContext)
-    workflowHandlingContext.attributes.stickyAttributes.workflowId =
-      workflowState.$workflowId
-    return workflowHandlingContext
+    // Copy only what changes. A deep clone would throw on a transport `raw` message that can't be cloned.
+    return {
+      ...handlingContext,
+      attributes: {
+        ...handlingContext.attributes,
+        stickyAttributes: {
+          ...handlingContext.attributes.stickyAttributes,
+          workflowId: workflowState.$workflowId
+        }
+      }
+    }
   }
 
   private async dispatchMessageToWorkflow(

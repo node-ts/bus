@@ -51,6 +51,32 @@ interface InterruptSignalListener {
   listener: () => Promise<void>
 }
 
+enum OutboxState {
+  /**
+   * The handler is running, so outgoing messages are buffered
+   */
+  Open = 'open',
+  /**
+   * The handler resolved and its buffered messages were dispatched
+   */
+  Flushed = 'flushed',
+  /**
+   * The handler failed and its buffered messages were dropped
+   */
+  Discarded = 'discarded'
+}
+
+interface OutboxedMessage {
+  command?: Command
+  event?: Event
+  attributes: MessageAttributes
+}
+
+interface Outbox {
+  state: OutboxState
+  messages: OutboxedMessage[]
+}
+
 export interface BeforeSend {
   command: Command
   attributes: MessageAttributes
@@ -96,35 +122,51 @@ export class BusInstance<TTransportMessage = {}> {
   /**
    * Emitted before a command is sent to the transport
    */
-  readonly beforeSend = new TypedEmitter<BeforeSend>()
+  readonly beforeSend = new TypedEmitter<BeforeSend>(
+    this.logListenerRejected('beforeSend')
+  )
   /**
    * Emitted before an event is published to the transport
    */
-  readonly beforePublish = new TypedEmitter<BeforePublish>()
+  readonly beforePublish = new TypedEmitter<BeforePublish>(
+    this.logListenerRejected('beforePublish')
+  )
   /**
    * Emitted after a command has been sent to the transport
    */
-  readonly afterSend = new TypedEmitter<AfterSend>()
+  readonly afterSend = new TypedEmitter<AfterSend>(
+    this.logListenerRejected('afterSend')
+  )
   /**
    * Emitted after an event has been published to the transport
    */
-  readonly afterPublish = new TypedEmitter<AfterPublish>()
+  readonly afterPublish = new TypedEmitter<AfterPublish>(
+    this.logListenerRejected('afterPublish')
+  )
   /**
    * Emitted when an error occurs during message handling
    */
-  readonly onError = new TypedEmitter<OnError<TTransportMessage>>()
+  readonly onError = new TypedEmitter<OnError<TTransportMessage>>(
+    this.logListenerRejected('onError')
+  )
   /**
    * Emitted immediately after a message has been received from the transport
    */
-  readonly afterReceive = new TypedEmitter<AfterReceive<TTransportMessage>>()
+  readonly afterReceive = new TypedEmitter<AfterReceive<TTransportMessage>>(
+    this.logListenerRejected('afterReceive')
+  )
   /**
    * Emitted before a message is dispatched to handlers
    */
-  readonly beforeDispatch = new TypedEmitter<BeforeDispatch>()
+  readonly beforeDispatch = new TypedEmitter<BeforeDispatch>(
+    this.logListenerRejected('beforeDispatch')
+  )
   /**
    * Emitted after a message has been dispatched and completed all handler invocations
    */
-  readonly afterDispatch = new TypedEmitter<AfterDispatch>()
+  readonly afterDispatch = new TypedEmitter<AfterDispatch>(
+    this.logListenerRejected('afterDispatch')
+  )
 
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
@@ -132,9 +174,7 @@ export class BusInstance<TTransportMessage = {}> {
   private isInitialized = false
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
-  private outbox: ALS<
-    { command?: Command; event?: Event; attributes?: MessageAttributes }[]
-  > = new ALS()
+  private outbox: ALS<Outbox> = new ALS()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -260,7 +300,12 @@ export class BusInstance<TTransportMessage = {}> {
   }
 
   /**
-   * Publishes an event to the transport
+   * Publishes an event to the transport.
+   *
+   * When called from inside a handler, the event is buffered and only published once the handler resolves, and
+   * is dropped if the handler fails. Anywhere else (outside a handler, in read middleware or lifecycle listeners,
+   * or after the handler has already resolved) it's published straight away. `afterPublish` is emitted once
+   * the transport has published it.
    * @param event An event to publish
    * @param messageAttributes A set of attributes to attach to the outgoing message when published
    */
@@ -272,18 +317,20 @@ export class BusInstance<TTransportMessage = {}> {
     const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforePublish.emit({ event, attributes })
 
-    if (messageHandlingContext.isInHandlerContext) {
-      // Add message to outbox and only send when the handler resolves
-      const outbox = this.outbox.get('outbox')!
-      outbox.push({ event, attributes })
-      this.outbox.set('outbox', outbox)
-    } else {
-      return this.transport.publish(event, attributes)
+    if (this.addToOutbox({ event, attributes })) {
+      return
     }
+    await this.transport.publish(event, attributes)
+    this.afterPublish.emit({ event, attributes })
   }
 
   /**
-   * Sends a command to the transport
+   * Sends a command to the transport.
+   *
+   * When called from inside a handler, the command is buffered and only sent once the handler resolves, and
+   * is dropped if the handler fails. Anywhere else (outside a handler, in read middleware or lifecycle listeners,
+   * or after the handler has already resolved) it's sent straight away. `afterSend` is emitted once the
+   * transport has sent it.
    * @param command A command to send
    * @param messageAttributes A set of attributes to attach to the outgoing message when sent
    */
@@ -295,14 +342,11 @@ export class BusInstance<TTransportMessage = {}> {
     const attributes = this.prepareTransportOptions(messageAttributes)
     this.beforeSend.emit({ command, attributes })
 
-    if (messageHandlingContext.isInHandlerContext) {
-      // Add message to outbox and only send when the handler resolves
-      const outbox = this.outbox.get('outbox')!
-      outbox.push({ command, attributes })
-      this.outbox.set('outbox', outbox)
-    } else {
-      return this.transport.send(command, attributes)
+    if (this.addToOutbox({ command, attributes })) {
+      return
     }
+    await this.transport.send(command, attributes)
+    this.afterSend.emit({ command, attributes })
   }
 
   /**
@@ -616,6 +660,46 @@ export class BusInstance<TTransportMessage = {}> {
     })
   }
 
+  /**
+   * Buffers an outgoing message in the current handler's outbox, if there is one.
+   * @returns true if the outbox took the message (buffered or dropped), or false if it should be dispatched now
+   */
+  private addToOutbox(outgoingMessage: OutboxedMessage): boolean {
+    // The outbox only exists while a handler is running. Sends from elsewhere in the handling context, such as
+    // read middleware or lifecycle listeners, have no outbox and are dispatched directly.
+    const outbox = this.outbox.get('outbox')
+    if (!outbox) {
+      return false
+    }
+
+    const message = outgoingMessage.command || outgoingMessage.event
+    switch (outbox.state) {
+      case OutboxState.Open:
+        outbox.messages.push(outgoingMessage)
+        return true
+      case OutboxState.Flushed:
+        this.logger.warn(
+          'Message was sent after its handler resolved, so it will be dispatched immediately instead of outboxed. Await all sends in the handler to avoid this.',
+          { message }
+        )
+        return false
+      case OutboxState.Discarded:
+        this.logger.warn(
+          'Message was sent after its handler failed and will be dropped',
+          { message }
+        )
+        return true
+    }
+  }
+
+  private logListenerRejected(emitterName: string) {
+    return (error: unknown) =>
+      this.logger.error('Async lifecycle listener rejected', {
+        emitterName,
+        error: serializeError(error)
+      })
+  }
+
   private prepareTransportOptions(
     clientOptions: Partial<MessageAttributes>
   ): MessageAttributes {
@@ -676,12 +760,21 @@ export class BusInstance<TTransportMessage = {}> {
       handlerCallback = async () => fnHandler(message, attributes)
     }
 
-    await this.outbox.run({ outbox: [] }, async () => {
-      await handlerCallback()
+    const outbox: Outbox = { state: OutboxState.Open, messages: [] }
+    await this.outbox.run({ outbox }, async () => {
+      try {
+        await handlerCallback()
+      } catch (error) {
+        outbox.state = OutboxState.Discarded
+        outbox.messages = []
+        throw error
+      }
 
-      // Flush outboxed messages for the handler
-      const outboxedMessages = this.outbox.get('outbox')
-      if (outboxedMessages && outboxedMessages.length > 0) {
+      // Close the outbox before flushing so that any later sends go straight to the transport instead of being lost
+      outbox.state = OutboxState.Flushed
+      const outboxedMessages = outbox.messages
+      outbox.messages = []
+      if (outboxedMessages.length > 0) {
         // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
         const dispatchWorkerCount = Math.min(outboxedMessages.length, 10)
         const workers = new Array(dispatchWorkerCount)
