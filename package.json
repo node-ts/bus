@@ -37,6 +37,7 @@
     "packages/*"
   ],
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "@tsconfig/node24": "^24.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.19.0",

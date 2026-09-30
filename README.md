@@ -28,6 +28,8 @@ Requires Node.js 24 or later.
 
 This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://bus.node-ts.com](https://bus.node-ts.com).
 
+Changesets, releases and the versioning policy are covered in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 ### Installation
 
 This package uses `pnpm` for monorepo support and workspaces.

@@ -297,16 +297,12 @@ describe('BusInstance', () => {
   })
 
   describe('when handling messages originating from an external system', () => {
-    it('should fail when a custom resolver is not provided', async () => {
-      try {
+    it('should fail when a custom resolver is not provided', () => {
+      expect(() =>
         Bus.configure()
           .withHandler(handlerFor(TestSystemMessage, async () => undefined))
           .build()
-        fail('Registry should throw an SystemMessageMissingResolver error')
-      } catch (error) {
-        console.log(error)
-        expect(error).toBeInstanceOf(SystemMessageMissingResolver)
-      }
+      ).toThrow(SystemMessageMissingResolver)
     })
 
     it('should handle the external message', async () => {
