@@ -5,12 +5,15 @@ import {
   TransportMessage
 } from '@node-ts/bus-core'
 import { fromMessageAttributeMap } from '@node-ts/bus-sqs'
-import type { SQSBatchResponse, SQSEvent, SQSRecord } from 'aws-lambda'
+import type { SQSBatchResponse, SQSEvent } from 'aws-lambda'
 import { BusSqsLambdaReceiverConfiguration } from './bus-sqs-lambda-receiver-configuration'
+import { SqsLambdaRecord } from './sqs-lambda-record'
+import { toSqsLambdaRecord } from './to-sqs-lambda-record'
 
 /**
  * Receives messages from an SQS event that's triggered a lambda function, and converts them into a TransportMessage
- * ready to be dispatched.
+ * ready to be dispatched. A message that fails, or that a handler returns with `bus.returnMessage()`, is retried by
+ * Lambda: either on its own (`reportBatchItemFailures`) or with the whole batch.
  *
  * @example
  * const bus = Bus.configure()
@@ -22,7 +25,11 @@ import { BusSqsLambdaReceiverConfiguration } from './bus-sqs-lambda-receiver-con
  */
 export class BusSqsLambdaReceiver
   implements
-    Receiver<SQSEvent, TransportMessage<SQSRecord>, SQSBatchResponse | void>
+    Receiver<
+      SQSEvent,
+      TransportMessage<SqsLambdaRecord>,
+      SQSBatchResponse | void
+    >
 {
   /**
    * @param configuration Options for how the outcome of a batch is reported back to Lambda
@@ -34,7 +41,7 @@ export class BusSqsLambdaReceiver
   async receive(
     receivedMessage: SQSEvent,
     messageSerializer: MessageSerializer
-  ): Promise<TransportMessage<SQSRecord>[]> {
+  ): Promise<TransportMessage<SqsLambdaRecord>[]> {
     return receivedMessage.Records.map(record => {
       const body = JSON.parse(record.body)
       const domainMessage = messageSerializer.deserialize(body.Message)
@@ -43,7 +50,7 @@ export class BusSqsLambdaReceiver
       return {
         id: record.messageId,
         domainMessage,
-        raw: record,
+        raw: toSqsLambdaRecord(record),
         attributes
       }
     })
@@ -57,7 +64,7 @@ export class BusSqsLambdaReceiver
    * @throws the first failure's error when `reportBatchItemFailures` is disabled, so Lambda retries the whole batch
    */
   toReceiveResult(
-    failures: ReceivedMessageFailure<TransportMessage<SQSRecord>>[]
+    failures: ReceivedMessageFailure<TransportMessage<SqsLambdaRecord>>[]
   ): SQSBatchResponse | void {
     if (!this.configuration.reportBatchItemFailures) {
       if (failures.length) {

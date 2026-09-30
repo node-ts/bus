@@ -4,4 +4,8 @@ export class UnhandledCommand extends Command {
   static NAME = '@node-ts/bus-sqs-lambda/unhandled-command'
   $name = UnhandledCommand.NAME
   $version = 0
+
+  constructor(readonly id: string) {
+    super()
+  }
 }

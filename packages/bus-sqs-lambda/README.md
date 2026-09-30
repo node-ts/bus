@@ -51,7 +51,9 @@ import type { SQSHandler } from 'aws-lambda'
 export const handler: SQSHandler = event => bus.receive(event)
 ```
 
-Each record is dispatched to its handlers, throttled to the bus concurrency (`withConcurrency`). Successful records are left for Lambda to delete. Records whose message has no registered handler are discarded, not retried.
+Each record is dispatched to its handlers, throttled to the bus concurrency (`withConcurrency`). Successful records are left for Lambda to delete. Records whose message has no registered handler are discarded, not retried. A handler that calls `bus.returnMessage()` has its record treated as failed so that Lambda retries it, after the delay set by the retry strategy.
+
+Requires `@node-ts/bus-core` 1.3.4 or later.
 
 By default, if any record fails, `bus.receive` rejects once the batch has been handled, and Lambda retries the **whole** batch, including records that already succeeded.
 

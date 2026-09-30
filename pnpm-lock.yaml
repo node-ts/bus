@@ -485,6 +485,12 @@ importers:
         specifier: ^2.6.3
         version: 2.6.3
     devDependencies:
+      '@aws-sdk/client-sns':
+        specifier: 3.428.0
+        version: 3.428.0
+      '@aws-sdk/client-sqs':
+        specifier: 3.428.0
+        version: 3.428.0
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core

@@ -37,7 +37,11 @@ import { InvalidBusState, InvalidOperation } from './error'
 import { ContainerAdapter } from '../container'
 import ALS from 'alscontext/dist/als/als'
 import { messageLifecycleContext } from '../message-lifecycle-context'
-import { ReceivedMessageFailure, Receiver } from '../receiver'
+import {
+  ReceivedMessageFailure,
+  ReceivedMessageReturnedToQueue,
+  Receiver
+} from '../receiver'
 import throat from 'throat'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
@@ -159,6 +163,8 @@ export class BusInstance<TTransportMessage = {}> {
    * @returns Nothing, unless the receiver implements `toReceiveResult`, in which case its result is returned
    * @throws InvalidOperation if no Receiver has been configured
    * @throws the handling error of a failed message, unless the receiver implements `toReceiveResult`
+   * @throws ReceivedMessageReturnedToQueue if a handler called `returnMessage()`, unless the receiver implements
+   * `toReceiveResult`, which then gets it as a failure
    * @example
    * // Receiver that reports partial batch failures
    * const response = await bus.receive<SQSBatchResponse>(event)
@@ -314,7 +320,8 @@ export class BusInstance<TTransportMessage = {}> {
   }
 
   /**
-   * Instructs that the current message should be returned to the queue for retry.
+   * Instructs that the current message should be returned to the queue for retry. When the message came from a
+   * Receiver, it's also reported to the receiver host as failed so the host doesn't delete it.
    * @throws ReturnMessageOutsideHandlingContext if called outside a message handling context
    */
   async returnMessage(): Promise<void> {
@@ -493,13 +500,15 @@ export class BusInstance<TTransportMessage = {}> {
   private async handleReceivedMessage(
     message: TransportMessage<TTransportMessage>
   ): Promise<boolean> {
+    let handled = false
+    let returnedToReceiverHost = false
     try {
       Object.freeze(message)
 
       this.logger.debug('Message read from transport', { message })
       this.afterReceive.emit({ message })
 
-      return await messageHandlingContext.run(
+      handled = await messageHandlingContext.run(
         message,
         async () => {
           try {
@@ -507,6 +516,9 @@ export class BusInstance<TTransportMessage = {}> {
               { messageReturnedToQueue: false },
               async () => {
                 await this.messageReadMiddleware.dispatch(message)
+                returnedToReceiverHost =
+                  !!this.receiver &&
+                  messageLifecycleContext.get().messageReturnedToQueue
 
                 this.afterDispatch.emit({
                   message: message.domainMessage,
@@ -551,7 +563,16 @@ export class BusInstance<TTransportMessage = {}> {
         throw error
       }
     }
-    return false
+
+    if (returnedToReceiverHost) {
+      // The receiver host deletes messages that succeed, so a returned message must be reported as failed
+      this.logger.debug(
+        'Message was returned to queue by a handler and will be reported to the receiver host as failed',
+        { message }
+      )
+      throw new ReceivedMessageReturnedToQueue(message)
+    }
+    return handled
   }
 
   private async dispatchMessageToHandlers(

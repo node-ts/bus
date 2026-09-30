@@ -5,6 +5,7 @@ import {
   TransportMessage
 } from '@node-ts/bus-core'
 import { BusSqsLambdaReceiver } from './bus-sqs-lambda-receiver'
+import { SqsLambdaRecord } from './sqs-lambda-record'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { SQSBatchResponse, SQSRecord } from 'aws-lambda'
 
@@ -64,7 +65,7 @@ describe('BusSqsLambdaReceiver', () => {
 
   describe('when lambda receives a message with attributes', () => {
     let attributes: MessageAttributes
-    let messages: TransportMessage<SQSRecord>[]
+    let messages: TransportMessage<SqsLambdaRecord>[]
 
     beforeAll(async () => {
       messages = await receiver.receive(attributePayload, serializer)
@@ -100,17 +101,70 @@ describe('BusSqsLambdaReceiver', () => {
         'x-sticky-attribute': 'baz'
       })
     })
+
+    it('should keep the lambda record as the raw message', () => {
+      expect(messages[0].raw).toMatchObject(attributePayload.Records[0])
+    })
+
+    it('should add the AWS SDK fields that SqsTransport uses to return and fail messages', () => {
+      const record = attributePayload.Records[0]
+      expect(messages[0].raw).toMatchObject({
+        MessageId: record.messageId,
+        ReceiptHandle: record.receiptHandle,
+        Body: record.body,
+        MD5OfBody: record.md5OfBody,
+        Attributes: { ApproximateReceiveCount: '1' },
+        MessageAttributes: {}
+      })
+    })
   })
+
+  describe('when lambda receives a record with SQS message attributes', () => {
+    let raw: SqsLambdaRecord
+
+    beforeAll(async () => {
+      const record = {
+        ...attributePayload.Records[0],
+        messageAttributes: {
+          text: { stringValue: 'value', dataType: 'String' },
+          binary: {
+            binaryValue: Buffer.from('bytes').toString('base64'),
+            dataType: 'Binary'
+          }
+        }
+      } as SQSRecord
+      const [message] = await receiver.receive(
+        { Records: [record] },
+        serializer
+      )
+      raw = message.raw
+    })
+
+    it('should map string attributes to the AWS SDK shape', () => {
+      expect(raw.MessageAttributes!.text).toMatchObject({
+        DataType: 'String',
+        StringValue: 'value'
+      })
+    })
+
+    it('should decode base64 binary attributes', () => {
+      expect(raw.MessageAttributes!.binary.DataType).toEqual('Binary')
+      expect(
+        Buffer.from(raw.MessageAttributes!.binary.BinaryValue!).toString()
+      ).toEqual('bytes')
+    })
+  })
+
   describe('when the batch has been handled', () => {
     const toFailure = (
       messageId: string,
       error = new Error(messageId)
-    ): ReceivedMessageFailure<TransportMessage<SQSRecord>> => ({
+    ): ReceivedMessageFailure<TransportMessage<SqsLambdaRecord>> => ({
       message: {
         id: messageId,
         domainMessage: {} as Message,
         attributes: { attributes: {}, stickyAttributes: {} },
-        raw: { messageId } as SQSRecord
+        raw: { messageId } as SqsLambdaRecord
       },
       error
     })
