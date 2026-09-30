@@ -47,7 +47,7 @@
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.9",
     "prettier-plugin-organize-imports": "^4.3.0",
-    "reflect-metadata": "^0.1.13",
+    "reflect-metadata": "^0.2.2",
     "supports-color": "^11.0.0",
     "ts-jest": "^29.4.14",
     "ts-node": "^10.9.2",
