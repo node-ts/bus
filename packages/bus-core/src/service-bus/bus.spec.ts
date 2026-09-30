@@ -9,32 +9,61 @@ import { BusState } from './bus-state'
 import { BusInstance } from './bus-instance'
 import { sleep } from '../util'
 import { Mock } from 'typemoq'
+import { BusConfiguration } from './bus-configuration'
+import { ContainerAdapter } from '../container'
+import { RetryStrategy } from '../retry-strategy'
+import { Receiver } from '../receiver'
 
 describe('Bus', () => {
   describe('when configuring Bus after initialization', () => {
-    it('should reject', async () => {
-      const config = Bus.configure()
-      const bus = config.build()
-      expect(() => config.withHandler(TestEventClassHandler)).toThrowError(
-        BusAlreadyInitialized
-      )
-      expect(() => config.withLogger(() => ({} as Logger))).toThrowError(
-        BusAlreadyInitialized
-      )
-      expect(() => config.withPersistence({} as Persistence)).toThrowError(
-        BusAlreadyInitialized
-      )
-      expect(() => config.withSerializer({} as Serializer)).toThrowError(
-        BusAlreadyInitialized
-      )
-      expect(() => config.withTransport({} as Transport)).toThrowError(
-        BusAlreadyInitialized
-      )
-      expect(() => config.withWorkflow({} as any)).toThrowError(
-        BusAlreadyInitialized
-      )
-      await bus.dispose()
+    let sut: BusConfiguration
+    let bus: BusInstance
+
+    beforeAll(() => {
+      sut = Bus.configure().withLogger(() => Mock.ofType<Logger>().object)
+      bus = sut.build()
     })
+
+    afterAll(async () => bus.dispose())
+
+    const configurationCalls: [string, (config: BusConfiguration) => void][] = [
+      ['asSendOnly', config => config.asSendOnly()],
+      ['withHandler', config => config.withHandler(TestEventClassHandler)],
+      [
+        'withCustomHandler',
+        config =>
+          config.withCustomHandler(() => undefined, {
+            resolveWith: () => true
+          })
+      ],
+      ['withWorkflow', config => config.withWorkflow({} as any)],
+      ['withTransport', config => config.withTransport({} as Transport)],
+      ['withLogger', config => config.withLogger(() => ({} as Logger))],
+      ['withSerializer', config => config.withSerializer({} as Serializer)],
+      ['withPersistence', config => config.withPersistence({} as Persistence)],
+      ['withConcurrency', config => config.withConcurrency(2)],
+      ['withContainer', config => config.withContainer({} as ContainerAdapter)],
+      [
+        'withMessageReadMiddleware',
+        config => config.withMessageReadMiddleware((_, next) => next())
+      ],
+      [
+        'withRetryStrategy',
+        config => config.withRetryStrategy({} as RetryStrategy)
+      ],
+      [
+        'withAdditionalInterruptSignal',
+        config => config.withAdditionalInterruptSignal('SIGUSR2')
+      ],
+      ['withReceiver', config => config.withReceiver({} as Receiver)]
+    ]
+
+    it.each(configurationCalls)(
+      'should reject %s with BusAlreadyInitialized',
+      (_, configure) => {
+        expect(() => configure(sut)).toThrowError(BusAlreadyInitialized)
+      }
+    )
   })
 
   describe('when configuring bus concurrency', () => {

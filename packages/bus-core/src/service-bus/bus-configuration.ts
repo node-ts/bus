@@ -103,8 +103,13 @@ export class BusConfiguration {
   /**
    * Configure the bus to only send messages and not receive them. No queues or subscriptions will be created for
    * this service.
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   asSendOnly(): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.sendOnly = true
     return this
   }
@@ -116,6 +121,7 @@ export class BusConfiguration {
    * @param messageType Which message will be subscribed to and routed to the handler
    * @param messageHandler A callback that will be invoked when the message is received
    * @param customResolver Subscribe to a topic that's created and maintained outside of the application
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withHandler(...classHandler: ClassConstructor<Handler>[]): this
   withHandler<MessageType extends MessageBase>(
@@ -157,6 +163,7 @@ export class BusConfiguration {
    * Message interface from @node-ts/bus-messages
    * @param messageHandler A handler that receives the custom message
    * @param customResolver A discriminator that determines if an incoming message should be mapped to this handler.
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withCustomHandler<MessageType>(
     messageHandler: HandlerDefinition<MessageType>,
@@ -173,6 +180,7 @@ export class BusConfiguration {
   /**
    * Register a workflow definition so that all of the messages it depends on will be subscribed to
    * and forwarded to the handlers inside the workflow
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withWorkflow<TWorkflowState extends WorkflowState>(
     ...workflow: ClassConstructor<Workflow<TWorkflowState>>[]
@@ -189,6 +197,7 @@ export class BusConfiguration {
 
   /**
    * Configures Bus to use a different transport than the default MemoryQueue
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withTransport(transportConfiguration: Transport): this {
     if (!!this.busInstance) {
@@ -201,6 +210,7 @@ export class BusConfiguration {
 
   /**
    * Configures Bus to use a different logging provider than the default console logger
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withLogger(loggerFactory: LoggerFactory): this {
     if (!!this.busInstance) {
@@ -215,6 +225,7 @@ export class BusConfiguration {
    * Configures Bus to use a different serialization provider. The provider is responsible for
    * transforming messages to/from a serialized representation, as well as ensuring all object
    * properties are a strong type
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withSerializer(serializer: Serializer): this {
     if (!!this.busInstance) {
@@ -228,6 +239,7 @@ export class BusConfiguration {
   /**
    * Configures Bus to use a different persistence provider than the default InMemoryPersistence provider.
    * This is used to persist workflow data and is unused if not using workflows.
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withPersistence(persistence: Persistence): this {
     if (!!this.busInstance) {
@@ -241,8 +253,14 @@ export class BusConfiguration {
   /**
    * Sets the message handling concurrency beyond the default value of 1, which will increase the number of messages
    * handled in parallel.
+   * @default 1
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withConcurrency(concurrency: number): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     if (concurrency < 1) {
       throw new Error(
         'Invalid concurrency setting. Must be set to 1 or greater'
@@ -257,8 +275,13 @@ export class BusConfiguration {
    * Use a local dependency injection/IoC container to resolve handlers
    * and workflows.
    * @param container An adapter to an existing DI container to fetch class instances from
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withContainer(container: ContainerAdapter): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.container = container
     return this
   }
@@ -267,10 +290,15 @@ export class BusConfiguration {
    * Register optional middlewares that will run for each message that is polled from the transport
    * Note these middlewares only run when polling successfully pulls a message off the Transports queue
    * After all the user defined middlewares have registered.
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withMessageReadMiddleware<TransportMessageType = unknown>(
     messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>
   ): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.messageReadMiddlewares.use(messageReadMiddleware)
     return this
   }
@@ -279,8 +307,13 @@ export class BusConfiguration {
    * Configure @node-ts/bus to use a different retry strategy that determines delays between
    * retrying failed messages.
    * @default DefaultRetryStrategy
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withRetryStrategy(retryStrategy: RetryStrategy): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.retryStrategy = retryStrategy
     return this
   }
@@ -288,8 +321,13 @@ export class BusConfiguration {
   /**
    * Register additional signals that will cause the bus to gracefully shutdown
    * @default [SIGINT, SIGTERM]
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withAdditionalInterruptSignal(...signals: NodeJS.Signals[]): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.interruptSignals = Array.from(
       new Set([...this.interruptSignals, ...signals])
     )
@@ -306,8 +344,13 @@ export class BusConfiguration {
    * Once the bus is configured, messages can be received by passing the received message into bus.receive().
    *
    * @param receiver The receiver mechanism to use, or `undefined` to use the default behaviour
+   * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withReceiver(receiver: Receiver | undefined): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
     this.receiver = receiver
     return this
   }
