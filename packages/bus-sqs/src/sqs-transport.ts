@@ -16,6 +16,7 @@ import {
   DeleteMessageCommand,
   GetQueueAttributesCommand,
   GetQueueUrlCommand,
+  QueueAttributeName,
   ReceiveMessageCommand,
   SendMessageCommand,
   SetQueueAttributesCommand,
@@ -50,7 +51,9 @@ import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
 export type SnsMessageAttributeMap = Record<string, MessageAttributeValue>
 
-export const MAX_SQS_DELAY_SECONDS: Seconds = 900
+/**
+ * The largest visibility timeout SQS accepts. Retry delays above this are capped to it.
+ */
 export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
 const DEFAULT_MESSAGE_RETENTION: Seconds = 1209600
 
@@ -162,7 +165,7 @@ export class SqsTransport implements Transport<SQSMessage> {
     const command = new ReceiveMessageCommand({
       QueueUrl: this.queueUrl,
       WaitTimeSeconds:
-        this.sqsConfiguration.waitTimeSeconds || DEFAULT_WAIT_TIME_SECONDS,
+        this.sqsConfiguration.waitTimeSeconds ?? DEFAULT_WAIT_TIME_SECONDS,
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ['.*'],
       MessageSystemAttributeNames: ['ApproximateReceiveCount']
@@ -321,14 +324,14 @@ export class SqsTransport implements Transport<SQSMessage> {
   private async assertServiceQueue(): Promise<void> {
     await this.assertSqsQueue(this.deadLetterQueueName, {
       MessageRetentionPeriod: (
-        this.sqsConfiguration.messageRetentionPeriod ||
+        this.sqsConfiguration.messageRetentionPeriod ??
         DEFAULT_MESSAGE_RETENTION
       ).toString()
     })
 
     const serviceQueueAttributes: Record<string, string> = {
       VisibilityTimeout: `${
-        this.sqsConfiguration.visibilityTimeout || DEFAULT_VISIBILITY_TIMEOUT
+        this.sqsConfiguration.visibilityTimeout ?? DEFAULT_VISIBILITY_TIMEOUT
       }`,
       RedrivePolicy: JSON.stringify({
         maxReceiveCount:
@@ -446,8 +449,15 @@ export class SqsTransport implements Transport<SQSMessage> {
         .map(topicName => this.createSnsTopic(topicName))
     )
 
-    const externallyManagedTopicArns =
-      this.coreDependencies.handlerRegistry.getExternallyManagedTopicIdentifiers()
+    // Bus managed topics were created or checked above, so only external topics need it here
+    const externallyManagedTopicArns = await Promise.all(
+      this.coreDependencies.handlerRegistry
+        .getExternallyManagedTopicIdentifiers()
+        .map(async topicArn => {
+          await this.createSnsTopic(topicArn.split(':').pop()!)
+          return topicArn
+        })
+    )
 
     await Promise.all(
       [...busManagedTopicArns, ...externallyManagedTopicArns].map(
@@ -490,9 +500,6 @@ export class SqsTransport implements Transport<SQSMessage> {
     queueArn: string,
     topicArn: string
   ): Promise<void> {
-    // Ensure the topic exists before subscribing to it
-    await this.createSnsTopic(topicArn.split(':').pop()!)
-
     if (this.autoProvision) {
       const command = new SubscribeCommand({
         TopicArn: topicArn,
@@ -515,7 +522,10 @@ export class SqsTransport implements Transport<SQSMessage> {
     const command = new ChangeMessageVisibilityCommand({
       QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!,
-      VisibilityTimeout: Math.round(this.calculateVisibilityTimeout(sqsMessage))
+      VisibilityTimeout: Math.min(
+        Math.round(this.calculateVisibilityTimeout(sqsMessage)),
+        MAX_SQS_VISIBILITY_TIMEOUT_SECONDS
+      )
     })
 
     await this.sqs.send(command)
@@ -562,7 +572,7 @@ export class SqsTransport implements Transport<SQSMessage> {
 
   private async syncQueueAttributes(
     queueUrl: string,
-    attributes?: Record<string, string>
+    attributes: Record<string, string>
   ): Promise<void> {
     if (!this.autoProvision) {
       this.logger.info(
@@ -575,18 +585,39 @@ export class SqsTransport implements Transport<SQSMessage> {
     // Check equality first to avoid potential API rate limit
     const existing = await this.sqs.send(
       new GetQueueAttributesCommand({
-        QueueUrl: queueUrl
+        QueueUrl: queueUrl,
+        AttributeNames: Object.keys(attributes) as QueueAttributeName[]
       })
     )
 
-    if (existing.Attributes !== attributes) {
-      await this.sqs.send(
-        new SetQueueAttributesCommand({
-          QueueUrl: queueUrl,
-          Attributes: attributes
-        })
+    const changedAttributes = Object.fromEntries(
+      Object.entries(attributes).filter(
+        ([name, value]) =>
+          !queueAttributeValuesMatch(
+            value,
+            existing.Attributes?.[name as QueueAttributeName]
+          )
       )
+    )
+
+    if (Object.keys(changedAttributes).length === 0) {
+      this.logger.debug('Queue attributes are already in sync', {
+        queueUrl,
+        attributes
+      })
+      return
     }
+
+    this.logger.info('Updating queue attributes', {
+      queueUrl,
+      changedAttributes
+    })
+    await this.sqs.send(
+      new SetQueueAttributesCommand({
+        QueueUrl: queueUrl,
+        Attributes: changedAttributes
+      })
+    )
   }
 
   private calculateVisibilityTimeout(sqsMessage: SQSMessage): Seconds {
@@ -751,6 +782,51 @@ export function fromMessageAttributeMap(
   }
 
   return messageOptions
+}
+
+/**
+ * Compares a queue attribute value with the one SQS reports. JSON attributes such as
+ * `RedrivePolicy` are compared by their entries, because SQS doesn't preserve key order
+ * and may return numbers as strings.
+ * @param expected The value from the transport configuration
+ * @param actual The value reported by SQS, if any
+ * @returns true if both describe the same setting
+ */
+const queueAttributeValuesMatch = (
+  expected: string,
+  actual: string | undefined
+): boolean => {
+  if (actual === undefined) {
+    return false
+  }
+  if (expected === actual) {
+    return true
+  }
+
+  const expectedObject = parseJsonObject(expected)
+  const actualObject = parseJsonObject(actual)
+  if (!expectedObject || !actualObject) {
+    return false
+  }
+
+  const expectedKeys = Object.keys(expectedObject)
+  return (
+    expectedKeys.length === Object.keys(actualObject).length &&
+    expectedKeys.every(
+      key => String(expectedObject[key]) === String(actualObject[key])
+    )
+  )
+}
+
+const parseJsonObject = (
+  value: string
+): Record<string, unknown> | undefined => {
+  try {
+    const parsed = JSON.parse(value)
+    return typeof parsed === 'object' && parsed !== null ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function getAttributeValue(
