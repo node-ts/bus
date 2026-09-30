@@ -24,7 +24,7 @@ Regardless of these behaviours, the workflow will listen for events that signal 
 Ideally services that host workflows should be somewhat isolated and contain no other concerns. Workflows should be able to make decisions about what logic to execute based on the messages it sees and without having to query databases.
 
 ```bash
-npm i reflect-metadata @node-ts/bus-core
+npm i @node-ts/bus-core
 ```
 
 ## Concepts
