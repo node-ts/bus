@@ -12,11 +12,11 @@ pnpm changeset
 
 Pick the packages you changed and the bump type for each, then write a sentence or two for the changelog. This adds a markdown file to `.changeset/`. Commit it with the PR. You can edit it by hand afterwards.
 
-- **patch**: bug fixes that don't change the API.
-- **minor**: new features, or backwards-compatible API additions.
-- **major**: breaking changes, including raising the minimum Node.js version. Ask the maintainer before making one, because it also affects the other packages (see [Versioning and support](#versioning-and-support)).
+- **patch**: bug fixes.
+- **minor**: new features and API changes, including breaking ones.
+- **Never `major`.** During the roadmap, breaking changes ship as `minor` or `patch` (see [Versioning and support](#versioning-and-support)).
 
-Write the summary for someone upgrading: what changed, what they need to do, and the PR or issue number. Start a breaking change with `**Breaking:**`.
+Write the summary for someone upgrading: what changed, what they need to do, and the PR or issue number. Start a breaking change with `**Breaking:**` and add its upgrade steps to [MIGRATING.md](./MIGRATING.md).
 
 **PRs never bump versions.** Don't edit `version` fields, and don't run `pnpm changeset version`. The maintainer does that when cutting a release.
 
@@ -49,6 +49,6 @@ Set these in the CircleCI project settings (Project Settings → Environment Var
 
 ## Versioning and support
 
-- Every package follows [semver](https://semver.org): breaking changes ship only in a major release, and are called out with `**Breaking:**` in the changelog, with upgrade steps in [MIGRATING.md](./MIGRATING.md).
-- The supported Node.js versions are those in each package's `engines.node`, currently Node.js 24 or later. Raising the minimum is a breaking change.
+- During the roadmap, breaking changes are allowed and ship in `minor` or `patch` releases, never a new major. Releases go out quickly, before users upgrade. Each one is called out with `**Breaking:**` in the changelog, with upgrade steps in [MIGRATING.md](./MIGRATING.md). Make the change directly: no deprecation shims or compatibility flags.
+- The supported Node.js versions are those in each package's `engines.node`, currently Node.js 24 or later. Raising the minimum is a breaking change, handled as above.
 - Adapters declare `@node-ts/bus-core` as a peer dependency (`^2.0.0`). A bus-core major raises those ranges when it's versioned, so it's released together with a major of each adapter. Minor and patch releases of bus-core leave the peer ranges alone (`onlyUpdatePeerDependentsWhenOutOfRange`).

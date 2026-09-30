@@ -1,3 +1,4 @@
+export * from './default-in-memory-queue-configuration'
 export { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 export * from './in-memory-queue-configuration'
 export * from './transport'

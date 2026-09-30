@@ -3,6 +3,8 @@ export * from './message-workflow-mapping'
 export {
   InMemoryPersistence,
   Persistence,
+  PersistenceNotConfigured,
+  WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './persistence'
 export * from './workflow'

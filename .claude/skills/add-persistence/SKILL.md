@@ -11,12 +11,13 @@ Use `packages/bus-postgres` as the template; it's the cleaner of the two existin
 
 - `package.json`, copied from bus-postgres and changed:
   - `name` `@node-ts/bus-<name>`, `version` `1.0.0`, plus `description`.
-  - `main: ./dist/index.js`, `types: ./dist/index.d.ts`, `publishConfig.access: public`.
+  - Keep `type`, `main`, `types`, `exports` and `files` as they are: `exports` points `import` at `dist/index.mjs` and `require` at `dist/index.js`. Keep `publishConfig.access: public`.
   - scripts: `clean`, `build`, `build:watch`.
   - `dependencies`: the driver, `@node-ts/bus-messages: workspace:^`, `tslib`.
   - `devDependencies`: `@node-ts/bus-core: workspace:^`.
-  - `peerDependencies`: `"@node-ts/bus-core": "^1.0.15"`.
+  - `peerDependencies`: `"@node-ts/bus-core": "^2.0.0"`.
 - `tsconfig.json`: copy it from bus-postgres, which excludes specs, integration tests and `test/` from the build. Then run `pnpm i`.
+- `src/index.mts`, copied as is. It is the ESM entry and re-exports the CJS build, so `import` and `require` share one module instance. The copied `tsconfig.json` already includes it. After `pnpm build`, run `pnpm check:packages` to lint the packed package.
 
 ## 2. Configuration — `src/<name>-configuration.ts`
 

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "pnpm run --recursive build",
     "build:watch": "pnpm run --recursive build:watch",
+    "check:packages": "node tools/check-packages.mjs",
     "clean": "pnpm run --recursive clean && rm -r node_modules",
     "format": "prettier --ignore-path .gitignore --write --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
     "format:check": "prettier --ignore-path .gitignore --check --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
@@ -37,17 +38,18 @@
     "packages/*"
   ],
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@changesets/cli": "^3.0.3",
     "@tsconfig/node24": "^24.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.19.0",
     "dotenv-cli": "^11.0.0",
-    "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "jest": "^30.5.2",
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.9",
     "prettier-plugin-organize-imports": "^4.3.0",
+    "publint": "^0.3.24",
     "reflect-metadata": "^0.2.2",
     "supports-color": "^11.0.0",
     "ts-jest": "^29.4.14",
