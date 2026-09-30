@@ -42,10 +42,40 @@ await bus.initialize()
 
 ## Usage
 
-Once configured and initialized, any Lambda that is triggered by SQS messages can send these messages to Bus for processing and dispatch using the `bus.receive` method:
+Once configured and initialized, any Lambda that is triggered by SQS messages can send these messages to Bus for processing and dispatch using the `bus.receive` method. Pass a function rather than `bus.receive` itself so it keeps its `this` binding:
 
 ```typescript
 // Your lambda code
+import type { SQSHandler } from 'aws-lambda'
 
-module.exports.handler = bus.receive
+export const handler: SQSHandler = event => bus.receive(event)
 ```
+
+Each record is dispatched to its handlers, throttled to the bus concurrency (`withConcurrency`). Successful records are left for Lambda to delete. Records whose message has no registered handler are discarded, not retried. A handler that calls `bus.returnMessage()` has its record treated as failed so that Lambda retries it, after the delay set by the retry strategy.
+
+Requires `@node-ts/bus-core` 1.3.4 or later.
+
+By default, if any record fails, `bus.receive` rejects once the batch has been handled, and Lambda retries the **whole** batch, including records that already succeeded.
+
+### Partial batch failures
+
+To retry only the records that failed, enable `reportBatchItemFailures`. `bus.receive` then resolves with an [`SQSBatchResponse`](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-errorhandling.html#services-sqs-batchfailurereporting) listing the failed records instead of rejecting:
+
+```typescript
+import type { SQSBatchResponse, SQSHandler } from 'aws-lambda'
+
+const bus = Bus.configure()
+  .withTransport(sqsTransport)
+  .withReceiver(new BusSqsLambdaReceiver({ reportBatchItemFailures: true }))
+  .build()
+
+await bus.initialize()
+
+export const handler: SQSHandler = event => bus.receive<SQSBatchResponse>(event)
+```
+
+The Lambda's SQS event source mapping must include `ReportBatchItemFailures` in its `FunctionResponseTypes`. Without it, Lambda ignores the response and deletes the failed records along with the rest of the batch.
+
+Records are handled concurrently, so on a FIFO queue a failed record doesn't stop later records in the same message group from being handled.
+
+Type definitions come from `@types/aws-lambda`, which you should install as a dev dependency of your Lambda.
