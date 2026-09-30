@@ -31,7 +31,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - **Build before testing across packages**: every package except `bus-test` has `main: ./dist/index.js`, so e.g. bus-sqs tests import the built bus-core, not its source. Changes in bus-core need `pnpm build` before they're visible to other packages.
 - Integration tests for adapters need local infra; `docker compose up -d` starts it all from the root `docker-compose.yml`. Endpoints default to the compose ports and can be overridden with env vars (listed in `test.env`): `LOCALSTACK_ENDPOINT` (default `http://localhost:4566`, dummy AWS creds in `test.env`), `RABBITMQ_URL` (`amqp://guest:guest@0.0.0.0`), `POSTGRES_URL` (`postgres://postgres:password@localhost:6432/postgres`), `MONGODB_URL` (`mongodb://localhost:27017/workflows`). CI runs all integration tests against CircleCI secondary containers (`.circleci/config.yml`).
 - Formatting is automatic: a `.claude/settings.json` hook runs prettier on every file Claude edits, and husky + lint-staged format on commit.
-- CI (CircleCI) publishes every package with `pnpm publish --recursive` on master. A package won't republish unless its version is bumped. Recent releases were separate "patch version" commits that bumped all packages together.
+- Releases use [changesets](https://changesets.dev) with independent package versions (`.changeset/config.json`, workflow in `CONTRIBUTING.md`). On master, CircleCI's deploy job runs `pnpm changeset publish` (publishes any package whose version isn't on npm yet) and then `.circleci/create-github-releases.mjs` (a GitHub Release and `<pkg>@<version>` tag per new version, with its CHANGELOG section as notes).
 - Package-specific notes (design, config defaults, local infra, gotchas) live in `packages/<pkg>/CLAUDE.md`. Scaffolding new adapters is covered by the `add-transport` and `add-persistence` skills in `.claude/skills/`.
 
 ## Architecture
@@ -94,7 +94,7 @@ Follow these when writing code. The file named on each line is a good example to
 
 ### Commits and releases
 
-- Commit subjects are short, lowercase and imperative. `feat:` is sometimes used. Squash-merged PRs end with `(#NNN)`. Version bumps go in their own "patch version" commit.
+- Commit subjects are short, lowercase and imperative. `feat:` is sometimes used. Squash-merged PRs end with `(#NNN)`. Versions are bumped only by the maintainer's `pnpm changeset version` release PR, never in a feature PR.
 - In an adapter, depend on `@node-ts/bus-core` as a `peerDependency` (`^1.0.15` style) and as a `workspace:^` devDependency. Other internal dependencies use `workspace:^`.
 
 ### Roadmap workflow
@@ -106,6 +106,7 @@ Roadmap work is tracked in the project board https://github.com/orgs/node-ts/pro
 - If the work turns up a new dependency, add it as a "blocked by" relationship on the issue before going on.
 - One issue per branch and PR, branched from `master`. Move the card to In Progress when starting and In Review when the PR is opened.
 - An issue is done only when its PR is approved and merged. Put `Closes #N` in the PR so the merge closes it, and never close roadmap issues by hand. Dependent issues start only after that merge, not when the PR is opened or approved.
+- Every PR with a user-facing change to a published package adds a changeset (`pnpm changeset`, or write `.changeset/<kebab-name>.md` by hand; format and bump types in `CONTRIBUTING.md`). Default to `patch` or `minor`, and ask before choosing `major`. Agents never run `changeset version`, never edit `version` fields and never edit `CHANGELOG.md` files; the maintainer cuts releases.
 - PR descriptions follow `.github/pull_request_template.md` and stay concise:
   - **Summary**: 1-2 lines.
   - **Background**: brief context on what the issue is about.

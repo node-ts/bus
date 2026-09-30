@@ -93,8 +93,14 @@ jobs:
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
           name: Publish
-          # .npmrc is modified with the publish token
-          command: pnpm publish --recursive --no-git-checks
+          # Publishes every package whose version isn't on npm yet, so it's a
+          # no-op until a "version packages" commit lands. Tags are created by
+          # the GitHub Releases step, not locally.
+          command: pnpm changeset publish --no-git-tag
+      - run:
+          name: Create GitHub Releases
+          # Needs a GITHUB_TOKEN project environment variable (see CONTRIBUTING.md)
+          command: node .circleci/create-github-releases.mjs
 
 workflows:
   build-deploy:
