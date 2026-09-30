@@ -243,7 +243,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): void {
     if (!this.messagesWithHandlers.has(message.$name)) {
-      this.logger.warn(
+      this.logger.debug(
         'Message was not sent as it has no registered handlers',
         { message }
       )
