@@ -18,13 +18,16 @@ A RabbitMQ transport (amqplib). Read the root `CLAUDE.md` first.
 - **Topology**:
   - Each message `$name`, and each external topic identifier, gets a durable **fanout exchange** bound to the service queue.
   - The service queue has a direct exchange with the same name.
-  - `<queue>-retry` is a direct exchange plus a queue with a 1 ms TTL that dead-letters back to the service exchange.
+  - `<queue>-retry-<n>ms` are durable retry queues (no TTL of their own) that dead-letter back to the service exchange. They're declared lazily in `returnMessage` and memoized like `assertedExchanges`.
+  - `<queue>-retry` is a direct exchange plus a queue with a 1 ms TTL that dead-letters back to the service exchange. It's legacy: nothing sends to it now, but the service queue's `x-dead-letter-*` arguments point at it, and changing a queue's arguments makes declaring an existing queue fail with `PRECONDITION_FAILED`. Keep it.
   - The DLQ is bound to the retry exchange with routing key `error`.
 - Attributes and sticky attributes are stored in message headers as JSON strings. Each publish gets a new uuid `messageId`.
 
 ## Retry and failure
 
-- `returnMessage` nacks the message without requeue, so it goes through the retry queue to the **back** of the service queue. The attempt count comes from the `x-death` header. At `>= maxRetries` the message goes to the DLQ and is acked. **`retryStrategy` isn't used here**, so there's no backoff delay.
+- `returnMessage` copies the message into a retry queue with `expiration` set to `retryStrategy.calculateRetryDelay(failedAttempts)` (0-indexed, like `InMemoryQueue`), then acks it. On expiry it goes to the **back** of the service queue. At `>= maxRetries` the message goes to the DLQ and is acked instead.
+- The retry queue is picked by `toRetryQueueDelay` (`src/retry-delay.ts`): the next power of two ms. Per-message TTLs only expire at the head of a queue, so one queue for every delay would hold short delays behind long ones. Bucketing caps that at 2x the delay. The delayed-message plugin was avoided because it needs installing and doesn't replicate.
+- The attempt count is the `failedAttempts` header, which `returnMessage` sets on the copy. For messages returned by earlier versions, it falls back to the `x-death` count on the legacy retry exchange.
 - `fail` re-serializes `domainMessage` into the DLQ without acking it. The bus acks it afterwards through `deleteMessage`.
 
 ## Tests
