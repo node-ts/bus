@@ -17,7 +17,7 @@ pnpm build:watch
 pnpm format                # prettier write; CI runs `pnpm format:check` (the only "lint")
 pnpm test                  # all spec + integration tests, with coverage
 pnpm test:unit             # *.spec.ts only
-pnpm test:integration      # bus-core *.integration.ts only (runInBand)
+pnpm test:integration      # every package's *.integration.ts (runInBand, needs the infra below)
 
 # Single file / single test (always go through dotenv so test.env is loaded)
 pnpm exec dotenv -e test.env -- jest packages/bus-core/src/service-bus/bus-instance.integration.ts
@@ -27,7 +27,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - Jest is configured once at the root (`jest.config.ts`, ts-jest using `tsconfig.test.json` which enables decorators); `test/setup.ts` imports `reflect-metadata`.
 - Tests: `*.spec.ts` = unit, `*.integration.ts` = integration. `packages/bus-test` is excluded from direct runs.
 - **Build before testing across packages**: every package except `bus-test` has `main: ./dist/index.js`, so e.g. bus-sqs tests import the built bus-core, not its source. Changes in bus-core need `pnpm build` before they're visible to other packages.
-- Integration tests for adapters need local infra: SQS via LocalStack at `localhost:4566` (dummy AWS creds in `test.env`), RabbitMQ at `amqp://guest:guest@0.0.0.0`, Postgres at `localhost:6432` (postgres/password), MongoDB at `localhost:27017`. CI only runs bus-core integration tests.
+- Integration tests for adapters need local infra; `docker compose up -d` starts it all from the root `docker-compose.yml`. Endpoints default to the compose ports and can be overridden with env vars (listed in `test.env`): `LOCALSTACK_ENDPOINT` (default `http://localhost:4566`, dummy AWS creds in `test.env`), `RABBITMQ_URL` (`amqp://guest:guest@0.0.0.0`), `POSTGRES_URL` (`postgres://postgres:password@localhost:6432/postgres`), `MONGODB_URL` (`mongodb://localhost:27017/workflows`). CI runs all integration tests against CircleCI secondary containers (`.circleci/config.yml`).
 - Formatting is automatic: a `.claude/settings.json` hook runs prettier on every file Claude edits, and husky + lint-staged format on commit.
 - CI (CircleCI) publishes every package with `pnpm publish --recursive` on master. A package won't republish unless its version is bumped. Recent releases were separate "patch version" commits that bumped all packages together.
 - Package-specific notes (design, config defaults, local infra, gotchas) live in `packages/<pkg>/CLAUDE.md`. Scaffolding new adapters is covered by the `add-transport` and `add-persistence` skills in `.claude/skills/`.

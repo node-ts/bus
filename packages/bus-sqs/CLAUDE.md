@@ -20,4 +20,4 @@ An SQS/SNS transport. Read the root `CLAUDE.md` first.
 
 ## Tests
 
-- Integration tests need LocalStack at `localhost:4566`, using the dummy AWS env from the root `test.env`: `docker run -p 4566:4566 localstack/localstack`.
+- Integration tests need LocalStack at `localhost:4566` (override with `LOCALSTACK_ENDPOINT`), using the dummy AWS env from the root `test.env`: `docker compose up -d localstack` from the repo root.

@@ -137,6 +137,36 @@ describe('HandlerRegistry', () => {
     })
   })
 
+  describe('when resetting the registry', () => {
+    const customTopicIdentifier = 'arn:aws:sns:us-east-1:000000000000:reset'
+
+    beforeEach(() => {
+      handlerRegistry.register(TestEvent, genericHandler)
+      handlerRegistry.registerCustom<TestCommand2>(genericHandler, {
+        resolveWith: message => message.$name === TestCommand2.NAME,
+        topicIdentifier: customTopicIdentifier
+      })
+      handlerRegistry.reset()
+    })
+
+    it('should remove regular handlers', () => {
+      expect(handlerRegistry.getMessageNames()).toHaveLength(0)
+      expect(handlerRegistry.get(loggerFactory, new TestEvent())).toHaveLength(
+        0
+      )
+    })
+
+    it('should remove custom handler resolvers', () => {
+      expect(handlerRegistry.getResolvers()).toHaveLength(0)
+      expect(
+        handlerRegistry.getExternallyManagedTopicIdentifiers()
+      ).toHaveLength(0)
+      expect(
+        handlerRegistry.get(loggerFactory, new TestCommand2())
+      ).toHaveLength(0)
+    })
+  })
+
   describe('when registering a message handler using a custom resolver', () => {
     class CustomHandler {
       async handle(_: TestCommand2): Promise<void> {

@@ -42,6 +42,11 @@ import throat from 'throat'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
+interface InterruptSignalListener {
+  signal: NodeJS.Signals
+  listener: () => Promise<void>
+}
+
 export interface BeforeSend {
   command: Command
   attributes: MessageAttributes
@@ -121,6 +126,8 @@ export class BusInstance<TTransportMessage = {}> {
   private runningWorkerCount = 0
   private logger: Logger
   private isInitialized = false
+  private stopInProgress: Promise<void> | undefined
+  private interruptSignalListeners: InterruptSignalListener[] = []
   private outbox: ALS<
     { command?: Command; event?: Event; attributes?: MessageAttributes }[]
   > = new ALS()
@@ -335,8 +342,16 @@ export class BusInstance<TTransportMessage = {}> {
       await this.transport.start()
     }
 
+    if (this.internalState !== BusState.Starting) {
+      // stop() was called while the transport was starting, so don't spin up workers
+      this.logger.info('Bus was stopped before it finished starting')
+      return
+    }
+
     this.internalState = BusState.Started
-    for (var i = 0; i < this.concurrency; i++) {
+    for (let i = 0; i < this.concurrency; i++) {
+      // Count the worker before it's scheduled so a stop() straight after start() waits for it
+      this.runningWorkerCount++
       setTimeout(async () => this.applicationLoop(), 0)
     }
 
@@ -355,32 +370,33 @@ export class BusInstance<TTransportMessage = {}> {
       throw new InvalidBusState(
         'Bus must be started before it can be stopped',
         this.state,
-        [BusState.Started, BusState.Started]
+        [BusState.Started, BusState.Starting]
       )
     }
     this.internalState = BusState.Stopping
     this.logger.info('Bus stopping...')
-    if (this.transport.stop) {
-      await this.transport.stop()
-    }
 
-    while (this.runningWorkerCount > 0) {
-      await sleep(10)
+    this.stopInProgress = this.stopTransportAndWorkers()
+    try {
+      await this.stopInProgress
+    } finally {
+      this.stopInProgress = undefined
     }
-
-    this.internalState = BusState.Stopped
-    this.logger.info('Bus stopped')
   }
 
   /**
    * Stops and disposes all resources allocated to the bus, as well as removing
    * all handler registrations.
    *
-   * The bus instance can not be used after this has been called.
+   * The bus instance can not be used after this has been called. If the bus is
+   * already stopping, this waits for that stop to complete rather than stopping again.
    */
   async dispose(): Promise<void> {
     this.logger.info('Disposing bus instance...')
-    if (![BusState.Stopped, BusState.Stopped].includes(this.state)) {
+    this.unsubscribeFromInterruptSignals()
+    if (this.stopInProgress) {
+      await this.stopInProgress
+    } else if ([BusState.Started, BusState.Starting].includes(this.state)) {
       await this.stop()
     }
     if (this.transport.disconnect) {
@@ -401,19 +417,37 @@ export class BusInstance<TTransportMessage = {}> {
     return this.internalState
   }
 
-  private async applicationLoop(): Promise<void> {
-    this.runningWorkerCount++
-
-    // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
-    while (this.internalState === BusState.Started) {
-      const messageHandled = await this.handleNextMessage()
-
-      // Avoids locking up CPU when there are no messages to be processed
-      if (!messageHandled) {
-        await sleep(EMPTY_QUEUE_SLEEP_MS)
-      }
+  private async stopTransportAndWorkers(): Promise<void> {
+    if (this.transport.stop) {
+      await this.transport.stop()
     }
-    this.runningWorkerCount--
+
+    while (this.runningWorkerCount > 0) {
+      await sleep(10)
+    }
+
+    this.internalState = BusState.Stopped
+    this.logger.info('Bus stopped')
+  }
+
+  /**
+   * Runs a single worker. `runningWorkerCount` is incremented by `start()` when the worker is
+   * scheduled, and decremented here once the worker exits.
+   */
+  private async applicationLoop(): Promise<void> {
+    try {
+      // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
+      while (this.internalState === BusState.Started) {
+        const messageHandled = await this.handleNextMessage()
+
+        // Avoids locking up CPU when there are no messages to be processed
+        if (!messageHandled) {
+          await sleep(EMPTY_QUEUE_SLEEP_MS)
+        }
+      }
+    } finally {
+      this.runningWorkerCount--
+    }
   }
 
   private async handleNextMessage(): Promise<boolean> {
@@ -660,7 +694,8 @@ export class BusInstance<TTransportMessage = {}> {
   }
 
   /**
-   * Subscribes to the interrupt signals to gracefully stop the bus
+   * Subscribes to the interrupt signals to gracefully stop the bus. Listeners are
+   * registered once per instance and removed when the bus is disposed.
    */
   private subscribeToInterruptSignals(signals: NodeJS.Signals[]): void {
     if (this.sendOnly) {
@@ -670,14 +705,26 @@ export class BusInstance<TTransportMessage = {}> {
 
     const startedStates = [BusState.Started, BusState.Starting]
     signals.forEach(signal => {
-      process.on(signal, async () => {
+      const listener = async () => {
         if (!startedStates.includes(this.state)) {
           // No need to stop a non-started bus
           return
         }
         this.logger.info(`Received ${signal} signal. Stopping bus...`)
         await this.stop()
-      })
+      }
+      process.on(signal, listener)
+      this.interruptSignalListeners.push({ signal, listener })
     })
+  }
+
+  /**
+   * Removes the interrupt signal listeners added by `subscribeToInterruptSignals()`
+   */
+  private unsubscribeFromInterruptSignals(): void {
+    this.interruptSignalListeners.forEach(({ signal, listener }) =>
+      process.off(signal, listener)
+    )
+    this.interruptSignalListeners = []
   }
 }
