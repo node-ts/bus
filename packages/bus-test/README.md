@@ -58,6 +58,8 @@ describe('MyTransport', () => {
 
 Your transport has to retry a returned message at least 10 times before it dead-letters it, because the suite waits for 10 delivery attempts.
 
+The suite's bus uses `ClassSerializer` from [@node-ts/bus-class-serializer](https://www.npmjs.com/package/@node-ts/bus-class-serializer), and checks that a command arrives as an instance of its class with a nested `Date` restored. Serialize and deserialize message bodies with `coreDependencies.messageSerializer` rather than calling `JSON.stringify`/`JSON.parse` on them yourself.
+
 For complete examples, see the implementations in this repository:
 
 - [RabbitMqTransport](https://github.com/node-ts/bus/blob/master/packages/bus-rabbitmq/src/rabbitmq-transport.integration.ts)

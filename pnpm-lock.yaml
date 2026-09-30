@@ -485,12 +485,21 @@ importers:
 
   packages/bus-test:
     dependencies:
+      '@node-ts/bus-class-serializer':
+        specifier: workspace:^
+        version: link:../bus-class-serializer
       '@node-ts/bus-messages':
         specifier: workspace:^
         version: link:../bus-messages
+      class-transformer:
+        specifier: ^0.5.1
+        version: 0.5.1
       jest:
         specifier: '>=29'
         version: 30.5.2(@types/node@24.19.0)(supports-color@11.0.0)(ts-node@10.9.2(@types/node@24.19.0)(typescript@6.0.3))
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
