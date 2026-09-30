@@ -17,7 +17,7 @@
   "dependencies": {
     "@node-ts/bus-messages": "workspace:^",
     "@node-ts/bus-sqs": "workspace:^",
-    "tslib": "^2.6.3"
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "@aws-sdk/client-sns": "3.428.0",
@@ -27,7 +27,7 @@
     "@node-ts/code-standards": "^0.0.10",
     "@types/aws-lambda": "^8.10.164",
     "class-transformer": "^0.5.1",
-    "reflect-metadata": "^0.1.13",
+    "reflect-metadata": "^0.2.2",
     "typemoq": "^2.1.0",
     "typescript": "^6.0.3"
   },

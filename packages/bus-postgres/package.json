@@ -17,7 +17,7 @@
   "dependencies": {
     "@node-ts/bus-messages": "workspace:^",
     "pg": "^8.2.1",
-    "tslib": "^2.6.2",
+    "tslib": "^2.8.1",
     "uuid": "^3.3.2"
   },
   "devDependencies": {
@@ -26,7 +26,7 @@
     "@types/amqplib": "^0.5.11",
     "@types/pg": "^7.14.3",
     "@types/uuid": "^3.4.4",
-    "reflect-metadata": "^0.1.13",
+    "reflect-metadata": "^0.2.2",
     "typemoq": "^2.1.0",
     "typescript": "^6.0.3"
   },
