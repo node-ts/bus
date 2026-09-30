@@ -108,7 +108,8 @@ Roadmap work is tracked in the project board https://github.com/orgs/node-ts/pro
 - If the work turns up a new dependency, add it as a "blocked by" relationship on the issue before going on.
 - One issue per branch and PR, branched from `master`. Move the card to In Progress when starting and In Review when the PR is opened.
 - An issue is done only when its PR is approved and merged. Put `Closes #N` in the PR so the merge closes it, and never close roadmap issues by hand. Dependent issues start only after that merge, not when the PR is opened or approved.
-- Every PR with a user-facing change to a published package adds a changeset (`pnpm changeset`, or write `.changeset/<kebab-name>.md` by hand; format and bump types in `CONTRIBUTING.md`). Default to `patch` or `minor`, and ask before choosing `major`. Agents never run `changeset version`, never edit `version` fields and never edit `CHANGELOG.md` files; the maintainer cuts releases.
+- Every PR with a user-facing change to a published package adds a changeset (`pnpm changeset`, or write `.changeset/<kebab-name>.md` by hand; format and bump types in `CONTRIBUTING.md`). Use `patch` or `minor`, never `major`. Agents never run `changeset version`, never edit `version` fields and never edit `CHANGELOG.md` files; the maintainer cuts releases.
+- **Breaking changes are allowed** during the roadmap. Ship them as `minor` or `patch` with a `**Breaking:**` changeset note and a `MIGRATING.md` entry. Make the change directly, with no deprecation shims, compatibility flags or other workarounds, and don't stop to ask just because it's breaking. Ask first (comment on the issue and stop) only for behaviour that could destroy data or is security-sensitive, or for a genuine product judgement call.
 - PR descriptions follow `.github/pull_request_template.md` and stay concise:
   - **Summary**: 1-2 lines.
   - **Background**: brief context on what the issue is about.
