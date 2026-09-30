@@ -7,7 +7,23 @@ defaults: &defaults
 
 jobs:
   build:
-    <<: *defaults
+    working_directory: ~/repo
+    docker:
+      - image: node:24.11.1
+        environment:
+          # Secondary containers share the primary's network. Use 127.0.0.1 so node doesn't try ::1 first
+          LOCALSTACK_ENDPOINT: http://127.0.0.1:4566
+          RABBITMQ_URL: amqp://guest:guest@127.0.0.1
+          POSTGRES_URL: postgres://postgres:password@127.0.0.1:5432/postgres
+          MONGODB_URL: mongodb://127.0.0.1:27017/workflows
+      - image: rabbitmq:3-management
+      - image: localstack/localstack:3
+        environment:
+          SERVICES: sqs,sns,iam,sts
+      - image: postgres:16
+        environment:
+          POSTGRES_PASSWORD: password
+      - image: mongo:7
     resource_class: large
     steps:
       - checkout
@@ -32,16 +48,26 @@ jobs:
           name: Unit Test
           command: pnpm run test:unit --maxConcurrency=1 # CircleCI runs out of mem
       - run:
+          name: Wait for integration infra
+          command: |
+            wait_for_port() {
+              for i in $(seq 1 60); do
+                node -e "require('net').connect($1, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))" && return 0
+                sleep 2
+              done
+              echo "Timed out waiting for port $1" && return 1
+            }
+            wait_for_port 5672
+            wait_for_port 5432
+            wait_for_port 27017
+            for i in $(seq 1 60); do
+              curl -sf http://127.0.0.1:4566/_localstack/health | grep -q '"sqs": "\(available\|running\)"' && break
+              sleep 2
+            done
+            curl -sf http://127.0.0.1:4566/_localstack/health
+      - run:
           name: Integration Test
           command: pnpm run test:integration
-      # - setup_remote_docker
-      # - run:
-      #     name: Integration Test
-      #     command: |
-      #       docker run --name rabbit -d -p 8080:15672 -p 5672:5672 rabbitmq:3-management
-      #       docker create -v /repo --name repo alpine:3.4 /bin/true
-      #       docker cp . repo:/repo
-      #       docker run -it --volumes-from repo --workdir /repo/bus node:8.15.0 pnpm test:integration
       # Save workspace for subsequent jobs (i.e. test)
       - persist_to_workspace:
           root: .

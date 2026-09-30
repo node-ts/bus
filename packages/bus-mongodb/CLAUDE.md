@@ -8,4 +8,4 @@ MongoDB persistence for workflow state (mongodb driver ^5). Read the root `CLAUD
 - `initializeWorkflow()` reconnects, creates the collection if it's missing, and ensures an `{_id, version}` index plus one index per `mapsTo`. It **drops every other non-`_id_` index**, including ones added by hand.
 - Known issue: the secondary index key is built as `` `data.'${field}'` `` (with literal quotes, `src/mongodb-persistence.ts` ~line 180), so it doesn't match the `data.<field>` path that queries use.
 - **Optimistic concurrency**: `findOneAndUpdate({ id, version: <old> })`. An empty `result.value` throws `WorkflowStateNotFound`. That check depends on the driver v5 `ModifyResult` shape, so recheck it if you upgrade the driver.
-- **Tests**: `mongodb://localhost:27017/workflows` (`docker run -p 27017:27017 mongo`). `afterAll` drops the database. Fixtures in `test/` are copied from `bus-postgres/test`; keep the two in sync.
+- **Tests**: `mongodb://localhost:27017/workflows` (override with `MONGODB_URL`; `docker compose up -d mongo` from the repo root). `afterAll` drops the database. Fixtures in `test/` are copied from `bus-postgres/test`; keep the two in sync.

@@ -24,4 +24,4 @@ A RabbitMQ transport (amqplib). Read the root `CLAUDE.md` first.
 
 ## Tests
 
-- Integration tests need a broker at `amqp://guest:guest@0.0.0.0`: `docker run -d -p 8080:15672 -p 5672:5672 rabbitmq:3-management`.
+- Integration tests need a broker at `amqp://guest:guest@0.0.0.0` (override with `RABBITMQ_URL`): `docker compose up -d rabbitmq` from the repo root.

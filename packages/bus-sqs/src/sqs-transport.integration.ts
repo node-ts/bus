@@ -40,6 +40,10 @@ const sqsConfiguration: SqsTransportConfiguration = {
   deadLetterQueueName: `${resourcePrefix}-dead-letter`
 }
 
+// Overridable so CI and contributors can point at LocalStack on a different host/port
+const LOCALSTACK_ENDPOINT =
+  process.env.LOCALSTACK_ENDPOINT || 'http://localhost:4566'
+
 const manualTopicName = `${resourcePrefix}-test-system-message`
 const manualTopicIdentifier = `arn:aws:sns:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:${manualTopicName}`
 
@@ -47,16 +51,14 @@ jest.setTimeout(15000)
 
 describe('SqsTransport', () => {
   const sqs = new SQSClient({
-    endpoint: 'http://localhost:4566',
+    endpoint: LOCALSTACK_ENDPOINT,
     region: AWS_REGION
   })
   const sns = new SNSClient({
-    endpoint: 'http://localhost:4566',
+    endpoint: LOCALSTACK_ENDPOINT,
     region: AWS_REGION
   })
   const sqsTransport = new SqsTransport(sqsConfiguration, sqs, sns)
-  const deadLetterQueueUrl = sqsTransport.deadLetterQueueUrl
-
   beforeAll(async () => {
     const createTopic = new CreateTopicCommand({
       Name: manualTopicName
@@ -68,6 +70,8 @@ describe('SqsTransport', () => {
     const appQueueUrl = sqsTransport.queueUrl
     await sqs.send(new PurgeQueueCommand({ QueueUrl: appQueueUrl }))
     await sqs.send(new DeleteQueueCommand({ QueueUrl: appQueueUrl }))
+    // deadLetterQueueUrl is only set once initialize() has run, so read it lazily
+    const deadLetterQueueUrl = sqsTransport.deadLetterQueueUrl
     await sqs.send(new DeleteQueueCommand({ QueueUrl: deadLetterQueueUrl }))
   })
 
@@ -88,6 +92,7 @@ describe('SqsTransport', () => {
   }
 
   const readAllFromDeadLetterQueue = async () => {
+    const deadLetterQueueUrl = sqsTransport.deadLetterQueueUrl
     const result = await sqs.send(
       new ReceiveMessageCommand({
         QueueUrl: deadLetterQueueUrl,

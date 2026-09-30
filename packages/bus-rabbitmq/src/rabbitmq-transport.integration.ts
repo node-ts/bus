@@ -17,7 +17,7 @@ import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
 const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',
   deadLetterQueueName: '@node-ts/bus-rabbitmq-test-dead-letter',
-  connectionString: 'amqp://guest:guest@0.0.0.0',
+  connectionString: process.env.RABBITMQ_URL || 'amqp://guest:guest@0.0.0.0',
   maxRetries: 10
 }
 
@@ -93,12 +93,22 @@ describe('RabbitMqTransport', () => {
 
   beforeAll(async () => {
     connection = await connect(configuration.connectionString)
+    // Purging a queue that doesn't exist yet (e.g. on a fresh broker in CI) makes the
+    // server close the channel, so purge on a throwaway channel per queue
+    for (const queueName of [
+      configuration.queueName,
+      configuration.deadLetterQueueName!
+    ]) {
+      const purgeChannel = await connection.createChannel()
+      purgeChannel.on('error', () => undefined)
+      try {
+        await purgeChannel.purgeQueue(queueName)
+        await purgeChannel.close()
+      } catch {
+        // Queue doesn't exist yet and the server has already closed the channel
+      }
+    }
     channel = await connection.createChannel()
-    // Ignore failures due to queues that don't yet exist
-    await Promise.allSettled([
-      channel.purgeQueue(configuration.queueName),
-      channel.purgeQueue(configuration.deadLetterQueueName!)
-    ])
   })
 
   transportTests(
