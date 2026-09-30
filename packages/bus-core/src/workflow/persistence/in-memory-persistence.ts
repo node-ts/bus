@@ -1,13 +1,13 @@
-import { Persistence } from './persistence'
-import { WorkflowState, WorkflowStatus } from '../workflow-state'
-import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Logger } from '../../logger'
 import { ClassConstructor, CoreDependencies } from '../../util'
+import { MessageWorkflowMapping } from '../message-workflow-mapping'
+import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import {
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './error'
-import { Logger } from '../../logger'
+import { Persistence } from './persistence'
 
 interface WorkflowStorage {
   [workflowStateName: string]: WorkflowState[]

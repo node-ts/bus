@@ -1,18 +1,18 @@
-import { RabbitMqTransport } from './rabbitmq-transport'
-import { Connection, Channel, connect, ConsumeMessage } from 'amqplib'
 import {
   DefaultHandlerRegistry,
   JsonSerializer,
   MessageSerializer
 } from '@node-ts/bus-core'
-import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import {
   Message,
   MessageAttributeMap,
   MessageAttributes
 } from '@node-ts/bus-messages'
+import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
+import { Channel, connect, Connection, ConsumeMessage } from 'amqplib'
 import * as uuid from 'uuid'
-import { transportTests, TestSystemMessage } from '@node-ts/bus-test'
+import { RabbitMqTransport } from './rabbitmq-transport'
+import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',

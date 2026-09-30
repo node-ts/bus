@@ -1,5 +1,5 @@
-import { TransportMessage } from '../transport'
 import { MessageSerializer } from '../serialization'
+import { TransportMessage } from '../transport'
 import { ReceivedMessageFailure } from './received-message-failure'
 
 /**
@@ -9,7 +9,8 @@ import { ReceivedMessageFailure } from './received-message-failure'
  */
 export interface Receiver<
   TReceivedMessage = unknown,
-  TTransportMessage extends TransportMessage<unknown> = TransportMessage<unknown>,
+  TTransportMessage extends TransportMessage<unknown> =
+    TransportMessage<unknown>,
   TReceiveResult = unknown
 > {
   /**

@@ -1,3 +1,4 @@
+import { It, Mock, Times } from 'typemoq'
 import { Bus, BusInstance } from '../service-bus'
 import { sleep } from '../util'
 import { InMemoryPersistence } from './persistence'
@@ -6,7 +7,6 @@ import {
   TestDiscardedWorkflow,
   TestDiscardedWorkflowState
 } from './test/test-discarded-workflow'
-import { It, Mock, Times } from 'typemoq'
 import {
   TestVoidStartedByWorkflow,
   TestVoidStartedByWorkflowState

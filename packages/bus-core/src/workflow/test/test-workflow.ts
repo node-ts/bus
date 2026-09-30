@@ -1,10 +1,10 @@
 import { Workflow, WorkflowMapper } from '../'
-import { TestWorkflowState } from './test-workflow-state'
-import { TestCommand } from './test-command'
+import { BusInstance } from '../../service-bus'
+import { FinalTask } from './final-task'
 import { RunTask } from './run-task'
 import { TaskRan } from './task-ran'
-import { FinalTask } from './final-task'
-import { BusInstance } from '../../service-bus'
+import { TestCommand } from './test-command'
+import { TestWorkflowState } from './test-workflow-state'
 
 export class TestWorkflow extends Workflow<TestWorkflowState> {
   constructor(

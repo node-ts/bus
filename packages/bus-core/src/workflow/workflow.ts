@@ -16,9 +16,7 @@ export type WorkflowHandler<
   attributes?: TMessageAttributes,
   workflowState?: WorkflowStateType
 ) =>
-  | void
-  | Partial<WorkflowStateType>
-  | Promise<void | Partial<WorkflowStateType>>
+  void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
 
 export type WhenHandler<
   WorkflowStateType extends WorkflowState,

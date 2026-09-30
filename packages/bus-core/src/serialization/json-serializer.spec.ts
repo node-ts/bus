@@ -5,7 +5,11 @@ class Contract {
 
   testFn: () => void
 
-  constructor(readonly a: string, readonly b: number, c: Date) {
+  constructor(
+    readonly a: string,
+    readonly b: number,
+    c: Date
+  ) {
     this.c = c
   }
 }

@@ -14,7 +14,10 @@ export class TestCommand extends Command {
   $name = TestCommand.NAME
   $version = 0
 
-  constructor(readonly id: string, readonly outcome: TestCommandOutcome) {
+  constructor(
+    readonly id: string,
+    readonly outcome: TestCommandOutcome
+  ) {
     super()
   }
 }

@@ -1,28 +1,29 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { It, Mock, Times } from 'typemoq'
+import { handlerFor } from '../handler'
+import { Logger } from '../logger'
 import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
 import { MessageSerializer } from '../serialization'
+import { HandleChecker, TestCommand, TestCommand2, TestEvent } from '../test'
+import { TestCommand3 } from '../test/test-command-3'
 import { InMemoryQueue, TransportMessage } from '../transport'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 import { InvalidOperation } from './error'
-import { handlerFor } from '../handler'
-import { Logger } from '../logger'
-import { HandleChecker, TestCommand, TestCommand2, TestEvent } from '../test'
-import { TestCommand3 } from '../test/test-command-3'
-import { It, Mock, Times } from 'typemoq'
 
 const emptyAttributes: MessageAttributes = {
   attributes: {},
   stickyAttributes: {}
 }
 
-class PassthroughReceiver
-  implements Receiver<Message, TransportMessage<unknown>>
-{
+class PassthroughReceiver implements Receiver<
+  Message,
+  TransportMessage<unknown>
+> {
   async receive(
     receivedMessage: Message | Message[],
     _messageSerializer: MessageSerializer

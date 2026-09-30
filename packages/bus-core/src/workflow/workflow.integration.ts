@@ -1,12 +1,15 @@
+import { MessageAttributes } from '@node-ts/bus-messages'
+import { Bus, BusInstance } from '../service-bus'
+import { ClassConstructor, sleep } from '../util'
+import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { InMemoryPersistence } from './persistence'
 import {
-  TestCommand,
-  TestWorkflowState,
-  TestWorkflow,
+  FinalTask,
   TaskRan,
-  FinalTask
+  TestCommand,
+  TestWorkflow,
+  TestWorkflowState
 } from './test'
-import { WorkflowStatus } from './workflow-state'
 import {
   TestWorkflowStartedByCompletes,
   TestWorkflowStartedByCompletesData
@@ -15,10 +18,7 @@ import {
   TestWorkflowStartedByDiscard,
   TestWorkflowStartedByDiscardData
 } from './test/test-workflow-startedby-discard'
-import { MessageAttributes } from '@node-ts/bus-messages'
-import { Bus, BusInstance } from '../service-bus'
-import { ClassConstructor, sleep } from '../util'
-import { MessageWorkflowMapping } from './message-workflow-mapping'
+import { WorkflowStatus } from './workflow-state'
 
 describe('Workflow', () => {
   const command = new TestCommand('abc')

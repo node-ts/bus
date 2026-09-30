@@ -8,8 +8,8 @@ import {
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Pool, PoolClient } from 'pg'
-import { PostgresConfiguration } from './postgres-configuration'
 import { WorkflowStateNotFound } from './error'
+import { PostgresConfiguration } from './postgres-configuration'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.

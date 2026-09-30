@@ -2,10 +2,10 @@ import { SNSClient } from '@aws-sdk/client-sns'
 import {
   DeleteMessageCommand,
   DeleteQueueCommand,
-  Message as SqsMessage,
   ReceiveMessageCommand,
   SendMessageCommand,
-  SQSClient
+  SQSClient,
+  Message as SqsMessage
 } from '@aws-sdk/client-sqs'
 import {
   Bus,

@@ -1,10 +1,6 @@
-import {
-  CustomResolver,
-  HandlerRegistrations,
-  HandlerRegistry,
-  HandlerResolver,
-  MessageName
-} from './handler-registry'
+import { Message } from '@node-ts/bus-messages'
+import { LoggerFactory } from '../logger'
+import { ClassConstructor } from '../util'
 import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './error'
 import {
   Handler,
@@ -12,9 +8,13 @@ import {
   isClassHandler,
   MessageBase
 } from './handler'
-import { ClassConstructor } from '../util'
-import { Message } from '@node-ts/bus-messages'
-import { LoggerFactory } from '../logger'
+import {
+  CustomResolver,
+  HandlerRegistrations,
+  HandlerRegistry,
+  HandlerResolver,
+  MessageName
+} from './handler-registry'
 
 export class DefaultHandlerRegistry implements HandlerRegistry {
   private registry: HandlerRegistrations = {}

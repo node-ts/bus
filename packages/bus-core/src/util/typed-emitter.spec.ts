@@ -1,5 +1,5 @@
+import { IMock, Mock, Times } from 'typemoq'
 import { TypedEmitter, Unsubscribe } from './typed-emitter'
-import { Mock, IMock, Times } from 'typemoq'
 
 describe('TypedEmitter', () => {
   let sut: TypedEmitter<string>

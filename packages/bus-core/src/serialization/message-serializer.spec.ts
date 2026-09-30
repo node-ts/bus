@@ -1,9 +1,9 @@
-import { Serializer } from './serializer'
-import { ClassConstructor } from '../util'
-import * as faker from 'faker'
 import { Message } from '@node-ts/bus-messages'
+import * as faker from 'faker'
 import { DefaultHandlerRegistry } from '../handler'
+import { ClassConstructor } from '../util'
 import { MessageSerializer } from './message-serializer'
+import { Serializer } from './serializer'
 
 class DummyMessage {
   $name = 'bluh'

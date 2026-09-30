@@ -1,20 +1,10 @@
 import {
-  toMessageAttributeMap,
-  SqsMessageAttributes,
-  fromMessageAttributeMap,
-  SqsTransport,
-  SnsMessageAttributeMap
-} from './sqs-transport'
-import { MessageAttributes } from '@node-ts/bus-messages'
-import * as faker from 'faker'
-import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import {
-  CoreDependencies,
-  TransportMessage,
-  RetryStrategy,
-  DebugLogger
-} from '@node-ts/bus-core'
-import { Mock, It, Times } from 'typemoq'
+  CreateTopicCommand,
+  GetTopicAttributesCommand,
+  ListSubscriptionsByTopicCommand,
+  SNSClient,
+  SubscribeCommand
+} from '@aws-sdk/client-sns'
 import {
   ChangeMessageVisibilityCommand,
   CreateQueueCommand,
@@ -23,12 +13,22 @@ import {
   SQSClient
 } from '@aws-sdk/client-sqs'
 import {
-  CreateTopicCommand,
-  GetTopicAttributesCommand,
-  ListSubscriptionsByTopicCommand,
-  SNSClient,
-  SubscribeCommand
-} from '@aws-sdk/client-sns'
+  CoreDependencies,
+  DebugLogger,
+  RetryStrategy,
+  TransportMessage
+} from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-messages'
+import * as faker from 'faker'
+import { It, Mock, Times } from 'typemoq'
+import {
+  fromMessageAttributeMap,
+  SnsMessageAttributeMap,
+  SqsMessageAttributes,
+  SqsTransport,
+  toMessageAttributeMap
+} from './sqs-transport'
+import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
@@ -149,7 +149,7 @@ describe('sqs-transport', () => {
             )
           )
         )
-        .returns(() => ({ promise: async () => undefined } as any))
+        .returns(() => ({ promise: async () => undefined }) as any)
         .verifiable(Times.once())
 
       await sut.returnMessage({ raw: {} } as TransportMessage<Message>)

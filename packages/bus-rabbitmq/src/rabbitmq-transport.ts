@@ -1,29 +1,29 @@
 import {
-  Event,
-  Command,
-  Message,
-  MessageAttributes,
-  MessageAttributeMap
-} from '@node-ts/bus-messages'
-import {
-  Transport,
-  TransportMessage,
-  DEFAULT_DEAD_LETTER_QUEUE_NAME,
   CoreDependencies,
+  DEFAULT_DEAD_LETTER_QUEUE_NAME,
   Logger,
-  TransportConnectionOptions
+  Transport,
+  TransportConnectionOptions,
+  TransportMessage
 } from '@node-ts/bus-core'
 import {
-  Connection,
+  Command,
+  Event,
+  Message,
+  MessageAttributeMap,
+  MessageAttributes
+} from '@node-ts/bus-messages'
+import {
   Channel,
-  Message as RabbitMqMessage,
-  GetMessage,
   connect,
-  ConsumeMessage
+  Connection,
+  ConsumeMessage,
+  GetMessage,
+  Message as RabbitMqMessage
 } from 'amqplib'
-import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
-import * as uuid from 'uuid'
 import { EventEmitter } from 'events'
+import * as uuid from 'uuid'
+import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 
 export const DEFAULT_MAX_RETRIES = 10
 
@@ -194,8 +194,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
     const attributes = {
       correlationId: rabbitMessage.properties.correlationId as
-        | string
-        | undefined,
+        string | undefined,
       attributes:
         rabbitMessage.properties.headers &&
         rabbitMessage.properties.headers.attributes

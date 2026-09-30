@@ -1,5 +1,5 @@
-import { Logger } from './logger'
 import debug, { Debugger } from 'debug'
+import { Logger } from './logger'
 
 /**
  * The default logger based on the `debug` package. To see log output, run

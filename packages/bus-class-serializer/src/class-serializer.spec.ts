@@ -1,12 +1,16 @@
-import { ClassSerializer } from './class-serializer'
 import { Type } from 'class-transformer'
+import { ClassSerializer } from './class-serializer'
 
 class Contract {
   @Type(() => Date) readonly c: Date
 
   testFn: () => void
 
-  constructor(readonly a: string, readonly b: number, c: Date) {
+  constructor(
+    readonly a: string,
+    readonly b: number,
+    c: Date
+  ) {
     this.c = c
   }
 }

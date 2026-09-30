@@ -1,4 +1,6 @@
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { It, Mock, Times } from 'typemoq'
+import * as uuid from 'uuid'
 import { Handler, Workflow, WorkflowMapper, WorkflowState } from '../'
 import { Bus, BusInstance } from '../service-bus'
 import { ClassConstructor, sleep } from '../util'
@@ -10,8 +12,6 @@ import {
   TestCommand,
   TestWorkflowState
 } from './test'
-import { MessageAttributes } from '@node-ts/bus-messages'
-import * as uuid from 'uuid'
 
 jest.setTimeout(10_000)
 

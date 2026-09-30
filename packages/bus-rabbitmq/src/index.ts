@@ -1,2 +1,2 @@
-export * from './rabbitmq-transport-configuration'
 export * from './rabbitmq-transport'
+export * from './rabbitmq-transport-configuration'

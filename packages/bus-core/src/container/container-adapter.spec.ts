@@ -1,12 +1,12 @@
-import { Bus, BusInstance, OnError } from '../service-bus'
-import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Mock, Times } from 'typemoq'
-import { MessageLogger } from '../test/test-event-handler'
-import { ClassConstructor, Listener, sleep } from '../util'
-import { TestEvent, TestEvent2 } from '../test'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
 import { Handler, HandlerDispatchRejected } from '../handler'
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Bus, BusInstance, OnError } from '../service-bus'
+import { TestEvent, TestEvent2 } from '../test'
+import { TestEventClassHandler } from '../test/test-event-class-handler'
+import { MessageLogger } from '../test/test-event-handler'
+import { ClassConstructor, Listener, sleep } from '../util'
 
 class UnregisteredClassHandler implements Handler<TestEvent2> {
   messageType = TestEvent2

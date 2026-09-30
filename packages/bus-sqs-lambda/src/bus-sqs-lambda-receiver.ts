@@ -23,14 +23,11 @@ import { toSqsLambdaRecord } from './to-sqs-lambda-record'
  *
  * export const handler: SQSHandler = event => bus.receive<SQSBatchResponse>(event)
  */
-export class BusSqsLambdaReceiver
-  implements
-    Receiver<
-      SQSEvent,
-      TransportMessage<SqsLambdaRecord>,
-      SQSBatchResponse | void
-    >
-{
+export class BusSqsLambdaReceiver implements Receiver<
+  SQSEvent,
+  TransportMessage<SqsLambdaRecord>,
+  SQSBatchResponse | void
+> {
   /**
    * @param configuration Options for how the outcome of a batch is reported back to Lambda
    */

@@ -1,4 +1,3 @@
-import { Receiver } from '../receiver'
 import { ContainerAdapter } from '../container'
 import { ContainerNotRegistered } from '../error'
 import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
@@ -8,6 +7,7 @@ import {
   isClassHandler
 } from '../handler/handler'
 import { LoggerFactory, defaultLoggerFactory } from '../logger'
+import { Receiver } from '../receiver'
 import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, Serializer } from '../serialization'
 import { MessageSerializer } from '../serialization/message-serializer'

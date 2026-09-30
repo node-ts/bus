@@ -1,48 +1,48 @@
-import { Transport, TransportMessage } from '../transport'
 import {
-  Event,
   Command,
+  Event,
   Message,
   MessageAttributes
 } from '@node-ts/bus-messages'
-import {
-  sleep,
-  ClassConstructor,
-  TypedEmitter,
-  CoreDependencies,
-  MiddlewareDispatcher,
-  Middleware,
-  Next
-} from '../util'
-import {
-  Handler,
-  FunctionHandler,
-  HandlerDefinition,
-  HandlerDispatchRejected,
-  HandlerRegistry,
-  isClassHandler
-} from '../handler'
+import ALS from 'alscontext/dist/als/als'
 import { serializeError } from 'serialize-error'
-import { BusState } from './bus-state'
-import { messageHandlingContext } from '../message-handling-context'
+import throat from 'throat'
+import { v4 as generateUuid } from 'uuid'
+import { ContainerAdapter } from '../container'
 import {
   ClassHandlerNotResolved,
   FailMessageOutsideHandlingContext,
   ReturnMessageOutsideHandlingContext
 } from '../error'
-import { v4 as generateUuid } from 'uuid'
-import { WorkflowRegistry } from '../workflow/registry'
+import {
+  FunctionHandler,
+  Handler,
+  HandlerDefinition,
+  HandlerDispatchRejected,
+  HandlerRegistry,
+  isClassHandler
+} from '../handler'
 import { Logger } from '../logger'
-import { InvalidBusState, InvalidOperation } from './error'
-import { ContainerAdapter } from '../container'
-import ALS from 'alscontext/dist/als/als'
+import { messageHandlingContext } from '../message-handling-context'
 import { messageLifecycleContext } from '../message-lifecycle-context'
 import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
-import throat from 'throat'
+import { Transport, TransportMessage } from '../transport'
+import {
+  ClassConstructor,
+  CoreDependencies,
+  Middleware,
+  MiddlewareDispatcher,
+  Next,
+  sleep,
+  TypedEmitter
+} from '../util'
+import { WorkflowRegistry } from '../workflow/registry'
+import { BusState } from './bus-state'
+import { InvalidBusState, InvalidOperation } from './error'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
 
