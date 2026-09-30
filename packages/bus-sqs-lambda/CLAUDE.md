@@ -6,9 +6,11 @@ A `Receiver<SQSEvent, TransportMessage<SQSRecord>>` that feeds Lambda SQS events
 - Host behaviour when a receiver is configured (`bus-core/src/service-bus/bus-instance.ts`):
   - `bus.receive(event)` handles records throttled to `concurrency`.
   - On success, messages are **not** deleted; Lambda deletes them.
-  - On error it rethrows instead of calling `returnMessage`, so Lambda/SQS retries.
+  - On error it rethrows instead of calling `returnMessage`, so Lambda/SQS retries. Receivers that implement `toReceiveResult` instead get every record handled (`Promise.allSettled`) and their result returned from `bus.receive()`.
   - `bus.start()` throws.
-- `Promise.all` is used across records, so one failing record fails the whole batch and records that succeeded run again. Partial batch responses aren't supported.
+- `BusSqsLambdaReceiver` implements `toReceiveResult`. With `reportBatchItemFailures: true` it returns an `SQSBatchResponse` listing only the failed records (by `messageId`), which needs `ReportBatchItemFailures` on the event source mapping. Without it (the default) it rethrows the first failure after the batch completes, so Lambda retries the whole batch. Unhandled messages are discarded by the bus and are never reported as failures.
+- A record whose body can't be parsed still fails the whole batch, because `receive()` throws before dispatch.
+- Only `@types/aws-lambda` is used (dev dependency, type-only imports). Don't add the `aws-lambda` npm package, which is an unrelated deploy CLI.
 - `SqsTransport` is still used for send/publish, and its `initialize()` still provisions resources unless `autoProvision: false` is set.
-- Pass the handler as `event => bus.receive(event)`, not `bus.receive`, which loses its `this` binding. The README example gets this wrong.
-- There are only unit tests (`src/bus-sqs-lambda-receiver.spec.ts`).
+- Pass the handler as `event => bus.receive(event)`, not `bus.receive`, which loses its `this` binding.
+- Tests: `src/bus-sqs-lambda-receiver.spec.ts` (unit) and `src/bus-sqs-lambda-receiver.integration.ts`, which builds a real bus on the in-memory queue and needs no infra. Fixtures are in `src/test`.

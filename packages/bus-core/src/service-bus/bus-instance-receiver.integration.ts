@@ -1,12 +1,13 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Receiver } from '../receiver'
+import { ReceivedMessageFailure, Receiver } from '../receiver'
 import { MessageSerializer } from '../serialization'
 import { InMemoryQueue, TransportMessage } from '../transport'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 import { InvalidOperation } from './error'
 import { handlerFor } from '../handler'
-import { TestCommand, TestEvent } from '../test'
+import { Logger } from '../logger'
+import { TestCommand, TestCommand2, TestEvent } from '../test'
 import { It, Mock, Times } from 'typemoq'
 
 const emptyAttributes: MessageAttributes = {
@@ -34,6 +35,30 @@ class PassthroughReceiver
 }
 
 const receiver = new PassthroughReceiver()
+
+interface BatchResult {
+  failedIds: (string | undefined)[]
+}
+
+class BatchResultReceiver
+  implements Receiver<Message[], TransportMessage<unknown>, BatchResult>
+{
+  async receive(
+    receivedMessages: Message[],
+    _messageSerializer: MessageSerializer
+  ): Promise<TransportMessage<unknown>[]> {
+    return receivedMessages.map((domainMessage, index) => ({
+      id: index.toString(),
+      attributes: emptyAttributes,
+      domainMessage,
+      raw: domainMessage
+    }))
+  }
+
+  toReceiveResult(failures: ReceivedMessageFailure[]): BatchResult {
+    return { failedIds: failures.map(failure => failure.message.id) }
+  }
+}
 
 describe('BusInstance Receiver', () => {
   describe('when configuring Bus with a Receiver', () => {
@@ -104,6 +129,75 @@ describe('BusInstance Receiver', () => {
         commands.forEach(command => {
           expect(commandHandler).toHaveBeenCalledWith(command, emptyAttributes)
         })
+      })
+    })
+  })
+
+  describe('when configuring Bus with a Receiver that reports batch results', () => {
+    let bus: BusInstance
+    const commandHandler = jest.fn()
+    const handlerThatThrows = handlerFor(TestEvent, () => {
+      throw new Error()
+    })
+    const queue = Mock.ofType<InMemoryQueue>()
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withReceiver(new BatchResultReceiver())
+        .withHandler(handlerFor(TestCommand, commandHandler))
+        .withHandler(handlerThatThrows)
+        .withTransport(queue.object)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .build()
+      await bus.initialize()
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    describe('when a batch with failing, succeeding and unhandled messages is received', () => {
+      const commands = [new TestCommand(), new TestCommand()]
+      let result: BatchResult
+
+      beforeAll(async () => {
+        commandHandler.mockReset()
+        result = await bus.receive<BatchResult>([
+          commands[0],
+          new TestEvent(),
+          new TestCommand2(),
+          commands[1]
+        ])
+      })
+
+      it('should dispatch the other messages despite the failure', () => {
+        commands.forEach(command => {
+          expect(commandHandler).toHaveBeenCalledWith(command, emptyAttributes)
+        })
+      })
+
+      it('should return the receiver result with only the failed message', () => {
+        expect(result).toEqual({ failedIds: ['1'] })
+      })
+
+      it('should not return or delete messages, as the receiver host should handle it', () => {
+        queue.verify(q => q.returnMessage(It.isAny()), Times.never())
+        queue.verify(q => q.deleteMessage(It.isAny()), Times.never())
+      })
+    })
+
+    describe('when all messages in a batch succeed', () => {
+      let result: BatchResult
+
+      beforeAll(async () => {
+        result = await bus.receive<BatchResult>([
+          new TestCommand(),
+          new TestCommand2()
+        ])
+      })
+
+      it('should return the receiver result with no failures', () => {
+        expect(result).toEqual({ failedIds: [] })
       })
     })
   })

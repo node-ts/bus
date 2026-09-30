@@ -1,11 +1,12 @@
 import {
   JsonSerializer,
   MessageSerializer,
+  ReceivedMessageFailure,
   TransportMessage
 } from '@node-ts/bus-core'
 import { BusSqsLambdaReceiver } from './bus-sqs-lambda-receiver'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { SQSRecord } from 'aws-lambda'
+import { SQSBatchResponse, SQSRecord } from 'aws-lambda'
 
 const attributePayload = {
   Records: [
@@ -97,6 +98,86 @@ describe('BusSqsLambdaReceiver', () => {
     it('should parse out sticky attributes', () => {
       expect(attributes.stickyAttributes).toMatchObject({
         'x-sticky-attribute': 'baz'
+      })
+    })
+  })
+  describe('when the batch has been handled', () => {
+    const toFailure = (
+      messageId: string,
+      error = new Error(messageId)
+    ): ReceivedMessageFailure<TransportMessage<SQSRecord>> => ({
+      message: {
+        id: messageId,
+        domainMessage: {} as Message,
+        attributes: { attributes: {}, stickyAttributes: {} },
+        raw: { messageId } as SQSRecord
+      },
+      error
+    })
+
+    describe('with reportBatchItemFailures enabled', () => {
+      const sut = new BusSqsLambdaReceiver({ reportBatchItemFailures: true })
+
+      describe('and some records failed', () => {
+        let result: SQSBatchResponse | void
+
+        beforeAll(() => {
+          result = sut.toReceiveResult([toFailure('a'), toFailure('b')])
+        })
+
+        it('should report only the failed records', () => {
+          expect(result).toEqual({
+            batchItemFailures: [
+              { itemIdentifier: 'a' },
+              { itemIdentifier: 'b' }
+            ]
+          })
+        })
+      })
+
+      describe('and no records failed', () => {
+        let result: SQSBatchResponse | void
+
+        beforeAll(() => {
+          result = sut.toReceiveResult([])
+        })
+
+        it('should report no failures', () => {
+          expect(result).toEqual({ batchItemFailures: [] })
+        })
+      })
+    })
+
+    describe('without reportBatchItemFailures enabled', () => {
+      const sut = new BusSqsLambdaReceiver()
+
+      describe('and some records failed', () => {
+        const error = new Error('first')
+        let thrown: unknown
+
+        beforeAll(() => {
+          try {
+            sut.toReceiveResult([toFailure('a', error), toFailure('b')])
+          } catch (e) {
+            thrown = e
+          }
+        })
+
+        it('should throw the first error so the whole batch is retried', () => {
+          expect(thrown).toBe(error)
+        })
+      })
+
+      describe('and no records failed', () => {
+        let result: SQSBatchResponse | void
+
+        beforeAll(() => {
+          result = sut.toReceiveResult([])
+        })
+
+        it('should return nothing', () => {
+          expect(result).toBeUndefined()
+        })
       })
     })
   })

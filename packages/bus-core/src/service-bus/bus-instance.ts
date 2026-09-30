@@ -37,7 +37,7 @@ import { InvalidBusState, InvalidOperation } from './error'
 import { ContainerAdapter } from '../container'
 import ALS from 'alscontext/dist/als/als'
 import { messageLifecycleContext } from '../message-lifecycle-context'
-import { Receiver } from '../receiver'
+import { ReceivedMessageFailure, Receiver } from '../receiver'
 import throat from 'throat'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
@@ -154,8 +154,18 @@ export class BusInstance<TTransportMessage = {}> {
   /**
    * Receive one or more messages to dispatch directly to handlers. This can only be called when a Receiver
    * has been configured using Bus.configure().withReceiver()
+   *
+   * @param message The message, or batch of messages, received by the host (e.g. a Lambda event)
+   * @returns Nothing, unless the receiver implements `toReceiveResult`, in which case its result is returned
+   * @throws InvalidOperation if no Receiver has been configured
+   * @throws the handling error of a failed message, unless the receiver implements `toReceiveResult`
+   * @example
+   * // Receiver that reports partial batch failures
+   * const response = await bus.receive<SQSBatchResponse>(event)
    */
-  async receive(message: unknown): Promise<void> {
+  async receive<TReceiveResult = void>(
+    message: unknown
+  ): Promise<TReceiveResult> {
     if (!this.receiver) {
       throw new InvalidOperation(
         'Cannot use handler when a Receiver is not set. Use Bus.configure().withReceiver() to set a Receiver.'
@@ -166,9 +176,9 @@ export class BusInstance<TTransportMessage = {}> {
       message,
       this.coreDependencies.messageSerializer
     )
-    const messagesToDispatch = Array.isArray(messagesReceived)
-      ? messagesReceived
-      : [messagesReceived]
+    const messagesToDispatch = (
+      Array.isArray(messagesReceived) ? messagesReceived : [messagesReceived]
+    ) as TransportMessage<TTransportMessage>[]
 
     this.logger.debug('Parsed messages from receiver', {
       numMessages: messagesToDispatch.length
@@ -176,17 +186,32 @@ export class BusInstance<TTransportMessage = {}> {
 
     // Throttle back to concurrency, since batch sizes can be far beyond this limit.
     const throttle = throat(this.concurrency)
-    await Promise.all(
-      messagesToDispatch.map(message =>
-        throttle(() =>
-          this.handleReceivedMessage(
-            message as TransportMessage<TTransportMessage>
-          )
-        )
-      )
-    )
+    const handleMessage = (message: TransportMessage<TTransportMessage>) =>
+      throttle(() => this.handleReceivedMessage(message))
 
-    this.logger.debug('All received messages dispatched to handlers')
+    if (!this.receiver.toReceiveResult) {
+      await Promise.all(messagesToDispatch.map(handleMessage))
+      this.logger.debug('All received messages dispatched to handlers')
+      return undefined as TReceiveResult
+    }
+
+    const results = await Promise.allSettled(
+      messagesToDispatch.map(handleMessage)
+    )
+    const failures: ReceivedMessageFailure[] = []
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        failures.push({
+          message: messagesToDispatch[index],
+          error: result.reason as Error
+        })
+      }
+    })
+
+    this.logger.debug('All received messages dispatched to handlers', {
+      numFailed: failures.length
+    })
+    return (await this.receiver.toReceiveResult(failures)) as TReceiveResult
   }
 
   /**
