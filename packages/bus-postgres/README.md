@@ -20,7 +20,10 @@ Configure a new Postgres persistence and register it with `Bus`:
 
 ```typescript
 import { Bus } from '@node-ts/bus-core'
-import { PostgresPersistence, PostgresConfiguration } from '@node-ts/bus-postgres'
+import {
+  PostgresPersistence,
+  PostgresConfiguration
+} from '@node-ts/bus-postgres'
 
 const configuration: PostgresConfiguration = {
   connection: {
@@ -32,14 +35,11 @@ const postgresPersistence = new PostgresPersistence(configuration)
 
 // Configure bus to use postgres as a persistence
 const run = async () => {
-  const bus = Bus
-    .configure()
-    .withPersistence(postgresPersistence)
-    .build()
+  const bus = Bus.configure().withPersistence(postgresPersistence).build()
   await bus.initialize()
   await bus.start()
 }
-run.then(() => void)
+run().catch(console.error)
 ```
 
 ## Configuration Options
@@ -47,7 +47,7 @@ run.then(() => void)
 The Postgres persistence has the following configuration:
 
 - **connection** _(required)_ Connection pool settings for the application to connect to the postgres instance
-- **schemaName** _(required)_ The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist.
+- **schemaName** _(required)_ The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist. The name is quoted, so it's case-sensitive and used exactly as given.
 
 ## Development
 

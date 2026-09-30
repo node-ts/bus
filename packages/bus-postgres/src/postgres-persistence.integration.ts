@@ -133,4 +133,148 @@ describe('PostgresPersistence', () => {
       })
     })
   })
+
+  describe('when initialized', () => {
+    it('should not hold a pool client', () => {
+      expect(postgres.totalCount).toEqual(postgres.idleCount)
+    })
+  })
+
+  describe('with a schema name that needs quoting', () => {
+    const schemaName = 'Bus-Workflows'
+    let quotedPool: Pool
+    let quotedSut: PostgresPersistence
+    let quotedBus: BusInstance
+    let schemas: string[]
+    let results: TestWorkflowState[]
+
+    const workflowState = new TestWorkflowState()
+    workflowState.$workflowId = uuid.v4()
+    workflowState.$status = WorkflowStatus.Running
+    workflowState.$version = 0
+    workflowState.property1 = uuid.v4()
+
+    const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
+      lookup: message => message.property1,
+      mapsTo: 'property1'
+    }
+
+    beforeAll(async () => {
+      quotedPool = new Pool(configuration.connection)
+      quotedSut = new PostgresPersistence(
+        { ...configuration, schemaName },
+        quotedPool
+      )
+      quotedBus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withPersistence(quotedSut)
+        .withWorkflow(TestWorkflow)
+        .build()
+      await quotedBus.initialize()
+
+      // A second startup must be a no-op, including the index checks
+      await quotedSut.initialize()
+      await quotedSut.initializeWorkflow(TestWorkflowState, [
+        mapping as unknown as MessageWorkflowMapping
+      ])
+
+      const schemaResult = await quotedPool.query(
+        'select schema_name from information_schema.schemata where schema_name = $1',
+        [schemaName]
+      )
+      schemas = schemaResult.rows.map(
+        (row: { schema_name: string }) => row.schema_name
+      )
+
+      await quotedSut.saveWorkflowState(workflowState)
+      results = await quotedSut.getWorkflowState(
+        TestWorkflowState,
+        mapping,
+        new TestCommand(workflowState.property1),
+        { attributes: {}, stickyAttributes: {} }
+      )
+    })
+
+    afterAll(async () => {
+      await quotedPool.query(`drop schema if exists "${schemaName}" cascade`)
+      await quotedBus.dispose()
+    })
+
+    it('should create the schema with its exact name', () => {
+      expect(schemas).toEqual([schemaName])
+    })
+
+    it('should save and retrieve workflow state', () => {
+      expect(results).toHaveLength(1)
+      expect(results[0]).toMatchObject({ ...workflowState, $version: 1 })
+    })
+  })
+
+  describe('with a mapped property name that contains quotes', () => {
+    const schemaName = 'workflows_quoted_property'
+    const mapsTo = `it's "quoted"`
+    let quotedPool: Pool
+    let quotedSut: PostgresPersistence
+    let quotedBus: BusInstance
+    let indexCount: number
+    let results: TestWorkflowState[]
+
+    const workflowState = new TestWorkflowState()
+    workflowState.$workflowId = uuid.v4()
+    workflowState.$status = WorkflowStatus.Running
+    workflowState.$version = 0
+    const lookupValue = uuid.v4()
+    ;(workflowState as unknown as Record<string, string>)[mapsTo] = lookupValue
+
+    const mapping = {
+      lookup: () => lookupValue,
+      mapsTo
+    } as unknown as MessageWorkflowMapping<TestCommand, TestWorkflowState>
+
+    beforeAll(async () => {
+      quotedPool = new Pool(configuration.connection)
+      quotedSut = new PostgresPersistence(
+        { ...configuration, schemaName },
+        quotedPool
+      )
+      quotedBus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withPersistence(quotedSut)
+        .withWorkflow(TestWorkflow)
+        .build()
+      await quotedBus.initialize()
+
+      const mappings = [mapping] as unknown as MessageWorkflowMapping[]
+      await quotedSut.initializeWorkflow(TestWorkflowState, mappings)
+      await quotedSut.initializeWorkflow(TestWorkflowState, mappings)
+
+      const indexResult = await quotedPool.query(
+        'select count(*) from pg_indexes where schemaname = $1 and indexname = $2',
+        [schemaName, `${schemaName}_testworkflowstate_${mapsTo}_idx`]
+      )
+      indexCount = Number((indexResult.rows[0] as { count: string }).count)
+
+      await quotedSut.saveWorkflowState(workflowState)
+      results = await quotedSut.getWorkflowState(
+        TestWorkflowState,
+        mapping,
+        new TestCommand(undefined),
+        { attributes: {}, stickyAttributes: {} }
+      )
+    })
+
+    afterAll(async () => {
+      await quotedPool.query(`drop schema if exists "${schemaName}" cascade`)
+      await quotedBus.dispose()
+    })
+
+    it('should create an index on the property', () => {
+      expect(indexCount).toEqual(1)
+    })
+
+    it('should retrieve workflow state by the property', () => {
+      expect(results).toHaveLength(1)
+      expect(results[0].$workflowId).toEqual(workflowState.$workflowId)
+    })
+  })
 })
