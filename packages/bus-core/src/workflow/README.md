@@ -73,6 +73,12 @@ The persistence takes care of concurrency issues when multiple concurrent handle
 
 Workflows have the same reliability guarantees as normal [message handlers](/packages/bus-core/src/handler/). Any internal errors, failures to commit workflow data, or failures to send outgoing messages will result in the operation aborting and the originating message being placed back on the queue for retry.
 
+#### Retried `startedBy` messages
+
+Messages are delivered at least once, and `startedBy` handlers aren't deduplicated. Each time a `startedBy` message is handled it starts a new workflow instance with a new `$workflowId`. If the message is retried after the new workflow state was saved, for example because another handler of the same message failed, or the message was delivered twice by the transport, a second workflow instance is started.
+
+If only one workflow instance may exist per message, make the `startedBy` handler idempotent. For example, check your own store for a workflow already started for the message's business key (such as an order id) and return `this.discardWorkflow()` when there is one.
+
 ## Creating a new Workflow
 
 A workflow must have the following conditions met:

@@ -1,44 +1,59 @@
-import ALS from 'alscontext'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { TransportMessage } from '../transport'
 
 type Context = TransportMessage<unknown> & { isInHandlerContext?: boolean }
+
+interface Store {
+  message: Context
+  isInHandlerContext: boolean
+}
 
 /**
  * A context that stores the transport message when it is received from the bus. Any calls in deeper stacks can
  * access the context by calling `messageHandlingContext.get()`.
  */
-class MessageHandlingContext extends ALS {
+class MessageHandlingContext {
+  private readonly storage = new AsyncLocalStorage<Store>()
+
   /**
    * Fetch the message context for the current async stack
+   * @returns The message being handled, or `undefined` outside of a message handling context
    */
   get(): Context {
-    return super.get('message')
+    return this.storage.getStore()?.message!
   }
 
   /**
-   * Set the message context for the current async stack
+   * Set the message context for the current async stack. Does nothing outside of a message handling context.
+   * @param message The message to set as the context
    */
-  set(message: Context) {
-    return super.set('message', message)
+  set(message: Context): void {
+    const store = this.storage.getStore()
+    if (store) {
+      store.message = message
+    }
   }
 
   /**
    * Start and run a new async context
+   * @param context The message to make available to the async stack of `fn`
+   * @param fn The function to run within the new context
+   * @param isInHandlerContext If the context is for a handler or workflow handler
+   * @returns The result of `fn`
    */
   run<T>(
     context: Context,
     fn: () => T | Promise<T>,
     isInHandlerContext = false
   ): T | Promise<T> {
-    return super.run({ message: context, isInHandlerContext }, fn)
+    return this.storage.run({ message: context, isInHandlerContext }, fn)
   }
 
   /**
    * Check if the call stack is within a handler or workflow handler context
    */
   get isInHandlerContext(): boolean {
-    const isInHandlerContext = super.get('isInHandlerContext')
-    return isInHandlerContext === true
+    return this.storage.getStore()?.isInHandlerContext === true
   }
 }
 

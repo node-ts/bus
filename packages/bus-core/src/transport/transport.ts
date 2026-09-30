@@ -55,12 +55,6 @@ export interface Transport<TransportMessageType = {}> {
   fail(transportMessage: TransportMessage<unknown>): Promise<void>
 
   /**
-   * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
-   * queue and have a receipt handle.
-   */
-  fail(transportMessage: TransportMessage<unknown>): Promise<void>
-
-  /**
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
    * should be returned.
    *

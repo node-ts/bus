@@ -4,7 +4,7 @@ import {
   Message,
   MessageAttributes
 } from '@node-ts/bus-messages'
-import ALS from 'alscontext/dist/als/als'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { serializeError } from 'serialize-error'
 import throat from 'throat'
 import { v4 as generateUuid } from 'uuid'
@@ -174,7 +174,7 @@ export class BusInstance<TTransportMessage = {}> {
   private isInitialized = false
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
-  private outbox: ALS<Outbox> = new ALS()
+  private readonly outbox = new AsyncLocalStorage<Outbox>()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -667,7 +667,7 @@ export class BusInstance<TTransportMessage = {}> {
   private addToOutbox(outgoingMessage: OutboxedMessage): boolean {
     // The outbox only exists while a handler is running. Sends from elsewhere in the handling context, such as
     // read middleware or lifecycle listeners, have no outbox and are dispatched directly.
-    const outbox = this.outbox.get('outbox')
+    const outbox = this.outbox.getStore()
     if (!outbox) {
       return false
     }
@@ -761,7 +761,7 @@ export class BusInstance<TTransportMessage = {}> {
     }
 
     const outbox: Outbox = { state: OutboxState.Open, messages: [] }
-    await this.outbox.run({ outbox }, async () => {
+    await this.outbox.run(outbox, async () => {
       try {
         await handlerCallback()
       } catch (error) {
