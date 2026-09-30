@@ -15,8 +15,8 @@ import {
 } from '@node-ts/bus-messages'
 import {
   Channel,
+  ChannelModel,
   connect,
-  Connection,
   ConsumeMessage,
   GetMessage,
   Message as RabbitMqMessage
@@ -36,7 +36,7 @@ enum ConsumptionQueueEvent {
  * A RabbitMQ transport adapter for @node-ts/bus.
  */
 export class RabbitMqTransport implements Transport<RabbitMqMessage> {
-  private connection: Connection
+  private connection: ChannelModel
   private channel: Channel
   private assertedExchanges: { [key: string]: boolean } = {}
   private maxRetries: number
@@ -238,7 +238,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
     // Makes attempt indexed from 1
     const attempt =
-      (message.raw.properties.headers['x-death']?.find(
+      (message.raw.properties.headers?.['x-death']?.find(
         death => death.exchange === this.retryQueueExchange
       )?.count || 0) + 1
     const meta = { attempt, message: msg, rawMessage: message.raw }

@@ -366,17 +366,17 @@ importers:
         specifier: workspace:^
         version: link:../bus-messages
       '@types/amqplib':
-        specifier: ^0.10.1
-        version: 0.10.1
+        specifier: ^0.10.8
+        version: 0.10.8
       amqplib:
-        specifier: ^0.10.3
-        version: 0.10.3(supports-color@11.0.0)
+        specifier: ^0.10.9
+        version: 0.10.9
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
       uuid:
-        specifier: ^3.3.2
-        version: 3.4.0
+        specifier: ^11.1.1
+        version: 11.1.1
     devDependencies:
       '@node-ts/bus-core':
         specifier: workspace:^
@@ -387,9 +387,6 @@ importers:
       '@node-ts/code-standards':
         specifier: ^0.0.10
         version: 0.0.10
-      '@types/uuid':
-        specifier: ^3.4.4
-        version: 3.4.10
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -529,10 +526,6 @@ importers:
         version: 11.1.1
 
 packages:
-
-  '@acuminous/bitsyntax@0.1.2':
-    resolution: {integrity: sha512-29lUK80d1muEQqiUsSo+3A0yP6CdspgC95EnKBMi22Xlwt79i/En4Vr67+cXhU+cZjbti3TgGGC5wy1stIywVQ==}
-    engines: {node: '>=0.8'}
 
   '@ampproject/remapping@2.2.1':
     resolution: {integrity: sha512-lFMjJTrFL3j7L9yBxwYfCq2k6qqwHyzuUl/XBnif78PWTJYyL/dfowQHWE3sp6U6ZzqWiiIZnpTMO96zhkjwtg==}
@@ -1518,9 +1511,6 @@ packages:
   '@tybys/wasm-util@0.10.4':
     resolution: {integrity: sha512-W3c4gRigFS0T/Ma4qIYF3GDAc5AQdHb1yL5znJT1Zv1YaD9Kitx656wBjvr19qbiosmZT8lWDM5BEMynUqX65A==}
 
-  '@types/amqplib@0.10.1':
-    resolution: {integrity: sha512-j6ANKT79ncUDnAs/+9r9eDujxbeJoTjoVu33gHHcaPfmLQaMhvfbH2GqSe8KUM444epAp1Vl3peVOQfZk3UIqA==}
-
   '@types/amqplib@0.10.8':
     resolution: {integrity: sha512-vtDp8Pk1wsE/AuQ8/Rgtm6KUZYqcnTgNvEHwzCkX8rL7AGsC6zqAfKAAJhUZXFhM/Pp++tbnUHiam/8vVpPztA==}
 
@@ -1729,8 +1719,8 @@ packages:
     resolution: {integrity: sha512-7MqsMB7f0AkNJf9UbCfbPL+5t2J0nMSKdSFUuo3MEWFhG5WOOEqqg5J1nuNlNlLj1u189PgQwMSrr515ffQxcg==}
     engines: {node: '>=8.12.0'}
 
-  amqplib@0.10.3:
-    resolution: {integrity: sha512-UHmuSa7n8vVW/a5HGh2nFPqAEr8+cD4dEZ6u9GjP91nHfr1a54RyAKyra7Sb5NH7NBKOUlyQSMXIp0qAixKexw==}
+  amqplib@0.10.9:
+    resolution: {integrity: sha512-jwSftI4QjS3mizvnSnOrPGYiUnm1vI2OP1iXeOUz5pb74Ua0nbf6nPyyTzuiCLEE3fMpaJORXh2K/TQ08H5xGA==}
     engines: {node: '>=10'}
 
   ansi-escapes@4.3.2:
@@ -1946,9 +1936,6 @@ packages:
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
-
-  core-util-is@1.0.3:
-    resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
   create-require@1.1.1:
     resolution: {integrity: sha512-dcKFX3jn0MpIaXjisoRvexIJVEKzaq7z2rZKxf+MSr9TkdmHmsU4m2lcLojrj/FHl8mk5VxMmYA+ftRkP/3oKQ==}
@@ -2227,9 +2214,6 @@ packages:
   is-stream@2.0.1:
     resolution: {integrity: sha512-hFoiJiTl63nn+kstHGBtewWSKnQLpyb155KHheA1l39uvtO9nWIop1p3udqPcUd/xbF1VLMO4n7OI6p7RbngDg==}
     engines: {node: '>=8'}
-
-  isarray@0.0.1:
-    resolution: {integrity: sha512-D2S+3GLxWH+uhrNEcoh/fnmYeP8E8/zHl644d/jdA0g2uyXvy3sb0qxotE+ne0LtccHknQzWwZEzhak7oJ0COQ==}
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
@@ -2730,9 +2714,6 @@ packages:
   react-is@19.3.0:
     resolution: {integrity: sha512-UpMYezM4v5/18F28aC66AEsjXIgE02kyEMH6yLdgLXu/UTfa1Ntwck/nNLrbqJsEXW7gPb0coNO9FQse9WTovA==}
 
-  readable-stream@1.1.14:
-    resolution: {integrity: sha512-+MeVjFf4L44XUkhM1eYbD8fyEsxcV81pqMSR5gblfcLCHfZvbrqy4/qYHE+/R5HoBUT11WV5O08Cr1n3YXkWVQ==}
-
   reflect-metadata@0.1.13:
     resolution: {integrity: sha512-Ts1Y/anZELhSsjMcU605fU9RE4Oi3p5ORujwbIKXfWa+0Zxs510Qrmrce5/Jowq3cHSZSJqBjypxmHarc+vEWg==}
 
@@ -2753,9 +2734,6 @@ packages:
   resolve-from@5.0.0:
     resolution: {integrity: sha512-qYg9KP24dD5qka9J47d0aVky0N+b4fTU89LN9iDnjB5waksiC49rvMB0PrUJQGoTmH50XPiqOvAjDfaijGxYZw==}
     engines: {node: '>=8'}
-
-  safe-buffer@5.1.2:
-    resolution: {integrity: sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==}
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
@@ -2835,9 +2813,6 @@ packages:
   string-width@5.1.2:
     resolution: {integrity: sha512-HnLOCR3vjcY8beoNLtcjZ5/nxn2afmME6lhrDrebokqMap+XbeW8n9TXpPDOqdGK5qcI3oT0GKTW6wC7EMiVqA==}
     engines: {node: '>=12'}
-
-  string_decoder@0.10.31:
-    resolution: {integrity: sha512-ev2QzSzWPYmy9GuqfIVildA4OdcGLeFZQrq5ys6RtiuF+RQQiZWr8TZNyAcuVXyQRYfEO+MsoB/1BuQVhOJuoQ==}
 
   strip-ansi@6.0.1:
     resolution: {integrity: sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==}
@@ -3111,14 +3086,6 @@ packages:
     engines: {node: '>=10'}
 
 snapshots:
-
-  '@acuminous/bitsyntax@0.1.2(supports-color@11.0.0)':
-    dependencies:
-      buffer-more-ints: 1.0.0
-      debug: 4.3.4(supports-color@11.0.0)
-      safe-buffer: 5.1.2
-    transitivePeerDependencies:
-      - supports-color
 
   '@ampproject/remapping@2.2.1':
     dependencies:
@@ -4577,10 +4544,6 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@types/amqplib@0.10.1':
-    dependencies:
-      '@types/node': 20.11.10
-
   '@types/amqplib@0.10.8':
     dependencies:
       '@types/node': 24.19.0
@@ -4750,14 +4713,10 @@ snapshots:
 
   alscontext@0.0.3: {}
 
-  amqplib@0.10.3(supports-color@11.0.0):
+  amqplib@0.10.9:
     dependencies:
-      '@acuminous/bitsyntax': 0.1.2(supports-color@11.0.0)
       buffer-more-ints: 1.0.0
-      readable-stream: 1.1.14
       url-parse: 1.5.10
-    transitivePeerDependencies:
-      - supports-color
 
   ansi-escapes@4.3.2:
     dependencies:
@@ -4997,8 +4956,6 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  core-util-is@1.0.3: {}
-
   create-require@1.1.1: {}
 
   cross-spawn@7.0.6:
@@ -5230,7 +5187,8 @@ snapshots:
       wrappy: 1.0.2
     optional: true
 
-  inherits@2.0.4: {}
+  inherits@2.0.4:
+    optional: true
 
   ip@2.0.0: {}
 
@@ -5250,8 +5208,6 @@ snapshots:
     optional: true
 
   is-stream@2.0.1: {}
-
-  isarray@0.0.1: {}
 
   isexe@2.0.0: {}
 
@@ -5921,13 +5877,6 @@ snapshots:
 
   react-is@19.3.0: {}
 
-  readable-stream@1.1.14:
-    dependencies:
-      core-util-is: 1.0.3
-      inherits: 2.0.4
-      isarray: 0.0.1
-      string_decoder: 0.10.31
-
   reflect-metadata@0.1.13: {}
 
   reflect-metadata@0.2.2: {}
@@ -5941,8 +5890,6 @@ snapshots:
       resolve-from: 5.0.0
 
   resolve-from@5.0.0: {}
-
-  safe-buffer@5.1.2: {}
 
   semver@6.3.1: {}
 
@@ -6008,8 +5955,6 @@ snapshots:
       eastasianwidth: 0.2.0
       emoji-regex: 9.2.2
       strip-ansi: 7.2.0
-
-  string_decoder@0.10.31: {}
 
   strip-ansi@6.0.1:
     dependencies:
