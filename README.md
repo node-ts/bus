@@ -28,7 +28,7 @@ Requires Node.js 24 or later.
 
 This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://bus.node-ts.com](https://bus.node-ts.com).
 
-Changesets, releases and the versioning policy are covered in [CONTRIBUTING.md](./CONTRIBUTING.md).
+Changesets, releases and the versioning policy are covered in [CONTRIBUTING.md](./CONTRIBUTING.md). Upgrading from 1.x is covered in [MIGRATING.md](./MIGRATING.md).
 
 ### Installation
 

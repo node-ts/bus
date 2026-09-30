@@ -14,7 +14,7 @@ Pick the packages you changed and the bump type for each, then write a sentence 
 
 - **patch**: bug fixes that don't change the API.
 - **minor**: new features, or backwards-compatible API additions.
-- **major**: breaking changes. Ask the maintainer before making one, because it can change the bump of other packages (see [Versioning and support](#versioning-and-support)).
+- **major**: breaking changes, including raising the minimum Node.js version. Ask the maintainer before making one, because it also affects the other packages (see [Versioning and support](#versioning-and-support)).
 
 Write the summary for someone upgrading: what changed, what they need to do, and the PR or issue number. Start a breaking change with `**Breaking:**`.
 
@@ -29,7 +29,7 @@ Write the summary for someone upgrading: what changed, what they need to do, and
    pnpm changeset version
    ```
 
-   This consumes the pending changesets, bumps each affected package's `version`, and updates its `CHANGELOG.md`. Packages that depend on a bumped package through `dependencies` get a patch bump when their range no longer covers the new version.
+   This consumes the pending changesets, bumps each affected package's `version`, and updates its `CHANGELOG.md`. When a new version falls outside a range another package declares on it (for example a bus-core major and the adapters' `^2.0.0` peer range), the range is raised and that package gets at least a patch bump. `workspace:^` ranges are left alone and resolved at publish time.
 
 2. Review the diff, then open a PR titled `version packages` with the `no-issue` label (the description still needs the template's sections), and merge it.
 3. On `master`, the CircleCI `deploy` job then:
@@ -38,7 +38,7 @@ Write the summary for someone upgrading: what changed, what they need to do, and
 
 Pushes to `master` that don't bump a version publish nothing. If the releases step fails after publishing, re-run the job: it only creates releases that don't exist yet.
 
-Packages are versioned independently: each package's version only moves when it (or something it depends on) changes.
+Packages are released only when they (or something they depend on) change, and their versions are **linked** (`linked` in `.changeset/config.json`). Packages released together get the same version: the highest bump in the release, applied to the highest current version. For example, if bus-core is bumped minor and bus-sqs patch in the same release, both become 2.1.0, while untouched packages stay where they are. That keeps the family's versions readable without republishing unchanged packages.
 
 ### CircleCI environment variables
 
@@ -49,6 +49,6 @@ Set these in the CircleCI project settings (Project Settings → Environment Var
 
 ## Versioning and support
 
-- Every package follows [semver](https://semver.org).
-- The supported Node.js versions are those in each package's `engines.node`, currently Node.js 24 or later. Raising the minimum is called out with `**Breaking:**` in the changelog.
-- Adapters declare `@node-ts/bus-core` as a peer dependency, so a bus-core major release also needs a release of each adapter that widens its peer range.
+- Every package follows [semver](https://semver.org): breaking changes ship only in a major release, and are called out with `**Breaking:**` in the changelog, with upgrade steps in [MIGRATING.md](./MIGRATING.md).
+- The supported Node.js versions are those in each package's `engines.node`, currently Node.js 24 or later. Raising the minimum is a breaking change.
+- Adapters declare `@node-ts/bus-core` as a peer dependency (`^2.0.0`). A bus-core major raises those ranges when it's versioned, so it's released together with a major of each adapter. Minor and patch releases of bus-core leave the peer ranges alone (`onlyUpdatePeerDependentsWhenOutOfRange`).
