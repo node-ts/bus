@@ -131,6 +131,7 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
 
   reset(): void {
     this.registry = {}
+    this.handlerResolvers = []
   }
 
   getClassHandlers(): Handler[] {

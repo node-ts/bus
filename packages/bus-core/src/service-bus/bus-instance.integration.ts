@@ -463,4 +463,142 @@ describe('BusInstance', () => {
       })
     })
   })
+
+  describe('when stopping a bus that has not been started', () => {
+    let error: InvalidBusState
+    let sut: BusInstance
+
+    beforeAll(async () => {
+      sut = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .build()
+      await sut.initialize()
+      error = await sut.stop().catch(e => e)
+    })
+
+    afterAll(async () => sut.dispose())
+
+    it('should report the started states as the expected states', () => {
+      expect(error).toBeInstanceOf(InvalidBusState)
+      expect(error.expectedState).toEqual([BusState.Started, BusState.Starting])
+    })
+  })
+
+  describe('when the bus is stopped immediately after starting', () => {
+    const events = new EventEmitter()
+    let sut: BusInstance
+    let activeHandlers = 0
+    let maxActiveHandlers = 0
+
+    beforeAll(async () => {
+      sut = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withConcurrency(1)
+        .withHandler(
+          handlerFor(TestEvent, async () => {
+            activeHandlers++
+            maxActiveHandlers = Math.max(maxActiveHandlers, activeHandlers)
+            await sleep(50)
+            activeHandlers--
+            events.emit('received')
+          })
+        )
+        .build()
+      await sut.initialize()
+
+      await sut.start()
+      await sut.stop()
+      await sut.start()
+
+      let receivedCount = 0
+      const allReceived = new Promise<void>(resolve =>
+        events.on('received', () => ++receivedCount === 2 && resolve())
+      )
+      await sut.publish(new TestEvent())
+      await sut.publish(new TestEvent())
+      await allReceived
+    })
+
+    afterAll(async () => sut.dispose())
+
+    it('should not leave workers running from the first start', () => {
+      expect(maxActiveHandlers).toEqual(1)
+    })
+  })
+
+  describe('when the bus is stopped while it is starting', () => {
+    let sut: BusInstance
+    let releaseStart: () => void
+
+    class SlowStartingQueue extends InMemoryQueue {
+      readonly started = new Promise<void>(resolve => (releaseStart = resolve))
+
+      async start(): Promise<void> {
+        await this.started
+      }
+    }
+
+    beforeAll(async () => {
+      sut = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(new SlowStartingQueue())
+        .build()
+      await sut.initialize()
+
+      const starting = sut.start()
+      await sut.stop()
+      releaseStart()
+      await starting
+    })
+
+    afterAll(async () => sut.dispose())
+
+    it('should remain stopped once the transport has started', () => {
+      expect(sut.state).toEqual(BusState.Stopped)
+    })
+  })
+
+  describe('when disposing the bus while it is stopping', () => {
+    const events = new EventEmitter()
+    let sut: BusInstance
+    let releaseHandler: () => void
+    let stateWhileDisposing: BusState
+    let stopResult: Promise<void>
+
+    beforeAll(async () => {
+      const handlerReleased = new Promise<void>(
+        resolve => (releaseHandler = resolve)
+      )
+      sut = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(
+          handlerFor(TestEvent, async () => {
+            events.emit('received')
+            await handlerReleased
+          })
+        )
+        .build()
+      await sut.initialize()
+      await sut.start()
+
+      const received = new Promise(resolve => events.once('received', resolve))
+      await sut.publish(new TestEvent())
+      await received
+
+      stopResult = sut.stop()
+      stateWhileDisposing = sut.state
+      const disposing = sut.dispose()
+      releaseHandler()
+      await disposing
+      await stopResult
+    })
+
+    it('should dispose while the bus was stopping', () => {
+      expect(stateWhileDisposing).toEqual(BusState.Stopping)
+    })
+
+    it('should wait for the bus to stop', () => {
+      expect(sut.state).toEqual(BusState.Stopped)
+    })
+  })
 })
