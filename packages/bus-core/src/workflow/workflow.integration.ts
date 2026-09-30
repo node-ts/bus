@@ -74,7 +74,7 @@ describe('Workflow', () => {
       expect(workflowState).toHaveLength(1)
       const data = workflowState[0]
       expect(data.$status).toEqual(WorkflowStatus.Running)
-      expect(data.$version).toEqual(0)
+      expect(data.$version).toEqual(1)
       expect(data).toMatchObject({ property1: command.property1 })
     })
 
