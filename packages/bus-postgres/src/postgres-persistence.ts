@@ -7,8 +7,8 @@ import {
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Pool, PoolClient } from 'pg'
-import { WorkflowStateNotFound } from './error'
+import { escapeIdentifier, escapeLiteral, Pool } from 'pg'
+import { InvalidSchemaName, WorkflowStateNotFound } from './error'
 import { PostgresConfiguration } from './postgres-configuration'
 
 /**
@@ -16,10 +16,27 @@ import { PostgresConfiguration } from './postgres-configuration'
  */
 const WORKFLOW_DATA_FIELD_NAME = 'data'
 
+/**
+ * The schema and table that store one type of workflow state
+ */
+interface WorkflowTable {
+  /**
+   * The unquoted schema name
+   */
+  schemaName: string
+  /**
+   * The unquoted table name
+   */
+  tableName: string
+  /**
+   * The quoted, schema-qualified table name for use in SQL
+   */
+  qualifiedName: string
+}
+
 export class PostgresPersistence implements Persistence {
   private coreDependencies: CoreDependencies
   private logger: Logger
-  private client: PoolClient | undefined
 
   constructor(
     private readonly configuration: PostgresConfiguration,
@@ -35,17 +52,13 @@ export class PostgresPersistence implements Persistence {
 
   async initialize(): Promise<void> {
     this.logger.info('Initializing postgres persistence...')
-    this.client = await this.postgres.connect()
+    assertValidSchemaName(this.configuration.schemaName)
     await this.ensureSchemaExists(this.configuration.schemaName)
     this.logger.info('Postgres persistence initialized')
   }
 
   async dispose(): Promise<void> {
     this.logger.info('Disposing postgres persistence...')
-    if (this.client) {
-      this.client.release()
-      this.client = undefined
-    }
     await this.postgres.end()
     this.logger.info('Postgres persistence disposed')
   }
@@ -59,12 +72,12 @@ export class PostgresPersistence implements Persistence {
       workflowState: workflowStateName
     })
 
-    const tableName = resolveQualifiedTableName(
+    const table = resolveWorkflowTable(
       workflowStateName,
       this.configuration.schemaName
     )
-    await this.ensureTableExists(tableName)
-    await this.ensureIndexesExist(tableName, messageWorkflowMappings)
+    await this.ensureTableExists(table)
+    await this.ensureIndexesExist(table, messageWorkflowMappings)
   }
 
   async getWorkflowState<
@@ -81,22 +94,26 @@ export class PostgresPersistence implements Persistence {
       workflowStateName: workflowStateConstructor.name
     })
     const workflowStateName = new workflowStateConstructor().$name
-    const tableName = resolveQualifiedTableName(
+    const { qualifiedName } = resolveWorkflowTable(
       workflowStateName,
       this.configuration.schemaName
     )
     const matcherValue = messageMap.lookup(message, attributes)
 
-    const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}->>'${messageMap.mapsTo}'`
+    // The field is inlined as a literal rather than bound so the expression matches the secondary index
+    const workflowStateField = resolveWorkflowStateField(messageMap.mapsTo)
+    const statusFilter = includeCompleted
+      ? ''
+      : `and ${WORKFLOW_DATA_FIELD_NAME}->>'$status' = 'running'`
     const query = `
       select
         ${WORKFLOW_DATA_FIELD_NAME}
       from
-        ${tableName}
+        ${qualifiedName}
       where
-        (${includeCompleted} = true or ${WORKFLOW_DATA_FIELD_NAME}->>'$status' = 'running')
-        and (${workflowStateField}) is not null
+        (${workflowStateField}) is not null
         and (${workflowStateField}::text) = $1
+        ${statusFilter}
     `
     this.logger.debug('Querying workflow state', { query })
 
@@ -128,7 +145,7 @@ export class PostgresPersistence implements Persistence {
       workflowStateName: workflowState.$name,
       id: workflowState.$workflowId
     })
-    const tableName = resolveQualifiedTableName(
+    const { qualifiedName } = resolveWorkflowTable(
       workflowState.$name,
       this.configuration.schemaName
     )
@@ -141,7 +158,7 @@ export class PostgresPersistence implements Persistence {
     }
 
     await this.upsertWorkflowState(
-      tableName,
+      qualifiedName,
       workflowState.$workflowId,
       plainWorkflowState,
       oldVersion,
@@ -150,14 +167,14 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async ensureSchemaExists(schema: string): Promise<void> {
-    const sql = `create schema if not exists ${schema};`
+    const sql = `create schema if not exists ${escapeIdentifier(schema)};`
     this.logger.debug('Ensuring workflow schema exists', { sql })
     await this.postgres.query(sql)
   }
 
-  private async ensureTableExists(tableName: string): Promise<void> {
+  private async ensureTableExists(table: WorkflowTable): Promise<void> {
     const sql = `
-      create table if not exists ${tableName} (
+      create table if not exists ${table.qualifiedName} (
         id uuid not null primary key,
         version integer not null,
         ${WORKFLOW_DATA_FIELD_NAME} jsonb not null
@@ -170,10 +187,10 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async ensureIndexesExist(
-    tableName: string,
+    table: WorkflowTable,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
-    const createPrimaryIndex = this.createPrimaryIndex(tableName)
+    const createPrimaryIndex = this.createPrimaryIndex(table)
 
     const allWorkflowFields = messageWorkflowMappings.map(
       mapping => mapping.mapsTo
@@ -182,19 +199,18 @@ export class PostgresPersistence implements Persistence {
     const workflowFields: string[] = [...distinctWorkflowFields]
 
     const createSecondaryIndexes = workflowFields.map(async workflowField => {
-      const indexName = resolveIndexName(tableName, workflowField)
-      const indexNameWithSchema = `${this.configuration.schemaName}.${indexName}`
-      const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}->>'${workflowField}'`
+      const indexName = resolveIndexName(table, workflowField)
+      const workflowStateField = resolveWorkflowStateField(workflowField)
       // Support Postgres 9.4+
       const createSecondaryIndex = `
         DO
         $$
         BEGIN
-          IF to_regclass('${indexNameWithSchema}') IS NULL THEN
+          IF to_regclass(${resolveQualifiedIndexLiteral(table, indexName)}) IS NULL THEN
             CREATE INDEX
-              ${indexName}
+              ${escapeIdentifier(indexName)}
             ON
-              ${tableName} ((${workflowStateField}))
+              ${table.qualifiedName} ((${workflowStateField}))
             WHERE
               (${workflowStateField}) is not null;
           END IF;
@@ -210,16 +226,15 @@ export class PostgresPersistence implements Persistence {
     await Promise.all([createPrimaryIndex, ...createSecondaryIndexes])
   }
 
-  private async createPrimaryIndex(tableName: string): Promise<void> {
-    const primaryIndexName = resolveIndexName(tableName, 'id', 'version')
-    const primaryIndexNameWithSchema = `${this.configuration.schemaName}.${primaryIndexName}`
+  private async createPrimaryIndex(table: WorkflowTable): Promise<void> {
+    const primaryIndexName = resolveIndexName(table, 'id', 'version')
     // Support Postgres 9.4+
     const createPrimaryIndexSql = `
       DO
       $$
       BEGIN
-        IF to_regclass('${primaryIndexNameWithSchema}') IS NULL THEN
-          CREATE INDEX ${primaryIndexName} ON ${tableName} (id, version);
+        IF to_regclass(${resolveQualifiedIndexLiteral(table, primaryIndexName)}) IS NULL THEN
+          CREATE INDEX ${escapeIdentifier(primaryIndexName)} ON ${table.qualifiedName} (id, version);
         END IF;
       END
       $$;
@@ -298,32 +313,64 @@ export class PostgresPersistence implements Persistence {
 }
 
 /**
- * Returns a legal fully qualified schema + table name
+ * Throws if the schema name can't be used as a postgres identifier
+ * @throws InvalidSchemaName
  */
-function resolveQualifiedTableName(
-  tableName: string,
+const assertValidSchemaName = (schemaName: string): void => {
+  if (
+    typeof schemaName !== 'string' ||
+    schemaName.length === 0 ||
+    schemaName.includes('\0')
+  ) {
+    throw new InvalidSchemaName(schemaName)
+  }
+}
+
+/**
+ * Resolves the schema and legal table name that store a type of workflow state
+ */
+const resolveWorkflowTable = (
+  workflowStateName: string,
   schemaName: string
-): string {
+): WorkflowTable => {
   const invalidPostgresCharacters = /[^0-9a-zA-Z_.-]/g
-  const normalizedTableName = tableName
+  const normalizedTableName = workflowStateName
     .replace(invalidPostgresCharacters, '')
     .toLowerCase()
-  const formattedTableName = toSnakeCase(normalizedTableName)
-  return `"${schemaName}"."${formattedTableName}"`
+  const tableName = toSnakeCase(normalizedTableName)
+  return {
+    schemaName,
+    tableName,
+    qualifiedName: `${escapeIdentifier(schemaName)}.${escapeIdentifier(tableName)}`
+  }
 }
 
 /**
  * Converts pascal to snake case
  * @example MyTableName => my_table_name
  */
-function toSnakeCase(value: string): string {
-  return value.replace(/([A-Z])/g, c => `_${c.toLowerCase()}`)
-}
+const toSnakeCase = (value: string): string =>
+  value.replace(/([A-Z])/g, c => `_${c.toLowerCase()}`)
 
 /**
- * Resolves the name of an index from the fields contained in that index
+ * Resolves the unquoted name of an index from the fields contained in that index
  */
-function resolveIndexName(tableName: string, ...fields: string[]): string {
-  const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
-  return `"${normalizedTableName}_${fields.join('_')}_idx"`
-}
+const resolveIndexName = (table: WorkflowTable, ...fields: string[]): string =>
+  `${table.schemaName}_${table.tableName}_${fields.join('_')}_idx`
+
+/**
+ * Resolves a SQL string literal of the schema-qualified index name, as accepted by `to_regclass`
+ */
+const resolveQualifiedIndexLiteral = (
+  table: WorkflowTable,
+  indexName: string
+): string =>
+  escapeLiteral(
+    `${escapeIdentifier(table.schemaName)}.${escapeIdentifier(indexName)}`
+  )
+
+/**
+ * Resolves the SQL expression that reads a workflow state field as text
+ */
+const resolveWorkflowStateField = (field: string): string =>
+  `${WORKFLOW_DATA_FIELD_NAME}->>${escapeLiteral(field)}`
