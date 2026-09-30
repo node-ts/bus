@@ -9,6 +9,7 @@ import {
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Db, MongoClient } from 'mongodb'
 import { WorkflowStateNotFound } from './error'
+import { decodeKeys, encodeKey, encodeKeys } from './key-encoding'
 import { MongodbConfiguration } from './mongodb-configuration'
 
 /**
@@ -77,17 +78,12 @@ export class MongodbPersistence implements Persistence {
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName)
     const matcherValue = messageMap.lookup(message, attributes)
-    const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty(
-      messageMap.mapsTo
-    )}`
     const collection = this.database.collection(tableName)
     const findObject = {
-      [workflowStateField]: matcherValue
+      [resolveWorkflowStateFieldPath(messageMap.mapsTo)]: matcherValue
     }
     if (!includeCompleted) {
-      findObject[
-        `${WORKFLOW_DATA_FIELD_NAME}.${normalizeProperty('$status')}`
-      ] = 'running'
+      findObject[resolveWorkflowStateFieldPath('$status')] = 'running'
     }
     const documents = await collection.find(findObject).toArray()
     this.logger.debug('Querying workflow state', { findObject })
@@ -98,11 +94,10 @@ export class MongodbPersistence implements Persistence {
 
     const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
     return rows
-      .map(row => mapKeys(row, (key, _) => denormalizeProperty(key)))
-      .filter(workflowState => workflowState !== undefined)
-      .map(workflowState =>
+      .filter(row => row !== undefined)
+      .map(row =>
         this.coreDependencies.serializer.toClass(
-          workflowState,
+          decodeKeys(row),
           workflowStateConstructor
         )
       )
@@ -119,14 +114,11 @@ export class MongodbPersistence implements Persistence {
 
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
-    const modifiedState = mapKeys(workflowState, (key, _) =>
-      normalizeProperty(key)
-    )
 
-    const plainWorkflowState = {
-      ...this.coreDependencies.serializer.toPlain(modifiedState),
-      __version: newVersion
-    }
+    const plainWorkflowState = encodeKeys({
+      ...this.coreDependencies.serializer.toPlain(workflowState),
+      $version: newVersion
+    })
 
     await this.upsertWorkflowState(
       collectionName,
@@ -149,71 +141,36 @@ export class MongodbPersistence implements Persistence {
     }
   }
 
+  /**
+   * Creates the indexes this persistence relies on. Creating an index that already
+   * exists is a no-op, and no other index is ever dropped, so indexes added by users
+   * are left alone.
+   */
   private async ensureIndexesExist(
     collectionName: string,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
     const collection = this.database.collection(collectionName)
-    const existingIndexes = (await collection.listIndexes().toArray()) ?? []
-    const existingIndexNames = existingIndexes
-      .map(index => index.name)
-      .filter(x => x !== '_id_')
-    const createPrimaryIndex = this.createPrimaryIndex(
+    const distinctWorkflowFields = new Set(
+      messageWorkflowMappings.map(mapping => mapping.mapsTo)
+    )
+
+    this.logger.debug('Ensuring indexes exist', {
       collectionName,
-      existingIndexNames as string[]
-    )
-
-    const allWorkflowFields = messageWorkflowMappings.map(
-      mapping => mapping.mapsTo
-    )
-    const distinctWorkflowFields = new Set(allWorkflowFields)
-    const workflowFields: string[] = [...distinctWorkflowFields]
-
-    const createSecondaryIndexes = workflowFields.map(async workflowField => {
-      const indexName = resolveIndexName(collectionName, workflowField)
-      const existingIndexLocation = existingIndexNames.indexOf(indexName)
-      if (existingIndexLocation !== -1) {
-        this.logger.debug('Index already exists', { indexName })
-        existingIndexNames.splice(existingIndexLocation, 1)
-        return
-      }
-      const workflowStateField = `${WORKFLOW_DATA_FIELD_NAME}.'${workflowField}'`
-      this.logger.debug('Ensuring secondary index exists', {
-        indexName
-      })
-      await collection.createIndex(
-        { [workflowStateField]: 1 },
-        { name: indexName }
-      )
-    })
-    const dropIndexes = existingIndexNames.map(async indexName => {
-      await collection.dropIndex(indexName)
+      workflowFields: [...distinctWorkflowFields]
     })
     await Promise.all([
-      createPrimaryIndex,
-      ...createSecondaryIndexes,
-      ...dropIndexes
+      collection.createIndex(
+        { id: 1, version: 1 },
+        { name: resolveIndexName(collectionName, 'id', 'version') }
+      ),
+      ...[...distinctWorkflowFields].map(workflowField =>
+        collection.createIndex(
+          { [resolveWorkflowStateFieldPath(workflowField)]: 1 },
+          { name: resolveIndexName(collectionName, workflowField) }
+        )
+      )
     ])
-  }
-
-  private async createPrimaryIndex(
-    collectionName: string,
-    existingIndexesNames: string[]
-  ): Promise<void> {
-    const collection = this.database.collection(collectionName)
-    const primaryIndexName = resolveIndexName(collectionName, 'id', 'version')
-    const primaryIndexLocation = existingIndexesNames.indexOf(primaryIndexName)
-    if (primaryIndexLocation !== -1) {
-      existingIndexesNames.splice(primaryIndexLocation, 1)
-      return
-    }
-    this.logger.debug('Ensuring primary index exists', {
-      primaryIndexName
-    })
-    await collection.createIndex(
-      { _id: 1, version: 1 },
-      { name: primaryIndexName }
-    )
   }
 
   private async upsertWorkflowState(
@@ -266,16 +223,16 @@ export class MongodbPersistence implements Persistence {
     }
   }
 }
-function mapKeys(obj: any, fn: (key: string, value: any) => string) {
-  return Object.keys(obj).reduce(
-    (acc, oldKey) => {
-      const newKey = fn(oldKey, obj[oldKey])
-      acc[newKey] = obj[oldKey]
-      return acc
-    },
-    {} as Record<string, unknown>
-  )
+
+/**
+ * Resolves the stored path of a workflow state property, as used by both queries
+ * and indexes
+ * @example resolveWorkflowStateFieldPath('$workflowId') => 'data.%24workflowId'
+ */
+function resolveWorkflowStateFieldPath(property: string): string {
+  return `${WORKFLOW_DATA_FIELD_NAME}.${encodeKey(property)}`
 }
+
 /**
  * Returns a legal fully qualified schema + table name
  */
@@ -302,10 +259,4 @@ function toSnakeCase(value: string): string {
 function resolveIndexName(tableName: string, ...fields: string[]): string {
   const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
   return `"${normalizedTableName}_${fields.join('_')}_idx"`
-}
-function normalizeProperty(property: string): string {
-  return property.replace('$', '__')
-}
-function denormalizeProperty(property: string): string {
-  return property.replace('__', '$')
 }
