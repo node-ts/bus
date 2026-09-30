@@ -8,8 +8,11 @@ import {
 import {
   ChangeMessageVisibilityCommand,
   CreateQueueCommand,
+  GetQueueAttributesCommand,
   GetQueueUrlCommand,
   Message,
+  ReceiveMessageCommand,
+  SetQueueAttributesCommand,
   SQSClient
 } from '@aws-sdk/client-sqs'
 import {
@@ -20,9 +23,10 @@ import {
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
-import { It, Mock, Times } from 'typemoq'
+import { IMock, It, Mock, Times } from 'typemoq'
 import {
   fromMessageAttributeMap,
+  MAX_SQS_VISIBILITY_TIMEOUT_SECONDS,
   SnsMessageAttributeMap,
   SqsMessageAttributes,
   SqsTransport,
@@ -577,6 +581,295 @@ describe('sqs-transport', () => {
         'us-west-2'
       )
       sqs.verifyAll()
+    })
+  })
+
+  describe('when initializing', () => {
+    const queueArn = 'arn:aws:sqs:us-west-2:123456789012:test-queue'
+    const deadLetterQueueArn = 'arn:aws:sqs:us-west-2:123456789012:dlq'
+    const topicArn = 'arn:aws:sns:us-west-2:123456789012:test-message'
+
+    /**
+     * Builds and initializes a transport against mocked SQS and SNS clients that
+     * handle a single `test-message` and report `existingAttributes` for the
+     * service queue
+     */
+    const initializeTransport = async (
+      configuration: Partial<SqsTransportConfiguration>,
+      existingAttributes?: Record<string, string>
+    ) => {
+      const sqs = Mock.ofType<SQSClient>()
+      const sns = Mock.ofType<SNSClient>()
+
+      sqs
+        .setup(s => s.send(It.isAny()))
+        .returns(
+          async (command: any) =>
+            (command instanceof GetQueueAttributesCommand
+              ? { Attributes: existingAttributes }
+              : {}) as any
+        )
+      sns
+        .setup(s => s.send(It.isAny()))
+        .returns(async (command: any): Promise<any> => {
+          if (command instanceof CreateTopicCommand) {
+            return {
+              TopicArn: `arn:aws:sns:us-west-2:123456789012:${command.input.Name}`
+            }
+          }
+          if (command instanceof ListSubscriptionsByTopicCommand) {
+            return { Subscriptions: [{ Protocol: 'sqs', Endpoint: queueArn }] }
+          }
+          return {}
+        })
+
+      const sut = new SqsTransport(
+        {
+          queueArn,
+          awsAccountId: '123456789012',
+          awsRegion: 'us-west-2',
+          ...configuration
+        },
+        sqs.object,
+        sns.object
+      )
+      sut.prepare({
+        loggerFactory: (name: string) => new DebugLogger(name),
+        handlerRegistry: {
+          getMessageNames: () => ['test-message'],
+          getExternallyManagedTopicIdentifiers: () => []
+        }
+      } as any as CoreDependencies)
+      await sut.initialize({ sendOnly: false, handlerRegistry: {} as any })
+
+      return { sut, sqs, sns }
+    }
+
+    describe('with queue attributes that match the configuration', () => {
+      let sqs: IMock<SQSClient>
+
+      beforeAll(async () => {
+        ;({ sqs } = await initializeTransport(
+          {},
+          {
+            VisibilityTimeout: '30',
+            // SQS doesn't preserve key order or value types in the redrive policy
+            RedrivePolicy: JSON.stringify({
+              deadLetterTargetArn: deadLetterQueueArn,
+              maxReceiveCount: '10'
+            })
+          }
+        ))
+      })
+
+      it('should request the configured attributes', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof GetQueueAttributesCommand &&
+                  !!command.input.AttributeNames?.includes(
+                    'VisibilityTimeout'
+                  ) &&
+                  !!command.input.AttributeNames?.includes('RedrivePolicy')
+              )
+            ),
+          Times.once()
+        )
+      })
+
+      it('should not set the service queue attributes', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SetQueueAttributesCommand &&
+                  command.input.Attributes?.Policy === undefined
+              )
+            ),
+          Times.never()
+        )
+      })
+    })
+
+    describe('with queue attributes that differ from the configuration', () => {
+      let sqs: IMock<SQSClient>
+
+      beforeAll(async () => {
+        ;({ sqs } = await initializeTransport(
+          {},
+          {
+            VisibilityTimeout: '60',
+            RedrivePolicy: JSON.stringify({
+              maxReceiveCount: 10,
+              deadLetterTargetArn: deadLetterQueueArn
+            })
+          }
+        ))
+      })
+
+      it('should set only the changed attributes', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SetQueueAttributesCommand &&
+                  command.input.Attributes?.VisibilityTimeout === '30' &&
+                  command.input.Attributes?.RedrivePolicy === undefined
+              )
+            ),
+          Times.once()
+        )
+      })
+    })
+
+    describe('with zero values configured', () => {
+      let sqs: IMock<SQSClient>
+      let sut: SqsTransport
+
+      beforeAll(async () => {
+        ;({ sut, sqs } = await initializeTransport({
+          visibilityTimeout: 0,
+          waitTimeSeconds: 0
+        }))
+        await sut.readNextMessage()
+      })
+
+      it('should create the service queue with a visibility timeout of 0', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof CreateQueueCommand &&
+                  command.input.QueueName === 'test-queue' &&
+                  command.input.Attributes?.VisibilityTimeout === '0'
+              )
+            ),
+          Times.once()
+        )
+      })
+
+      it('should receive messages with a wait time of 0', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof ReceiveMessageCommand &&
+                  command.input.WaitTimeSeconds === 0
+              )
+            ),
+          Times.once()
+        )
+      })
+    })
+
+    describe('with a message retention period configured', () => {
+      let sqs: IMock<SQSClient>
+
+      beforeAll(async () => {
+        ;({ sqs } = await initializeTransport({ messageRetentionPeriod: 60 }))
+      })
+
+      it('should create the dead letter queue with that retention period', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof CreateQueueCommand &&
+                  command.input.QueueName === 'dlq' &&
+                  command.input.Attributes?.MessageRetentionPeriod === '60'
+              )
+            ),
+          Times.once()
+        )
+      })
+    })
+
+    describe('and autoProvision is true', () => {
+      let sns: IMock<SNSClient>
+
+      beforeAll(async () => {
+        ;({ sns } = await initializeTransport({ autoProvision: true }))
+      })
+
+      it('should create each topic once', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof CreateTopicCommand &&
+                  command.input.Name === 'test-message'
+              )
+            ),
+          Times.once()
+        )
+      })
+    })
+
+    describe('and autoProvision is false', () => {
+      let sns: IMock<SNSClient>
+
+      beforeAll(async () => {
+        ;({ sns } = await initializeTransport({ autoProvision: false }))
+      })
+
+      it('should check each topic exists once', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof GetTopicAttributesCommand &&
+                  command.input.TopicArn === topicArn
+              )
+            ),
+          Times.once()
+        )
+      })
+    })
+  })
+
+  describe('when returning a message with a retry delay above the SQS maximum', () => {
+    const sqs = Mock.ofType<SQSClient>()
+
+    beforeAll(async () => {
+      const sut = new SqsTransport(
+        {
+          queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
+        } as SqsTransportConfiguration,
+        sqs.object
+      )
+      sut.prepare({
+        retryStrategy: {
+          calculateRetryDelay: () =>
+            (MAX_SQS_VISIBILITY_TIMEOUT_SECONDS + 1) * 1000
+        },
+        loggerFactory: (name: string) => new DebugLogger(name)
+      } as any as CoreDependencies)
+
+      await sut.returnMessage({ raw: {} } as TransportMessage<Message>)
+    })
+
+    it('should cap the visibility timeout at the SQS maximum', () => {
+      sqs.verify(
+        s =>
+          s.send(
+            It.is(
+              (command: any) =>
+                command instanceof ChangeMessageVisibilityCommand &&
+                command.input.VisibilityTimeout ===
+                  MAX_SQS_VISIBILITY_TIMEOUT_SECONDS
+            )
+          ),
+        Times.once()
+      )
     })
   })
 })

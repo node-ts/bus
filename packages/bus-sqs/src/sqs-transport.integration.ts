@@ -8,14 +8,17 @@ import {
   DeleteQueueCommand,
   PurgeQueueCommand,
   ReceiveMessageCommand,
+  SetQueueAttributesCommandInput,
   SQSClient
 } from '@aws-sdk/client-sqs'
+import { Bus, BusInstance, Logger } from '@node-ts/bus-core'
 import { Message } from '@node-ts/bus-messages'
 import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
+import { Mock } from 'typemoq'
 import {
+  fromMessageAttributeMap,
   SQSMessageBody,
-  SqsTransport,
-  fromMessageAttributeMap
+  SqsTransport
 } from './sqs-transport'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
@@ -129,4 +132,57 @@ describe('SqsTransport', () => {
     manualTopicIdentifier,
     readAllFromDeadLetterQueue
   )
+
+  describe('when initializing against a queue that is already configured', () => {
+    const configuration: SqsTransportConfiguration = {
+      awsRegion: AWS_REGION,
+      awsAccountId: AWS_ACCOUNT_ID,
+      queueName: `${resourcePrefix}-attribute-sync`,
+      deadLetterQueueName: `${resourcePrefix}-attribute-sync-dead-letter`,
+      visibilityTimeout: 0
+    }
+    const setQueueAttributeNames: string[][] = []
+    let sut: SqsTransport
+
+    const initializeBus = async (transport: SqsTransport) => {
+      const bus: BusInstance = Bus.configure()
+        .withTransport(transport)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .build()
+      await bus.initialize()
+      await bus.dispose()
+    }
+
+    beforeAll(async () => {
+      await initializeBus(new SqsTransport({ ...configuration }, sqs, sns))
+
+      const recordingSqs = new SQSClient({
+        endpoint: LOCALSTACK_ENDPOINT,
+        region: AWS_REGION
+      })
+      recordingSqs.middlewareStack.add(
+        (next, context) => async args => {
+          if (context.commandName === 'SetQueueAttributesCommand') {
+            const input = args.input as SetQueueAttributesCommandInput
+            setQueueAttributeNames.push(Object.keys(input.Attributes ?? {}))
+          }
+          return next(args)
+        },
+        { step: 'initialize' }
+      )
+      sut = new SqsTransport({ ...configuration }, recordingSqs, sns)
+      await initializeBus(sut)
+    })
+
+    afterAll(async () => {
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: sut.queueUrl }))
+      await sqs.send(
+        new DeleteQueueCommand({ QueueUrl: sut.deadLetterQueueUrl })
+      )
+    })
+
+    it('should only set the queue policy', () => {
+      expect(setQueueAttributeNames).toEqual([['Policy']])
+    })
+  })
 })
