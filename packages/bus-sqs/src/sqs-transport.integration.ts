@@ -98,7 +98,7 @@ describe('SqsTransport', () => {
         QueueUrl: deadLetterQueueUrl,
         WaitTimeSeconds: 5,
         MaxNumberOfMessages: 10,
-        AttributeNames: ['All']
+        MessageSystemAttributeNames: ['All']
       })
     )
 

@@ -165,7 +165,7 @@ export class SqsTransport implements Transport<SQSMessage> {
         this.sqsConfiguration.waitTimeSeconds || DEFAULT_WAIT_TIME_SECONDS,
       MaxNumberOfMessages: 1,
       MessageAttributeNames: ['.*'],
-      AttributeNames: ['ApproximateReceiveCount']
+      MessageSystemAttributeNames: ['ApproximateReceiveCount']
     })
 
     const result = await this.sqs.send(command)

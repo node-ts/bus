@@ -75,7 +75,7 @@ const readMessages = async (
         MaxNumberOfMessages: 10,
         WaitTimeSeconds: 1,
         VisibilityTimeout: VISIBILITY_TIMEOUT_SECONDS,
-        AttributeNames: ['All'],
+        MessageSystemAttributeNames: ['All'],
         MessageAttributeNames: ['All']
       })
     )
