@@ -16,15 +16,14 @@
   },
   "dependencies": {
     "@node-ts/bus-messages": "workspace:^",
-    "mongodb": "^5.3.0",
+    "mongodb": "^5.9.2",
     "tslib": "^2.8.1",
-    "uuid": "^3.3.2"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@node-ts/bus-core": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
-    "@types/amqplib": "^0.5.11",
-    "@types/uuid": "^3.4.4",
+    "@types/amqplib": "^0.10.8",
     "reflect-metadata": "^0.2.2",
     "typemoq": "^2.1.0",
     "typescript": "^6.0.3"
