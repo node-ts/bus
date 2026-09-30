@@ -1,6 +1,7 @@
+import { ClassSerializer } from '@node-ts/bus-class-serializer'
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { EventEmitter } from 'stream'
+import { EventEmitter } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
 import * as uuid from 'uuid'
 import {
@@ -16,7 +17,9 @@ const RETRY_DELAY = 5
 
 /**
  * A suite of tests that get wrapped by the integration test setup/tear-down of an
- * implementation of a transport
+ * implementation of a transport. The suite's bus uses `ClassSerializer` from
+ * `@node-ts/bus-class-serializer`, so the transport must (de)serialize messages through
+ * `coreDependencies.messageSerializer` for class instances to survive the round trip.
  * @param transport A fully configured transport that's the subject under test
  * @param publishSystemMessage A callback that will publish a `@node-ts/bus-test:TestSystemMessage`
  * with a `systemMessage` attribute set to the value of the `testSystemAttributeValue` parameter
@@ -32,7 +35,7 @@ export const transportTests = (
   readAllFromDeadLetterQueue: () => Promise<
     { message: Message; attributes: MessageAttributes }[]
   >
-) => {
+): void => {
   const testCommandHandlerEmitter = new EventEmitter()
   const testEventHandlerEmitter = new EventEmitter()
   const testPoisonedMessageHandlerEmitter = new EventEmitter()
@@ -41,10 +44,13 @@ export const transportTests = (
   let poisonedMessageReceiptAttempts = 0
   let bus: BusInstance
 
-  return describe('when the transport has been initialized', () => {
+  describe('when the transport has been initialized', () => {
     beforeAll(async () => {
       bus = Bus.configure()
         .withTransport(transport)
+        // Checks the transport (de)serializes through the bus' serializer, so
+        // class instances and their nested types survive the round trip
+        .withSerializer(new ClassSerializer())
         .withHandler(
           handlerFor(TestCommand, (message, attributes) => {
             handleChecker.object.check(message, attributes)
@@ -128,17 +134,37 @@ export const transportTests = (
         }
       }
 
-      it('should receive and dispatch to the handler', async () => {
+      beforeAll(async () => {
         const messageHandled = new Promise(resolve =>
-          testCommandHandlerEmitter.on('received', resolve)
+          testCommandHandlerEmitter.once('received', resolve)
         )
         await bus.send(testCommand, messageOptions)
         await messageHandled
+      })
+
+      it('should receive and dispatch to the handler', () => {
         handleChecker.verify(
           h =>
             h.check(
               It.isAny(),
               It.isObjectWith<MessageAttributes>(messageOptions)
+            ),
+          Times.once()
+        )
+      })
+
+      it('should deserialize the command as a class instance with its nested types', () => {
+        handleChecker.verify(
+          h =>
+            h.check(
+              It.is<TestCommand>(
+                message =>
+                  message instanceof TestCommand &&
+                  message.value === testCommand.value &&
+                  message.date instanceof Date &&
+                  message.date.getTime() === testCommand.date.getTime()
+              ),
+              It.isAny()
             ),
           Times.once()
         )

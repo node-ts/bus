@@ -53,6 +53,7 @@ Export the configuration and the transport, plus any attribute helpers other pac
   - `publishSystemMessage(value)` publishes a raw `TestSystemMessage` with the attribute `systemMessage = value` onto `systemMessageTopicIdentifier`.
   - `readAllFromDeadLetterQueue()` reads, deletes and returns `{ message, attributes }[]`.
   - Create broker resources in `beforeAll` and purge or delete them in `afterAll`. Put any env vars in the root `test.env`.
+  - bus-test is imported from its build (`dist`), like bus-core, so run `pnpm build` after changing it. `packages/bus-test/README.md` documents the suite's parameters for third-party transport authors.
 - `src/<name>-transport.spec.ts`: unit tests using a typemoq mock of the client, following the test conventions in the root `CLAUDE.md`.
 
 ## 6. Docs and wiring

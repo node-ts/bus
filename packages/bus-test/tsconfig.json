@@ -1,9 +1,13 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/index.mts"],
   "exclude": ["src/**/*.spec.ts", "src/**/*.integration.ts", "src/**/test"],
   "compilerOptions": {
+    "rootDir": "./src",
     "outDir": "./dist",
-    "rootDir": "./src"
+    // TestCommand uses class-transformer's @Type decorator
+    "experimentalDecorators": true,
+    // The suite calls the test runner's describe, it and expect globals
+    "types": ["node", "jest"]
   }
 }
