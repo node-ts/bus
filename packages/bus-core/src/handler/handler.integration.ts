@@ -1,9 +1,14 @@
-import { faker } from '@faker-js/faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'stream'
 import { It, Mock, Times } from 'typemoq'
 import { Bus, BusInstance } from '../service-bus'
-import { MessageLogger, TestCommand2, testEventHandler } from '../test'
+import {
+  MessageLogger,
+  randomInt,
+  TestCommand2,
+  testEventHandler
+} from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestCommand3 } from '../test/test-command-3'
 import { TestEvent } from '../test/test-event'
@@ -15,7 +20,7 @@ const event = new TestEvent()
 const command = new TestCommand()
 
 const attributes: MessageAttributes = {
-  correlationId: faker.string.uuid(),
+  correlationId: randomUUID(),
   attributes: {
     one: 1
   },
@@ -103,12 +108,12 @@ describe('Handler', () => {
         const command2 = new TestCommand2()
         const attributes1: Partial<MessageAttributes> = {
           stickyAttributes: {
-            value: faker.number.int()
+            value: randomInt()
           }
         }
         const attributes2: Partial<MessageAttributes> = {
           stickyAttributes: {
-            value: faker.number.int()
+            value: randomInt()
           }
         }
         const messagesHandled = new Promise<void>(resolve => {
@@ -145,7 +150,7 @@ describe('Handler', () => {
       it('should propagate the correlationId over multiple hops', async () => {
         const command2 = new TestCommand2()
         const attributes: Partial<MessageAttributes> = {
-          correlationId: faker.string.uuid()
+          correlationId: randomUUID()
         }
         const messageHandled = new Promise<void>(resolve => {
           events.on('command3Handler', resolve)

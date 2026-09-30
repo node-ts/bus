@@ -12,7 +12,6 @@ import {
   Message,
   SQSClient
 } from '@aws-sdk/client-sqs'
-import { faker } from '@faker-js/faker'
 import {
   CoreDependencies,
   DebugLogger,
@@ -20,6 +19,7 @@ import {
   TransportMessage
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
 import {
   fromMessageAttributeMap,
@@ -32,7 +32,7 @@ import { SqsTransportConfiguration } from './sqs-transport-configuration'
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
-    const correlationId = faker.string.uuid()
+    const correlationId = randomUUID()
 
     const sqsAttributes: SqsMessageAttributes = {
       'stickyAttributes.attribute1': { Type: 'String', Value: 'b' },
@@ -69,7 +69,7 @@ describe('sqs-transport', () => {
 
   describe('when converting message attributes to SNS attribute values', () => {
     const messageOptions: MessageAttributes = {
-      correlationId: faker.string.uuid(),
+      correlationId: randomUUID(),
       attributes: {
         attribute1: 'a',
         attribute2: 1

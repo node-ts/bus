@@ -1,4 +1,6 @@
 export * from './handle-checker'
+export * from './random-int'
+export * from './random-words'
 export * from './test-command'
 export * from './test-command-2'
 export * from './test-command-handler'

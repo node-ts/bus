@@ -1,5 +1,5 @@
-import { faker } from '@faker-js/faker'
+import { randomUUID } from 'node:crypto'
 export class TestSystemMessage {
-  static NAME = faker.string.uuid()
+  static NAME = randomUUID()
   constructor(readonly name = TestSystemMessage.NAME) {}
 }
