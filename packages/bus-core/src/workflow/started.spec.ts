@@ -204,7 +204,7 @@ describe('Workflow', () => {
       const data = workflowState[0]
       expect(data).toMatchObject({
         assignmentId: event.assignmentId,
-        $version: 0
+        $version: 1
       })
     })
 

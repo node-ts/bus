@@ -3,7 +3,10 @@ import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor, CoreDependencies } from '../../util'
-import { WorkflowStateNotInitialized } from './error'
+import {
+  WorkflowStateNotInitialized,
+  WorkflowStateVersionConflict
+} from './error'
 import { Logger } from '../../logger'
 
 interface WorkflowStorage {
@@ -53,40 +56,84 @@ export class InMemoryPersistence implements Persistence {
       workflowStateName
     ] as WorkflowStateType[]
     if (!workflowState) {
-      throw new WorkflowStateNotInitialized('Workflow state not initialized')
+      throw new WorkflowStateNotInitialized(workflowStateName)
     }
-    return workflowState.filter(
-      data =>
-        (includeCompleted || data.$status === WorkflowStatus.Running) &&
-        (data[messageMap.mapsTo] as {} as string) === filterValue
-    )
+    return workflowState
+      .filter(
+        data =>
+          (includeCompleted || data.$status === WorkflowStatus.Running) &&
+          (data[messageMap.mapsTo] as {} as string) === filterValue
+      )
+      .map(copyWorkflowState)
   }
 
+  /**
+   * Saves a copy of the workflow state with its `$version` incremented. The `$version` of the state
+   * being saved must match the version held in memory, in the same way as durable persistence
+   * adapters enforce optimistic concurrency.
+   * @param workflowState the workflow state to save
+   * @throws WorkflowStateNotInitialized if the workflow state hasn't been initialized
+   * @throws WorkflowStateVersionConflict if the workflow state was saved elsewhere since it was read
+   */
   async saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType
   ): Promise<void> {
     const workflowStateName = workflowState.$name
-    const existingWorkflowState = this.workflowState[
-      workflowStateName
-    ] as WorkflowStateType[]
-    const existingItem = existingWorkflowState.find(
+    const existingWorkflowState = this.workflowState[workflowStateName]
+    if (!existingWorkflowState) {
+      throw new WorkflowStateNotInitialized(workflowStateName)
+    }
+
+    const existingIndex = existingWorkflowState.findIndex(
       d => d.$workflowId === workflowState.$workflowId
     )
-    if (existingItem) {
-      try {
-        Object.assign(existingItem, workflowState)
-      } catch (err) {
-        this.logger.error('Unable to update data', { err })
-        throw err
-      }
+    const existingVersion =
+      existingIndex >= 0
+        ? existingWorkflowState[existingIndex].$version
+        : undefined
+    const isVersionMatched =
+      existingVersion === undefined
+        ? workflowState.$version === 0
+        : existingVersion === workflowState.$version
+    if (!isVersionMatched) {
+      throw new WorkflowStateVersionConflict(
+        workflowStateName,
+        workflowState.$workflowId,
+        workflowState.$version,
+        existingVersion
+      )
+    }
+
+    const updatedWorkflowState = copyWorkflowState(workflowState)
+    updatedWorkflowState.$version = workflowState.$version + 1
+    if (existingIndex >= 0) {
+      existingWorkflowState[existingIndex] = updatedWorkflowState
     } else {
-      existingWorkflowState.push(workflowState)
+      existingWorkflowState.push(updatedWorkflowState)
     }
   }
 
+  /**
+   * Gets the number of workflow states held in memory for a workflow state type
+   * @param workflowStateConstructor the type of workflow state to count
+   * @returns the number of workflow states held, including completed ones
+   * @throws WorkflowStateNotInitialized if the workflow state hasn't been initialized
+   */
   length(workflowStateConstructor: ClassConstructor<WorkflowState>): number {
-    return this.workflowState[
-      workflowStateConstructor.prototype.constructor.NAME
-    ].length
+    const workflowStateName = new workflowStateConstructor().$name
+    const workflowState = this.workflowState[workflowStateName]
+    if (!workflowState) {
+      throw new WorkflowStateNotInitialized(workflowStateName)
+    }
+    return workflowState.length
   }
 }
+
+// Copies are kept and returned so that changes made by callers can't bypass the version check
+const copyWorkflowState = <TWorkflowState extends WorkflowState>(
+  workflowState: TWorkflowState
+): TWorkflowState =>
+  Object.assign(
+    Object.create(Object.getPrototypeOf(workflowState)),
+    workflowState
+  )

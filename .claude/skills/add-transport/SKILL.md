@@ -35,6 +35,7 @@ The bus calls methods in this order: `prepare` → `connect` → `initialize` �
 - `publish(event, attrs?)` / `send(command, attrs?)`: serialize with `coreDependencies.messageSerializer.serialize`, and carry `correlationId`, `attributes` and `stickyAttributes` through the broker's headers or attributes.
 - `readNextMessage()`: return `{ id, domainMessage, raw, attributes }` (a `TransportMessage`), or `undefined` when there's nothing to read. It must not block forever, and `stop()` must release any reads still waiting.
 - `deleteMessage(msg)`: ack the message.
+- Unhandled messages: a message the service has no handler for must be discarded (deleted), never returned, retried or dead-lettered. The bus deletes these after dispatch finds no handler, so don't return them from the transport. A transport that filters before queuing, like `InMemoryQueue`, drops them.
 - `returnMessage(msg)`: retry it, with the delay from `coreDependencies.retryStrategy.calculateRetryDelay(attempt)` (milliseconds). After the maximum attempts (default ≥ 10, which the shared suite requires), move it to the dead-letter queue.
 - `fail(msg)`: send it straight to the dead-letter queue. The bus calls `deleteMessage` afterwards, so don't also ack it here.
 - `start?()`, `stop?()`, `dispose?()` as needed.
