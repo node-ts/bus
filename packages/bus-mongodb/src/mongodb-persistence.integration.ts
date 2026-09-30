@@ -36,6 +36,24 @@ const collectKeys = (value: unknown): string[] => {
   ])
 }
 
+/**
+ * Collects the names of the indexes in the winning plan of an explain result
+ */
+const collectIndexNames = (explain: Document): string[] => {
+  const names: string[] = []
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(visit)
+    } else if (node !== null && typeof node === 'object') {
+      Object.entries(node).forEach(([key, child]) =>
+        key === 'indexName' ? names.push(child as string) : visit(child)
+      )
+    }
+  }
+  visit(explain.queryPlanner.winningPlan)
+  return names
+}
+
 describe('MongodbPersistence', () => {
   let sut: MongodbPersistence
   let client: MongoClient
@@ -93,6 +111,28 @@ describe('MongodbPersistence', () => {
           key: { 'data.property1': 1 }
         })
       )
+    })
+  })
+
+  describe('when querying by the fields that lookups filter on', () => {
+    let primaryLookupIndexes: string[]
+    let propertyLookupIndexes: string[]
+
+    beforeAll(async () => {
+      primaryLookupIndexes = collectIndexNames(
+        await collection.find({ id: 'abc', version: 1 }).explain()
+      )
+      propertyLookupIndexes = collectIndexNames(
+        await collection.find({ 'data.property1': 'abc' }).explain()
+      )
+    })
+
+    it('should use the primary index for id and version lookups', () => {
+      expect(primaryLookupIndexes).toContain(PRIMARY_INDEX_NAME)
+    })
+
+    it('should use the mapped property index for property lookups', () => {
+      expect(propertyLookupIndexes).toContain(PROPERTY1_INDEX_NAME)
     })
   })
 
@@ -238,6 +278,37 @@ describe('MongodbPersistence', () => {
           expect(error).toBeInstanceOf(WorkflowStateNotFound)
         })
       })
+    })
+  })
+
+  describe('when saving workflow state with keys that repeat $ or __', () => {
+    const workflowState = Object.assign(new TestWorkflowState(), {
+      $workflowId: uuid.v4(),
+      $status: WorkflowStatus.Running,
+      $version: 0,
+      property1: uuid.v4(),
+      $repeated$dollars: 'a',
+      repeated__under__scores: 'b'
+    })
+    let result: Record<string, unknown>
+
+    beforeAll(async () => {
+      await sut.saveWorkflowState(workflowState)
+      const results = await sut.getWorkflowState(
+        TestWorkflowState,
+        { lookup: () => workflowState.property1, mapsTo: 'property1' },
+        new TestCommand(workflowState.property1),
+        { attributes: {}, stickyAttributes: {} }
+      )
+      result = { ...results[0] }
+    })
+
+    it('should read a key with repeated $ back unchanged', () => {
+      expect(result.$repeated$dollars).toEqual('a')
+    })
+
+    it('should read a key with repeated __ back unchanged', () => {
+      expect(result.repeated__under__scores).toEqual('b')
     })
   })
 

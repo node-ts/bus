@@ -50,6 +50,8 @@ export class MongodbPersistence implements Persistence {
     workflowStateConstructor: ClassConstructor<WorkflowStateType>,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
+    await this.client.connect()
+    this.database = this.client.db(this.configuration.databaseName)
     const workflowStateName = new workflowStateConstructor().$name
     this.logger.info('Initializing workflow', {
       workflowState: workflowStateName
