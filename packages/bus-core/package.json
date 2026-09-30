@@ -28,7 +28,7 @@
     "uuid": "^11.1.1"
   },
   "devDependencies": {
-    "@faker-js/faker": "^9.9.0",
+    "@faker-js/faker": "^10.6.0",
     "@node-ts/code-standards": "^0.0.10",
     "@types/debug": "^4.1.13",
     "@types/node": "^24.19.0",
