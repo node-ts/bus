@@ -5,5 +5,6 @@ module.exports = {
   singleQuote: true,
   jsxSingleQuote: true,
   arrowParens: 'avoid',
-  printWidth: 80
+  printWidth: 80,
+  plugins: ['prettier-plugin-organize-imports']
 }

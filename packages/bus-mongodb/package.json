@@ -27,7 +27,7 @@
     "@types/uuid": "^3.4.4",
     "reflect-metadata": "^0.1.13",
     "typemoq": "^2.1.0",
-    "typescript": "^5.3.3"
+    "typescript": "^6.0.3"
   },
   "peerDependencies": {
     "@node-ts/bus-core": "^1.0.0-alpha.0"
