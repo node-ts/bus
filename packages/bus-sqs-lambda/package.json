@@ -3,6 +3,9 @@
   "description": "A retrieval mechanism that receives messages from SQS-subscribed lambda.",
   "version": "1.0.1",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",

@@ -37,7 +37,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@tsconfig/node18": "^18.2.7",
+    "@tsconfig/node24": "^24.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.19.0",
     "dotenv-cli": "^11.0.0",

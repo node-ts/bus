@@ -3,6 +3,9 @@
   "description": "A Mongodb persistence adapter for workflow storage in @node-ts/bus-workflow.",
   "version": "1.1.2",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",

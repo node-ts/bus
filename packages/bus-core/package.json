@@ -6,6 +6,9 @@
   "types": "./dist/index.d.ts",
   "repository": "github:node-ts/bus.git",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc",
     "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"

@@ -5,6 +5,9 @@
   "homepage": "https://github.com/node-ts/bus#readme",
   "main": "./src/index.ts",
   "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
   "repository": "github:node-ts/bus.git",
   "publishConfig": {
     "access": "public"

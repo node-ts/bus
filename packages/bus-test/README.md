@@ -6,6 +6,8 @@ The package expects that [jest](https://www.npmjs.com/package/jest) is used as t
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Add this to your transport or persistence package:
 
 ```sh

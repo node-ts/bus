@@ -8,6 +8,8 @@ An Amazon SQS transport adapter for [@node-ts/bus](https://bus.node-ts.com)
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install packages and their dependencies
 
 ```bash

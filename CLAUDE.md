@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `@node-ts/bus` is a pnpm monorepo for a TypeScript service bus: message handlers, workflows (sagas), retries, and pluggable transports/persistence. Consumer docs live at https://bus.node-ts.com.
 
+Requires Node.js 24 or later: every published package declares `engines.node >=24`, and the tsconfig base is `@tsconfig/node24`.
+
 ## Commands
 
 pnpm only (enforced by `preinstall`). The versions are pinned to pnpm 12.4.1 (`packageManager`) and node 24.11.1 (`.nvmrc`); CircleCI uses the same versions. pnpm 12 fails the install if a dependency's build script hasn't been approved or denied in `allowBuilds` in `pnpm-workspace.yaml`. When you add a dependency that has a build script, add it there.

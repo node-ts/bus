@@ -8,6 +8,8 @@ A Rabbit MQ transport adapter for [@node-ts/bus](https://bus.node-ts.com)
 
 ## Installation
 
+Requires Node.js 24 or later.
+
 Install all packages and their dependencies
 
 ```bash
