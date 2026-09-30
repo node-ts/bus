@@ -3,13 +3,7 @@ import { Bus, BusInstance } from '../service-bus'
 import { ClassConstructor, sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { InMemoryPersistence } from './persistence'
-import {
-  FinalTask,
-  TaskRan,
-  TestCommand,
-  TestWorkflow,
-  TestWorkflowState
-} from './test'
+import { TaskRan, TestCommand, TestWorkflow, TestWorkflowState } from './test'
 import {
   TestWorkflowStartedByCompletes,
   TestWorkflowStartedByCompletesData
@@ -96,16 +90,12 @@ describe('Workflow', () => {
         expect(nextWorkflowState).toHaveLength(1)
       })
 
-      describe('and then a final message arrives', () => {
-        const finalTask = new FinalTask()
+      // step2 sends FinalTask from inside the workflow, so it carries the workflow id in its sticky
+      // attributes and is routed back to this workflow instance
+      describe('and then the final message sent by the workflow is handled', () => {
         let finalWorkflowState: TestWorkflowState[]
 
         beforeAll(async () => {
-          await bus.publish(finalTask, {
-            correlationId: nextWorkflowState[0].$workflowId
-          })
-          await sleep(CONSUME_TIMEOUT)
-
           finalWorkflowState = await inMemoryPersistence.getWorkflowState<
             TestWorkflowState,
             TestCommand
