@@ -1,0 +1,82 @@
+name: Dependency gate
+
+# Fails a PR if its linked issue is still blocked by an open issue, if an
+# earlier roadmap milestone ("Phase N: ...") still has open issues, or if the
+# description is missing a required section.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  issues: read
+  pull-requests: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const pr = context.payload.pull_request
+            const body = pr.body || ''
+            const labels = pr.labels.map(l => l.name)
+            const failures = []
+
+            for (const heading of ['Summary', 'Background', 'Problem', 'Approach']) {
+              if (!new RegExp(`^##\\s+${heading}\\b`, 'mi').test(body)) {
+                failures.push(`Description is missing a "## ${heading}" section`)
+              }
+            }
+
+            const linked = [
+              ...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/gi)
+            ].map(m => Number(m[1]))
+            if (!linked.length && !labels.includes('no-issue')) {
+              failures.push('Link the issue with "Closes #N", or add the no-issue label')
+            }
+
+            const phaseOf = title => {
+              const match = /^Phase (\d+)/.exec(title || '')
+              return match ? Number(match[1]) : undefined
+            }
+            const openMilestones = await github.paginate(github.rest.issues.listMilestones, {
+              owner,
+              repo,
+              state: 'open'
+            })
+
+            for (const issue_number of linked) {
+              const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number })
+
+              const { data: blockers } = await github.request(
+                'GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by',
+                { owner, repo, issue_number, per_page: 100 }
+              )
+              const openBlockers = blockers.filter(b => b.state === 'open')
+              if (openBlockers.length) {
+                failures.push(
+                  `#${issue_number} is blocked by open issue(s): ${openBlockers.map(b => `#${b.number}`).join(', ')}`
+                )
+              }
+
+              const phase = phaseOf(issue.milestone && issue.milestone.title)
+              if (phase !== undefined) {
+                const earlier = openMilestones.filter(m => {
+                  const p = phaseOf(m.title)
+                  return p !== undefined && p < phase && m.open_issues > 0
+                })
+                if (earlier.length) {
+                  failures.push(
+                    `#${issue_number} is in "${issue.milestone.title}" but earlier milestones still have open issues: ${earlier.map(m => m.title).join(', ')}`
+                  )
+                }
+              }
+            }
+
+            if (failures.length) {
+              core.setFailed(failures.join('\n'))
+            } else {
+              core.info('All linked issues are unblocked')
+            }
