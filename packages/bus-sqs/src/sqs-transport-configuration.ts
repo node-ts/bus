@@ -25,7 +25,7 @@ export interface SqsTransportConfiguration extends Omit<
   deadLetterQueueArn?: string
 
   /**
-   * The number of seconds to retain messages in the service and dead letter queues
+   * The number of seconds to retain messages in the dead letter queue
    * @default 1209600 (14 days)
    */
   messageRetentionPeriod?: number
@@ -109,7 +109,7 @@ export interface SqsTransportConfiguration extends Omit<
    */
   resolveTopicArn?: typeof defaultResolveTopicArn
 
-  /*
+  /**
    * Controls whether the library automatically provisions necessary AWS resources (SNS topics, SQS queues, and subscriptions).
    *
    * By default, this is set to 'true', meaning the library will attempt to create
