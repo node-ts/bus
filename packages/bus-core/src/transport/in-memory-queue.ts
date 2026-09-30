@@ -1,4 +1,4 @@
-import { Transport } from './transport'
+import { Transport, TransportInitializationOptions } from './transport'
 import {
   Event,
   Command,
@@ -6,7 +6,7 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import { TransportMessage } from './transport-message'
-import { EventEmitter } from 'stream'
+import { EventEmitter } from 'events'
 import { CoreDependencies } from '../util'
 import { Logger } from '../logger'
 import { Milliseconds } from '../retry-strategy'
@@ -39,9 +39,14 @@ export interface InMemoryMessage {
  */
 export class InMemoryQueue implements Transport<InMemoryMessage> {
   private queue: TransportMessage<InMemoryMessage>[] = []
-  private queuePushed: EventEmitter = new EventEmitter()
+  private queueEvents = new EventEmitter().setMaxListeners(0)
   private _deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
-  private messagesWithHandlers!: { [key: string]: {} }
+  /**
+   * Names of messages that have a local handler. Any other message is discarded, including
+   * everything sent before the queue is initialized.
+   */
+  private messagesWithHandlers = new Set<string>()
+  private retryTimeouts = new Set<NodeJS.Timeout>()
   private logger!: Logger
   private coreDependencies!: CoreDependencies
 
@@ -56,14 +61,24 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     )
   }
 
-  async initialize(): Promise<void> {
-    this.messagesWithHandlers = {}
-    this.coreDependencies.handlerRegistry
-      .getMessageNames()
-      .forEach(messageName => (this.messagesWithHandlers[messageName] = {}))
+  /**
+   * Records which messages have local handlers. Messages without one are discarded when sent.
+   * @param options the handler registry of the bus
+   */
+  async initialize(options?: TransportInitializationOptions): Promise<void> {
+    const handlerRegistry =
+      options?.handlerRegistry ?? this.coreDependencies.handlerRegistry
+    this.messagesWithHandlers = new Set(handlerRegistry.getMessageNames())
   }
 
+  /**
+   * Cancels pending retries and reads so that the queue doesn't keep the process alive
+   */
   async dispose(): Promise<void> {
+    this.retryTimeouts.forEach(timeout => clearTimeout(timeout))
+    this.retryTimeouts.clear()
+    this.queueEvents.emit('disposed')
+
     if (this.queue.length > 0) {
       this.logger.warn(
         'In-Memory queue being shut down, all messages will be lost.',
@@ -92,6 +107,10 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     await this.sendToDeadLetterQueue(transportMessage)
   }
 
+  /**
+   * Returns the next visible message. If none are visible, waits until one becomes visible or
+   * `receiveTimeoutMs` elapses, in which case undefined is returned.
+   */
   async readNextMessage(): Promise<
     TransportMessage<InMemoryMessage> | undefined
   > {
@@ -99,42 +118,35 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
       depth: this.depth,
       numberMessagesVisible: this.numberMessagesVisible
     })
+
+    const nextMessage = this.takeNextMessage()
+    if (nextMessage) {
+      return nextMessage
+    }
+
     return new Promise<TransportMessage<InMemoryMessage> | undefined>(
       resolve => {
-        const onMessageEmitted = () => {
-          unsubscribeEmitter()
+        const complete = (message?: TransportMessage<InMemoryMessage>) => {
           clearTimeout(timeoutToken)
-          resolve(getNextMessage())
+          this.queueEvents.off('visible', onMessageVisible)
+          this.queueEvents.off('disposed', onDisposed)
+          resolve(message)
         }
-        this.queuePushed.on('pushed', onMessageEmitted)
-        const unsubscribeEmitter = () =>
-          this.queuePushed.off('pushed', onMessageEmitted)
-
-        // Immediately returns the next available message, or undefined if none are available
-        const getNextMessage = () => {
-          const availableMessages = this.queue.filter(m => !m.raw.inFlight)
-          if (availableMessages.length === 0) {
-            this.logger.debug('No messages available in queue')
-            return
+        const onMessageVisible = () => {
+          // Another reader may have already taken the message, in which case keep waiting
+          const message = this.takeNextMessage()
+          if (message) {
+            complete(message)
           }
-
-          const message = availableMessages[0]
-          message.raw.inFlight = true
-          return message
         }
-
+        const onDisposed = () => complete(undefined)
         const timeoutToken = setTimeout(() => {
-          unsubscribeEmitter()
-          resolve(undefined)
+          this.logger.debug('No messages available in queue')
+          complete(undefined)
         }, this.memoryQueueConfiguration.receiveTimeoutMs)
 
-        const nextMessage = getNextMessage()
-        if (nextMessage) {
-          unsubscribeEmitter()
-          clearTimeout(timeoutToken)
-          resolve(nextMessage)
-        }
-        // Else wait for the timeout (empty return) or emitted event to return
+        this.queueEvents.on('visible', onMessageVisible)
+        this.queueEvents.on('disposed', onDisposed)
       }
     )
   }
@@ -173,9 +185,12 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
       )
       await this.sendToDeadLetterQueue(message)
     } else {
-      setTimeout(() => {
+      const retryTimeout = setTimeout(() => {
+        this.retryTimeouts.delete(retryTimeout)
         message.raw.inFlight = false
+        this.queueEvents.emit('visible')
       }, delay)
+      this.retryTimeouts.add(retryTimeout)
     }
   }
 
@@ -205,6 +220,17 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     return this.queue.filter(m => !m.raw.inFlight).length
   }
 
+  /**
+   * Marks the oldest visible message as in flight and returns it, or undefined if none are visible
+   */
+  private takeNextMessage(): TransportMessage<InMemoryMessage> | undefined {
+    const message = this.queue.find(m => !m.raw.inFlight)
+    if (message) {
+      message.raw.inFlight = true
+    }
+    return message
+  }
+
   private async sendToDeadLetterQueue(
     message: TransportMessage<InMemoryMessage>
   ): Promise<void> {
@@ -216,23 +242,21 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     message: Message,
     messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): void {
-    if (this.messagesWithHandlers[message.$name]) {
-      const transportMessage = toTransportMessage(
-        message,
-        messageOptions,
-        false
-      )
-      this.queue.push(transportMessage)
-      this.logger.debug('Added message to queue', {
-        message,
-        queueSize: this.queue.length
-      })
-    } else {
+    if (!this.messagesWithHandlers.has(message.$name)) {
       this.logger.warn(
         'Message was not sent as it has no registered handlers',
         { message }
       )
+      return
     }
+
+    const transportMessage = toTransportMessage(message, messageOptions, false)
+    this.queue.push(transportMessage)
+    this.logger.debug('Added message to queue', {
+      message,
+      queueSize: this.queue.length
+    })
+    this.queueEvents.emit('visible')
   }
 }
 

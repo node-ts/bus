@@ -33,6 +33,16 @@ describe('InMemoryQueue', () => {
 
   const retryStrategy = Mock.ofType<RetryStrategy>()
 
+  const buildCoreDependencies = (registry: HandlerRegistry) => ({
+    handlerRegistry: registry,
+    container: undefined,
+    loggerFactory,
+    messageSerializer,
+    serializer,
+    retryStrategy: retryStrategy.object,
+    interruptSignals: []
+  })
+
   beforeEach(async () => {
     logger = Mock.ofType<Logger>()
     loggerFactory = () => logger.object
@@ -41,15 +51,7 @@ describe('InMemoryQueue', () => {
       maxRetries: 3,
       receiveTimeoutMs: 1000
     })
-    sut.prepare({
-      handlerRegistry,
-      container: undefined,
-      loggerFactory,
-      messageSerializer,
-      serializer,
-      retryStrategy: retryStrategy.object,
-      interruptSignals: []
-    })
+    sut.prepare(buildCoreDependencies(handlerRegistry))
 
     handlerRegistry.register(TestEvent, () => undefined)
     handlerRegistry.register(TestCommand, () => undefined)
@@ -221,6 +223,153 @@ describe('InMemoryQueue', () => {
       await bus.publish(new TestEvent())
       await completion
       await bus.dispose()
+    })
+  })
+
+  describe('when a message is published while waiting for a read', () => {
+    let message: TransportMessage<InMemoryMessage> | undefined
+    let elapsedMs: number
+
+    beforeEach(async () => {
+      const startedAt = Date.now()
+      const read = sut.readNextMessage()
+      await sut.publish(event, messageOptions)
+      message = await read
+      elapsedMs = Date.now() - startedAt
+    })
+
+    it('should return the message without waiting for the receive timeout', () => {
+      expect(message!.domainMessage).toEqual(event)
+      expect(elapsedMs).toBeLessThan(500)
+    })
+  })
+
+  describe('when many reads are waiting and one message is published', () => {
+    let messages: (TransportMessage<InMemoryMessage> | undefined)[]
+
+    beforeEach(async () => {
+      const reads = [sut.readNextMessage(), sut.readNextMessage()]
+      await sut.publish(event, messageOptions)
+      messages = await Promise.all(reads)
+    })
+
+    it('should only return the message to one reader', () => {
+      expect(messages.filter(m => !!m)).toHaveLength(1)
+    })
+  })
+
+  describe('when a returned message becomes visible while waiting for a read', () => {
+    let message: TransportMessage<InMemoryMessage> | undefined
+    let elapsedMs: number
+
+    beforeEach(async () => {
+      retryStrategy.reset()
+      retryStrategy
+        .setup(r => r.calculateRetryDelay(It.isAny()))
+        .returns(() => 10)
+      await sut.publish(event, messageOptions)
+      const firstRead = await sut.readNextMessage()
+      await sut.returnMessage(firstRead!)
+
+      const startedAt = Date.now()
+      message = await sut.readNextMessage()
+      elapsedMs = Date.now() - startedAt
+    })
+
+    it('should return the message without waiting for the receive timeout', () => {
+      expect(message!.domainMessage).toEqual(event)
+      expect(elapsedMs).toBeLessThan(500)
+    })
+  })
+
+  describe('when disposing', () => {
+    describe('with a read waiting', () => {
+      let message: TransportMessage<InMemoryMessage> | undefined
+      let elapsedMs: number
+
+      beforeEach(async () => {
+        const startedAt = Date.now()
+        const read = sut.readNextMessage()
+        await sut.dispose()
+        message = await read
+        elapsedMs = Date.now() - startedAt
+      })
+
+      it('should resolve the read with no message', () => {
+        expect(message).toBeUndefined()
+        expect(elapsedMs).toBeLessThan(500)
+      })
+    })
+
+    describe('with a message waiting to be retried', () => {
+      let message: TransportMessage<InMemoryMessage> | undefined
+      const retryDelay = 20
+
+      beforeEach(async () => {
+        retryStrategy.reset()
+        retryStrategy
+          .setup(r => r.calculateRetryDelay(It.isAny()))
+          .returns(() => retryDelay)
+        await sut.publish(event, messageOptions)
+        message = await sut.readNextMessage()
+        await sut.returnMessage(message!)
+        await sut.dispose()
+        await sleep(retryDelay * 2)
+      })
+
+      it('should cancel the retry', () => {
+        expect(message!.raw.inFlight).toEqual(true)
+      })
+    })
+  })
+
+  describe('when sending before initialization', () => {
+    let sendError: unknown
+
+    beforeEach(async () => {
+      sut = new InMemoryQueue()
+      sut.prepare(buildCoreDependencies(handlerRegistry))
+      try {
+        await sut.send(command, messageOptions)
+      } catch (error) {
+        sendError = error
+      }
+    })
+
+    it('should not throw', () => {
+      expect(sendError).toBeUndefined()
+    })
+
+    it('should discard the message', () => {
+      expect(sut.depth).toEqual(0)
+    })
+  })
+
+  describe('when a send-only bus without handlers sends a message', () => {
+    let sendError: unknown
+
+    beforeEach(async () => {
+      sut = new InMemoryQueue()
+      const bus = Bus.configure()
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .asSendOnly()
+        .build()
+      await bus.initialize()
+      try {
+        await bus.send(command2)
+      } catch (error) {
+        sendError = error
+      }
+      await bus.dispose()
+    })
+
+    it('should not throw', () => {
+      expect(sendError).toBeUndefined()
+    })
+
+    it('should discard the message', () => {
+      expect(sut.depth).toEqual(0)
     })
   })
 })
