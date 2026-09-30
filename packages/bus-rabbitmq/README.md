@@ -47,6 +47,7 @@ The RabbitMQ transport has the following configuration:
 - **queueName** _(required)_ The name of the service queue to create and read messages from.
 - **connectionString** _(required)_ An amqp formatted connection string that's used to connect to the RabbitMQ instance
 - **maxRetries** _(optional)_ The number of attempts to retry failed messages before they're routed to the dead letter queue. _Default: 10_
+- **connectionRecovery** _(optional)_ How to reconnect when the connection or channel to RabbitMQ is lost. The transport reconnects with exponential backoff, declares its exchanges, queues and bindings again, and resumes consuming. Messages that were being handled when the channel was lost are redelivered by the broker. _Default: `{ enabled: true, initialDelay: 100, maxDelay: 30000, factor: 2, jitter: 0.2, maxRetries: Infinity }`_
 
 ## Development
 
