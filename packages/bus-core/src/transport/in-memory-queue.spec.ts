@@ -324,49 +324,29 @@ describe('InMemoryQueue', () => {
   })
 
   describe('when sending before initialization', () => {
-    beforeEach(async () => {
-      sut = new InMemoryQueue()
-      sut.prepare(buildCoreDependencies(new DefaultHandlerRegistry()))
-      await sut.send(command2, messageOptions)
-    })
+    let sendError: unknown
 
-    it('should push the message onto the queue', () => {
-      expect(sut.depth).toEqual(1)
-    })
-  })
-
-  describe('when initialized in send-only mode', () => {
     beforeEach(async () => {
       sut = new InMemoryQueue()
       sut.prepare(buildCoreDependencies(handlerRegistry))
-      await sut.initialize({ handlerRegistry, sendOnly: true })
-      await sut.send(command2, messageOptions)
+      try {
+        await sut.send(command, messageOptions)
+      } catch (error) {
+        sendError = error
+      }
     })
 
-    it('should push messages without a local handler onto the queue', () => {
-      expect(sut.depth).toEqual(1)
-    })
-  })
-
-  describe('when initialized without any handlers', () => {
-    beforeEach(async () => {
-      const emptyHandlerRegistry = new DefaultHandlerRegistry()
-      sut = new InMemoryQueue()
-      sut.prepare(buildCoreDependencies(emptyHandlerRegistry))
-      await sut.initialize({
-        handlerRegistry: emptyHandlerRegistry,
-        sendOnly: false
-      })
-      await sut.send(command2, messageOptions)
+    it('should not throw', () => {
+      expect(sendError).toBeUndefined()
     })
 
-    it('should push the message onto the queue', () => {
-      expect(sut.depth).toEqual(1)
+    it('should discard the message', () => {
+      expect(sut.depth).toEqual(0)
     })
   })
 
-  describe('when a send-only bus uses the queue', () => {
-    let sentMessage: TransportMessage<InMemoryMessage> | undefined
+  describe('when a send-only bus without handlers sends a message', () => {
+    let sendError: unknown
 
     beforeEach(async () => {
       sut = new InMemoryQueue()
@@ -376,13 +356,20 @@ describe('InMemoryQueue', () => {
         .asSendOnly()
         .build()
       await bus.initialize()
-      await bus.send(command2)
-      sentMessage = await sut.readNextMessage()
+      try {
+        await bus.send(command2)
+      } catch (error) {
+        sendError = error
+      }
       await bus.dispose()
     })
 
-    it('should keep the sent message on the queue', () => {
-      expect(sentMessage!.domainMessage).toEqual(command2)
+    it('should not throw', () => {
+      expect(sendError).toBeUndefined()
+    })
+
+    it('should discard the message', () => {
+      expect(sut.depth).toEqual(0)
     })
   })
 })

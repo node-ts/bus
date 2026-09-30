@@ -42,10 +42,10 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   private queueEvents = new EventEmitter().setMaxListeners(0)
   private _deadLetterQueue: TransportMessage<InMemoryMessage>[] = []
   /**
-   * Names of messages that have a local handler. Until the queue is initialized by a bus that
-   * handles messages, this is undefined and all messages are queued.
+   * Names of messages that have a local handler. Any other message is discarded, including
+   * everything sent before the queue is initialized.
    */
-  private messagesWithHandlers: Set<string> | undefined
+  private messagesWithHandlers = new Set<string>()
   private retryTimeouts = new Set<NodeJS.Timeout>()
   private logger!: Logger
   private coreDependencies!: CoreDependencies
@@ -62,21 +62,13 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   }
 
   /**
-   * Records which messages have local handlers so that messages nothing will handle aren't queued.
-   * When initialized in send-only mode, or by a bus with no handlers, all messages are kept on the
-   * queue so that a producer's messages can be read or inspected.
-   * @param options the handler registry of the bus, and whether it's send-only
+   * Records which messages have local handlers. Messages without one are discarded when sent.
+   * @param options the handler registry of the bus
    */
   async initialize(options?: TransportInitializationOptions): Promise<void> {
-    if (options?.sendOnly) {
-      return
-    }
     const handlerRegistry =
       options?.handlerRegistry ?? this.coreDependencies.handlerRegistry
-    const messageNames = handlerRegistry.getMessageNames()
-    this.messagesWithHandlers = messageNames.length
-      ? new Set(messageNames)
-      : undefined
+    this.messagesWithHandlers = new Set(handlerRegistry.getMessageNames())
   }
 
   /**
@@ -250,10 +242,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     message: Message,
     messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
   ): void {
-    if (
-      this.messagesWithHandlers &&
-      !this.messagesWithHandlers.has(message.$name)
-    ) {
+    if (!this.messagesWithHandlers.has(message.$name)) {
       this.logger.warn(
         'Message was not sent as it has no registered handlers',
         { message }
