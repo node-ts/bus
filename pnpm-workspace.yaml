@@ -1,9 +1,12 @@
 packages:
   - packages/**
 # Dependency install scripts that pnpm may run. None are needed:
-# aws-sdk only prints a maintenance warning, typemoq ships a prebuilt dist
-# and esbuild resolves its binary through optionalDependencies.
+# aws-sdk only prints a maintenance warning, typemoq ships a prebuilt dist,
+# and esbuild, @parcel/watcher and unrs-resolver (both pulled in by jest 30)
+# get their native binaries through optionalDependencies.
 allowBuilds:
+  '@parcel/watcher': false
   aws-sdk: false
   esbuild: false
   typemoq: false
+  unrs-resolver: false

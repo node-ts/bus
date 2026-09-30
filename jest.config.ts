@@ -19,7 +19,10 @@ const config: Config = {
     '^.+\\.tsx?$': [
       'ts-jest',
       {
-        tsconfig: 'tsconfig.test.json'
+        tsconfig: 'tsconfig.test.json',
+        // Every package is CommonJS, so node16 module output is CJS. Keep type
+        // checking tests rather than switching to isolatedModules.
+        diagnostics: { ignoreCodes: [151002] }
       }
     ]
   }

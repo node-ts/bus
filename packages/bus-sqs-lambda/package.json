@@ -25,10 +25,8 @@
     "@node-ts/bus-core": "workspace:^",
     "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
-    "@types/aws-lambda": "^8.10.143",
-    "@types/faker": "^4.1.5",
+    "@types/aws-lambda": "^8.10.164",
     "class-transformer": "^0.5.1",
-    "faker": "^4.1.0",
     "reflect-metadata": "^0.1.13",
     "typemoq": "^2.1.0",
     "typescript": "^6.0.3"

@@ -1,5 +1,5 @@
+import { faker } from '@faker-js/faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import * as faker from 'faker'
 import { EventEmitter } from 'stream'
 import { It, Mock, Times } from 'typemoq'
 import { Bus, BusInstance } from '../service-bus'
@@ -15,7 +15,7 @@ const event = new TestEvent()
 const command = new TestCommand()
 
 const attributes: MessageAttributes = {
-  correlationId: faker.random.uuid(),
+  correlationId: faker.string.uuid(),
   attributes: {
     one: 1
   },
@@ -103,12 +103,12 @@ describe('Handler', () => {
         const command2 = new TestCommand2()
         const attributes1: Partial<MessageAttributes> = {
           stickyAttributes: {
-            value: faker.random.number()
+            value: faker.number.int()
           }
         }
         const attributes2: Partial<MessageAttributes> = {
           stickyAttributes: {
-            value: faker.random.number()
+            value: faker.number.int()
           }
         }
         const messagesHandled = new Promise<void>(resolve => {
@@ -145,7 +145,7 @@ describe('Handler', () => {
       it('should propagate the correlationId over multiple hops', async () => {
         const command2 = new TestCommand2()
         const attributes: Partial<MessageAttributes> = {
-          correlationId: faker.random.uuid()
+          correlationId: faker.string.uuid()
         }
         const messageHandled = new Promise<void>(resolve => {
           events.on('command3Handler', resolve)

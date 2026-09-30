@@ -1,5 +1,5 @@
+import { faker } from '@faker-js/faker'
 import { Message } from '@node-ts/bus-messages'
-import * as faker from 'faker'
 import { DefaultHandlerRegistry } from '../handler'
 import { ClassConstructor } from '../util'
 import { MessageSerializer } from './message-serializer'
@@ -50,7 +50,7 @@ describe('MessageSerializer', () => {
   })
 
   it('should use underlying deserializer to deserialize', () => {
-    const msg = new DummyMessage(faker.random.words())
+    const msg = new DummyMessage(faker.lorem.words())
     const raw = JSON.stringify(msg)
 
     const result = messageSerializer.deserialize<DummyMessage>(raw)

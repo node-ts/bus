@@ -25,13 +25,12 @@
     "uuid": "^8.3.2"
   },
   "devDependencies": {
+    "@faker-js/faker": "^9.9.0",
     "@node-ts/code-standards": "^0.0.10",
     "@types/debug": "^4.1.5",
-    "@types/faker": "^4.1.5",
-    "@types/node": "^18.19.10",
+    "@types/node": "^24.19.0",
     "@types/serialize-error": "^4.0.1",
     "@types/uuid": "^8.3.1",
-    "faker": "^4.1.0",
     "typemoq": "^2.1.0",
     "typescript": "^6.0.3"
   },

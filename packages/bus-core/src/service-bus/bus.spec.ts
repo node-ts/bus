@@ -61,7 +61,7 @@ describe('Bus', () => {
     it.each(configurationCalls)(
       'should reject %s with BusAlreadyInitialized',
       (_, configure) => {
-        expect(() => configure(sut)).toThrowError(BusAlreadyInitialized)
+        expect(() => configure(sut)).toThrow(BusAlreadyInitialized)
       }
     )
   })
@@ -76,7 +76,7 @@ describe('Bus', () => {
     })
 
     it('should throw an error when concurrency < 1', () => {
-      expect(() => Bus.configure().withConcurrency(0)).toThrowError()
+      expect(() => Bus.configure().withConcurrency(0)).toThrow()
     })
   })
 

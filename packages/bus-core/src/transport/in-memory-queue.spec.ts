@@ -1,6 +1,6 @@
+import { faker } from '@faker-js/faker'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import EventEmitter from 'events'
-import * as faker from 'faker'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { TransportMessage } from '.'
 import { sleep } from '../../dist'
@@ -19,7 +19,7 @@ const command2 = new TestCommand2()
 describe('InMemoryQueue', () => {
   let sut: InMemoryQueue
   const messageOptions: MessageAttributes = {
-    correlationId: faker.random.uuid(),
+    correlationId: faker.string.uuid(),
     attributes: {},
     stickyAttributes: {}
   }
