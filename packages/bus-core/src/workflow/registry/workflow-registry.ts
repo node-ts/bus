@@ -1,7 +1,11 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { ContainerAdapter } from '../../container'
-import { HandlerDispatchRejected, HandlerRegistry } from '../../handler'
+import {
+  HandlerContext,
+  HandlerDispatchRejected,
+  HandlerRegistry
+} from '../../handler'
 import { Logger } from '../../logger'
 import { messageHandlingContext } from '../../message-handling-context'
 import { TransportMessage } from '../../transport'
@@ -189,7 +193,7 @@ export class WorkflowRegistry {
     mapper.onStartedBy.forEach((options, messageConstructor) =>
       handlerRegistry.register(
         messageConstructor,
-        async (message, messageAttributes) => {
+        async (message, messageAttributes, context) => {
           this.logger.debug('Starting new workflow instance', {
             workflow: options.workflowCtor,
             msg: message
@@ -212,7 +216,8 @@ export class WorkflowRegistry {
                 immutableWorkflowState,
                 mapper.workflowStateCtor!,
                 options.workflowHandler as keyof Workflow<any>,
-                container
+                container,
+                context
               )
             },
             true
@@ -238,7 +243,7 @@ export class WorkflowRegistry {
 
       handlerRegistry.register(
         messageConstructor,
-        async (message, attributes) => {
+        async (message, attributes, context) => {
           this.logger.debug('Getting workflow state for message handler', {
             msg: message,
             workflow: workflowCtor
@@ -278,7 +283,8 @@ export class WorkflowRegistry {
                   immutableWorkflowState,
                   mapper.workflowStateCtor!,
                   handler.workflowHandler,
-                  container
+                  container,
+                  context
                 )
               },
               true
@@ -347,7 +353,8 @@ export class WorkflowRegistry {
     immutableWorkflowState: WorkflowState,
     workflowStateConstructor: ClassConstructor<WorkflowState>,
     workflowHandler: keyof Workflow<WorkflowState>,
-    container: ContainerAdapter | undefined
+    container: ContainerAdapter | undefined,
+    context: HandlerContext
   ) {
     this.logger.debug('Dispatching message to workflow', {
       msg: message,
@@ -377,7 +384,8 @@ export class WorkflowRegistry {
     const workflowStateOutput = await handler.bind(workflow)(
       message,
       immutableWorkflowState,
-      attributes
+      attributes,
+      context
     )
 
     const workflowName = workflowCtor.name

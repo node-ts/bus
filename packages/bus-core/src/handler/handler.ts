@@ -1,6 +1,7 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { ClassConstructor } from '../util'
 import { CustomHandler } from './custom-handler'
+import { HandlerContext } from './handler-context'
 
 /**
  * Defines the types of messages that the bus can handle
@@ -27,17 +28,32 @@ export interface Handler<
    * A function that is called each time a message of `messageType` is received
    * @param message The message read from the bus
    * @param attributes Attributes of the message read from the bus
+   * @param context Sends, publishes, fails or returns messages through the bus that received the message
    */
   handle(
     message: TMessage,
-    attributes: TMessageAttributes
+    attributes: TMessageAttributes,
+    context: HandlerContext
   ): void | Promise<void>
 }
 
+/**
+ * A function that is called each time a message of the type it's registered for is received
+ * @param message The message read from the bus
+ * @param attributes Attributes of the message read from the bus
+ * @param context Sends, publishes, fails or returns messages through the bus that received the message
+ * @example
+ * const placeOrderHandler: FunctionHandler<PlaceOrder> = async (message, _attributes, ctx) =>
+ *   ctx.publish(new OrderPlaced(message.orderId))
+ */
 export type FunctionHandler<
   TMessage,
   TMessageAttributes extends MessageAttributes = MessageAttributes
-> = (message: TMessage, attributes: TMessageAttributes) => void | Promise<void>
+> = (
+  message: TMessage,
+  attributes: TMessageAttributes,
+  context: HandlerContext
+) => void | Promise<void>
 
 export type HandlerDefinition<
   TMessage = any,

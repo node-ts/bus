@@ -1,4 +1,5 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { HandlerContext } from '../handler'
 import { ClassConstructor } from '../util'
 import {
   WorkflowAlreadyHandlesMessage,
@@ -12,7 +13,14 @@ import { WorkflowState, WorkflowStatus } from './workflow-state'
  * @param message The message that was received
  * @param workflowState The current, read-only state of the workflow instance
  * @param attributes Attributes of the message that was received
+ * @param context Sends, publishes, fails or returns messages through the bus that received the message. Messages
+ * sent from it carry the workflow id, so replies are routed back to this workflow instance.
  * @returns Changes to the workflow state to persist, or nothing to leave it unchanged
+ * @example
+ * async start(message: OrderPlaced, _state: OrderState, _attributes: MessageAttributes, ctx: HandlerContext) {
+ *   await ctx.send(new ChargeCard(message.orderId))
+ *   return { orderId: message.orderId }
+ * }
  */
 export type WorkflowHandler<
   TMessage extends Message,
@@ -21,7 +29,8 @@ export type WorkflowHandler<
 > = (
   message?: TMessage,
   workflowState?: Readonly<WorkflowStateType>,
-  attributes?: TMessageAttributes
+  attributes?: TMessageAttributes,
+  context?: HandlerContext
 ) =>
   void | Partial<WorkflowStateType> | Promise<void | Partial<WorkflowStateType>>
 
