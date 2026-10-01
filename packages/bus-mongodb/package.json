@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@node-ts/bus-core": "workspace:^",
+    "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
     "@types/amqplib": "^0.10.8",
     "reflect-metadata": "^0.2.2",

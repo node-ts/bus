@@ -14,7 +14,7 @@ const config: Config = {
   ],
   testRegex: '(src\\/.+\\.|/)(integration|spec)\\.ts$',
   testEnvironment: 'node',
-  testPathIgnorePatterns: ['node_modules/', 'dist/', 'bus-test/'],
+  testPathIgnorePatterns: ['node_modules/', 'dist/'],
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',

@@ -313,6 +313,9 @@ importers:
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
+      '@node-ts/bus-test':
+        specifier: workspace:^
+        version: link:../bus-test
       '@node-ts/code-standards':
         specifier: ^0.0.10
         version: 0.0.10
@@ -344,6 +347,9 @@ importers:
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
+      '@node-ts/bus-test':
+        specifier: workspace:^
+        version: link:../bus-test
       '@node-ts/code-standards':
         specifier: ^0.0.10
         version: 0.0.10

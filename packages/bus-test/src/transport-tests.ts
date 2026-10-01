@@ -1,4 +1,3 @@
-import { ClassSerializer } from '@node-ts/bus-class-serializer'
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
@@ -12,14 +11,20 @@ import {
   TestPoisonedMessage
 } from './helpers'
 import { TestSystemMessage } from './helpers/test-system-message'
+import {
+  messageRoundTripCases,
+  RoundTripReceiver
+} from './message-round-trip-cases'
+import { withRoundTripSerializer } from './with-round-trip-serializer'
 
 const RETRY_DELAY = 5
 
 /**
  * A suite of tests that get wrapped by the integration test setup/tear-down of an
- * implementation of a transport. The suite's bus uses `ClassSerializer` from
- * `@node-ts/bus-class-serializer`, so the transport must (de)serialize messages through
- * `coreDependencies.messageSerializer` for class instances to survive the round trip.
+ * implementation of a transport. The suite sends messages with nested types (Dates, class
+ * instances, arrays, Maps, Sets, optional and null fields) and checks they arrive with their
+ * types restored, so the transport must (de)serialize messages through
+ * `coreDependencies.messageSerializer`.
  * @param transport A fully configured transport that's the subject under test
  * @param publishSystemMessage A callback that will publish a `@node-ts/bus-test:TestSystemMessage`
  * with a `systemMessage` attribute set to the value of the `testSystemAttributeValue` parameter
@@ -41,16 +46,17 @@ export const transportTests = (
   const testPoisonedMessageHandlerEmitter = new EventEmitter()
   const testSystemMessageHandlerEmitter = new EventEmitter()
   const handleChecker = Mock.ofType<HandleChecker>()
+  const roundTripReceiver = new RoundTripReceiver()
   let poisonedMessageReceiptAttempts = 0
   let bus: BusInstance
 
   describe('when the transport has been initialized', () => {
     beforeAll(async () => {
-      bus = Bus.configure()
+      // Checks the transport (de)serializes through the bus' serializer, so
+      // class instances and their nested types survive the round trip
+      bus = roundTripReceiver
+        .withHandlers(withRoundTripSerializer(Bus.configure()))
         .withTransport(transport)
-        // Checks the transport (de)serializes through the bus' serializer, so
-        // class instances and their nested types survive the round trip
-        .withSerializer(new ClassSerializer())
         .withHandler(
           handlerFor(TestCommand, (message, attributes) => {
             handleChecker.object.check(message, attributes)
@@ -170,6 +176,8 @@ export const transportTests = (
         )
       })
     })
+
+    messageRoundTripCases(() => bus, roundTripReceiver)
 
     describe('when publishing an event', () => {
       const testEvent = new TestEvent()

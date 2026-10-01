@@ -6,6 +6,7 @@ import {
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { workflowStateRoundTripTests } from '@node-ts/bus-test'
 import { Collection, Db, Document, MongoClient } from 'mongodb'
 import { randomUUID } from 'node:crypto'
 import { Mock } from 'typemoq'
@@ -362,4 +363,6 @@ describe('MongodbPersistence', () => {
       expect({ ...results[0] }).toEqual({ ...workflowState, $version: 1 })
     })
   })
+
+  workflowStateRoundTripTests(new MongodbPersistence(configuration))
 })
