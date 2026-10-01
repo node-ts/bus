@@ -14,7 +14,7 @@ Use `packages/bus-rabbitmq` (a push-based broker) or `packages/bus-sqs` (a polle
   - Keep `type`, `main`, `types`, `exports` and `files` as they are: `exports` points `import` at `dist/index.mjs` and `require` at `dist/index.js`. Keep `publishConfig.access: public`.
   - scripts: `clean`, `build: tsc`, `build:watch`.
   - `dependencies`: the client SDK, `@node-ts/bus-messages: workspace:^`, `tslib`.
-  - `devDependencies`: `@node-ts/bus-core: workspace:^`, `@node-ts/bus-test: workspace:^`, `typemoq`, `reflect-metadata`, `typescript`.
+  - `devDependencies`: `@node-ts/bus-core: workspace:^`, `@node-ts/bus-test: workspace:^`, `typemoq`, `typescript`.
   - `peerDependencies`: `"@node-ts/bus-core": "^2.0.0"`.
 - `tsconfig.json`, copied from bus-rabbitmq: extends `../../tsconfig.json` and excludes `*.spec.ts`, `*.integration.ts` and `test` from the build.
 - `src/index.mts`, copied as is. It is the ESM entry and re-exports the CJS build, so `import` and `require` share one module instance. The copied `tsconfig.json` already includes it. After `pnpm build`, run `pnpm check:packages` to lint the packed package.

@@ -28,4 +28,16 @@ async function run() {
 }
 ```
 
+## Dates and classes in messages
+
+Messages are sent as plain JSON. The default `JsonSerializer` restores the top-level class of a message it reads, but nested values stay as JSON parsed them, so a `Date` arrives as an ISO string. To restore Dates, Maps, Sets, bigints and class instances at any depth of messages and workflow state, generate your message types with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli) and register them:
+
+```typescript
+import { messageTypes } from '@my-org/messages'
+
+const bus = Bus.configure().withMessageTypes(messageTypes).build()
+```
+
+See the [messages guide](https://github.com/node-ts/bus/tree/master/packages/bus-messages#messages) for the plain-data alternative and the known limits.
+
 For more information, visit our docs at [https://bus.node-ts.com](https://bus.node-ts.com)

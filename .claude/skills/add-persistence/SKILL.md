@@ -14,7 +14,7 @@ Use `packages/bus-postgres` as the template; it's the cleaner of the two existin
   - Keep `type`, `main`, `types`, `exports` and `files` as they are: `exports` points `import` at `dist/index.mjs` and `require` at `dist/index.js`. Keep `publishConfig.access: public`.
   - scripts: `clean`, `build`, `build:watch`.
   - `dependencies`: the driver, `@node-ts/bus-messages: workspace:^`, `tslib`.
-  - `devDependencies`: `@node-ts/bus-core: workspace:^`.
+  - `devDependencies`: `@node-ts/bus-core: workspace:^`, `@node-ts/bus-test: workspace:^`.
   - `peerDependencies`: `"@node-ts/bus-core": "^2.0.0"`.
 - `tsconfig.json`: copy it from bus-postgres, which excludes specs, integration tests and `test/` from the build. Then run `pnpm i`.
 - `src/index.mts`, copied as is. It is the ESM entry and re-exports the CJS build, so `import` and `require` share one module instance. The copied `tsconfig.json` already includes it. After `pnpm build`, run `pnpm check:packages` to lint the packed package.
@@ -64,6 +64,7 @@ An interface with JSDoc on every field. The README repeats these docs.
     - saving with a stale version throws `WorkflowStateNotFound`
   - Assert by querying the database directly.
   - In `afterAll`, drop what the test created and `dispose()` the bus.
+  - At the end of the top-level `describe`, call `workflowStateRoundTripTests(new <Name>Persistence(configuration))` from `@node-ts/bus-test`, with an instance of its own, to check workflow state with Dates and nested classes survives the round trip.
 
 ## 6. Docs and wiring
 
