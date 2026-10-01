@@ -11,6 +11,7 @@ import { LoggerFactory, defaultLoggerFactory } from '../logger'
 import { Receiver } from '../receiver'
 import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, Serializer } from '../serialization'
+import { mergeMessageTypes } from '../serialization/merge-message-types'
 import { MessageSerializer } from '../serialization/message-serializer'
 import { InMemoryQueue, Transport, TransportMessage } from '../transport'
 import {
@@ -57,7 +58,7 @@ export class BusConfiguration {
   private handlerRegistry = new DefaultHandlerRegistry()
   private loggerFactory: LoggerFactory = defaultLoggerFactory
   private serializer: Serializer | undefined
-  private messageTypes: MessageTypes | undefined
+  private messageTypes: MessageTypes[] = []
   private persistence: Persistence = new InMemoryPersistence()
   private messageReadMiddlewares = new MiddlewareDispatcher<
     TransportMessage<any>
@@ -72,6 +73,7 @@ export class BusConfiguration {
    * @throws BusAlreadyInitialized if the bus has already been built
    * @throws ContainerNotRegistered if class handlers are registered without a container
    * @throws MessageTypesWithCustomSerializer if both `withMessageTypes()` and `withSerializer()` were used
+   * @throws MessageTypesConflict if registered message types define the same `$name` or type differently
    * @throws MessageTypeReferenceNotFound if the message types refer to a type they don't define
    */
   build(): BusInstance {
@@ -84,10 +86,13 @@ export class BusConfiguration {
       throw new ContainerNotRegistered(classHandlers[0].constructor.name)
     }
 
-    if (this.serializer && this.messageTypes) {
+    if (this.serializer && this.messageTypes.length) {
       throw new MessageTypesWithCustomSerializer()
     }
-    const serializer = this.serializer ?? new JsonSerializer(this.messageTypes)
+    const messageTypes = this.messageTypes.length
+      ? mergeMessageTypes(this.messageTypes)
+      : undefined
+    const serializer = this.serializer ?? new JsonSerializer(messageTypes)
 
     const coreDependencies: CoreDependencies = {
       container: this.container,
@@ -98,7 +103,7 @@ export class BusConfiguration {
         serializer,
         this.handlerRegistry
       ),
-      messageTypes: this.messageTypes,
+      messageTypes,
       retryStrategy: this.retryStrategy,
       interruptSignals: this.interruptSignals
     }
@@ -269,25 +274,30 @@ export class BusConfiguration {
    * default serializer restores Dates, Maps, Sets, bigints and class instances at any depth of the messages
    * and workflow state it reads. Without them, only the top-level class of a message is restored.
    *
+   * Pass the message types of every message library the service uses, in one call or several. They're
+   * merged when the bus is built, which throws `MessageTypesConflict` if two of them define the same
+   * `$name` or type key differently.
+   *
    * `initialize()` then throws `MessageTypesMissing` if a handled message or a workflow state has no
    * entry, which usually means the generated file is out of date.
-   * @param messageTypes the message types exported by the generated file
-   * @default undefined
+   * @param messageTypes the message types exported by each library's generated file
+   * @default no message types
    * @throws BusAlreadyInitialized if called after the bus has been built
    * @example
-   * import { messageTypes } from '@my-org/messages'
+   * import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
+   * import { messageTypes as billingMessageTypes } from '@my-org/billing-messages'
    *
    * const bus = Bus.configure()
-   *   .withMessageTypes(messageTypes)
+   *   .withMessageTypes(orderMessageTypes, billingMessageTypes)
    *   .withHandler(handlerFor(PlaceOrder, placeOrder))
    *   .build()
    */
-  withMessageTypes(messageTypes: MessageTypes): this {
+  withMessageTypes(...messageTypes: MessageTypes[]): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.messageTypes = messageTypes
+    this.messageTypes.push(...messageTypes)
     return this
   }
 

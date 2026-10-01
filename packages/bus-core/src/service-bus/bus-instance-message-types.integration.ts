@@ -2,7 +2,11 @@ import { MessageTypes } from '@node-ts/bus-messages'
 import { Mock } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
-import { JsonSerializer, MessageTypesMissing } from '../serialization'
+import {
+  JsonSerializer,
+  MessageTypesConflict,
+  MessageTypesMissing
+} from '../serialization'
 import { TestCommand, TestEvent } from '../test'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { Bus } from './bus'
@@ -97,6 +101,69 @@ describe('BusInstance', () => {
           TestMessageTypesWorkflowState.NAME
         ])
       })
+    })
+  })
+
+  describe('when initializing with message types from several libraries', () => {
+    let bus: BusInstance
+    let initializeError: unknown
+
+    beforeAll(async () => {
+      const shared = {
+        messages: { [TestEvent.NAME]: 'TestEvent' },
+        types: { TestEvent: entry }
+      }
+      bus = configure({
+        messages: { [TestCommand.NAME]: 'TestCommand' },
+        types: { TestCommand: entry }
+      })
+        .withMessageTypes(shared, {
+          messages: {
+            [TestMessageTypesWorkflowState.NAME]:
+              'TestMessageTypesWorkflowState'
+          },
+          types: { TestMessageTypesWorkflowState: entry }
+        })
+        // Registering the same entries twice is allowed
+        .withMessageTypes(shared)
+        .build()
+      initializeError = await bus.initialize().then(
+        () => undefined,
+        (error: unknown) => error
+      )
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should merge them', () => {
+      expect(initializeError).toBeUndefined()
+    })
+  })
+
+  describe('when message types from several libraries conflict', () => {
+    it('should throw MessageTypesConflict for a $name mapped to different types', () => {
+      expect(() =>
+        configure({
+          messages: { [TestCommand.NAME]: 'A' },
+          types: { A: entry }
+        })
+          .withMessageTypes({
+            messages: { [TestCommand.NAME]: 'B' },
+            types: { B: entry }
+          })
+          .build()
+      ).toThrow(MessageTypesConflict)
+    })
+
+    it('should throw MessageTypesConflict for a type key defined differently', () => {
+      expect(() =>
+        configure({ messages: {}, types: { Customer: { fields: {} } } })
+          .withMessageTypes({
+            messages: {},
+            types: { Customer: { fields: { joinedAt: 'Date' } } }
+          })
+          .build()
+      ).toThrow(MessageTypesConflict)
     })
   })
 
