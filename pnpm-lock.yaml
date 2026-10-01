@@ -261,6 +261,8 @@ importers:
 
   packages/bus-cli/test/same-names: {}
 
+  packages/bus-cli/test/skipped: {}
+
   packages/bus-cli/test/supported: {}
 
   packages/bus-cli/test/two-libraries/a: {}
