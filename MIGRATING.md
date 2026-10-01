@@ -6,7 +6,7 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
 
 - **Node.js 24 or later is required.** Every package declares `engines.node >=24` and is compiled for ES2024.
 - **Import only from the package root.** Each package now has an `exports` map. Deep imports such as `@node-ts/bus-core/dist/service-bus/error` fail at runtime with `ERR_PACKAGE_PATH_NOT_EXPORTED`, and TypeScript can't resolve them under `moduleResolution` `node16`, `nodenext` or `bundler`. Import from `@node-ts/bus-core` (or the adapter's root) instead. The errors the packages throw, such as `BusAlreadyInitialized` and bus-mongodb's `WorkflowStateNotFound`, are now exported there. If you need something else that isn't exported, please open an issue.
-- **ES modules get their own entry point.** `import` loads an ES module entry and `require` loads the CommonJS build. You don't need to change anything, and named imports like `import { Command } from '@node-ts/bus-messages'` work from ES modules. The ES module entry re-exports the CommonJS build, so code that mixes `import` and `require` still gets one copy of each class and of `messageHandlingContext`.
+- **ES modules get their own entry point.** `import` loads an ES module entry and `require` loads the CommonJS build. You don't need to change anything, and named imports like `import { Command } from '@node-ts/bus-messages'` work from ES modules. The ES module entry re-exports the CommonJS build, so code that mixes `import` and `require` still gets one copy of each class.
 
 ## @node-ts/bus-class-serializer
 
@@ -25,9 +25,18 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
    export * from './message-types.generated'
    ```
 
-   The generated file registers its types when it's imported, so services that import your messages get them with nothing to configure. For messages declared in the service itself, import the generated file once where the messages are exported or the bus is configured. Add the command to your `prebuild` script, and `--check` to CI (see the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts)). Include the files that declare your workflow state if you want their Dates and classes restored too.
+   Then pass the generated `messageTypes` of every message library a service handles, and its own, to its bus:
 
-4. Remove `.withSerializer(new ClassSerializer())`. The default serializer reads the registered types. If the service uses several message libraries, generate the types in each; they're all registered when imported.
+   ```ts
+   import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
+   import { messageTypes } from './message-types.generated'
+
+   Bus.configure().withMessageTypes(orderMessageTypes, messageTypes)
+   ```
+
+   Add the command to your `prebuild` script, and `--check` to CI (see the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts)). Include the files that declare your workflow state if you want their Dates and classes restored too.
+
+4. Remove `.withSerializer(new ClassSerializer())`. The default serializer uses the message types the bus was given. If the service uses several message libraries, generate the types in each and pass them all to `withMessageTypes()`.
 
 The wire format doesn't change: Dates are ISO strings, Maps are objects and Sets are arrays, as with class-transformer, so messages already in your queues and workflow state already persisted are read the same way. Fields that class-transformer silently left as strings because they had no `@Type` are now restored too.
 
@@ -43,11 +52,16 @@ Two things behave differently:
 
 - **`JsonSerializer` no longer runs constructors.** It creates the received message, or the workflow state read by a persistence adapter, from its class' prototype and copies the parsed fields onto it. Field initializers no longer fill in fields missing from the payload, and constructors that need arguments no longer throw.
 - **Maps, Sets and bigints are now written as plain JSON** (an object of the entries, an array and a string) rather than being lost or throwing: `JSON.stringify` wrote a `Map` or `Set` as `{}` and threw on a `bigint`. Without generated message types they're read back as that plain JSON.
-- Once any generated message types are registered, `initialize()` throws `MessageTypesMissing` if a handled message or a workflow state has no entry, when the default serializer is used. A custom serializer can read the registry with `getMessageTypes()` from `@node-ts/bus-messages`.
+- **Every bus that receives messages needs `withMessageTypes()`.** Pass it the generated message types (see above). At `initialize()`, a bus with handlers or workflows throws `MessageTypesMissing`, naming each handled message and workflow state that has no entry, whichever serializer it uses. Send-only buses and buses with no handlers aren't checked, and messages handled by `withCustomHandler` are exempt. In a plain JavaScript project, write the entries by hand: `{ messages: { 'my-app/thing': 'Thing' }, types: { Thing: { fields: {} } } }`.
+- **Each bus is isolated from other buses in the same process.** A bus used inside another bus' handler no longer inherits the `correlationId` or sticky attributes of the message being handled, and its `failMessage()` and `returnMessage()` throw `FailMessageOutsideHandlingContext` / `ReturnMessageOutsideHandlingContext` instead of acting on the other bus' message. Use the handler context (`ctx.send`, `ctx.failMessage()`, ...) or the bus that's handling the message.
+- **`messageHandlingContext` is no longer exported.** Each bus has its own. To read the message being handled outside a handler, e.g. in read middleware or code a handler calls, use `bus.getHandlingContext()`. Handlers get the same details from their arguments and context.
+- **A transport instance can only be used by one bus.** It holds one queue and one connection, so `build()` throws `TransportAlreadyInUse` when another bus already uses it. Create a transport per bus, or use `withConcurrency()` for more consumers. Serializers and persistence can still be shared, and a shared persistence is disposed when the last bus that uses it is disposed.
+- **`Serializer.deserialize` and `toClass` take the bus' message types** as an optional last argument. A custom serializer can use them to restore nested types the way `JsonSerializer` does.
+- **Persistence adapters store and return plain JSON values.** `saveWorkflowState` gets workflow state already converted with `toPlain`, and `getWorkflowState` returns state as it was stored; the bus restores its classes with its own serializer and message types. A custom persistence should stop calling `coreDependencies.serializer`. `CoreDependencies` also gains `messageTypes`.
+- **`defaultLoggerFactory` is replaced by `createDefaultLoggerFactory()`**, which each bus calls for its own factory.
 - **Configure the bus before `build()`.** `asSendOnly` and every `with*` method on `BusConfiguration` now throw `BusAlreadyInitialized` when called after `build()`. `withConcurrency`, `withContainer`, `withRetryStrategy`, `withReceiver`, `withMessageReadMiddleware` and `withAdditionalInterruptSignal` used to be silently ignored at that point, so move any such calls before `build()`.
 - **Handlers get a `HandlerContext`.** Function handlers and `Handler.handle` are called with `(message, attributes, ctx)`, and class workflow handlers with `(message, workflowState, attributes, ctx)`. Use `ctx.send` and `ctx.publish` instead of capturing the bus or injecting it. Handlers that declare fewer parameters don't need to change, but code that calls a `FunctionHandler`, `Handler` or `CustomHandler` directly, such as a unit test, must now pass a context; a plain object with `correlationId`, `send`, `publish`, `failMessage` and `returnMessage` will do.
 - **`WorkflowHandler` parameters are `(message, workflowState, attributes)`.** The type used to say `(message, attributes, state)`, but the bus always called handlers in the new order. If you typed a handler against the old order, swap the parameters.
-- **`messageHandlingContext` typing is stricter.** It's typed by its own API (`get`, `set`, `run`, `isInHandlerContext`). Undocumented calls such as `getStore()` no longer type-check.
 - **Message classes need a static `NAME` equal to their `$name`.** The bus reads the name from `NAME` without constructing the class, so constructors with required arguments or side effects are no longer run at registration. A class with only `$name = 'my-app/thing'` no longer type checks with `handlerFor`, `startedBy`, `when` or a class handler's `messageType`, and throws `MessageNameMissing` at registration in plain JavaScript. Add `static NAME = 'my-app/thing'` and set `$name = Thing.NAME`. A subclass needs its own `NAME` too: one that inherits its parent's throws `MessageNameInherited`, since it would otherwise be routed as the parent. Message types are now typed as `MessageDeclaration` from `@node-ts/bus-messages` (a message class or a `defineCommand`/`defineEvent` definition) rather than `ClassConstructor`.
 - **`SystemMessageMissingResolver` is replaced by `MessageNameMissing`.** It's thrown when a message type has no static `NAME`, or is `undefined`, which usually means a circular import. A message from another system that has no `$name` is still handled with `withCustomHandler` and a resolver.
 - Warnings and errors from the default logger now go to stderr even without `DEBUG` set. Pass your own logger with `withLogger` to change that.
@@ -82,4 +96,5 @@ Two things behave differently:
 
 - **The package ships compiled JavaScript from `dist`** instead of its TypeScript source. If you added `@node-ts/bus-test` to jest's `transformIgnorePatterns` exceptions so ts-jest would compile it, you can remove that. Import `transportTests` and the test messages from the package root, since paths such as `@node-ts/bus-test/src/...` no longer exist.
 - **`@node-ts/bus-core` is a peer dependency.** Install it next to `@node-ts/bus-test` (your transport already needs it). `typescript` is no longer installed with the suite, so add it to your own dev dependencies if you relied on getting it through the suite.
+- **The suites pass `@node-ts/bus-test`'s own generated message types (exported as `messageTypes`) to their buses.** Other buses your tests build that receive messages need `withMessageTypes()` with their own fixtures' types, and each needs its own transport instance.
 - **The suite checks that messages survive a round trip with their types restored**: class instances several levels deep, Dates, Maps, Sets, bigints, optional and null fields, and attributes. It uses generated message types, so serialize and deserialize message bodies with `coreDependencies.messageSerializer` in your transport rather than calling `JSON.stringify`/`JSON.parse` on them yourself.

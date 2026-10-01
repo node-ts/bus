@@ -13,9 +13,9 @@ interface Store {
 }
 
 /**
- * An internal context that tracks calls within handlers to .returnMessage()
+ * An internal context that tracks calls within handlers to .returnMessage(). Each bus has its own.
  */
-class MessageLifecycleContext {
+export class MessageLifecycleContext {
   private readonly storage = new AsyncLocalStorage<Store>()
 
   /**
@@ -47,5 +47,3 @@ class MessageLifecycleContext {
     return this.storage.run({ message: context }, fn)
   }
 }
-
-export const messageLifecycleContext = new MessageLifecycleContext()

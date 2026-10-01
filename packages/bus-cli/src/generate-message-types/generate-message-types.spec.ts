@@ -34,6 +34,13 @@ describe('generateMessageTypes', () => {
       )
     })
 
+    it('should only export the message types, for the bus to be given', () => {
+      expect(sut.content).toContain(
+        'export const messageTypes: MessageTypes = {'
+      )
+      expect(sut.content).not.toContain('registerMessageTypes')
+    })
+
     it('should map every message and workflow state to a key for its declaration', () => {
       expect(sut.messageCount).toEqual(12)
       expect(sut.content).toContain(`  messages: {
@@ -323,7 +330,7 @@ describe('generateMessageTypes', () => {
     it('should warn that nothing imports the generated file', () => {
       expect(sut.warnings).toContainEqual(
         expect.stringContaining(
-          "Nothing in the project imports src/message-types.generated.ts, so its types won't be registered"
+          'Nothing in the project imports src/message-types.generated.ts, so no bus gets its types'
         )
       )
     })

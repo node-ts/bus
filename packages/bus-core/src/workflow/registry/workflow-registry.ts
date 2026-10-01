@@ -11,7 +11,7 @@ import {
   HandlerRegistry
 } from '../../handler'
 import { Logger } from '../../logger'
-import { messageHandlingContext } from '../../message-handling-context'
+import { MessageHandlingContext } from '../../message-handling-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { WorkflowAlreadyInitialized } from '../error'
@@ -35,6 +35,12 @@ const workflowLookup: MessageWorkflowMapping = {
 }
 
 /**
+ * How many buses use each persistence instance, so a persistence shared by several buses is only disposed by the
+ * last of them. This holds no message or workflow state, and drops persistences that are garbage collected.
+ */
+const PERSISTENCE_USERS = new WeakMap<Persistence, number>()
+
+/**
  * The central workflow registry that holds all workflows managed by the application. This includes
  *   - the list of workflows
  *   - what messages start the workflow
@@ -48,12 +54,29 @@ export class WorkflowRegistry {
   private isInitializing = false
   private logger: Logger
   private persistence: Persistence
+  private coreDependencies: CoreDependencies
+  private messageHandlingContext: MessageHandlingContext
 
-  prepare(coreDependencies: CoreDependencies, persistence: Persistence): void {
+  /**
+   * @param coreDependencies the dependencies of the bus the registry belongs to
+   * @param persistence where workflow state is stored, which may be shared with other buses
+   * @param messageHandlingContext the handling context of the bus the registry belongs to
+   */
+  prepare(
+    coreDependencies: CoreDependencies,
+    persistence: Persistence,
+    messageHandlingContext: MessageHandlingContext
+  ): void {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:workflow-registry'
     )
+    this.coreDependencies = coreDependencies
     this.persistence = persistence
+    this.messageHandlingContext = messageHandlingContext
+    PERSISTENCE_USERS.set(
+      persistence,
+      (PERSISTENCE_USERS.get(persistence) ?? 0) + 1
+    )
   }
 
   register(workflow: ClassConstructor<Workflow<WorkflowState>>): void {
@@ -174,6 +197,15 @@ export class WorkflowRegistry {
     }
 
     this.logger.debug('Disposing workflow registry')
+    const remainingUsers = (PERSISTENCE_USERS.get(this.persistence) ?? 1) - 1
+    PERSISTENCE_USERS.set(this.persistence, remainingUsers)
+    if (remainingUsers > 0) {
+      this.logger.debug(
+        'Persistence is still used by another bus, so it will not be disposed',
+        { remainingUsers }
+      )
+      return
+    }
     try {
       if (this.persistence.dispose) {
         await this.persistence.dispose!()
@@ -210,7 +242,7 @@ export class WorkflowRegistry {
             immutableWorkflowState
           )
           // Extend the current message handling context, and augment with workflow-specific context data
-          await messageHandlingContext.run(
+          await this.messageHandlingContext.run(
             workflowContext,
             async () => {
               await this.dispatchMessageToWorkflow(
@@ -252,7 +284,7 @@ export class WorkflowRegistry {
             msg: message,
             workflow: workflowCtor
           })
-          const workflowState = await this.persistence.getWorkflowState<
+          const storedWorkflowState = await this.persistence.getWorkflowState<
             WorkflowState,
             Message
           >(
@@ -261,6 +293,9 @@ export class WorkflowRegistry {
             message,
             attributes,
             false
+          )
+          const workflowState = storedWorkflowState.map(state =>
+            this.toWorkflowState(state, mapper.workflowStateCtor!)
           )
 
           if (!workflowState.length) {
@@ -277,7 +312,7 @@ export class WorkflowRegistry {
             const workflowContext = this.buildWorkflowHandlingContext(
               immutableWorkflowState
             )
-            await messageHandlingContext.run(
+            await this.messageHandlingContext.run(
               workflowContext,
               async () => {
                 await this.dispatchMessageToWorkflow(
@@ -336,7 +371,7 @@ export class WorkflowRegistry {
     this.logger.debug('Starting new workflow handling context', {
       workflowState
     })
-    const handlingContext = messageHandlingContext.get()!
+    const handlingContext = this.messageHandlingContext.get()!
     // Copy only what changes. A deep clone would throw on a transport `raw` message that can't be cloned.
     return {
       ...handlingContext,
@@ -436,9 +471,27 @@ export class WorkflowRegistry {
     }
   }
 
+  /**
+   * Restores workflow state read from the persistence with this bus' serializer and message types, so a
+   * persistence shared with other buses doesn't need either
+   */
+  private toWorkflowState(
+    storedWorkflowState: WorkflowState,
+    workflowStateConstructor: ClassConstructor<WorkflowState>
+  ): WorkflowState {
+    return this.coreDependencies.serializer.toClass(
+      storedWorkflowState,
+      workflowStateConstructor,
+      this.coreDependencies.messageTypes
+    )
+  }
+
   private async persist(data: WorkflowState) {
     try {
-      await this.persistence.saveWorkflowState(data)
+      // The persistence stores plain JSON values, so it doesn't need this bus' serializer
+      await this.persistence.saveWorkflowState(
+        this.coreDependencies.serializer.toPlain(data) as WorkflowState
+      )
       this.logger.debug('Workflow state saved', { data })
     } catch (err) {
       this.logger.error('Error persisting workflow state', { err })

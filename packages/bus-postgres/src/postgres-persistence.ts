@@ -35,7 +35,6 @@ interface WorkflowTable {
 }
 
 export class PostgresPersistence implements Persistence {
-  private coreDependencies: CoreDependencies
   private logger: Logger
 
   constructor(
@@ -44,7 +43,6 @@ export class PostgresPersistence implements Persistence {
   ) {}
 
   prepare(coreDependencies: CoreDependencies): void {
-    this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-persistence:postgres-persistence'
     )
@@ -127,15 +125,10 @@ export class PostgresPersistence implements Persistence {
       { [WORKFLOW_DATA_FIELD_NAME]: WorkflowStateType | undefined }
     ]
 
+    // The bus restores the classes of the state with its own serializer and message types
     return rows
       .map(row => row[WORKFLOW_DATA_FIELD_NAME])
       .filter(workflowState => workflowState !== undefined)
-      .map(workflowState =>
-        this.coreDependencies.serializer.toClass(
-          workflowState!,
-          workflowStateConstructor
-        )
-      )
   }
 
   async saveWorkflowState<WorkflowStateType extends WorkflowState>(
@@ -153,7 +146,7 @@ export class PostgresPersistence implements Persistence {
     const oldVersion = workflowState.$version
     const newVersion = oldVersion + 1
     const plainWorkflowState = {
-      ...this.coreDependencies.serializer.toPlain(workflowState),
+      ...workflowState,
       $version: newVersion
     }
 
@@ -272,11 +265,7 @@ export class PostgresPersistence implements Persistence {
           $2,
           $3
         );`,
-        [
-          workflowId,
-          newVersion,
-          this.coreDependencies.serializer.serialize(plainWorkflowState)
-        ]
+        [workflowId, newVersion, JSON.stringify(plainWorkflowState)]
       )
     } else {
       this.logger.debug('Updating existing workflow state', {
@@ -297,12 +286,7 @@ export class PostgresPersistence implements Persistence {
         where
           id = $3
           and version = $4;`,
-        [
-          newVersion,
-          this.coreDependencies.serializer.serialize(plainWorkflowState),
-          workflowId,
-          oldVersion
-        ]
+        [newVersion, JSON.stringify(plainWorkflowState), workflowId, oldVersion]
       )
 
       if (result.rowCount === 0) {

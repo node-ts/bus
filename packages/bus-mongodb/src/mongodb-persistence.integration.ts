@@ -10,7 +10,12 @@ import { workflowStateRoundTripTests } from '@node-ts/bus-test'
 import { Collection, Db, Document, MongoClient } from 'mongodb'
 import { randomUUID } from 'node:crypto'
 import { Mock } from 'typemoq'
-import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
+import {
+  messageTypes,
+  TestCommand,
+  TestWorkflow,
+  TestWorkflowState
+} from '../test'
 import { WorkflowStateNotFound } from './error'
 import { MongodbConfiguration } from './mongodb-configuration'
 import { MongodbPersistence } from './mongodb-persistence'
@@ -69,6 +74,7 @@ describe('MongodbPersistence', () => {
     collection = database.collection('testworkflowstate') as Collection
     sut = new MongodbPersistence(configuration)
     bus = Bus.configure()
+      .withMessageTypes(messageTypes)
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)

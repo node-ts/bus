@@ -1,6 +1,7 @@
 import { Mock, Times } from 'typemoq'
 import { ReturnMessageOutsideHandlingContext } from '../error'
 import { handlerFor } from '../handler'
+import { testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { sleep } from '../util'
 import { Bus } from './bus'
@@ -13,6 +14,7 @@ describe('BusInstance - Return Message', () => {
 
   beforeAll(async () => {
     bus = Bus.configure()
+      .withMessageTypes(testMessageTypes)
       .withHandler(
         handlerFor(TestCommand, async (_: TestCommand) => {
           invocationCount++

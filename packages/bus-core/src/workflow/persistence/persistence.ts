@@ -4,14 +4,19 @@ import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState } from '../workflow-state'
 
 /**
- * Infrastructure that provides the ability to persist workflow state for long running processes
+ * Infrastructure that provides the ability to persist workflow state for long running processes.
+ *
+ * Workflow state is passed to and returned from the persistence as plain JSON values (Dates as ISO strings, Maps
+ * as objects, Sets as arrays and bigints as strings). The bus converts it to and from its classes with its own
+ * serializer and message types, so one persistence instance can be shared by several buses. A shared persistence
+ * is prepared and initialized by each bus, and only disposed by the last bus that uses it.
  */
 export interface Persistence {
   /**
    * An optional function that is called before startup that will provide core dependencies
    * to the persistence. This can be used to fetch loggers etc that are used
-   * in initialization steps
-   * @param coreDependencies
+   * in initialization steps. A persistence shared by several buses is prepared by each of them.
+   * @param coreDependencies the dependencies of the bus that's preparing the persistence
    */
   prepare(coreDependencies: CoreDependencies): void
 
@@ -43,6 +48,8 @@ export interface Persistence {
    * @param messageMap How the message is mapped to workflow state models
    * @param message The message to map to workflow state
    * @param includeCompleted If completed workflow state items should also be returned. False by default
+   * @returns the matching workflow state as it was saved. The bus restores its classes, so it doesn't need to be
+   * converted.
    */
   getWorkflowState<
     WorkflowStateType extends WorkflowState,
@@ -59,6 +66,7 @@ export interface Persistence {
    * Saves a new workflow state model or updates an existing one. Persistence implementations should take care
    * to observe the change in `$version` of the workflow state model when persisting to ensure race conditions
    * don't occur.
+   * @param workflowState the workflow state as plain JSON values, ready to store as it is
    */
   saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType

@@ -10,7 +10,12 @@ import { workflowStateRoundTripTests } from '@node-ts/bus-test'
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { Mock } from 'typemoq'
-import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
+import {
+  messageTypes,
+  TestCommand,
+  TestWorkflow,
+  TestWorkflowState
+} from '../test'
 import { PostgresConfiguration } from './postgres-configuration'
 import { PostgresPersistence } from './postgres-persistence'
 
@@ -37,6 +42,7 @@ describe('PostgresPersistence', () => {
     )
     sut = new PostgresPersistence(configuration, postgres)
     bus = Bus.configure()
+      .withMessageTypes(messageTypes)
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
@@ -170,6 +176,7 @@ describe('PostgresPersistence', () => {
         quotedPool
       )
       quotedBus = Bus.configure()
+        .withMessageTypes(messageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withPersistence(quotedSut)
         .withWorkflow(TestWorkflow)
@@ -242,6 +249,7 @@ describe('PostgresPersistence', () => {
         quotedPool
       )
       quotedBus = Bus.configure()
+        .withMessageTypes(messageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withPersistence(quotedSut)
         .withWorkflow(TestWorkflow)

@@ -66,8 +66,8 @@ const importPath = (
  * @param model the message types to write
  * @param outFile the absolute path the file is written to, which imports are relative to
  * @param importExtension how relative imports end, which depends on the project's module resolution
- * @param source identifies the generated file in the registry, so reloading it replaces its types
- * @returns the TypeScript source of the generated file. It registers the types when it's imported.
+ * @param source identifies the generated file, so an error about conflicting message types can name it
+ * @returns the TypeScript source of the generated file, which exports the types as `messageTypes`
  */
 export const writeMessageTypes = (
   model: MessageTypesModel,
@@ -99,8 +99,7 @@ export const writeMessageTypes = (
 
   const lines = [
     GENERATED_HEADER,
-    "import type { MessageTypes } from '@node-ts/bus-messages'",
-    "import { registerMessageTypes } from '@node-ts/bus-messages'"
+    "import type { MessageTypes } from '@node-ts/bus-messages'"
   ]
   for (const path of [...importsByPath.keys()].sort()) {
     const specifiers = importsByPath.get(path)!.sort()
@@ -109,6 +108,7 @@ export const writeMessageTypes = (
 
   lines.push(
     '',
+    '// Pass to the bus with Bus.configure().withMessageTypes(messageTypes)',
     'export const messageTypes: MessageTypes = {',
     `  source: ${quote(source)},`,
     '  messages: {'
@@ -137,13 +137,6 @@ export const writeMessageTypes = (
     }
     lines.push(typeIndex < model.types.length - 1 ? '    },' : '    }')
   })
-  lines.push(
-    '  }',
-    '}',
-    '',
-    '// Registers the types with the bus as soon as this file is imported',
-    'registerMessageTypes(messageTypes)',
-    ''
-  )
+  lines.push('  }', '}', '')
   return lines.join('\n')
 }

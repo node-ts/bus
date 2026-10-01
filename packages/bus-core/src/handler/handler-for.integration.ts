@@ -1,16 +1,11 @@
-import { MessageAttributes, registerMessageTypes } from '@node-ts/bus-messages'
+import { MessageAttributes, MessageTypes } from '@node-ts/bus-messages'
 import { EventEmitter } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
 import { MessageSerializer, MessageTypesMissing } from '../serialization'
 import { Bus, BusInstance } from '../service-bus'
-import {
-  HandleChecker,
-  resetMessageTypes,
-  TestDefinedCommand,
-  TestDefinedEvent
-} from '../test'
+import { HandleChecker, TestDefinedCommand, TestDefinedEvent } from '../test'
 import { TransportMessage } from '../transport'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { handlerFor } from './handler-for'
@@ -47,28 +42,25 @@ class JsonReceiver implements Receiver<string, TransportMessage<string>> {
   }
 }
 
-const registerTestMessageTypes = () =>
-  registerMessageTypes({
-    messages: {
-      [TestDefinedCommand.NAME]: 'TestDefinedCommand',
-      [TestDefinedEvent.NAME]: 'TestDefinedEvent',
-      [TestDefinedMessageWorkflowState.NAME]: 'TestDefinedMessageWorkflowState',
-      '@node-ts/bus-core/test-interface-message': 'TestInterfaceMessage'
+const testMessageTypes: MessageTypes = {
+  messages: {
+    [TestDefinedCommand.NAME]: 'TestDefinedCommand',
+    [TestDefinedEvent.NAME]: 'TestDefinedEvent',
+    [TestDefinedMessageWorkflowState.NAME]: 'TestDefinedMessageWorkflowState',
+    '@node-ts/bus-core/test-interface-message': 'TestInterfaceMessage'
+  },
+  types: {
+    TestDefinedCommand: { fields: { placedAt: 'Date' } },
+    TestDefinedEvent: { fields: {} },
+    TestDefinedMessageWorkflowState: {
+      class: TestDefinedMessageWorkflowState,
+      fields: {}
     },
-    types: {
-      TestDefinedCommand: { fields: { placedAt: 'Date' } },
-      TestDefinedEvent: { fields: {} },
-      TestDefinedMessageWorkflowState: {
-        class: TestDefinedMessageWorkflowState,
-        fields: {}
-      },
-      TestInterfaceMessage: { fields: { uploadedAt: 'Date' } }
-    }
-  })
+    TestInterfaceMessage: { fields: { uploadedAt: 'Date' } }
+  }
+}
 
 describe('handlerFor', () => {
-  afterAll(() => resetMessageTypes())
-
   describe('when handling messages declared with defineCommand and defineEvent', () => {
     const events = new EventEmitter()
     const handleChecker = Mock.ofType<HandleChecker>()
@@ -111,10 +103,9 @@ describe('handlerFor', () => {
     }
 
     beforeAll(async () => {
-      resetMessageTypes()
-      registerTestMessageTypes()
       bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes(testMessageTypes)
         .withHandler(
           handlerFor(TestDefinedCommand, (command, attributes) => {
             handleChecker.object.check(command, attributes)
@@ -179,10 +170,9 @@ describe('handlerFor', () => {
     let bus: BusInstance
 
     beforeAll(async () => {
-      resetMessageTypes()
-      registerTestMessageTypes()
       bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes(testMessageTypes)
         .withReceiver(new JsonReceiver())
         .withHandler(
           handlerFor(TestDefinedCommand, command => {
@@ -236,13 +226,12 @@ describe('handlerFor', () => {
     let initializeError: unknown
 
     beforeAll(async () => {
-      resetMessageTypes()
-      registerMessageTypes({
-        messages: { other: 'Other' },
-        types: { Other: { fields: {} } }
-      })
       bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes({
+          messages: { other: 'Other' },
+          types: { Other: { fields: {} } }
+        })
         .withHandler(handlerFor(TestDefinedCommand, () => undefined))
         .build()
       initializeError = await bus.initialize().then(

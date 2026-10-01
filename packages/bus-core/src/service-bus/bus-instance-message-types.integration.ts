@@ -1,9 +1,9 @@
-import { MessageTypes, registerMessageTypes } from '@node-ts/bus-messages'
+import { MessageTypes, MessageTypesConflict } from '@node-ts/bus-messages'
 import { Mock } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { MessageTypesMissing, Serializer } from '../serialization'
-import { resetMessageTypes, TestCommand, TestEvent } from '../test'
+import { TestCommand, TestEvent } from '../test'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
@@ -38,8 +38,28 @@ const configure = () =>
 
 const entry = { fields: {} }
 
+const libraryA: MessageTypes = {
+  source: 'library-a',
+  messages: { [TestCommand.NAME]: 'TestCommand' },
+  types: { TestCommand: entry }
+}
+
+const libraryB: MessageTypes = {
+  source: 'library-b',
+  messages: {
+    [TestEvent.NAME]: 'TestEvent',
+    [TestMessageTypesWorkflowState.NAME]: 'TestMessageTypesWorkflowState'
+  },
+  types: { TestEvent: entry, TestMessageTypesWorkflowState: entry }
+}
+
+const onlyTestEvent: MessageTypes = {
+  messages: { [TestEvent.NAME]: 'TestEvent' },
+  types: { TestEvent: entry }
+}
+
 /**
- * A serializer that doesn't use the registered message types
+ * A serializer that doesn't use message types
  */
 const customSerializer: Serializer = {
   serialize: obj => JSON.stringify(obj),
@@ -50,15 +70,12 @@ const customSerializer: Serializer = {
 }
 
 /**
- * Registers only the given message types, then initializes a bus
+ * Builds and initializes a bus
  * @returns the bus, and what initialize() threw
  */
-const initializeWith = async (
-  messageTypes: MessageTypes[],
-  configuration = configure()
+const initialize = async (
+  configuration: ReturnType<typeof configure>
 ): Promise<{ bus: BusInstance; error: unknown }> => {
-  resetMessageTypes()
-  messageTypes.forEach(registerMessageTypes)
   const bus = configuration.build()
   const error = await bus.initialize().then(
     () => undefined,
@@ -68,31 +85,32 @@ const initializeWith = async (
 }
 
 describe('BusInstance', () => {
-  afterAll(() => resetMessageTypes())
-
-  describe('when initializing with message types registered', () => {
+  describe('when initializing with message types', () => {
     describe('with an entry for every handled message and workflow state', () => {
       let bus: BusInstance
       let initializeError: unknown
 
       beforeAll(async () => {
-        ;({ bus, error: initializeError } = await initializeWith([
-          {
-            source: 'library-a',
-            messages: { [TestCommand.NAME]: 'TestCommand' },
-            types: { TestCommand: entry }
-          },
-          // A second library, registered by its own generated file
-          {
-            source: 'library-b',
-            messages: {
-              [TestEvent.NAME]: 'TestEvent',
-              [TestMessageTypesWorkflowState.NAME]:
-                'TestMessageTypesWorkflowState'
-            },
-            types: { TestEvent: entry, TestMessageTypesWorkflowState: entry }
-          }
-        ]))
+        ;({ bus, error: initializeError } = await initialize(
+          configure().withMessageTypes(libraryA, libraryB)
+        ))
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should initialize', () => {
+        expect(initializeError).toBeUndefined()
+      })
+    })
+
+    describe('with the entries passed over several calls', () => {
+      let bus: BusInstance
+      let initializeError: unknown
+
+      beforeAll(async () => {
+        ;({ bus, error: initializeError } = await initialize(
+          configure().withMessageTypes(libraryA).withMessageTypes(libraryB)
+        ))
       })
 
       afterAll(async () => bus.dispose())
@@ -107,12 +125,9 @@ describe('BusInstance', () => {
       let initializeError: unknown
 
       beforeAll(async () => {
-        ;({ bus, error: initializeError } = await initializeWith([
-          {
-            messages: { [TestEvent.NAME]: 'TestEvent' },
-            types: { TestEvent: entry }
-          }
-        ]))
+        ;({ bus, error: initializeError } = await initialize(
+          configure().withMessageTypes(onlyTestEvent)
+        ))
       })
 
       afterAll(async () => bus.dispose())
@@ -125,9 +140,9 @@ describe('BusInstance', () => {
         ])
       })
 
-      it('should say how to register them', () => {
+      it('should say how to pass them to the bus', () => {
         expect((initializeError as MessageTypesMissing).help).toContain(
-          "import './message-types.generated'"
+          '.withMessageTypes(messageTypes)'
         )
       })
     })
@@ -137,37 +152,100 @@ describe('BusInstance', () => {
       let initializeError: unknown
 
       beforeAll(async () => {
-        ;({ bus, error: initializeError } = await initializeWith(
-          [
-            {
-              messages: { [TestEvent.NAME]: 'TestEvent' },
-              types: { TestEvent: entry }
-            }
-          ],
-          configure().withSerializer(customSerializer)
+        ;({ bus, error: initializeError } = await initialize(
+          configure()
+            .withSerializer(customSerializer)
+            .withMessageTypes(onlyTestEvent)
         ))
       })
 
       afterAll(async () => bus.dispose())
 
-      it('should not check the registered message types', () => {
+      it('should still check the message types', () => {
+        expect(initializeError).toBeInstanceOf(MessageTypesMissing)
+      })
+    })
+  })
+
+  describe('when initializing without message types', () => {
+    describe('with handlers and workflows', () => {
+      let bus: BusInstance
+      let initializeError: unknown
+
+      beforeAll(async () => {
+        ;({ bus, error: initializeError } = await initialize(configure()))
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should throw MessageTypesMissing listing every handled name', () => {
+        expect(initializeError).toBeInstanceOf(MessageTypesMissing)
+        expect((initializeError as MessageTypesMissing).missingNames).toEqual([
+          TestCommand.NAME,
+          TestEvent.NAME,
+          TestMessageTypesWorkflowState.NAME
+        ])
+      })
+    })
+
+    describe('with a send-only bus', () => {
+      let bus: BusInstance
+      let initializeError: unknown
+
+      beforeAll(async () => {
+        ;({ bus, error: initializeError } = await initialize(
+          configure().asSendOnly()
+        ))
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should not check for them', () => {
+        expect(initializeError).toBeUndefined()
+      })
+    })
+
+    describe('without handlers or workflows', () => {
+      let bus: BusInstance
+      let initializeError: unknown
+
+      beforeAll(async () => {
+        ;({ bus, error: initializeError } = await initialize(
+          Bus.configure().withLogger(() => Mock.ofType<Logger>().object)
+        ))
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should not check for them', () => {
         expect(initializeError).toBeUndefined()
       })
     })
   })
 
-  describe('when initializing without any message types registered', () => {
-    let bus: BusInstance
-    let initializeError: unknown
+  describe('when building with message types that map a $name to different types', () => {
+    let buildError: unknown
 
-    beforeAll(async () => {
-      ;({ bus, error: initializeError } = await initializeWith([]))
+    beforeAll(() => {
+      try {
+        configure()
+          .withMessageTypes(libraryA, {
+            source: 'library-c',
+            messages: { [TestCommand.NAME]: 'OtherCommand' },
+            types: { OtherCommand: entry }
+          })
+          .build()
+      } catch (error) {
+        buildError = error
+      }
     })
 
-    afterAll(async () => bus.dispose())
-
-    it('should not check for them', () => {
-      expect(initializeError).toBeUndefined()
+    it('should throw MessageTypesConflict naming both libraries', () => {
+      expect(buildError).toBeInstanceOf(MessageTypesConflict)
+      expect((buildError as MessageTypesConflict).sources).toEqual([
+        'library-a',
+        'library-c'
+      ])
     })
   })
 })

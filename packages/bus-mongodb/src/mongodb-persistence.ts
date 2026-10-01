@@ -18,7 +18,6 @@ import { MongodbConfiguration } from './mongodb-configuration'
 const WORKFLOW_DATA_FIELD_NAME = 'data'
 
 export class MongodbPersistence implements Persistence {
-  private coreDependencies: CoreDependencies
   private logger: Logger
   private database: Db
   constructor(
@@ -27,7 +26,6 @@ export class MongodbPersistence implements Persistence {
   ) {}
 
   prepare(coreDependencies: CoreDependencies): void {
-    this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-persistence:mongodb-persistence'
     )
@@ -93,14 +91,10 @@ export class MongodbPersistence implements Persistence {
     })
 
     const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
+    // The bus restores the classes of the state with its own serializer and message types
     return rows
       .filter(row => row !== undefined)
-      .map(row =>
-        this.coreDependencies.serializer.toClass(
-          decodeKeys(row),
-          workflowStateConstructor
-        )
-      )
+      .map(row => decodeKeys(row) as WorkflowStateType)
   }
 
   async saveWorkflowState<WorkflowStateType extends WorkflowState>(
@@ -116,7 +110,7 @@ export class MongodbPersistence implements Persistence {
     const newVersion = oldVersion + 1
 
     const plainWorkflowState = encodeKeys({
-      ...this.coreDependencies.serializer.toPlain(workflowState),
+      ...workflowState,
       $version: newVersion
     })
 

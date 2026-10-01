@@ -8,8 +8,8 @@ import { EventEmitter, once } from 'events'
 import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
-import { messageHandlingContext } from '../message-handling-context'
 import { Receiver } from '../receiver'
+import { messageTypesFor, testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
 import { InMemoryQueue, TransportMessage } from '../transport'
@@ -26,23 +26,11 @@ describe('BusInstance Outboxing', () => {
     const afterSendCallback = Mock.ofType<(command: Command) => void>()
 
     beforeAll(async () => {
-      bus = Bus.configure().build()
+      bus = Bus.configure().withMessageTypes(testMessageTypes).build()
       bus.afterSend.on(({ command }) => afterSendCallback.object(command))
 
       await bus.initialize()
-      await messageHandlingContext.run(
-        {
-          attributes: {
-            stickyAttributes: {
-              originatorIP: '127.0.0.1',
-              originatorClientUserId: 2
-            }
-          } as any
-        } as TransportMessage<unknown>,
-        async () => {
-          await bus.send(new TestCommand())
-        }
-      )
+      await bus.send(new TestCommand())
     })
 
     afterAll(async () => {
@@ -64,6 +52,7 @@ describe('BusInstance Outboxing', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withMessageReadMiddleware(async (message, next) => {
           if (message.domainMessage.$name === TestCommand.NAME) {
@@ -106,6 +95,7 @@ describe('BusInstance Outboxing', () => {
     beforeAll(async () => {
       const events = new EventEmitter()
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(
           new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
@@ -150,6 +140,7 @@ describe('BusInstance Outboxing', () => {
         lateSendCompleted = resolve
       })
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => logger.object)
         .withHandler(
           handlerFor(TestCommand, async () => {
@@ -202,6 +193,7 @@ describe('BusInstance Outboxing', () => {
         lateSendCompleted = resolve
       })
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => logger.object)
         .withTransport(
           new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
@@ -250,6 +242,7 @@ describe('BusInstance Outboxing', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => logger.object)
         .build()
       bus.afterSend.on(async () => {
@@ -319,13 +312,17 @@ describe('BusInstance Outboxing', () => {
 
       async step1(): Promise<Partial<UncloneableRawWorkflowState>> {
         workflowStickyAttributes =
-          messageHandlingContext.get().attributes.stickyAttributes
+          bus.getHandlingContext()!.attributes.stickyAttributes
         return {}
       }
     }
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor('UncloneableRawWorkflowState')
+        )
         .withLogger(() => Mock.ofType<Logger>().object)
         .withReceiver(new UncloneableRawReceiver())
         .withWorkflow(UncloneableRawWorkflow)
@@ -360,6 +357,7 @@ describe('BusInstance Outboxing', () => {
 
       // TestEvent has no handler, so the queue logs a discard for every publish
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withHandler(
           handlerFor(TestCommand, async () => {
@@ -404,6 +402,7 @@ describe('BusInstance Outboxing', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(inMemoryTransport)
         .withHandler(
           handlerFor(TestCommand, async () => {
@@ -472,6 +471,10 @@ describe('BusInstance Outboxing', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor('TestWorkflowState')
+        )
         .withTransport(inMemoryTransport)
         .withWorkflow(TestWorkflow)
         .withHandler(

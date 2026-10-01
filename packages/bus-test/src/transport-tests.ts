@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
 import {
   HandleChecker,
+  messageTypes,
   TestCommand,
   TestEvent,
   TestFailMessage,
@@ -51,10 +52,11 @@ export const transportTests = (
 
   describe('when the transport has been initialized', () => {
     beforeAll(async () => {
-      // The fixtures' generated message types register when ./helpers is imported. This checks the
-      // transport (de)serializes through the bus' serializer, so nested types survive the round trip
+      // With the fixtures' generated message types, this checks the transport (de)serializes through the
+      // bus' serializer, so nested types survive the round trip
       bus = roundTripReceiver
         .withHandlers(Bus.configure())
+        .withMessageTypes(messageTypes)
         .withTransport(transport)
         .withHandler(
           handlerFor(TestCommand, (message, attributes) => {

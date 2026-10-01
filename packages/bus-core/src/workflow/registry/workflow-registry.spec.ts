@@ -3,7 +3,9 @@ import { IMock, It, Mock, Times } from 'typemoq'
 import { ContainerAdapter } from '../../container'
 import { DefaultHandlerRegistry, Handler } from '../../handler'
 import { DebugLogger } from '../../logger'
+import { MessageHandlingContext } from '../../message-handling-context'
 import { Bus, BusInstance } from '../../service-bus'
+import { testMessageTypes } from '../../test'
 import { InMemoryQueue } from '../../transport'
 import { CoreDependencies, sleep } from '../../util'
 import { InMemoryPersistence } from '../persistence'
@@ -43,7 +45,8 @@ describe('WorkflowRegistry', () => {
         {
           loggerFactory: (name: string) => new DebugLogger(name)
         } as unknown as CoreDependencies,
-        persistence.object
+        persistence.object,
+        new MessageHandlingContext()
       )
     })
 
@@ -119,6 +122,7 @@ describe('WorkflowRegistry', () => {
         .returns(() => new TestWorkflow(bus, completionCallback.object))
 
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withWorkflow(TestWorkflow)
         .withHandler(TestFinalTaskHandler, RunTaskHandler)
         .withContainer(container.object)

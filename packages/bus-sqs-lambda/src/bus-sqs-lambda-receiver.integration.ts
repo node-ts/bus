@@ -22,6 +22,7 @@ import { Mock } from 'typemoq'
 import { BusSqsLambdaReceiver } from './bus-sqs-lambda-receiver'
 import { BusSqsLambdaReceiverConfiguration } from './bus-sqs-lambda-receiver-configuration'
 import {
+  messageTypes,
   TestCommand,
   TestCommandOutcome,
   toLambdaRecord,
@@ -164,6 +165,7 @@ const buildBus = async (
     sns
   )
   const bus: BusInstance = Bus.configure()
+    .withMessageTypes(messageTypes)
     .withTransport(transport)
     .withReceiver(new BusSqsLambdaReceiver(configuration))
     .withRetryStrategy(immediateRetryStrategy)

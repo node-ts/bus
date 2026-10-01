@@ -34,6 +34,7 @@ import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configurati
 import {
   closeConnections,
   getQueues,
+  messageTypes,
   TestCommand,
   TestRetryCommand
 } from './test'
@@ -53,7 +54,8 @@ describe('RabbitMqTransport', () => {
   let channel: Channel
   const messageSerializer = new MessageSerializer(
     new JsonSerializer(),
-    new DefaultHandlerRegistry()
+    new DefaultHandlerRegistry(),
+    { messages: {}, types: {} }
   )
 
   const systemMessageTopicIdentifier = TestSystemMessage.NAME
@@ -189,6 +191,7 @@ describe('RabbitMqTransport', () => {
         .catch(() => undefined)
 
       bus = Bus.configure()
+        .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => logger.object)
         .withConcurrency(2)
@@ -331,6 +334,7 @@ describe('RabbitMqTransport', () => {
 
       // A concurrency of 1 gives a prefetch of 1, so an unsettled poison message would block every message after it
       bus = Bus.configure()
+        .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withHandler(
@@ -449,6 +453,7 @@ describe('RabbitMqTransport', () => {
       }
 
       bus = Bus.configure()
+        .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withConcurrency(2)

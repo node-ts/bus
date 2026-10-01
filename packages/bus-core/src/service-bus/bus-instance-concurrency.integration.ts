@@ -1,5 +1,6 @@
 import { IMock, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
+import { testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
 import { InMemoryQueue } from '../transport'
@@ -36,6 +37,7 @@ describe('BusInstance - Concurrency', () => {
     callback = Mock.ofType<Callback>()
 
     bus = Bus.configure()
+      .withMessageTypes(testMessageTypes)
       .withTransport(queue)
       .withHandler(eventHandler)
       .withHandler(commandHandler)

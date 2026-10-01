@@ -1,5 +1,6 @@
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { Bus, BusInstance } from '../service-bus'
+import { testMessageTypes } from '../test'
 import { ClassConstructor, sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { InMemoryPersistence } from './persistence'
@@ -22,6 +23,7 @@ describe('Workflow', () => {
 
   beforeAll(async () => {
     bus = Bus.configure()
+      .withMessageTypes(testMessageTypes)
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get<T>(workflowType: ClassConstructor<T>) {

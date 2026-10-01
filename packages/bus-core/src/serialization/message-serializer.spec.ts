@@ -1,6 +1,6 @@
-import { Message, registerMessageTypes } from '@node-ts/bus-messages'
+import { Message, MessageTypes } from '@node-ts/bus-messages'
 import { DefaultHandlerRegistry } from '../handler'
-import { randomWords, resetMessageTypes } from '../test'
+import { randomWords } from '../test'
 import { ClassConstructor } from '../util'
 import { JsonSerializer } from './json-serializer'
 import { MessageSerializer } from './message-serializer'
@@ -41,7 +41,8 @@ describe('MessageSerializer', () => {
   const serializer = new ToxicSerializer()
   const messageSerializer = new MessageSerializer(
     serializer,
-    new DefaultHandlerRegistry()
+    new DefaultHandlerRegistry(),
+    { messages: {}, types: {} }
   )
 
   it('should use underlying serializer to serialize', () => {
@@ -58,7 +59,7 @@ describe('MessageSerializer', () => {
     expect(result.value).toBe(msg.value)
   })
 
-  describe('when deserializing a message with registered message types but no handler', () => {
+  describe('when deserializing a message in the message types but with no handler', () => {
     const UNHANDLED_NAME = '@node-ts/bus-core/test-unhandled-registered'
     const payload = JSON.stringify({
       $name: UNHANDLED_NAME,
@@ -66,15 +67,10 @@ describe('MessageSerializer', () => {
       at: '2020-01-01T00:00:00.000Z'
     })
 
-    beforeAll(() => {
-      resetMessageTypes()
-      registerMessageTypes({
-        messages: { [UNHANDLED_NAME]: 'Unhandled' },
-        types: { Unhandled: { fields: { at: 'Date' } } }
-      })
-    })
-
-    afterAll(() => resetMessageTypes())
+    const messageTypes: MessageTypes = {
+      messages: { [UNHANDLED_NAME]: 'Unhandled' },
+      types: { Unhandled: { fields: { at: 'Date' } } }
+    }
 
     describe('with the default serializer', () => {
       let result: { at: unknown }
@@ -82,7 +78,8 @@ describe('MessageSerializer', () => {
       beforeAll(() => {
         const sut = new MessageSerializer(
           new JsonSerializer(),
-          new DefaultHandlerRegistry()
+          new DefaultHandlerRegistry(),
+          messageTypes
         )
         result = sut.deserialize<Message & { at: unknown }>(payload)
       })
@@ -99,7 +96,8 @@ describe('MessageSerializer', () => {
       beforeAll(() => {
         const sut = new MessageSerializer(
           new ToxicSerializer(),
-          new DefaultHandlerRegistry()
+          new DefaultHandlerRegistry(),
+          messageTypes
         )
         result = sut.deserialize<Message & { at: unknown }>(payload)
       })

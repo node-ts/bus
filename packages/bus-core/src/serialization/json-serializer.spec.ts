@@ -1,17 +1,5 @@
-import { MessageTypes, registerMessageTypes } from '@node-ts/bus-messages'
-import { resetMessageTypes } from '../test'
+import { MessageTypes } from '@node-ts/bus-messages'
 import { JsonSerializer } from './json-serializer'
-
-/**
- * Creates a serializer with only the given message types registered
- */
-const createSut = (messageTypes?: MessageTypes): JsonSerializer => {
-  resetMessageTypes()
-  if (messageTypes) {
-    registerMessageTypes(messageTypes)
-  }
-  return new JsonSerializer()
-}
 
 class Point {
   x: number
@@ -100,7 +88,7 @@ describe('JsonSerializer', () => {
     let result: string
 
     beforeAll(() => {
-      sut = createSut()
+      sut = new JsonSerializer()
       result = sut.serialize(createShape())
     })
 
@@ -131,10 +119,14 @@ describe('JsonSerializer', () => {
       let result: Shape
 
       beforeAll(() => {
-        sut = createSut(messageTypes)
+        sut = new JsonSerializer()
         const serialized = JSON.parse(sut.serialize(createShape())) as object
         delete (serialized as Partial<Shape>).constructed
-        result = sut.deserialize(JSON.stringify(serialized), Shape)
+        result = sut.deserialize(
+          JSON.stringify(serialized),
+          Shape,
+          messageTypes
+        )
       })
 
       it('should create the top-level object from its class without running the constructor', () => {
@@ -179,7 +171,7 @@ describe('JsonSerializer', () => {
       let result: Shape
 
       beforeAll(() => {
-        sut = createSut()
+        sut = new JsonSerializer()
         result = sut.deserialize(sut.serialize(createShape()), Shape)
       })
 
@@ -198,8 +190,12 @@ describe('JsonSerializer', () => {
       let result: Shape
 
       beforeAll(() => {
-        sut = createSut(messageTypes)
-        result = sut.deserialize('{"$name":"shape","__proto__":{"x":1}}', Shape)
+        sut = new JsonSerializer()
+        result = sut.deserialize(
+          '{"$name":"shape","__proto__":{"x":1}}',
+          Shape,
+          messageTypes
+        )
       })
 
       it('should keep the class prototype', () => {
@@ -213,9 +209,9 @@ describe('JsonSerializer', () => {
     let result: Shape
 
     beforeAll(() => {
-      sut = createSut(messageTypes)
+      sut = new JsonSerializer()
       plain = sut.toPlain(createShape())
-      result = sut.toClass(plain, Shape)
+      result = sut.toClass(plain, Shape, messageTypes)
     })
 
     it('should convert to plain JSON values', () => {
@@ -236,8 +232,8 @@ describe('JsonSerializer', () => {
     let result: Shape
 
     beforeAll(() => {
-      sut = createSut(messageTypes)
-      result = sut.toClass({ $name: 'shape', createdAt }, Shape)
+      sut = new JsonSerializer()
+      result = sut.toClass({ $name: 'shape', createdAt }, Shape, messageTypes)
     })
 
     it('should keep the Date', () => {
@@ -249,7 +245,7 @@ describe('JsonSerializer', () => {
     let result: Shape
 
     beforeAll(() => {
-      sut = createSut(messageTypes)
+      sut = new JsonSerializer()
       result = sut.deserialize(
         JSON.stringify({
           $name: 'shape',
@@ -260,7 +256,8 @@ describe('JsonSerializer', () => {
           byName: ['not', 'an', 'object'],
           tags: 'not an array'
         }),
-        Shape
+        Shape,
+        messageTypes
       )
     })
 
@@ -292,7 +289,8 @@ describe('JsonSerializer', () => {
     }
 
     beforeAll(() => {
-      sut = createSut({
+      sut = new JsonSerializer()
+      const nodeTypes: MessageTypes = {
         messages: { node: 'Node' },
         types: {
           Node: {
@@ -300,7 +298,7 @@ describe('JsonSerializer', () => {
             fields: { at: 'Date', child: { type: 'Node' } }
           }
         }
-      })
+      }
       const serialized =
         '{"$name":"node","at":"2020-01-01T00:00:00.000Z","child":'.repeat(
           depth
@@ -308,7 +306,7 @@ describe('JsonSerializer', () => {
         'null' +
         '}'.repeat(depth)
       try {
-        result = sut.deserialize(serialized, Node)
+        result = sut.deserialize(serialized, Node, nodeTypes)
       } catch (caught) {
         error = caught
       }
@@ -328,8 +326,8 @@ describe('JsonSerializer', () => {
     let result: Point
 
     beforeAll(() => {
-      sut = createSut(messageTypes)
-      result = sut.toClass({ x: 1, label: 'from payload' }, Point)
+      sut = new JsonSerializer()
+      result = sut.toClass({ x: 1, label: 'from payload' }, Point, messageTypes)
     })
 
     it('should keep the payload value', () => {
@@ -341,26 +339,30 @@ describe('JsonSerializer', () => {
   // JSON can't represent a circular reference, so sending one fails rather than losing data
   describe('when serializing an object with a circular reference', () => {
     it('should throw a TypeError', () => {
-      sut = createSut()
+      sut = new JsonSerializer()
       const point = createPoint(1) as Point & { self?: Point }
       point.self = point
       expect(() => sut.serialize(point)).toThrow(TypeError)
     })
   })
 
-  describe('when message types are registered after the serializer is created', () => {
-    let result: Shape
+  describe('when one serializer reads with the message types of two buses', () => {
+    let withTypes: Shape
+    let withoutTypes: Shape
 
     beforeAll(() => {
-      sut = createSut()
-      registerMessageTypes(messageTypes)
-      result = sut.deserialize(sut.serialize(createShape()), Shape)
+      sut = new JsonSerializer()
+      const serialized = sut.serialize(createShape())
+      withTypes = sut.deserialize(serialized, Shape, messageTypes)
+      withoutTypes = sut.deserialize(serialized, Shape, {
+        messages: {},
+        types: {}
+      })
     })
 
-    it('should use them', () => {
-      expect(result.createdAt).toBeInstanceOf(Date)
+    it('should restore each with the message types it was given', () => {
+      expect(withTypes.createdAt).toBeInstanceOf(Date)
+      expect(withoutTypes.createdAt).toEqual('2020-01-01T00:00:00.000Z')
     })
   })
-
-  afterAll(() => resetMessageTypes())
 })

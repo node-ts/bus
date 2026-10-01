@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
 import { Handler, Workflow, WorkflowMapper, WorkflowState } from '../'
 import { Bus, BusInstance } from '../service-bus'
+import { testMessageTypes } from '../test'
 import { ClassConstructor, sleep } from '../util'
 import { InMemoryPersistence } from './persistence'
 import {
@@ -80,6 +81,7 @@ describe('Workflow Concurrency', () => {
 
   beforeAll(async () => {
     bus = Bus.configure()
+      .withMessageTypes(testMessageTypes)
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get<T>(ctor: ClassConstructor<T>) {

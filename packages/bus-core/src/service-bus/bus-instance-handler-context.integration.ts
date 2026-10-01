@@ -4,11 +4,13 @@ import { It, Mock, Times } from 'typemoq'
 import { BusSender, HandlerContext, handlerFor } from '../handler'
 import { Logger } from '../logger'
 import {
+  messageTypesFor,
   TestCommand,
   TestCommand2,
   TestCommandContextClassHandler,
   testCommandContextHandler,
-  TestEvent
+  TestEvent,
+  testMessageTypes
 } from '../test'
 import { InMemoryQueue } from '../transport'
 import { ClassConstructor } from '../util'
@@ -36,6 +38,7 @@ describe('BusInstance handler context', () => {
     beforeAll(async () => {
       const events = new EventEmitter()
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withHandler(testCommandContextHandler)
         .withHandler(
@@ -71,6 +74,7 @@ describe('BusInstance handler context', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(
           new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
@@ -107,6 +111,7 @@ describe('BusInstance handler context', () => {
     beforeAll(async () => {
       const events = new EventEmitter()
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withContainer({
           get: <T>(type: ClassConstructor<T>) => new type()
@@ -142,6 +147,7 @@ describe('BusInstance handler context', () => {
     beforeAll(async () => {
       const events = new EventEmitter()
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(queue)
         .withHandler(
@@ -217,6 +223,10 @@ describe('BusInstance handler context', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor(ContextWorkflowState)
+        )
         .withLogger(() => Mock.ofType<Logger>().object)
         .withWorkflow(ContextWorkflow)
         .build()

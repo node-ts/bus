@@ -30,8 +30,8 @@ const SOURCE_FILE = /\.[mc]?tsx?$/
 export const GENERATE_MESSAGE_TYPES_USAGE = `Usage: bus generate-message-types [options]
 
 Reads the messages and workflow state in a TypeScript project and generates a file that maps each
-$name to how its fields are restored from JSON. The file registers its types with the bus
-when it's imported, so export it from your package's entry.
+$name to how its fields are restored from JSON. Pass its messageTypes export to the bus with
+Bus.configure().withMessageTypes(messageTypes), and export it from a message library's entry.
 
 Options:
   -p, --project <path>  The project's tsconfig.json (default: tsconfig.json)

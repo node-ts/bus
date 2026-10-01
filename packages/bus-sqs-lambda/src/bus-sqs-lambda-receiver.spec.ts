@@ -61,7 +61,14 @@ class TestMessageSerializer extends MessageSerializer {
 
 describe('BusSqsLambdaReceiver', () => {
   const receiver = new BusSqsLambdaReceiver()
-  const serializer = new TestMessageSerializer(new JsonSerializer(), {} as any)
+  const serializer = new TestMessageSerializer(
+    new JsonSerializer(),
+    {} as any,
+    {
+      messages: {},
+      types: {}
+    }
+  )
 
   describe('when lambda receives a message with attributes', () => {
     let attributes: MessageAttributes

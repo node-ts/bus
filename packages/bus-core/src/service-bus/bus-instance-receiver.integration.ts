@@ -8,7 +8,13 @@ import {
   Receiver
 } from '../receiver'
 import { MessageSerializer } from '../serialization'
-import { HandleChecker, TestCommand, TestCommand2, TestEvent } from '../test'
+import {
+  HandleChecker,
+  TestCommand,
+  TestCommand2,
+  TestEvent,
+  testMessageTypes
+} from '../test'
 import { TestCommand3 } from '../test/test-command-3'
 import { InMemoryQueue, TransportMessage } from '../transport'
 import { Bus } from './bus'
@@ -73,6 +79,7 @@ const buildBus = async (
   queue: InMemoryQueue
 ): Promise<BusInstance> => {
   const bus: BusInstance = Bus.configure()
+    .withMessageTypes(testMessageTypes)
     .withReceiver(receiver)
     .withHandler(
       handlerFor(TestCommand, (command: TestCommand, attributes) =>
