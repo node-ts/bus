@@ -63,7 +63,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 
 ### Handlers
 
-- Function handlers via `handlerFor(MessageClass | definition, fn)`; class handlers implement `Handler` and require a `ContainerAdapter` (`withContainer`) to resolve them.
+- Function handlers via `handlerFor(MessageClass | definition, fn)`; class handlers implement `Handler` and are resolved from the `ContainerAdapter` (`withContainer`) when there is one, or constructed with `new` otherwise, like class workflows (`build()` throws `ContainerNotRegistered` for a constructor with arguments). `handlerFor<TMessage, TAttributes>` types the attributes; the third generic keeps the handler's own type so it can be called directly in tests.
 - Handlers are called with `(message, attributes, ctx)` and class workflow handlers with `(message, state, attributes, ctx)`. `ctx` is a `HandlerContext` (`handler/handler-context.ts`) that `BusInstance.createHandlerContext` builds per dispatch; its methods delegate to the bus, so sends use the handler's outbox and the bus' handling context. Extend this interface rather than adding new ways to reach the bus.
 - `DefaultHandlerRegistry` maps message `$name` to handlers; custom handlers (`withCustomHandler`) take a resolver for external/system messages that don't follow the `Message` shape, optionally with a topic identifier the transport subscribes to.
 

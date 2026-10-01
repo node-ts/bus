@@ -1,18 +1,23 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { EventEmitter } from 'node:events'
 import { Mock, Times } from 'typemoq'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
 import { Handler, HandlerDispatchRejected } from '../handler'
+import { Logger } from '../logger'
 import { Bus, BusInstance, OnError } from '../service-bus'
 import { TestEvent, TestEvent2, testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { MessageLogger } from '../test/test-event-handler'
 import { ClassConstructor, Listener, sleep } from '../util'
 
+// Lets a test see messages handled by UnregisteredClassHandler when the bus constructs it with new
+let handled: ((message: TestEvent2) => void) | undefined
+
 class UnregisteredClassHandler implements Handler<TestEvent2> {
   messageType = TestEvent2
 
-  async handle(_: TestEvent2): Promise<void> {
-    // ...
+  async handle(message: TestEvent2): Promise<void> {
+    handled?.(message)
   }
 }
 
@@ -30,6 +35,23 @@ const waitForError = (bus: BusInstance, onError: (error: Error) => void) =>
     }
     bus.onError.on(callback)
   })
+
+const constructorError = new Error('Missing configuration')
+
+class ThrowingClassHandler implements Handler<TestEvent2> {
+  // A getter, so registering the handler reads it without running the constructor
+  get messageType() {
+    return TestEvent2
+  }
+
+  constructor() {
+    throw constructorError
+  }
+
+  async handle(): Promise<void> {
+    // Never reached, the constructor throws
+  }
+}
 
 describe('ContainerAdapter', () => {
   const event = new TestEvent()
@@ -90,12 +112,88 @@ describe('ContainerAdapter', () => {
           expect(classHandlerNotResolved.reason).toEqual(
             'Container failed to resolve an instance.'
           )
+          expect(classHandlerNotResolved.classHandlerName).toEqual(
+            'UnregisteredClassHandler'
+          )
+          expect(classHandlerNotResolved.message).toEqual(
+            'Unable to resolve class handler UnregisteredClassHandler from the container: Container failed to resolve an instance.'
+          )
+          expect(baseError.message).toContain(classHandlerNotResolved.message)
+          expect(baseError.cause).toBe(classHandlerNotResolved)
         })
         await bus.publish(new TestEvent2())
         await onError
       })
     })
   })
+  describe('when the adapter throws', () => {
+    const containerError = new Error('No provider for UnregisteredClassHandler')
+    let error: Error
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withContainer({
+          get() {
+            throw containerError
+          }
+        })
+        .withHandler(UnregisteredClassHandler)
+        .build()
+      await bus.initialize()
+      await bus.start()
+      const onError = waitForError(bus, e => {
+        error = e
+      })
+      await bus.publish(new TestEvent2())
+      await onError
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should throw ClassHandlerNotResolved with the container error as its cause', () => {
+      const classHandlerNotResolved = (error as HandlerDispatchRejected)
+        .rejections[0] as ClassHandlerNotResolved
+      expect(classHandlerNotResolved).toBeInstanceOf(ClassHandlerNotResolved)
+      expect(classHandlerNotResolved.reason).toEqual(containerError.message)
+      expect(classHandlerNotResolved.cause).toBe(containerError)
+    })
+  })
+
+  describe('when the adapter throws a value that is not an Error', () => {
+    let error: Error
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withContainer({
+          get() {
+            throw 'boom-string'
+          }
+        })
+        .withHandler(UnregisteredClassHandler)
+        .build()
+      await bus.initialize()
+      await bus.start()
+      const onError = waitForError(bus, e => {
+        error = e
+      })
+      await bus.publish(new TestEvent2())
+      await onError
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should keep the thrown value as the reason', () => {
+      const classHandlerNotResolved = (error as HandlerDispatchRejected)
+        .rejections[0] as ClassHandlerNotResolved
+      expect(classHandlerNotResolved.reason).toEqual('boom-string')
+      expect(classHandlerNotResolved.message).toContain('boom-string')
+    })
+  })
+
   describe('when an async adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
@@ -220,21 +318,96 @@ describe('ContainerAdapter', () => {
       })
     })
 
-    describe('and a handler is registered', () => {
-      it('should throw a ContainerNotRegistered error', async () => {
-        let bus: BusInstance | undefined = undefined
+    describe('and a class handler is registered', () => {
+      const events = new EventEmitter()
+      const received: TestEvent2[] = []
+
+      beforeAll(async () => {
+        bus = Bus.configure()
+          .withMessageTypes(testMessageTypes)
+          .withHandler(UnregisteredClassHandler)
+          .build()
+        await bus.initialize()
+        await bus.start()
+        handled = (message: TestEvent2) => {
+          received.push(message)
+          events.emit('received')
+        }
+        const handledEvent = new Promise(resolve =>
+          events.once('received', resolve)
+        )
+        await bus.publish(new TestEvent2())
+        await handledEvent
+      })
+
+      afterAll(async () => {
+        handled = undefined
+        await bus.dispose()
+      })
+
+      it('should construct the handler with new and dispatch to it', () => {
+        expect(received).toHaveLength(1)
+      })
+    })
+
+    describe('and a class handler with constructor arguments is registered', () => {
+      let error: unknown
+
+      beforeAll(() => {
         try {
-          bus = Bus.configure()
+          Bus.configure()
             .withMessageTypes(testMessageTypes)
             .withHandler(TestEventClassHandler)
             .build()
-          await bus.initialize()
-          fail('Bus initialization should throw a ContainerNotRegistered error')
-        } catch (error) {
-          expect(error).toBeInstanceOf(ContainerNotRegistered)
-        } finally {
-          await bus?.dispose()
+        } catch (e) {
+          error = e
         }
+      })
+
+      it('should throw ContainerNotRegistered naming the class from build', () => {
+        expect(error).toBeInstanceOf(ContainerNotRegistered)
+        const containerNotRegistered = error as ContainerNotRegistered
+        expect(containerNotRegistered.classHandlerName).toEqual(
+          'TestEventClassHandler'
+        )
+        expect(containerNotRegistered.message).toContain(
+          'TestEventClassHandler'
+        )
+        expect(containerNotRegistered.help).toContain('withContainer')
+      })
+    })
+
+    describe('and the class handler constructor throws', () => {
+      let error: Error
+
+      beforeAll(async () => {
+        bus = Bus.configure()
+          .withMessageTypes(testMessageTypes)
+          .withLogger(() => Mock.ofType<Logger>().object)
+          .withHandler(ThrowingClassHandler)
+          .build()
+        await bus.initialize()
+        await bus.start()
+        const onError = waitForError(bus, e => {
+          error = e
+        })
+        await bus.publish(new TestEvent2())
+        await onError
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should throw ClassHandlerNotResolved naming the class with the constructor error as its cause', () => {
+        const rejection = (error as HandlerDispatchRejected).rejections[0]
+        expect(rejection).toBeInstanceOf(ClassHandlerNotResolved)
+        const classHandlerNotResolved = rejection as ClassHandlerNotResolved
+        expect(classHandlerNotResolved.classHandlerName).toEqual(
+          'ThrowingClassHandler'
+        )
+        expect(classHandlerNotResolved.cause).toBe(constructorError)
+        expect(error.message).toContain(
+          'ClassHandlerNotResolved: Unable to resolve class handler ThrowingClassHandler'
+        )
       })
     })
   })

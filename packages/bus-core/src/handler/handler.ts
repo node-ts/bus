@@ -34,12 +34,13 @@ export interface Handler<
    * @param message The message read from the bus
    * @param attributes Attributes of the message read from the bus
    * @param context Sends, publishes, fails or returns messages through the bus that received the message
+   * @returns Anything. A returned promise is awaited, and the value it resolves to is ignored
    */
   handle(
     message: TMessage,
     attributes: TMessageAttributes,
     context: HandlerContext
-  ): void | Promise<void>
+  ): unknown
 }
 
 /**
@@ -47,6 +48,7 @@ export interface Handler<
  * @param message The message read from the bus
  * @param attributes Attributes of the message read from the bus
  * @param context Sends, publishes, fails or returns messages through the bus that received the message
+ * @returns Anything. A returned promise is awaited, and the value it resolves to is ignored
  * @example
  * const placeOrderHandler: FunctionHandler<PlaceOrder> = async (message, _attributes, ctx) =>
  *   ctx.publish(new OrderPlaced(message.orderId))
@@ -58,7 +60,7 @@ export type FunctionHandler<
   message: TMessage,
   attributes: TMessageAttributes,
   context: HandlerContext
-) => void | Promise<void>
+) => unknown
 
 export type HandlerDefinition<
   TMessage = any,

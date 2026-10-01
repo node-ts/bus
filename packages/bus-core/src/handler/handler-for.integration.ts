@@ -165,6 +165,47 @@ describe('handlerFor', () => {
     })
   })
 
+  describe('when handling a message with attributes typed by handlerFor', () => {
+    const events = new EventEmitter()
+    const tenantIds: string[] = []
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(
+          handlerFor<
+            TestDefinedCommand,
+            MessageAttributes<{ tenantId: string }>
+          >(TestDefinedCommand, async (_, attributes) => {
+            tenantIds.push(attributes.attributes.tenantId)
+            events.emit('received')
+            // A handler can return a value, such as the result of a save, which the bus ignores
+            return attributes.attributes.tenantId
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      const received = new Promise(resolve => events.once('received', resolve))
+      await bus.send(
+        TestDefinedCommand({ orderId: 'a', placedAt: new Date(1) }),
+        {
+          attributes: { tenantId: 'tenant-a' }
+        }
+      )
+      await received
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should pass the attributes the message was sent with', () => {
+      expect(tenantIds).toEqual(['tenant-a'])
+    })
+  })
+
   describe('when receiving a message declared with defineCommand as JSON', () => {
     const received: unknown[] = []
     let bus: BusInstance

@@ -1,17 +1,14 @@
 import { Command, MessageAttributes } from '@node-ts/bus-messages'
 import { EventEmitter } from 'stream'
 import { IMock, It, Mock, Times } from 'typemoq'
-import {
-  ContainerNotRegistered,
-  FailMessageOutsideHandlingContext
-} from '../error'
+import { FailMessageOutsideHandlingContext } from '../error'
 import { MessageNameMissing, handlerFor } from '../handler'
 import { Logger } from '../logger'
-import { testMessageTypes } from '../test'
+import { TestCommandContextClassHandler, testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
+import { TestCommand2 } from '../test/test-command-2'
 import { TestEvent } from '../test/test-event'
 import { TestEvent2 } from '../test/test-event-2'
-import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { TestSystemMessage } from '../test/test-system-message'
 import { InMemoryMessage, InMemoryQueue, TransportMessage } from '../transport'
 import { toTransportMessage } from '../transport/in-memory-queue'
@@ -246,14 +243,38 @@ describe('BusInstance', () => {
 
   describe('when a class handler is used', () => {
     describe('without registering a container', () => {
-      it('should throw a ContainerNotRegistered error', () => {
-        expect(() =>
-          Bus.configure()
-            .withMessageTypes(testMessageTypes)
-            .withConcurrency(1)
-            .withHandler(TestEventClassHandler)
-            .build()
-        ).toThrow(ContainerNotRegistered)
+      const events = new EventEmitter()
+      const published: TestEvent[] = []
+      let bus: BusInstance
+
+      beforeAll(async () => {
+        bus = Bus.configure()
+          .withMessageTypes(testMessageTypes)
+          .withLogger(() => Mock.ofType<Logger>().object)
+          .withHandler(TestCommandContextClassHandler)
+          .withHandler(
+            handlerFor(TestEvent, testEvent => {
+              published.push(testEvent)
+              events.emit('received')
+            })
+          )
+          .build()
+        await bus.initialize()
+        await bus.start()
+
+        const received = new Promise(resolve =>
+          events.once('received', resolve)
+        )
+        await bus.send(new TestCommand2())
+        await received
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should construct the handler with new and dispatch to it', () => {
+        expect(published).toEqual([
+          expect.objectContaining({ property1: 'from-class-handler' })
+        ])
       })
     })
   })

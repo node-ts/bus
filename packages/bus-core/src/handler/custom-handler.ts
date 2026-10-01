@@ -10,10 +10,11 @@ export interface CustomHandler<TMessage = any> {
    * @param message The message read from the bus
    * @param attributes Attributes of the message read from the bus
    * @param context Sends, publishes, fails or returns messages through the bus that received the message
+   * @returns Anything. A returned promise is awaited, and the value it resolves to is ignored
    */
   handle(
     message: TMessage,
     attributes: MessageAttributes,
     context: HandlerContext
-  ): void | Promise<void>
+  ): unknown
 }
