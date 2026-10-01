@@ -1,10 +1,10 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageDeclaration } from '@node-ts/bus-messages'
 import { LoggerFactory } from '../logger'
 import { ClassConstructor } from '../util'
 import { Handler, HandlerDefinition, MessageBase } from './handler'
 
 interface RegisteredHandlers {
-  messageType: ClassConstructor<MessageBase>
+  messageType: MessageDeclaration<Message>
   handlers: HandlerDefinition[]
 }
 
@@ -45,15 +45,14 @@ export type MessageName = string
  */
 export interface HandlerRegistry {
   /**
-   * Registers that a function handles a particular message type
-   * @param messageType The class type of message to handle
+   * Registers that a function handles a particular message type. The message's name is read from the
+   * static `NAME` of `messageType`, without constructing it.
+   * @param messageType The message class, or the definition from `defineCommand` or `defineEvent`, to handle
    * @param handler The function handler to dispatch messages to as they arrive
-   * @param customResolver An optional custom resolver that will be used instead
-   * of the default @node-ts/bus-messages/Message behaviour in terms of matching
-   * incoming messages to handlers.
+   * @throws MessageNameMissing if `messageType` has no static `NAME`
    */
-  register<TMessage extends MessageBase>(
-    messageType: ClassConstructor<TMessage>,
+  register<TMessage extends Message>(
+    messageType: MessageDeclaration<TMessage>,
     handler: HandlerDefinition<TMessage>
   ): void
 
@@ -77,7 +76,9 @@ export interface HandlerRegistry {
   getMessageNames(): string[]
 
   /**
-   * Returns the class constructor for a message that has a handler registration
+   * Returns the class that received messages are created from, for a message that has a handler
+   * registration. That's the message class, or `Object` for a message declared with `defineCommand`
+   * or `defineEvent`, whose messages are plain objects.
    * @param messageName Message to get a class constructor for
    */
   getMessageConstructor<TMessage extends Message>(

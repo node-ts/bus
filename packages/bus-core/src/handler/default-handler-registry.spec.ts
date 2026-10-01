@@ -1,14 +1,16 @@
+import { Command } from '@node-ts/bus-messages'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { Logger, LoggerFactory } from '../logger'
 import {
   MessageLogger,
   TestCommand,
   TestCommand2,
+  TestDefinedCommand,
   TestEvent,
   testEventHandler
 } from '../test'
 import { DefaultHandlerRegistry } from './default-handler-registry'
-import { HandlerAlreadyRegistered } from './error'
+import { HandlerAlreadyRegistered, MessageNameMissing } from './error'
 import { HandlerDefinition, MessageBase } from './handler'
 
 describe('HandlerRegistry', () => {
@@ -36,6 +38,77 @@ describe('HandlerRegistry', () => {
     it('should register the handler', () => {
       const handlers = handlerRegistry.get(loggerFactory, new messageType())
       expect(handlers).toHaveLength(1)
+    })
+  })
+
+  describe('when registering a handler for a message class whose constructor needs arguments', () => {
+    let constructed = false
+
+    class TestCommandWithArguments extends Command {
+      static NAME = '@node-ts/bus-core/test-command-with-arguments'
+      $name = TestCommandWithArguments.NAME
+      $version = 0
+
+      constructor(readonly orderId: string) {
+        super()
+        constructed = true
+      }
+    }
+
+    beforeEach(() =>
+      handlerRegistry.register(TestCommandWithArguments, genericHandler)
+    )
+
+    it('should register it by its static NAME without constructing it', () => {
+      expect(constructed).toEqual(false)
+      expect(handlerRegistry.getMessageNames()).toEqual([
+        TestCommandWithArguments.NAME
+      ])
+    })
+  })
+
+  describe('when registering a handler for a message declared with defineCommand', () => {
+    beforeEach(() =>
+      handlerRegistry.register(TestDefinedCommand, genericHandler)
+    )
+
+    it('should register it by its NAME', () => {
+      const handlers = handlerRegistry.get(
+        loggerFactory,
+        TestDefinedCommand({ orderId: 'a', placedAt: new Date() })
+      )
+      expect(handlers).toEqual([genericHandler])
+    })
+
+    it('should create received messages as plain objects', () => {
+      expect(
+        handlerRegistry.getMessageConstructor(TestDefinedCommand.NAME)
+      ).toBe(Object)
+    })
+  })
+
+  describe('when registering a handler for a message type without a static NAME', () => {
+    class TestCommandWithoutName extends Command {
+      $name = '@node-ts/bus-core/test-command-without-name'
+      $version = 0
+    }
+
+    let error: unknown
+
+    beforeEach(() => {
+      try {
+        // @ts-expect-error a message class without a static NAME doesn't type check
+        handlerRegistry.register(TestCommandWithoutName, genericHandler)
+      } catch (caught) {
+        error = caught
+      }
+    })
+
+    it('should throw MessageNameMissing naming the class', () => {
+      expect(error).toBeInstanceOf(MessageNameMissing)
+      expect((error as MessageNameMissing).message).toContain(
+        'TestCommandWithoutName has no static NAME'
+      )
     })
   })
 

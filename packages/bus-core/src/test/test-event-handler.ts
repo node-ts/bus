@@ -1,10 +1,13 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Message,
+  MessageAttributes,
+  MessageDeclaration
+} from '@node-ts/bus-messages'
 import { HandlerDefinition } from '../handler'
-import { ClassConstructor } from '../util'
 import { TestEvent } from './test-event'
 
 const handlerFor = <TMessageType extends Message>(
-  messageType: ClassConstructor<TMessageType>,
+  messageType: MessageDeclaration<TMessageType>,
   messageHandler: HandlerDefinition<TMessageType>
 ) => {
   return {

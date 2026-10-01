@@ -8,7 +8,8 @@ import { Workflow, WorkflowMapper } from './workflow'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
 
 class AssignmentCreated extends Event {
-  $name = 'my-app/accounts/assignment-created'
+  static NAME = 'my-app/accounts/assignment-created'
+  $name = AssignmentCreated.NAME
   $version = 1
 
   constructor(readonly assignmentId: string) {
@@ -17,7 +18,8 @@ class AssignmentCreated extends Event {
 }
 
 class AssignmentAssigned extends Event {
-  $name = 'my-app/accounts/assignment-assigned'
+  static NAME = 'my-app/accounts/assignment-assigned'
+  $name = AssignmentAssigned.NAME
   $version = 1
 
   constructor(
@@ -29,7 +31,8 @@ class AssignmentAssigned extends Event {
 }
 
 class CreateAssignmentBundle extends Command {
-  $name = 'my-app/accounts/create-assignment-bundle'
+  static NAME = 'my-app/accounts/create-assignment-bundle'
+  $name = CreateAssignmentBundle.NAME
   $version = 1
 
   constructor(
@@ -41,7 +44,8 @@ class CreateAssignmentBundle extends Command {
 }
 
 class NotifyAssignmentAssigned extends Command {
-  $name = 'my-app/accounts/notify-assignment-assigned'
+  static NAME = 'my-app/accounts/notify-assignment-assigned'
+  $name = NotifyAssignmentAssigned.NAME
   $version = 1
 
   constructor(readonly assignmentId: string) {
@@ -50,7 +54,8 @@ class NotifyAssignmentAssigned extends Command {
 }
 
 class AssignmentReassigned extends Event {
-  $name = 'my-app/accounts/assignment-reassigned'
+  static NAME = 'my-app/accounts/assignment-reassigned'
+  $name = AssignmentReassigned.NAME
   $version = 1
 
   constructor(
@@ -62,7 +67,8 @@ class AssignmentReassigned extends Event {
 }
 
 class NotifyUnassignedAssignmentReassigned extends Command {
-  $name = 'my-app/accounts/notify-unassigned-assignment-reassigned'
+  static NAME = 'my-app/accounts/notify-unassigned-assignment-reassigned'
+  $name = NotifyUnassignedAssignmentReassigned.NAME
   $version = 1
 
   constructor(
@@ -74,7 +80,8 @@ class NotifyUnassignedAssignmentReassigned extends Command {
 }
 
 class AssignmentCompleted extends Event {
-  $name = 'my-app/accounts/assignment-completed'
+  static NAME = 'my-app/accounts/assignment-completed'
+  $name = AssignmentCompleted.NAME
   $version = 1
 
   constructor(readonly assignmentId: string) {

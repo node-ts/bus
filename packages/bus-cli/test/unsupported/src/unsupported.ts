@@ -1,4 +1,5 @@
-// Every class here has one field or $name that the generator rejects
+// Every message here has one field or $name that the generator rejects
+import { defineCommand } from '@node-ts/bus-messages'
 // @ts-expect-error the module doesn't exist, so the type can't be resolved
 import { Missing } from './does-not-exist'
 
@@ -75,3 +76,17 @@ export class HasRegExp {
   $name = 'bad/regexp'
   pattern: RegExp
 }
+
+export interface DuplicateInterfaceA {
+  $name: 'bad/duplicate-interface'
+}
+
+export interface DuplicateInterfaceB {
+  $name: 'bad/duplicate-interface'
+}
+
+export const DynamicDefinition = defineCommand(String(Math.random()))()
+
+export const DefinitionWithFunction = defineCommand('bad/definition-function')<{
+  callback: () => void
+}>()

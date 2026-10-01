@@ -1,4 +1,8 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Message,
+  MessageAttributes,
+  MessageDeclaration
+} from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { ContainerAdapter } from '../../container'
 import {
@@ -132,7 +136,7 @@ export class WorkflowRegistry {
       this.registerFnHandles(mapper, handlerRegistry, WorkflowCtor, container)
 
       const messageWorkflowMappings: MessageWorkflowMapping[] = Array.from<
-        [ClassConstructor<Message>, OnWhenHandler],
+        [MessageDeclaration<Message>, OnWhenHandler],
         MessageWorkflowMapping
       >(
         mapper.onWhen,

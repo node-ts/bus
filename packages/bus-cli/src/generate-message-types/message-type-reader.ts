@@ -8,6 +8,27 @@ type Described = FieldModel | typeof PLAIN
 const MAX_NAME_DEPTH = 10
 
 /**
+ * A message read so far: the declaration it was read from and its type
+ */
+interface ReadMessage {
+  symbol: TS.Symbol
+  type: TS.Type
+  /**
+   * Whether it was declared with a type only, as an interface or type alias, rather than as a class or
+   * with `defineCommand` or `defineEvent`
+   */
+  typeOnly: boolean
+}
+
+/**
+ * What `defineCommand` and `defineEvent` return: a function with a static `NAME` that creates messages
+ */
+interface Definition {
+  nameProperty: TS.Symbol
+  messageType: TS.Type
+}
+
+/**
  * Where a value is: how problems describe it, and the key an anonymous object type there gets
  */
 interface At {
@@ -78,7 +99,7 @@ export class MessageTypeReader {
   private readonly checker: TS.TypeChecker
   private readonly problems: string[] = []
   private readonly warnings: string[] = []
-  private readonly messages = new Map<string, TS.Symbol>()
+  private readonly messages = new Map<string, ReadMessage>()
   private readonly messageKeys = new Map<string, string>()
   private readonly types = new Map<string, TypeModel>()
   private readonly keysBySymbol = new Map<TS.Symbol, string>()
@@ -87,6 +108,17 @@ export class MessageTypeReader {
   private readonly objectsReferencedInProgress = new Set<string>()
   private readonly usedKeys = new Set<string>()
   private readonly checkedFiles = new Set<TS.SourceFile>()
+  private entryFiles = new Set<TS.SourceFile>()
+  /**
+   * Interfaces and type aliases, read once every class and definition has been, so a type that only
+   * describes one of them, such as `type PlaceOrder = MessageOf<typeof PlaceOrder>`, isn't read twice
+   */
+  private readonly objectTypeCandidates: TS.Symbol[] = []
+  /**
+   * Classes whose `$name` is declared but not set, which are warned about unless a message uses them
+   */
+  private readonly unsetNameClasses: TS.Symbol[] = []
+  private readonly reExports: { symbol: TS.Symbol; from: TS.SourceFile }[] = []
   private readonly plainFlags: number
   private readonly nullishFlags: number
   private readonly skippedMemberFlags: number
@@ -115,7 +147,10 @@ export class MessageTypeReader {
   }
 
   /**
-   * Reads every exported, non-abstract class with a `$name` in the given files
+   * Reads every message and workflow state declared in the given files: exported, non-abstract classes
+   * with a `$name`, exported `defineCommand` and `defineEvent` definitions, and exported interfaces and
+   * type aliases with a string literal `$name`. Each declaration with a `$name` that isn't read is
+   * warned about, saying why.
    * @param sourceFiles the files to read messages and workflow state from
    * @returns the types read, the problems that stop them being generated, and warnings that don't
    */
@@ -124,10 +159,15 @@ export class MessageTypeReader {
     problems: string[]
     warnings: string[]
   } {
+    this.entryFiles = new Set(sourceFiles)
     for (const sourceFile of sourceFiles) {
       this.checkDiagnostics(sourceFile)
       this.readSourceFile(sourceFile)
     }
+    for (const symbol of this.objectTypeCandidates) {
+      this.readObjectTypeMessage(symbol)
+    }
+    this.warnAboutSkipped()
 
     const model: MessageTypesModel = {
       messages: [...this.messageKeys].sort(([a], [b]) => compare(a, b)),
@@ -142,24 +182,69 @@ export class MessageTypeReader {
     if (!moduleSymbol) {
       return
     }
-    for (const exported of this.checker.getExportsOfModule(moduleSymbol)) {
-      const symbol = this.resolveAlias(exported)
-      const declaration = symbol.declarations?.find(ts.isClassDeclaration)
-      // Re-exports are skipped, so a class is only read from the entry file that declares it
+    const exported = new Set<TS.Symbol>()
+    for (const exportedSymbol of this.checker.getExportsOfModule(
+      moduleSymbol
+    )) {
+      const symbol = this.resolveAlias(exportedSymbol)
+      exported.add(symbol)
+      // Re-exports are skipped, so a message is only read from the entry file that declares it
       if (
-        !(symbol.flags & ts.SymbolFlags.Class) ||
-        !declaration ||
-        declaration.getSourceFile() !== sourceFile ||
-        isAbstract(ts, declaration)
+        !symbol.declarations?.some(
+          declaration => declaration.getSourceFile() === sourceFile
+        )
       ) {
+        this.reExports.push({ symbol, from: sourceFile })
         continue
       }
-      const instanceType = this.checker.getDeclaredTypeOfSymbol(symbol)
-      const nameProperty = this.checker.getPropertyOfType(instanceType, '$name')
-      if (nameProperty) {
-        this.readMessage(symbol, nameProperty)
+      if (symbol.flags & ts.SymbolFlags.Class) {
+        this.readClass(symbol)
+        continue
+      }
+      if (symbol.flags & ts.SymbolFlags.Variable) {
+        const definition = this.definitionOf(symbol)
+        if (definition) {
+          this.readDefinition(symbol, definition)
+        }
+      }
+      if (
+        symbol.flags &
+        (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias)
+      ) {
+        this.objectTypeCandidates.push(symbol)
       }
     }
+
+    for (const symbol of this.declaredSymbols(sourceFile)) {
+      if (!exported.has(symbol) && this.messageNameOf(symbol) !== undefined) {
+        this.warnings.push(
+          `${this.describeLocation(symbol)}: it has a $name but isn't exported, so it isn't read as a message. Export it by name`
+        )
+      }
+    }
+  }
+
+  private readClass(symbol: TS.Symbol): void {
+    const { ts } = this
+    const declaration = symbol.declarations?.find(ts.isClassDeclaration)
+    const nameProperty = this.checker.getPropertyOfType(
+      this.checker.getDeclaredTypeOfSymbol(symbol),
+      '$name'
+    )
+    if (!declaration || !nameProperty) {
+      return
+    }
+    if (isAbstract(ts, declaration)) {
+      // An abstract base whose $name is only declared is skipped quietly
+      const name = this.resolveName(nameProperty)
+      if (name !== undefined && name !== 'not-set') {
+        this.warnings.push(
+          `${this.describeLocation(symbol)}: it's abstract, so it isn't read as a message. Make it concrete, or leave its $name to the classes that extend it`
+        )
+      }
+      return
+    }
+    this.readMessage(symbol, nameProperty)
   }
 
   private readMessage(symbol: TS.Symbol, nameProperty: TS.Symbol): void {
@@ -167,6 +252,7 @@ export class MessageTypeReader {
     const name = this.resolveName(nameProperty)
     // A `$name` that is only declared, e.g. a data field of a nested class, doesn't make it a message
     if (name === 'not-set') {
+      this.unsetNameClasses.push(symbol)
       return
     }
     if (name === undefined) {
@@ -175,22 +261,262 @@ export class MessageTypeReader {
       )
       return
     }
+    this.addMessage(
+      name,
+      {
+        symbol,
+        type: this.checker.getDeclaredTypeOfSymbol(symbol),
+        typeOnly: false
+      },
+      () => this.classKey(symbol, symbol.getName())
+    )
+  }
 
+  /**
+   * Reads a message declared with `defineCommand` or `defineEvent`. It has no class, so it's restored
+   * as a plain object.
+   */
+  private readDefinition(symbol: TS.Symbol, definition: Definition): void {
+    const nameType = this.checker.getTypeOfSymbol(definition.nameProperty)
+    if (!nameType.isStringLiteral()) {
+      this.problems.push(
+        `${this.describeLocation(symbol)}: its $name can't be worked out without running the code. Pass a string literal to defineCommand or defineEvent`
+      )
+      return
+    }
+    this.addMessage(
+      nameType.value,
+      { symbol, type: definition.messageType, typeOnly: false },
+      () => this.objectMessageKey(symbol, definition.messageType)
+    )
+  }
+
+  /**
+   * Reads an interface or type alias with a string literal `$name`, unless it describes a message that's
+   * already been read
+   */
+  private readObjectTypeMessage(symbol: TS.Symbol): void {
+    const type = this.objectTypeOf(symbol)
+    const nameProperty = type && this.checker.getPropertyOfType(type, '$name')
+    if (!type || !nameProperty) {
+      return
+    }
+    const where = this.describeLocation(symbol)
+    const nameType = this.checker.getTypeOfSymbol(nameProperty)
+    if (!nameType.isStringLiteral()) {
+      // A `$name` field of a type nested in a message is data
+      if (!this.describedObjects.has(type)) {
+        this.warnings.push(
+          `${where}: its $name is ${this.checker.typeToString(nameType)}, not a string literal, so it isn't read as a message. Give it a literal $name, e.g. \`$name: '@my-org/orders/place-order'\``
+        )
+      }
+      return
+    }
+    const name = nameType.value
     const existing = this.messages.get(name)
-    if (existing === symbol) {
+    if (existing) {
+      // e.g. `type PlaceOrder = MessageOf<typeof PlaceOrder>`, or an interface a definition is declared from
+      if (existing.symbol === symbol || existing.type === type) {
+        return
+      }
+      if (existing.typeOnly) {
+        this.problems.push(
+          `${where}: its $name "${name}" is also used by ${this.describeLocation(existing.symbol)}`
+        )
+      } else {
+        this.warnings.push(
+          `${where}: its $name "${name}" is also used by ${this.describeLocation(existing.symbol)}, which is read instead`
+        )
+      }
+      return
+    }
+    if (this.isGeneric(symbol)) {
+      this.warnings.push(
+        `${where}: it's generic, so it isn't read as a message. Use a type without type parameters`
+      )
+      return
+    }
+    this.addMessage(name, { symbol, type, typeOnly: true }, () =>
+      this.objectMessageKey(symbol, type)
+    )
+  }
+
+  private addMessage(
+    name: string,
+    message: ReadMessage,
+    readKey: () => string | undefined
+  ): void {
+    const existing = this.messages.get(name)
+    if (existing?.symbol === message.symbol) {
       return
     }
     if (existing) {
       this.problems.push(
-        `${where}: its $name "${name}" is also used by ${this.describeLocation(existing)}`
+        `${this.describeLocation(message.symbol)}: its $name "${name}" is also used by ${this.describeLocation(existing.symbol)}`
       )
       return
     }
-    this.messages.set(name, symbol)
+    this.messages.set(name, message)
 
-    const key = this.classKey(symbol, symbol.getName())
+    const key = readKey()
     if (key) {
       this.messageKeys.set(name, key)
+    }
+  }
+
+  /**
+   * The key of a message without a class: a definition, interface or type alias. Unlike other object
+   * types, it gets an entry even when none of its fields need restoring, so the bus knows it's registered.
+   */
+  private objectMessageKey(symbol: TS.Symbol, type: TS.Type): string {
+    // Already read as a field of another message
+    const known = this.describedObjects.get(type)
+    if (typeof known === 'object' && 'type' in known) {
+      return known.type
+    }
+    const sourceFile = symbol.declarations![0].getSourceFile()
+    const key = this.uniqueKey(this.declarationKey(symbol, sourceFile))
+    this.describedObjects.set(type, { type: key })
+    const typeModel: TypeModel = { key, fields: [] }
+    this.types.set(key, typeModel)
+    typeModel.fields = this.fieldsOf(type, symbol.getName(), key)
+    return key
+  }
+
+  /**
+   * Recognises what `defineCommand` and `defineEvent` return by its shape, a function with a `NAME` that
+   * returns a message, so it's found however they're imported
+   */
+  private definitionOf(symbol: TS.Symbol): Definition | undefined {
+    const type = this.checker.getTypeOfSymbol(symbol)
+    const nameProperty = this.checker.getPropertyOfType(type, 'NAME')
+    const signatures = type.getCallSignatures()
+    if (!nameProperty || signatures.length !== 1) {
+      return undefined
+    }
+    const messageType = signatures[0].getReturnType()
+    return this.checker.getPropertyOfType(messageType, '$name')
+      ? { nameProperty, messageType }
+      : undefined
+  }
+
+  /**
+   * The object type an interface or type alias declares. Unions, such as a union of messages, aren't
+   * object types.
+   */
+  private objectTypeOf(symbol: TS.Symbol): TS.Type | undefined {
+    const { ts } = this
+    const type = this.checker.getDeclaredTypeOfSymbol(symbol)
+    return type.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)
+      ? type
+      : undefined
+  }
+
+  private isGeneric(symbol: TS.Symbol): boolean {
+    const { ts } = this
+    return (symbol.declarations ?? []).some(
+      declaration =>
+        (ts.isInterfaceDeclaration(declaration) ||
+          ts.isTypeAliasDeclaration(declaration)) &&
+        !!declaration.typeParameters?.length
+    )
+  }
+
+  /**
+   * The `$name` a declaration would be read with if it were exported from an entry file: a concrete
+   * class, a definition, or an interface or type alias with a string literal `$name`
+   */
+  private messageNameOf(symbol: TS.Symbol): string | undefined {
+    const { ts } = this
+    if (symbol.flags & ts.SymbolFlags.Class) {
+      const declaration = symbol.declarations?.find(ts.isClassDeclaration)
+      const nameProperty = this.checker.getPropertyOfType(
+        this.checker.getDeclaredTypeOfSymbol(symbol),
+        '$name'
+      )
+      if (!declaration || !nameProperty || isAbstract(ts, declaration)) {
+        return undefined
+      }
+      const name = this.resolveName(nameProperty)
+      return name === 'not-set' ? undefined : name
+    }
+    const nameProperties: (TS.Symbol | undefined)[] = []
+    if (symbol.flags & ts.SymbolFlags.Variable) {
+      nameProperties.push(this.definitionOf(symbol)?.nameProperty)
+    }
+    if (symbol.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias)) {
+      const type = this.objectTypeOf(symbol)
+      nameProperties.push(type && this.checker.getPropertyOfType(type, '$name'))
+    }
+    for (const nameProperty of nameProperties) {
+      const nameType =
+        nameProperty && this.checker.getTypeOfSymbol(nameProperty)
+      if (nameType?.isStringLiteral()) {
+        return nameType.value
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * The classes, interfaces, type aliases and variables declared at the top level of a file
+   */
+  private declaredSymbols(sourceFile: TS.SourceFile): TS.Symbol[] {
+    const { ts } = this
+    const names = sourceFile.statements.flatMap((statement): TS.Node[] => {
+      if (
+        (ts.isClassDeclaration(statement) ||
+          ts.isInterfaceDeclaration(statement) ||
+          ts.isTypeAliasDeclaration(statement)) &&
+        statement.name
+      ) {
+        return [statement.name]
+      }
+      if (ts.isVariableStatement(statement)) {
+        return statement.declarationList.declarations
+          .map(declaration => declaration.name)
+          .filter(ts.isIdentifier)
+      }
+      return []
+    })
+    const symbols = names
+      .map(name => this.checker.getSymbolAtLocation(name))
+      .filter((symbol): symbol is TS.Symbol => !!symbol)
+    return [...new Set(symbols)]
+  }
+
+  /**
+   * Warns about the declarations with a `$name` that were skipped for a reason only known once every
+   * file has been read
+   */
+  private warnAboutSkipped(): void {
+    const read = new Set(
+      [...this.messages.values()].map(({ symbol }) => symbol)
+    )
+    for (const symbol of this.unsetNameClasses) {
+      // A nested class with a `$name` field is data
+      if (!this.keysBySymbol.has(symbol)) {
+        this.warnings.push(
+          `${this.describeLocation(symbol)}: its $name is declared but never set, so it isn't read as a message. Set it to a string literal, or to a static NAME that is one`
+        )
+      }
+    }
+    for (const { symbol, from } of this.reExports) {
+      const declaringFile = symbol.declarations?.[0]?.getSourceFile()
+      if (
+        !declaringFile ||
+        read.has(symbol) ||
+        this.entryFiles.has(declaringFile) ||
+        declaringFile.isDeclarationFile ||
+        this.program.isSourceFileFromExternalLibrary(declaringFile) ||
+        this.messageNameOf(symbol) === undefined
+      ) {
+        continue
+      }
+      this.warnings.push(
+        `${this.describeLocation(symbol)}: it's exported from ${this.relativePath(from.fileName)}, but the file that declares it isn't an entry file, so it isn't read as a message. Add ${this.relativePath(declaringFile.fileName)} to the entry files`
+      )
+      read.add(symbol)
     }
   }
 

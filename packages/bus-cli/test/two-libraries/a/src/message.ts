@@ -1,6 +1,7 @@
 import { Customer } from './customer.js'
 
 export class MessageA {
-  $name = 'fixture/message-a'
+  static NAME = 'fixture/message-a'
+  $name = MessageA.NAME
   customer: Customer
 }

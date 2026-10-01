@@ -1,4 +1,4 @@
-import { Message } from '@node-ts/bus-messages'
+import { getMessageTypes, Message } from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
 import { Serializer } from './serializer'
 
@@ -20,13 +20,25 @@ export class MessageSerializer {
     return this.serializer.serialize(message)
   }
 
+  /**
+   * Parses a message. A message that has a handler registered is created from its message class, or as a
+   * plain object for a message declared with `defineCommand` or `defineEvent`. A message without one, such
+   * as one handled by a custom handler, is still restored as a plain object when its message types are
+   * registered, e.g. for a message declared as an interface.
+   * @param serializedMessage the message as it was received
+   * @returns the message
+   */
   deserialize<MessageType extends Message>(
     serializedMessage: string
   ): MessageType {
     const naiveDeserializedMessage = JSON.parse(serializedMessage) as Message
-    const messageType = this.handlerRegistry.getMessageConstructor(
-      naiveDeserializedMessage.$name
-    )
+    const messageName = naiveDeserializedMessage.$name
+    const messageType =
+      this.handlerRegistry.getMessageConstructor(messageName) ??
+      (typeof messageName === 'string' &&
+      Object.hasOwn(getMessageTypes().messages, messageName)
+        ? Object
+        : undefined)
 
     return (
       !!messageType

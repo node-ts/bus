@@ -1,11 +1,8 @@
+import { Message, MessageDeclaration } from '@node-ts/bus-messages'
 import { ContainerAdapter } from '../container'
 import { ContainerNotRegistered } from '../error'
 import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
-import {
-  HandlerDefinition,
-  MessageBase,
-  isClassHandler
-} from '../handler/handler'
+import { HandlerDefinition, isClassHandler } from '../handler/handler'
 import { LoggerFactory, defaultLoggerFactory } from '../logger'
 import { Receiver } from '../receiver'
 import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
@@ -31,7 +28,7 @@ import { BusAlreadyInitialized } from './error'
  */
 const resolveClassHandlerMessageType = (
   handler: ClassConstructor<Handler>
-): ClassConstructor<MessageBase> =>
+): MessageDeclaration<Message> =>
   handler.prototype.messageType ?? new handler().messageType
 
 export interface BusInitializeOptions {
@@ -138,17 +135,17 @@ export class BusConfiguration {
    * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withHandler(...classHandler: ClassConstructor<Handler>[]): this
-  withHandler<MessageType extends MessageBase>(
+  withHandler<MessageType extends Message>(
     ...functionHandler: {
-      messageType: ClassConstructor<MessageType>
+      messageType: MessageDeclaration<MessageType>
       messageHandler: HandlerDefinition<MessageType>
     }[]
   ): this
-  withHandler<MessageType extends MessageBase>(
+  withHandler<MessageType extends Message>(
     ...handler:
       | ClassConstructor<Handler>[]
       | {
-          messageType: ClassConstructor<MessageType>
+          messageType: MessageDeclaration<MessageType>
           messageHandler: HandlerDefinition<MessageType>
         }[]
   ): this {

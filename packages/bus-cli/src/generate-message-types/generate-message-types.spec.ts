@@ -34,16 +34,71 @@ describe('generateMessageTypes', () => {
       )
     })
 
-    it('should map every exported, non-abstract class with a $name to a key for its declaration', () => {
-      expect(sut.messageCount).toEqual(6)
+    it('should map every message and workflow state to a key for its declaration', () => {
+      expect(sut.messageCount).toEqual(11)
       expect(sut.content).toContain(`  messages: {
+    'fixture/cancel-order': '${SUPPORTED}/interface-messages#CancelOrder',
+    'fixture/file-deleted': '${SUPPORTED}/interface-messages#FileDeleted',
+    'fixture/file-uploaded': '${SUPPORTED}/interface-messages#FileUploaded',
+    'fixture/order-shipped': '${SUPPORTED}/defined-messages#OrderShipped',
     'fixture/order-state': '${SUPPORTED}/literal-names#OrderState',
     'fixture/ping': '${SUPPORTED}/literal-names#Ping',
     'fixture/place-order': '${SUPPORTED}/place-order#PlaceOrder',
     'fixture/place-urgent-order': '${SUPPORTED}/place-urgent-order#PlaceUrgentOrder',
     'fixture/pong': '${SUPPORTED}/literal-names#Pong',
+    'fixture/ship-order': '${SUPPORTED}/defined-messages#ShipOrder',
     'fixture/tag-message': '${SUPPORTED}/tag#TagMessage'
   },`)
+    })
+
+    it('should describe a message declared with defineCommand as an object type', () => {
+      expect(sut.content)
+        .toContain(`    '${SUPPORTED}/defined-messages#ShipOrder': {
+      fields: {
+        shipAt: 'Date',
+        to: { type: '${SUPPORTED}/address#Address' },
+        parcels: { array: { type: '${SUPPORTED}/defined-messages#ShipOrder.parcels[]' } }
+      }
+    },`)
+    })
+
+    it('should give a defined message with no fields to restore an entry', () => {
+      expect(sut.content)
+        .toContain(`    '${SUPPORTED}/defined-messages#OrderShipped': {
+      fields: {}
+    },`)
+    })
+
+    it('should describe messages declared as an interface or type alias with a literal $name', () => {
+      expect(sut.content)
+        .toContain(`    '${SUPPORTED}/interface-messages#FileUploaded': {
+      fields: {
+        uploadedAt: 'Date'
+      }
+    },`)
+      expect(sut.content)
+        .toContain(`    '${SUPPORTED}/interface-messages#FileDeleted': {
+      fields: {
+        deletedAt: 'Date'
+      }
+    },`)
+    })
+
+    it('should read an interface and the definition declared from it once', () => {
+      expect(sut.content)
+        .toContain(`    '${SUPPORTED}/interface-messages#CancelOrder': {
+      fields: {
+        cancelledAt: 'Date'
+      }
+    },`)
+      expect(sut.content).not.toContain('CancelOrder_2')
+    })
+
+    it('should warn about the abstract and unexported classes it skips', () => {
+      expect(sut.warnings).toEqual([
+        "AbstractMessage (src/base.ts): it's abstract, so it isn't read as a message. Make it concrete, or leave its $name to the classes that extend it",
+        "Internal (src/literal-names.ts): it has a $name but isn't exported, so it isn't read as a message. Export it by name"
+      ])
     })
 
     it('should import each class from the file that declares it', () => {
@@ -295,8 +350,8 @@ describe('generateMessageTypes', () => {
       })
     })
 
-    it('should only include classes declared in those files', () => {
-      expect(sut.messageCount).toEqual(4)
+    it('should only include messages declared in those files', () => {
+      expect(sut.messageCount).toEqual(9)
       expect(sut.content).not.toContain('PlaceOrder')
     })
 
@@ -326,6 +381,62 @@ describe('generateMessageTypes', () => {
           project: 'missing.json'
         })
       ).toThrow(MessageTypeGenerationFailed)
+    })
+  })
+
+  describe('when declarations with a $name are skipped', () => {
+    let sut: GeneratedMessageTypes
+
+    beforeAll(() => {
+      sut = generateMessageTypes({
+        cwd: fixture('skipped'),
+        entry: ['src/*.ts']
+      })
+    })
+
+    it('should only read the message', () => {
+      expect(sut.messageCount).toEqual(1)
+    })
+
+    it.each([
+      [
+        'an unexported class',
+        "NotExported (src/skipped.ts): it has a $name but isn't exported"
+      ],
+      [
+        'an unexported definition',
+        "NotExportedDefinition (src/skipped.ts): it has a $name but isn't exported"
+      ],
+      [
+        'an abstract class',
+        "AbstractWithName (src/skipped.ts): it's abstract, so it isn't read as a message"
+      ],
+      [
+        'a class whose $name is never set',
+        'UnsetName (src/skipped.ts): its $name is declared but never set'
+      ],
+      [
+        'an interface whose $name is not a literal',
+        'StringName (src/skipped.ts): its $name is string, not a string literal'
+      ],
+      [
+        'a generic interface',
+        "Envelope (src/skipped.ts): it's generic, so it isn't read as a message"
+      ],
+      [
+        'an interface with the $name of a class',
+        'SameNameAsClass (src/skipped.ts): its $name "skipped/class-message" is also used by ClassMessage (src/skipped.ts), which is read instead'
+      ],
+      [
+        'a message re-exported from a file that is not an entry',
+        "Elsewhere (src/not-entry/elsewhere.ts): it's exported from src/index.ts, but the file that declares it isn't an entry file, so it isn't read as a message. Add src/not-entry/elsewhere.ts to the entry files"
+      ]
+    ])('should warn about %s', (_, warning) => {
+      expect(sut.warnings).toContainEqual(expect.stringContaining(warning))
+    })
+
+    it('should warn about nothing else', () => {
+      expect(sut.warnings).toHaveLength(8)
     })
   })
 
@@ -386,13 +497,25 @@ describe('generateMessageTypes', () => {
         'an object type with methods',
         'HasMethodInterface.shape: Shape has a method (area)'
       ],
-      ['another built-in type', "HasRegExp.pattern: RegExp isn't supported"]
+      ['another built-in type', "HasRegExp.pattern: RegExp isn't supported"],
+      [
+        'an interface $name used twice',
+        'DuplicateInterfaceB (src/unsupported.ts): its $name "bad/duplicate-interface" is also used by DuplicateInterfaceA'
+      ],
+      [
+        'a definition whose $name cannot be worked out',
+        "DynamicDefinition (src/unsupported.ts): its $name can't be worked out without running the code. Pass a string literal to defineCommand or defineEvent"
+      ],
+      [
+        'a definition with a field that cannot be restored',
+        "DefinitionWithFunction.callback: functions can't be sent as JSON"
+      ]
     ])('should report %s', (_, problem) => {
       expect(error.problems).toContainEqual(expect.stringContaining(problem))
     })
 
     it('should report nothing else', () => {
-      expect(error.problems).toHaveLength(16)
+      expect(error.problems).toHaveLength(19)
     })
   })
 })

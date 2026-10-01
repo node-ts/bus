@@ -173,7 +173,13 @@ describe('runGenerateMessageTypes', () => {
 
     it('should write it', () => {
       expect(result.exitCode).toEqual(0)
-      expect(result.output).toEqual(`Wrote 6 message types to ${OUT_FILE}`)
+      expect(result.output).toContain(`Wrote 11 message types to ${OUT_FILE}`)
+    })
+
+    it('should print a warning for each declaration with a $name it skips', () => {
+      expect(result.output).toContain(
+        "Warning: AbstractMessage (src/base.ts): it's abstract, so it isn't read as a message"
+      )
     })
 
     it('should type check with the project', () => {
@@ -257,6 +263,79 @@ describe('runGenerateMessageTypes', () => {
     })
   })
 
+  describe('when a bus receives messages declared with defineCommand and as an interface', () => {
+    const received: any[] = []
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      const out = join(project, 'out')
+      const { ShipOrder } = load(join(out, 'defined-messages.js'))
+      const { Address } = load(join(out, 'address.js'))
+      const { GeoPoint } = load(join(out, 'geo-point.js'))
+      received.push({ Address, GeoPoint })
+
+      bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withReceiver(new JsonReceiver())
+        .withHandler(
+          handlerFor(ShipOrder, message => {
+            received.push(message)
+          })
+        )
+        .withCustomHandler(
+          (message: object) => {
+            received.push(message)
+          },
+          {
+            resolveWith: (message: { $name?: string }) =>
+              message.$name === 'fixture/file-uploaded'
+          }
+        )
+        .build()
+      await bus.initialize()
+      await bus.receive(
+        JSON.stringify(
+          ShipOrder({
+            orderId: 'a',
+            shipAt: new Date(1),
+            to: Object.assign(new Address(), {
+              street: 's',
+              location: Object.assign(new GeoPoint(), {
+                latitude: 1,
+                surveyedAt: new Date(2)
+              })
+            }),
+            parcels: [{ sentAt: new Date(3) }]
+          })
+        )
+      )
+      await bus.receive(
+        JSON.stringify({
+          $name: 'fixture/file-uploaded',
+          $version: 0,
+          uploadedAt: new Date(4)
+        })
+      )
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should restore the defined message as a plain object with its nested classes', () => {
+      const [{ Address, GeoPoint }, shipOrder] = received
+      expect(Object.getPrototypeOf(shipOrder)).toBe(Object.prototype)
+      expect(shipOrder.shipAt).toEqual(new Date(1))
+      expect(shipOrder.to).toBeInstanceOf(Address)
+      expect(shipOrder.to.location).toBeInstanceOf(GeoPoint)
+      expect(shipOrder.to.location.surveyedAt).toEqual(new Date(2))
+      expect(shipOrder.parcels[0].sentAt).toEqual(new Date(3))
+    })
+
+    it('should restore the interface message', () => {
+      const [, , fileUploaded] = received
+      expect(fileUploaded.uploadedAt).toEqual(new Date(4))
+    })
+  })
+
   describe('when checking a file that a formatter has changed', () => {
     let result: { exitCode: number; output: string }
     let regenerated: { exitCode: number; output: string }
@@ -284,11 +363,11 @@ describe('runGenerateMessageTypes', () => {
 
     it('should pass', () => {
       expect(result.exitCode).toEqual(0)
-      expect(result.output).toEqual(`${OUT_FILE} is up to date`)
+      expect(result.output).toContain(`${OUT_FILE} is up to date`)
     })
 
     it('should leave the file alone when regenerating', () => {
-      expect(regenerated.output).toEqual(`${OUT_FILE} is up to date`)
+      expect(regenerated.output).toContain(`${OUT_FILE} is up to date`)
       expect(readFileSync(join(project, OUT_FILE), 'utf8')).toEqual(reformatted)
     })
   })
@@ -347,7 +426,7 @@ describe('runGenerateMessageTypes', () => {
 
     it('should regenerate it', () => {
       expect(result.exitCode).toEqual(0)
-      expect(result.output).toEqual(`Wrote 6 message types to ${OUT_FILE}`)
+      expect(result.output).toContain(`Wrote 11 message types to ${OUT_FILE}`)
     })
   })
 

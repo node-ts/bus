@@ -5,7 +5,7 @@ import {
   ContainerNotRegistered,
   FailMessageOutsideHandlingContext
 } from '../error'
-import { SystemMessageMissingResolver, handlerFor } from '../handler'
+import { MessageNameMissing, handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
@@ -298,11 +298,15 @@ describe('BusInstance', () => {
 
   describe('when handling messages originating from an external system', () => {
     it('should fail when a custom resolver is not provided', () => {
+      class ExternalMessage {
+        readonly bucket = 'uploads'
+      }
       expect(() =>
         Bus.configure()
-          .withHandler(handlerFor(TestSystemMessage, async () => undefined))
+          // @ts-expect-error a message type without a static NAME and a $name doesn't type check
+          .withHandler(handlerFor(ExternalMessage, async () => undefined))
           .build()
-      ).toThrow(SystemMessageMissingResolver)
+      ).toThrow(MessageNameMissing)
     })
 
     it('should handle the external message', async () => {

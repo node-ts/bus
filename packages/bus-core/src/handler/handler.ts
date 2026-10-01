@@ -1,4 +1,8 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Message,
+  MessageAttributes,
+  MessageDeclaration
+} from '@node-ts/bus-messages'
 import { ClassConstructor } from '../util'
 import { CustomHandler } from './custom-handler'
 import { HandlerContext } from './handler-context'
@@ -18,11 +22,12 @@ export interface Handler<
   TMessageAttributes extends MessageAttributes = MessageAttributes
 > {
   /**
-   * The type of message the class handles. Define it as a getter (`get messageType() { return MyEvent }`) so that
-   * `withHandler()` can read it without constructing the handler. A class field is only readable from an instance,
-   * so the handler is constructed without its dependencies when it's registered.
+   * The type of message the class handles: a message class, or a definition from `defineCommand` or `defineEvent`.
+   * Define it as a getter (`get messageType() { return MyEvent }`) so that `withHandler()` can read it without
+   * constructing the handler. A class field is only readable from an instance, so the handler is constructed without
+   * its dependencies when it's registered.
    */
-  messageType: ClassConstructor<TMessage>
+  messageType: MessageDeclaration<TMessage & Message>
 
   /**
    * A function that is called each time a message of `messageType` is received
