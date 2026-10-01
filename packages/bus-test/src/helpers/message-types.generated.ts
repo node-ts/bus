@@ -7,6 +7,7 @@ import { TestContinueRoundTripWorkflow } from './test-continue-round-trip-workfl
 import { TestCustomer } from './test-customer.js'
 import { TestEvent } from './test-event.js'
 import { TestFailMessage } from './test-fail-message.js'
+import { TestFunctionRoundTripWorkflowState } from './test-function-round-trip-workflow-state.js'
 import { TestGeoPoint } from './test-geo-point.js'
 import { TestOrderLine } from './test-order-line.js'
 import { TestPoisonedMessage } from './test-poisoned-message.js'
@@ -24,6 +25,8 @@ export const messageTypes: MessageTypes = {
       '@node-ts/bus-test/src/helpers/test-event#TestEvent',
     '@node-ts/bus-sqs/test-fail-message':
       '@node-ts/bus-test/src/helpers/test-fail-message#TestFailMessage',
+    '@node-ts/bus-test/function-round-trip-state':
+      '@node-ts/bus-test/src/helpers/test-function-round-trip-workflow-state#TestFunctionRoundTripWorkflowState',
     '@node-ts/bus-test/test-big-int-command':
       '@node-ts/bus-test/src/helpers/test-big-int-command#TestBigIntCommand',
     '@node-ts/bus-test/test-continue-round-trip-workflow':
@@ -85,6 +88,17 @@ export const messageTypes: MessageTypes = {
       class: TestFailMessage,
       fields: {}
     },
+    '@node-ts/bus-test/src/helpers/test-function-round-trip-workflow-state#TestFunctionRoundTripWorkflowState':
+      {
+        class: TestFunctionRoundTripWorkflowState,
+        fields: {
+          startedAt: 'Date',
+          customer: {
+            type: '@node-ts/bus-test/src/helpers/test-customer#TestCustomer'
+          },
+          checkpoints: { array: 'Date' }
+        }
+      },
     '@node-ts/bus-test/src/helpers/test-geo-point#TestGeoPoint': {
       class: TestGeoPoint,
       fields: {

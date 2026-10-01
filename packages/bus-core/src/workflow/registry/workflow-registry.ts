@@ -14,6 +14,7 @@ import { Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
+import { FunctionWorkflow, FunctionWorkflowHandler } from '../define-workflow'
 import {
   WorkflowAlreadyInitialized,
   WorkflowNameAlreadyRegistered,
@@ -23,8 +24,10 @@ import {
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
 import { PersistenceNotConfigured } from '../persistence/error'
-import { OnWhenHandler, Workflow, WorkflowMapper } from '../workflow'
+import { Workflow, WorkflowMapper } from '../workflow'
+import { WorkflowContext } from '../workflow-context'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
+import { WorkflowHandlerResult } from '../workflow-state-change'
 import { WorkflowHandlerFn } from './workflow-handler-fn'
 
 /**
@@ -46,6 +49,47 @@ const workflowLookup: MessageWorkflowMapping = {
 const PERSISTENCE_USERS = new WeakMap<Persistence, number>()
 
 /**
+ * A class workflow, or a workflow declared with `defineWorkflow`
+ */
+type RegisteredWorkflow =
+  ClassConstructor<Workflow<WorkflowState>> | FunctionWorkflow<WorkflowState>
+
+/**
+ * Calls one workflow handler for a message, whichever way the workflow was declared
+ */
+type WorkflowHandlerInvoker = (
+  message: Message,
+  workflowState: Readonly<WorkflowState>,
+  attributes: MessageAttributes,
+  context: HandlerContext
+) => Promise<WorkflowHandlerResult<WorkflowState>>
+
+/**
+ * A workflow's handlers, in the same shape for class workflows and workflows declared with `defineWorkflow`
+ */
+interface WorkflowHandlers {
+  workflowName: string
+  workflowStateType: ClassConstructor<WorkflowState>
+  startedBy: Map<MessageDeclaration<Message>, WorkflowHandlerInvoker>
+  when: Map<
+    MessageDeclaration<Message>,
+    {
+      invoke: WorkflowHandlerInvoker
+      customLookup: MessageWorkflowMapping | undefined
+    }
+  >
+}
+
+const isFunctionWorkflow = (
+  workflow: RegisteredWorkflow
+): workflow is FunctionWorkflow<WorkflowState> => typeof workflow !== 'function'
+
+const workflowNameOf = (workflow: RegisteredWorkflow): string =>
+  isFunctionWorkflow(workflow)
+    ? workflow.name
+    : workflow.prototype.constructor.name
+
+/**
  * The central workflow registry that holds all workflows managed by the application. This includes
  *   - the list of workflows
  *   - what messages start the workflow
@@ -53,7 +97,7 @@ const PERSISTENCE_USERS = new WeakMap<Persistence, number>()
  * This registry is also responsible for dispatching messages to workflows as they are received.
  */
 export class WorkflowRegistry {
-  private workflowRegistry: ClassConstructor<Workflow<WorkflowState>>[] = []
+  private workflowRegistry: RegisteredWorkflow[] = []
   private workflowStateNames: string[] = []
   private isInitialized = false
   private isInitializing = false
@@ -84,21 +128,22 @@ export class WorkflowRegistry {
     )
   }
 
-  register(workflow: ClassConstructor<Workflow<WorkflowState>>): void {
+  /**
+   * Registers a workflow to be initialized with the bus
+   * @param workflow a class that extends `Workflow`, or a workflow declared with `defineWorkflow`
+   */
+  register(workflow: RegisteredWorkflow): void {
+    const workflowName = workflowNameOf(workflow)
     if (this.isInitialized) {
-      throw new WorkflowRegisteredAfterInitialization(
-        workflow.prototype.constructor.name
-      )
+      throw new WorkflowRegisteredAfterInitialization(workflowName)
     }
 
     const duplicateWorkflowName = this.workflowRegistry.some(
-      r => r.prototype.constructor.name === workflow.prototype.constructor.name
+      r => workflowNameOf(r) === workflowName
     )
 
     if (duplicateWorkflowName) {
-      throw new WorkflowNameAlreadyRegistered(
-        workflow.prototype.constructor.name
-      )
+      throw new WorkflowNameAlreadyRegistered(workflowName)
     }
 
     this.workflowRegistry.push(workflow)
@@ -136,48 +181,32 @@ export class WorkflowRegistry {
       await this.persistence.initialize!()
     }
 
-    for (const WorkflowCtor of this.workflowRegistry) {
+    for (const workflow of this.workflowRegistry) {
       this.logger.debug('Initializing workflow', {
-        workflow: WorkflowCtor.prototype.constructor.name
+        workflow: workflowNameOf(workflow)
       })
 
-      let workflowInstance
-      if (container) {
-        const workflowInstanceFromContainer = container.get(WorkflowCtor)
-        if (workflowInstanceFromContainer instanceof Promise) {
-          workflowInstance = await workflowInstanceFromContainer
-        } else {
-          workflowInstance = workflowInstanceFromContainer
-        }
-      } else {
-        workflowInstance = new WorkflowCtor()
-      }
-      const mapper = new WorkflowMapper(WorkflowCtor)
-      workflowInstance.configureWorkflow(mapper)
+      const workflowHandlers = isFunctionWorkflow(workflow)
+        ? this.getFunctionWorkflowHandlers(workflow)
+        : await this.getClassWorkflowHandlers(workflow, container)
 
-      if (!mapper.workflowStateCtor) {
-        throw new WorkflowStateNotProvided(
-          WorkflowCtor.prototype.constructor.name
-        )
-      }
-      this.workflowStateNames.push(new mapper.workflowStateCtor().$name)
+      this.workflowStateNames.push(
+        new workflowHandlers.workflowStateType().$name
+      )
 
-      this.registerFnStartedBy(mapper, handlerRegistry, container)
-      this.registerFnHandles(mapper, handlerRegistry, WorkflowCtor, container)
+      this.registerFnStartedBy(workflowHandlers, handlerRegistry)
+      this.registerFnHandles(workflowHandlers, handlerRegistry)
 
-      const messageWorkflowMappings: MessageWorkflowMapping[] = Array.from<
-        [MessageDeclaration<Message>, OnWhenHandler],
-        MessageWorkflowMapping
-      >(
-        mapper.onWhen,
-        ([_, onWhenHandler]) => onWhenHandler.customLookup || workflowLookup
+      const messageWorkflowMappings: MessageWorkflowMapping[] = Array.from(
+        workflowHandlers.when.values(),
+        ({ customLookup }) => customLookup || workflowLookup
       )
       await this.persistence.initializeWorkflow(
-        mapper.workflowStateCtor!,
+        workflowHandlers.workflowStateType,
         messageWorkflowMappings
       )
       this.logger.debug('Workflow initialized', {
-        workflowName: WorkflowCtor.name
+        workflowName: workflowHandlers.workflowName
       })
     }
 
@@ -225,25 +254,155 @@ export class WorkflowRegistry {
     }
   }
 
-  private registerFnStartedBy(
-    mapper: WorkflowMapper<any, any>,
-    handlerRegistry: HandlerRegistry,
+  /**
+   * Reads the handlers of a class workflow by calling its `configureWorkflow`. The workflow is resolved from the
+   * container, or constructed with no arguments, each time it handles a message.
+   */
+  private async getClassWorkflowHandlers(
+    WorkflowCtor: ClassConstructor<Workflow<WorkflowState>>,
     container: ContainerAdapter | undefined
+  ): Promise<WorkflowHandlers> {
+    let workflowInstance
+    if (container) {
+      const workflowInstanceFromContainer = container.get(WorkflowCtor)
+      if (workflowInstanceFromContainer instanceof Promise) {
+        workflowInstance = await workflowInstanceFromContainer
+      } else {
+        workflowInstance = workflowInstanceFromContainer
+      }
+    } else {
+      workflowInstance = new WorkflowCtor()
+    }
+    const mapper = new WorkflowMapper(WorkflowCtor)
+    workflowInstance.configureWorkflow(mapper)
+
+    if (!mapper.workflowStateCtor) {
+      throw new WorkflowStateNotProvided(
+        WorkflowCtor.prototype.constructor.name
+      )
+    }
+
+    const invokerFor =
+      (
+        workflowHandler: keyof Workflow<WorkflowState>
+      ): WorkflowHandlerInvoker =>
+      async (message, workflowState, attributes, context) => {
+        let workflow: Workflow<WorkflowState>
+        if (container) {
+          const workflowFromContainer = container.get(WorkflowCtor, {
+            message,
+            messageAttributes: attributes
+          })
+          if (workflowFromContainer instanceof Promise) {
+            workflow = await workflowFromContainer
+          } else {
+            workflow = workflowFromContainer
+          }
+        } else {
+          workflow = new WorkflowCtor()
+        }
+
+        const handler = workflow[
+          workflowHandler
+        ] as unknown as WorkflowHandlerFn<Message, WorkflowState>
+        return handler.bind(workflow)(
+          message,
+          workflowState,
+          attributes,
+          context
+        )
+      }
+
+    return {
+      workflowName: WorkflowCtor.name,
+      workflowStateType: mapper.workflowStateCtor,
+      startedBy: new Map(
+        Array.from(mapper.onStartedBy, ([messageType, options]) => [
+          messageType,
+          invokerFor(options.workflowHandler as keyof Workflow<WorkflowState>)
+        ])
+      ),
+      when: new Map(
+        Array.from(mapper.onWhen, ([messageType, options]) => [
+          messageType,
+          {
+            invoke: invokerFor(
+              options.workflowHandler as keyof Workflow<WorkflowState>
+            ),
+            customLookup: options.customLookup
+          }
+        ])
+      )
+    }
+  }
+
+  /**
+   * Reads the handlers of a workflow declared with `defineWorkflow`, and passes each a `WorkflowContext`
+   */
+  private getFunctionWorkflowHandlers(
+    workflow: FunctionWorkflow<WorkflowState>
+  ): WorkflowHandlers {
+    const invokerFor =
+      (
+        handler: FunctionWorkflowHandler<WorkflowState>
+      ): WorkflowHandlerInvoker =>
+      async (message, workflowState, attributes, context) => {
+        const workflowContext: WorkflowContext<WorkflowState> = {
+          correlationId: context.correlationId,
+          send: context.send.bind(context),
+          publish: context.publish.bind(context),
+          failMessage: context.failMessage.bind(context),
+          returnMessage: context.returnMessage.bind(context),
+          attributes,
+          complete: workflowStateChange => ({
+            ...workflowStateChange,
+            $status: WorkflowStatus.Complete
+          }),
+          discard: () => ({ $status: WorkflowStatus.Discard })
+        }
+        return handler.handle(
+          message,
+          workflowState,
+          Object.freeze(workflowContext)
+        )
+      }
+
+    return {
+      workflowName: workflow.name,
+      workflowStateType: workflow.workflowStateType,
+      startedBy: new Map(
+        workflow.startedByHandlers.map(handler => [
+          handler.messageType,
+          invokerFor(handler)
+        ])
+      ),
+      when: new Map(
+        workflow.whenHandlers.map(handler => [
+          handler.messageType,
+          { invoke: invokerFor(handler), customLookup: handler.customLookup }
+        ])
+      )
+    }
+  }
+
+  private registerFnStartedBy(
+    workflowHandlers: WorkflowHandlers,
+    handlerRegistry: HandlerRegistry
   ): void {
+    const { workflowName, workflowStateType } = workflowHandlers
     this.logger.debug('Registering started by handlers for workflow', {
-      numHandlers: mapper.onStartedBy.size
+      workflowName,
+      numHandlers: workflowHandlers.startedBy.size
     })
-    mapper.onStartedBy.forEach((options, messageConstructor) =>
+    workflowHandlers.startedBy.forEach((invoke, messageConstructor) =>
       handlerRegistry.register(
         messageConstructor,
         async (message, messageAttributes, context) => {
           this.logger.debug('Starting new workflow instance', {
-            workflow: options.workflowCtor,
+            workflowName,
             msg: message
           })
-          const workflowState = this.createWorkflowState(
-            mapper.workflowStateCtor!
-          )
+          const workflowState = this.createWorkflowState(workflowStateType)
           const immutableWorkflowState = Object.freeze({ ...workflowState })
           const workflowContext = this.buildWorkflowHandlingContext(
             immutableWorkflowState
@@ -255,11 +414,10 @@ export class WorkflowRegistry {
               await this.dispatchMessageToWorkflow(
                 message,
                 messageAttributes,
-                options.workflowCtor,
+                workflowName,
                 immutableWorkflowState,
-                mapper.workflowStateCtor!,
-                options.workflowHandler as keyof Workflow<any>,
-                container,
+                workflowStateType,
+                invoke,
                 context
               )
             },
@@ -271,17 +429,16 @@ export class WorkflowRegistry {
   }
 
   private registerFnHandles(
-    mapper: WorkflowMapper<WorkflowState, Workflow<WorkflowState>>,
-    handlerRegistry: HandlerRegistry,
-    workflowCtor: ClassConstructor<Workflow<WorkflowState>>,
-    container: ContainerAdapter | undefined
+    workflowHandlers: WorkflowHandlers,
+    handlerRegistry: HandlerRegistry
   ): void {
+    const { workflowName, workflowStateType } = workflowHandlers
     this.logger.debug('Registering handles for workflow', {
-      workflow: workflowCtor,
-      numHandlers: mapper.onWhen.size
+      workflowName,
+      numHandlers: workflowHandlers.when.size
     })
 
-    mapper.onWhen.forEach((handler, messageConstructor) => {
+    workflowHandlers.when.forEach((handler, messageConstructor) => {
       const messageMapping = handler.customLookup || workflowLookup
 
       handlerRegistry.register(
@@ -289,20 +446,14 @@ export class WorkflowRegistry {
         async (message, attributes, context) => {
           this.logger.debug('Getting workflow state for message handler', {
             msg: message,
-            workflow: workflowCtor
+            workflowName
           })
           const storedWorkflowState = await this.persistence.getWorkflowState<
             WorkflowState,
             Message
-          >(
-            mapper.workflowStateCtor!,
-            messageMapping,
-            message,
-            attributes,
-            false
-          )
+          >(workflowStateType, messageMapping, message, attributes, false)
           const workflowState = storedWorkflowState.map(state =>
-            this.toWorkflowState(state, mapper.workflowStateCtor!)
+            this.toWorkflowState(state, workflowStateType)
           )
 
           if (!workflowState.length) {
@@ -325,11 +476,10 @@ export class WorkflowRegistry {
                 await this.dispatchMessageToWorkflow(
                   message,
                   attributes,
-                  workflowCtor,
+                  workflowName,
                   immutableWorkflowState,
-                  mapper.workflowStateCtor!,
-                  handler.workflowHandler,
-                  container,
+                  workflowStateType,
+                  handler.invoke,
                   context
                 )
               },
@@ -395,46 +545,24 @@ export class WorkflowRegistry {
   private async dispatchMessageToWorkflow(
     message: Message,
     attributes: MessageAttributes,
-    workflowCtor: ClassConstructor<Workflow<WorkflowState>>,
+    workflowName: string,
     immutableWorkflowState: WorkflowState,
     workflowStateConstructor: ClassConstructor<WorkflowState>,
-    workflowHandler: keyof Workflow<WorkflowState>,
-    container: ContainerAdapter | undefined,
+    invoke: WorkflowHandlerInvoker,
     context: HandlerContext
   ) {
     this.logger.debug('Dispatching message to workflow', {
       msg: message,
-      workflow: workflowCtor
+      workflowName
     })
-    let workflow: Workflow<WorkflowState>
-    if (container) {
-      const workflowFromContainer = container.get(workflowCtor, {
-        message,
-        messageAttributes: attributes
-      })
-      if (workflowFromContainer instanceof Promise) {
-        workflow = await workflowFromContainer
-      } else {
-        workflow = workflowFromContainer
-      }
-    } else {
-      workflow = new workflowCtor()
-    }
 
-    const handler = workflow[workflowHandler] as unknown as WorkflowHandlerFn<
-      Message,
-      WorkflowState
-    >
-
-    // Invoke the workflow handler
-    const workflowStateOutput = await handler.bind(workflow)(
+    const workflowStateOutput = await invoke(
       message,
       immutableWorkflowState,
       attributes,
       context
     )
 
-    const workflowName = workflowCtor.name
     if (
       workflowStateOutput &&
       workflowStateOutput.$status === WorkflowStatus.Discard

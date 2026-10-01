@@ -77,20 +77,69 @@ Workflows have the same reliability guarantees as normal [message handlers](/pac
 
 Messages are delivered at least once, and `startedBy` handlers aren't deduplicated. Each time a `startedBy` message is handled it starts a new workflow instance with a new `$workflowId`. If the message is retried after the new workflow state was saved, for example because another handler of the same message failed, or the message was delivered twice by the transport, a second workflow instance is started.
 
-If only one workflow instance may exist per message, make the `startedBy` handler idempotent. For example, check your own store for a workflow already started for the message's business key (such as an order id) and return `this.discardWorkflow()` when there is one.
+If only one workflow instance may exist per message, make the `startedBy` handler idempotent. For example, check your own store for a workflow already started for the message's business key (such as an order id) and return `ctx.discard()` (or `this.discardWorkflow()` in a class workflow) when there is one.
 
 ## Creating a new Workflow
 
-A workflow must have the following conditions met:
+A workflow can be declared with plain functions using `defineWorkflow`, or as a class that extends `Workflow`. Both are handled, persisted and retried the same way, and can be mixed in one bus. Either way:
 
-1. Define a `WorkflowData` type that extends `WorkflowData` from `@node-ts/bus-core`
-2. Configure the workflow using `Workflow.configure(...)` from `@node-ts/bus-core`
-3. Contain at least 1 message handling function declared with `.startedBy()`
-4. Be registered with the library using `Bus.configure().withWorkflow(myWorkflow)` from `@node-ts/bus-core`
+1. Define the workflow state as a class that extends `WorkflowState` from `@node-ts/bus-core`, with a unique `$name`. It's constructed with no arguments.
+2. Start the workflow with at least one `startedBy` handler.
+3. Register the workflow with `Bus.configure().withWorkflow(...)`.
+4. Generate message types with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli), including the file that declares the workflow state, and pass them to `withMessageTypes()`. The bus checks at `initialize()` that every workflow state has an entry, and restores the Dates, Maps, Sets and classes in the state it reads back.
 
-### Sending messages from a workflow
+```typescript
+import { WorkflowState } from '@node-ts/bus-core'
 
-Each workflow handler is called with the message, the workflow state, the message attributes and a `HandlerContext`. Send and publish through the context rather than an injected bus. Messages sent through it carry the workflow id in their sticky attributes, so replies are routed back to the same workflow instance by `when` handlers that don't declare a lookup.
+export class OrderState extends WorkflowState {
+  static NAME = '@my-org/orders/order-state'
+  $name = OrderState.NAME
+
+  orderId: string
+  charged: boolean
+}
+```
+
+### With functions
+
+`defineWorkflow(State)` returns a workflow that `startedBy` and `when` add handlers to. Each handler is called with the message, the read-only workflow state and a `WorkflowContext`, and returns the changes to save.
+
+```typescript
+import { Bus, defineWorkflow } from '@node-ts/bus-core'
+
+export const orderWorkflow = defineWorkflow(OrderState)
+  .startedBy(OrderPlaced, async (message, _state, ctx) => {
+    await ctx.send(new ChargeCard(message.orderId))
+    return { orderId: message.orderId }
+  })
+  .when(
+    CardCharged,
+    { lookup: message => message.orderId, mapsTo: 'orderId' },
+    (_message, _state, ctx) => ctx.complete({ charged: true })
+  )
+
+Bus.configure().withWorkflow(orderWorkflow)
+```
+
+The context is the [`HandlerContext`](https://github.com/node-ts/bus/tree/master/packages/bus-core#sending-and-publishing-from-a-handler) of the message (`send`, `publish`, `failMessage`, `returnMessage` and `correlationId`), plus:
+
+- `attributes`: the attributes of the message being handled
+- `complete(state?)`: ends the workflow, saving any final changes
+- `discard()`: drops the handler's changes, so nothing is saved
+
+Everything is type checked: the message type in each handler, `mapsTo` (it must be a field of the state), and the returned state. A returned field that isn't in the state, or has the wrong type, doesn't compile, and `$workflowId`, `$version` and `$name` can't be returned since the bus manages them. To type the message attributes, annotate the context:
+
+```typescript
+.when(OrderShipped, (_message, _state, ctx: WorkflowContext<OrderState, MessageAttributes<{ carrier: string }>>) =>
+  ctx.complete({ carrier: ctx.attributes.attributes.carrier })
+)
+```
+
+A function workflow needs no container. It reaches its dependencies through closures and the bus through its context. The workflow is named after the `$name` of its state.
+
+### With a class
+
+A class workflow declares its handlers in `configureWorkflow` by method name. Each handler is called with the message, the workflow state, the message attributes and a `HandlerContext`. Without a container, the class is constructed with no arguments; with `withContainer()`, it's resolved from the container for each message.
 
 ```typescript
 import { HandlerContext, Workflow, WorkflowMapper } from '@node-ts/bus-core'
@@ -101,7 +150,10 @@ export class OrderWorkflow extends Workflow<OrderState> {
     mapper
       .withState(OrderState)
       .startedBy(OrderPlaced, 'start')
-      .when(CardCharged, 'charged')
+      .when(CardCharged, 'charged', {
+        lookup: message => message.orderId,
+        mapsTo: 'orderId'
+      })
   }
 
   async start(
@@ -118,84 +170,133 @@ export class OrderWorkflow extends Workflow<OrderState> {
     return this.completeWorkflow({ charged: true })
   }
 }
+
+Bus.configure().withWorkflow(OrderWorkflow)
+```
+
+### Sending messages from a workflow
+
+Send and publish through the context rather than an injected bus. Messages sent through it carry the workflow id in their sticky attributes, so replies are routed back to the same workflow instance by `when` handlers that don't declare a lookup:
+
+```typescript
+defineWorkflow(OrderState)
+  .startedBy(OrderPlaced, async (message, _state, ctx) => {
+    await ctx.send(new ChargeCard(message.orderId))
+    return { orderId: message.orderId }
+  })
+  // CardCharged is a reply to ChargeCard, so it carries the workflow id
+  .when(CardCharged, (_message, _state, ctx) => ctx.complete({ charged: true }))
 ```
 
 ### Completing a workflow
 
-Workflows that have completed their work should be marked as completed. This means that they will no longer react to any future events. This is done by returning `completeWorkflow()` at the end of your message handler.
+Workflows that have completed their work should be marked as completed. This means that they will no longer react to any future events. Return `ctx.complete()` from a function workflow handler, or `this.completeWorkflow()` from a class workflow handler, optionally with final changes to the state.
 
 ```typescript
-import { Workflow } from '@node-ts/bus-core'
-
-const processDocumentWorkflow = Workflow
-  .configure('processDocumentWorkflow', ProcessDocumentWorkflowData)
-  .startedBy(...)
-  .handles(
+defineWorkflow(DocumentState)
+  .startedBy(DocumentUploaded, message => ({ documentId: message.documentId }))
+  .when(
     DocumentSaved,
     { lookup: event => event.documentId, mapsTo: 'documentId' },
-    () => completeWorkflow()
+    (_event, _state, ctx) => ctx.complete()
   )
 ```
 
 ### Discarding state changes
 
-Occasionally there are times when the workflow data shouldn't persist after a message has been handled. This is particularly relevant in cases where a workflow should only handle a message under certain circumstances.
+Occasionally the workflow state shouldn't be saved after a message has been handled. This is particularly relevant in cases where a workflow should only start under certain circumstances.
 
-For example, if your workflow is started by an `S3ObjectCreated` event, but should only create a new workflow if the object key is prefixed with `/documents`, then this can be achieved by returning `this.discard()` in the workflow like so:
+For example, if your workflow is started by an `S3ObjectCreated` event, but should only start if the object key is prefixed with `/documents`, return `ctx.discard()` (or `this.discardWorkflow()` in a class workflow):
 
 ```typescript
-const processDocumentWorkflow = Workflow.configure(
-  'processDocumentWorkflow',
-  ProcessDocumentWorkflowData
-).startedBy(S3ObjectCreated, ({ message }) => {
-  if (message.s3Key.indexOf('/documents') === 0) {
-    return {} // Starts a new workflow
-  } else {
-    return undefined // Do not start a new workflow
-  }
+defineWorkflow(DocumentState).startedBy(
+  S3ObjectCreated,
+  (message, _state, ctx) =>
+    message.s3Key.startsWith('/documents')
+      ? { s3Key: message.s3Key } // Starts a new workflow
+      : ctx.discard() // Does not start a new workflow
+)
+```
+
+A `startedBy` handler that returns nothing starts the workflow with its initial state.
+
+### Testing a workflow
+
+Function workflow handlers are plain functions. Declare one as a function and call it with a fake context, with no bus or mocking framework:
+
+```typescript
+import {
+  WorkflowContext,
+  WorkflowHandlerFunction,
+  WorkflowStatus
+} from '@node-ts/bus-core'
+import { messageAttributes } from '@node-ts/bus-messages'
+
+export const startOrder: WorkflowHandlerFunction<
+  OrderPlaced,
+  OrderState
+> = async (message, _state, ctx) => {
+  await ctx.send(new ChargeCard(message.orderId))
+  return { orderId: message.orderId }
+}
+
+export const orderWorkflow = defineWorkflow(OrderState).startedBy(
+  OrderPlaced,
+  startOrder
+)
+
+// In a test
+const sent: Command[] = []
+const ctx: WorkflowContext<OrderState> = {
+  correlationId: 'test',
+  attributes: messageAttributes(),
+  send: async command => {
+    sent.push(command)
+  },
+  publish: async () => {},
+  failMessage: async () => {},
+  returnMessage: async () => {},
+  complete: state => ({ ...state, $status: WorkflowStatus.Complete }),
+  discard: () => ({ $status: WorkflowStatus.Discard })
+}
+expect(await startOrder(new OrderPlaced('1'), new OrderState(), ctx)).toEqual({
+  orderId: '1'
 })
+expect(sent).toEqual([new ChargeCard('1')])
 ```
 
 ### Example
 
 The following represents a simple workflow that sends a welcome message to new users and subscribes them to a mailing list.
 
-`user-signup-workflow-state.ts` is a workflow data definition that describes the state that the workflow will create and update throughout its lifetime.
-
 ```typescript
 // user-signup-workflow.ts
-import { Bus, Workflow, WorkflowData } from '@node-ts/bus-core'
+import { defineWorkflow, WorkflowState } from '@node-ts/bus-core'
 import {
   UserSignedUp,
   SendWelcomeEmail,
   SubscribeToMailingList,
-  Uuid
+  WelcomeEmailSent,
+  SubscribedToMailingList
 } from 'contracts'
-import { UserSignupWorkflowData } from './user-signup-workflow-state'
 
 /**
  * Describes the state that the workflow will create and update throughout its lifetime
  */
-export class UserSignupWorkflowData extends WorkflowData {
-  // The name needs to be unique to distinguish it from other persisted workflow
-  static readonly NAME = 'node-ts/bus-workflow/user-signup-workflow-state'
-  readonly $name = UserSignupWorkflowData.NAME
+export class UserSignupWorkflowState extends WorkflowState {
+  // The name needs to be unique to distinguish it from other persisted workflow state
+  static readonly NAME = 'my-org/users/user-signup-workflow-state'
+  readonly $name = UserSignupWorkflowState.NAME
 
   email: string
   welcomeEmailSent: boolean
   subscribedToMailingList: boolean
 }
 
-export const userSignupWorkflow = Workflow.configure(
-  'userSignupWorkflow',
-  UserSignupWorkflowData
-)
-  .startedBy(UserSignedUp, async ({ message }) => {
-    const sendWelcomeEmail = new SendWelcomeEmail(event.email)
-    await Bus.send(sendWelcomeEmail)
-
-    const subscribeToMailingList = new SubscribeToMailingList(event.email)
-    await Bus.send(subscribeToMailingList)
+export const userSignupWorkflow = defineWorkflow(UserSignupWorkflowState)
+  .startedBy(UserSignedUp, async (event, _state, ctx) => {
+    await ctx.send(new SendWelcomeEmail(event.email))
+    await ctx.send(new SubscribeToMailingList(event.email))
 
     // Store the initial workflow state
     return {
@@ -204,33 +305,31 @@ export const userSignupWorkflow = Workflow.configure(
       subscribedToMailingList: false
     }
   })
-  .handles(
+  .when(
     WelcomeEmailSent,
     { lookup: event => event.email, mapsTo: 'email' },
-    ({ workflowData }) => {
+    (_event, state, ctx) => {
       /*
         Handle when the welcome email has been sent. Because there's one of these messages for each user signing up, we need
-        to find the correct workflow data by mapping the 'email' field in the event to the 'email' field in the workflow data.
+        to find the correct workflow state by mapping the 'email' field in the event to the 'email' field in the workflow state.
       */
-      if (workflowData.subscribedToMailingList) {
-        return completeWorkflow({ welcomeEmailSent: true })
+      if (state.subscribedToMailingList) {
+        return ctx.complete({ welcomeEmailSent: true })
       }
 
       // We're still waiting for the mailing list subscription to go through, so just return these state changes to be persisted
       return { welcomeEmailSent: true }
     }
   )
-  .handles(
+  .when(
     SubscribedToMailingList,
     { lookup: event => event.email, mapsTo: 'email' },
-    ({ workflowData }) => {
-      if (workflowData.welcomeEmailSent) {
-        return completeWorkflow({ subscribedToMailingList: true })
+    (_event, state, ctx) => {
+      if (state.welcomeEmailSent) {
+        return ctx.complete({ subscribedToMailingList: true })
       }
       // We're still waiting for the welcome email to be sent, so just return these state changes to be persisted
-      return {
-        subscribedToMailingList: true
-      }
+      return { subscribedToMailingList: true }
     }
   )
 ```
@@ -253,5 +352,5 @@ const run = async () => {
   await bus.start()
 }
 
-run.catch(console.error)
+run().catch(console.error)
 ```

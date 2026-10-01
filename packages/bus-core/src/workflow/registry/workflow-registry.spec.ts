@@ -13,7 +13,13 @@ import {
   WorkflowRegisteredAfterInitialization,
   WorkflowStateNotProvided
 } from '../error'
+import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { InMemoryPersistence } from '../persistence'
+import {
+  TaskRan,
+  testFunctionWorkflow,
+  TestFunctionWorkflowState
+} from '../test'
 import { FinalTask } from '../test/final-task'
 import { RunTaskHandler } from '../test/run-task-handler'
 import { TestCommand } from '../test/test-command'
@@ -190,6 +196,73 @@ describe('WorkflowRegistry', () => {
         await sut.initialize(new DefaultHandlerRegistry(), container.object)
         container.verifyAll()
       })
+    })
+  })
+
+  describe('when a workflow declared with defineWorkflow is initialized', () => {
+    let handlerRegistry: DefaultHandlerRegistry
+    let functionPersistence: IMock<InMemoryPersistence>
+
+    beforeEach(async () => {
+      functionPersistence = Mock.ofType(InMemoryPersistence)
+      handlerRegistry = new DefaultHandlerRegistry()
+      sut = new WorkflowRegistry()
+      sut.register(testFunctionWorkflow)
+      sut.prepare(
+        {
+          loggerFactory: (name: string) => new DebugLogger(name)
+        } as unknown as CoreDependencies,
+        functionPersistence.object,
+        new MessageHandlingContext()
+      )
+      await sut.initialize(handlerRegistry, undefined)
+    })
+
+    it('should register a handler for each message it handles', () => {
+      expect(handlerRegistry.getMessageNames()).toEqual(
+        expect.arrayContaining([TestCommand.NAME, TaskRan.NAME, FinalTask.NAME])
+      )
+    })
+
+    it('should initialize its state in the persistence with its lookups', () => {
+      functionPersistence.verify(
+        p =>
+          p.initializeWorkflow(
+            TestFunctionWorkflowState,
+            It.is<MessageWorkflowMapping[]>(
+              mappings =>
+                mappings.map(m => m.mapsTo).join() === 'property1,$workflowId'
+            )
+          ),
+        Times.once()
+      )
+    })
+
+    it('should report the $name of its state', () => {
+      expect(sut.getWorkflowStateNames()).toEqual([
+        TestFunctionWorkflowState.NAME
+      ])
+    })
+  })
+
+  describe('when a workflow declared with defineWorkflow is registered twice', () => {
+    let error: unknown
+
+    beforeEach(() => {
+      sut = new WorkflowRegistry()
+      sut.register(testFunctionWorkflow)
+      try {
+        sut.register(testFunctionWorkflow)
+      } catch (e) {
+        error = e
+      }
+    })
+
+    it('should throw WorkflowNameAlreadyRegistered naming the state', () => {
+      expect(error).toBeInstanceOf(WorkflowNameAlreadyRegistered)
+      expect((error as WorkflowNameAlreadyRegistered).workflowName).toEqual(
+        TestFunctionWorkflowState.NAME
+      )
     })
   })
 
