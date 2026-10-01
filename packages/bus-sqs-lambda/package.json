@@ -45,8 +45,8 @@
     "tslib": "^2.8.1"
   },
   "devDependencies": {
-    "@aws-sdk/client-sns": "3.1142.0",
-    "@aws-sdk/client-sqs": "3.1142.0",
+    "@aws-sdk/client-sns": "^3.1142.0",
+    "@aws-sdk/client-sqs": "^3.1142.0",
     "@node-ts/bus-core": "workspace:^",
     "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",

@@ -24,8 +24,8 @@ import {
   RecoveringChannelModel
 } from 'amqplib'
 import { EventEmitter } from 'events'
+import { randomUUID } from 'node:crypto'
 import { serializeError } from 'serialize-error'
-import * as uuid from 'uuid'
 import { RabbitMqConnectionRecoveryFailed } from './error'
 import { RabbitMqConnectionRecoveryConfiguration } from './rabbitmq-connection-recovery-configuration'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
@@ -792,7 +792,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         await this.assertExchange(channel, message.$name)
         channel.publish(message.$name, '', Buffer.from(payload), {
           correlationId: messageOptions.correlationId,
-          messageId: uuid.v4(),
+          messageId: randomUUID(),
           persistent: this.persistentMessages,
           headers: {
             attributes: messageOptions.attributes

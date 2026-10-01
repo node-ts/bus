@@ -1,6 +1,6 @@
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
-import * as uuid from 'uuid'
 import { Handler, Workflow, WorkflowMapper, WorkflowState } from '../'
 import { Bus, BusInstance } from '../service-bus'
 import { ClassConstructor, sleep } from '../util'
@@ -76,7 +76,7 @@ describe('Workflow Concurrency', () => {
   const workflowsToInvoke = 100
   const correlationIds = new Array(workflowsToInvoke)
     .fill(undefined)
-    .map(() => uuid.v4())
+    .map(() => randomUUID())
 
   beforeAll(async () => {
     bus = Bus.configure()
@@ -97,7 +97,7 @@ describe('Workflow Concurrency', () => {
     // Introduce sufficient parallelism to test for message handling context leakage
     const sendMessages = correlationIds.map(
       async (correlationId: string) =>
-        await bus.send(new TestCommand(uuid.v4()), { correlationId })
+        await bus.send(new TestCommand(randomUUID()), { correlationId })
     )
     await Promise.all(sendMessages)
     await sleep(CONSUME_TIMEOUT)

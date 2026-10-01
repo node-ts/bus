@@ -6,9 +6,9 @@ import {
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { Mock } from 'typemoq'
-import * as uuid from 'uuid'
 import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
 import { PostgresConfiguration } from './postgres-configuration'
 import { PostgresPersistence } from './postgres-persistence'
@@ -61,7 +61,7 @@ describe('PostgresPersistence', () => {
 
   describe('when saving new workflow state', () => {
     const workflowState = new TestWorkflowState()
-    workflowState.$workflowId = uuid.v4()
+    workflowState.$workflowId = randomUUID()
     workflowState.$status = WorkflowStatus.Running
     workflowState.$version = 0
     workflowState.eventValue = 'abc'
@@ -149,10 +149,10 @@ describe('PostgresPersistence', () => {
     let results: TestWorkflowState[]
 
     const workflowState = new TestWorkflowState()
-    workflowState.$workflowId = uuid.v4()
+    workflowState.$workflowId = randomUUID()
     workflowState.$status = WorkflowStatus.Running
     workflowState.$version = 0
-    workflowState.property1 = uuid.v4()
+    workflowState.property1 = randomUUID()
 
     const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
       lookup: message => message.property1,
@@ -220,10 +220,10 @@ describe('PostgresPersistence', () => {
     let results: TestWorkflowState[]
 
     const workflowState = new TestWorkflowState()
-    workflowState.$workflowId = uuid.v4()
+    workflowState.$workflowId = randomUUID()
     workflowState.$status = WorkflowStatus.Running
     workflowState.$version = 0
-    const lookupValue = uuid.v4()
+    const lookupValue = randomUUID()
     ;(workflowState as unknown as Record<string, string>)[mapsTo] = lookupValue
 
     const mapping = {

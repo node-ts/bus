@@ -25,7 +25,11 @@ export class DebugLogger implements Logger {
   }
 
   private log(message: string, meta?: object): void {
-    meta ? this.logger(message, meta) : this.logger(message)
+    if (meta) {
+      this.logger(message, meta)
+    } else {
+      this.logger(message)
+    }
   }
 
   private logToConsole(
@@ -38,9 +42,11 @@ export class DebugLogger implements Logger {
       return
     }
     const line = `${this.logger.namespace} ${message}`
-    meta
-      ? this.consoleOutput[level](line, meta)
-      : this.consoleOutput[level](line)
+    if (meta) {
+      this.consoleOutput[level](line, meta)
+    } else {
+      this.consoleOutput[level](line)
+    }
   }
 
   debug(message: string, meta?: object): void {

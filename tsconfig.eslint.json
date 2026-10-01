@@ -1,0 +1,15 @@
+{
+  // Type information for ESLint's type-aware rules. It covers every linted
+  // TypeScript file, including the specs and fixtures the package builds skip.
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.mts",
+    "packages/*/test/**/*.ts",
+    "test/**/*.ts",
+    "jest.config.ts"
+  ]
+}

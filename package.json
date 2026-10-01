@@ -13,6 +13,7 @@
     "clean": "pnpm run --recursive clean && rm -r node_modules",
     "format": "prettier --ignore-path .gitignore --write --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
     "format:check": "prettier --ignore-path .gitignore --check --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
+    "lint": "eslint .",
     "format:precommit": "lint-staged",
     "preinstall": "npx only-allow pnpm",
     "prepare": "husky",
@@ -40,10 +41,14 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@changesets/cli": "^3.0.3",
+    "@eslint/js": "^10.0.1",
     "@tsconfig/node24": "^24.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.19.0",
     "dotenv-cli": "^11.0.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.12.0",
     "husky": "^9.1.7",
     "jest": "^30.5.2",
     "lint-staged": "^17.6.0",
@@ -55,9 +60,14 @@
     "ts-jest": "^29.4.14",
     "ts-node": "^10.9.2",
     "tslib": "^2.8.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.0"
   },
   "lint-staged": {
-    "*.(ts|tsx|js|md|css|html|json)": "prettier --ignore-path .gitignore --write --config .prettierrc.js"
+    "*.(ts|mts|js|mjs)": [
+      "prettier --ignore-path .gitignore --write --config .prettierrc.js",
+      "eslint --no-warn-ignored"
+    ],
+    "*.(tsx|md|css|html|json)": "prettier --ignore-path .gitignore --write --config .prettierrc.js"
   }
 }

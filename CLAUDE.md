@@ -17,7 +17,8 @@ pnpm i
 pnpm build                 # tsc in every package (outputs to each package's dist/)
 pnpm build:watch
 pnpm check:packages        # after build: pack each package, run publint + attw, check ESM and CJS entries match
-pnpm format                # prettier write; CI runs `pnpm format:check` (the only "lint")
+pnpm format                # prettier write; CI runs `pnpm format:check`
+pnpm lint                  # after build: ESLint (eslint.config.mjs, type-aware typescript-eslint); CI runs it too
 pnpm test                  # all spec + integration tests, with coverage
 pnpm test:unit             # *.spec.ts only
 pnpm test:integration      # every package's *.integration.ts (runInBand, needs the infra below)
@@ -32,6 +33,8 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - **Build before testing across packages**: every package has `main: ./dist/index.js`, so e.g. bus-sqs tests import the built bus-core and bus-test, not their source. Changes in bus-core need `pnpm build` before they're visible to other packages.
 - Integration tests for adapters need local infra; `docker compose up -d` starts it all from the root `docker-compose.yml`. Endpoints default to the compose ports and can be overridden with env vars (listed in `test.env`): `LOCALSTACK_ENDPOINT` (default `http://localhost:4566`, dummy AWS creds in `test.env`), `RABBITMQ_URL` (`amqp://guest:guest@0.0.0.0`), `POSTGRES_URL` (`postgres://postgres:password@localhost:6432/postgres`), `MONGODB_URL` (`mongodb://localhost:27017/workflows`). CI runs all integration tests against CircleCI secondary containers (`.circleci/config.yml`).
 - Formatting is automatic: a `.claude/settings.json` hook runs prettier on every file Claude edits, and husky + lint-staged format on commit.
+- Linting: `eslint.config.mjs` is `recommended` from ESLint and typescript-eslint, plus the type-aware `no-floating-promises`, `no-misused-promises` and `await-thenable`, with `eslint-config-prettier` so it never fights prettier. Type information comes from `tsconfig.eslint.json` (specs and `test/` fixtures included), and cross-package types come from each package's `dist`, so build first. lint-staged also runs ESLint on staged TS/JS files. Await or `.catch` every promise; use `void` only for deliberate fire-and-forget, with a comment saying why. Unused parameters are allowed when prefixed with `_`.
+- Dependency updates are grouped by Renovate (`renovate.json`); the maintainer installs the Renovate GitHub app.
 - Releases use [changesets](https://changesets.dev) with linked package versions (`.changeset/config.json`, workflow in `CONTRIBUTING.md`, 1.x → 2.0 upgrade notes in `MIGRATING.md`). On master, CircleCI's deploy job runs `pnpm changeset publish` (publishes any package whose version isn't on npm yet) and then `.circleci/create-github-releases.mjs` (a GitHub Release and `<pkg>@<version>` tag per new version, with its CHANGELOG section as notes).
 - Package-specific notes (design, config defaults, local infra, gotchas) live in `packages/<pkg>/CLAUDE.md`. Scaffolding new adapters is covered by the `add-transport` and `add-persistence` skills in `.claude/skills/`.
 

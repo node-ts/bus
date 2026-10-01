@@ -40,12 +40,11 @@
     "access": "public"
   },
   "dependencies": {
-    "@aws-sdk/client-sns": "3.1142.0",
-    "@aws-sdk/client-sqs": "3.1142.0",
+    "@aws-sdk/client-sns": "^3.1142.0",
+    "@aws-sdk/client-sqs": "^3.1142.0",
     "@aws-sdk/util-arn-parser": "^3.972.41",
     "@node-ts/bus-messages": "workspace:^",
-    "tslib": "^2.8.1",
-    "uuid": "^11.1.1"
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "@node-ts/bus-core": "workspace:^",

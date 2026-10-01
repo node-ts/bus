@@ -20,7 +20,7 @@ class MessageHandlingContext {
    * @returns The message being handled, or `undefined` outside of a message handling context
    */
   get(): Context {
-    return this.storage.getStore()?.message!
+    return this.storage.getStore()?.message as Context
   }
 
   /**

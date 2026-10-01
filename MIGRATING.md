@@ -23,7 +23,7 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
 ## @node-ts/bus-sqs
 
 - **`messageRetentionPeriod` must be at least 60.** An explicit `0` used to be silently replaced with 14 days. Now it's passed to SQS, which rejects it (the minimum is 60 seconds). The same applies to `waitTimeSeconds: 0` and `visibilityTimeout: 0`, which now take effect.
-- `SqsTransport` takes `SQSClient`/`SNSClient` from `@aws-sdk/client-sqs`/`client-sns` 3.1142.0. Upgrade your own copies if you pass clients in.
+- `SqsTransport` takes `SQSClient`/`SNSClient` from `@aws-sdk/client-sqs`/`client-sns` 3.1142.0 or a later 3.x release. Upgrade your own copies if you pass clients in.
 
 ## @node-ts/bus-rabbitmq
 
