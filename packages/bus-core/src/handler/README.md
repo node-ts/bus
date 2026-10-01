@@ -55,15 +55,21 @@ The `HandlerContext` passed to every handler is bound to the bus that received t
 - `failMessage()` to send the message straight to the dead letter queue, and `returnMessage()` to return it to the queue for a retry.
 - `correlationId`, the correlation id of the message being handled.
 
-Class handlers get it as the third argument of `handle(message, attributes, ctx)`, so they don't need the bus injected.
+Class handlers get it as the third argument of `handle(message, attributes, ctx)`, so they don't need the bus injected. Without `withContainer`, the bus constructs a class handler with `new` for each message, as it does for class workflows, so its constructor can't take arguments. `build()` throws `ContainerNotRegistered` for one that does.
+
+A handler's return value is ignored and a returned promise is awaited, so `handlerFor(PlaceOrder, async order => repository.save(order))` is fine.
 
 `HandlerContext` is an interface, so a handler can be tested by calling it with a plain object, without a bus:
 
+`messageAttributes()` from `@node-ts/bus-messages` fills in empty `attributes` and `stickyAttributes`, so a test only sets the ones the handler reads:
+
 ```typescript
+import { messageAttributes } from '@node-ts/bus-messages'
+
 const published: Event[] = []
 await sendWelcomeEmailHandler.messageHandler(
   new SendWelcomeEmail('ada@example.com'),
-  { attributes: {}, stickyAttributes: {} },
+  messageAttributes(),
   {
     correlationId: 'test',
     send: async () => {},
@@ -98,6 +104,29 @@ export const handlerWithAttributes = handlerFor(
     )
 )
 ```
+
+To type the attributes a handler reads, give them as the second type argument of `handlerFor`, after the message type:
+
+```typescript
+import { MessageAttributes } from '@node-ts/bus-messages'
+
+type TenantAttributes = MessageAttributes<{ tenantId: string }>
+
+export const placeOrderHandler = handlerFor<PlaceOrder, TenantAttributes>(
+  PlaceOrder,
+  async (message, attributes) =>
+    repository.save(attributes.attributes.tenantId, message)
+)
+
+// In a test
+await placeOrderHandler.messageHandler(
+  new PlaceOrder('1'),
+  messageAttributes({ attributes: { tenantId: 'tenant-a' } }),
+  fakeContext
+)
+```
+
+The attributes aren't validated when a message is received, so the type is a promise the sender has to keep.
 
 ## System and non-domain messages
 

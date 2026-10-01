@@ -141,3 +141,22 @@ Keep two limits in mind with either approach:
 
 - **Constructors aren't run** when a message or workflow state is read. Fields are copied onto an object created from the class' prototype, so constructor logic and field initializers don't apply, and a field that is missing from the payload stays `undefined`.
 - **`#private` fields aren't sent or restored.** Use ordinary (or TypeScript `private`) fields for data.
+
+## Message attributes
+
+`MessageAttributes` is the metadata that travels with a message: a `correlationId`, `attributes` for the first receiver, and `stickyAttributes` that propagate to every message sent while handling it. Handlers always receive both maps, so they read them without `?.`.
+
+`messageAttributes()` builds attributes with `attributes` and `stickyAttributes` defaulted to `{}`, for tests that call a handler directly:
+
+```ts
+import { messageAttributes } from '@node-ts/bus-messages'
+
+await placeOrderHandler.messageHandler(order, messageAttributes(), fakeContext)
+await placeOrderHandler.messageHandler(
+  order,
+  messageAttributes({ correlationId: 'c', attributes: { tenantId: 'a' } }),
+  fakeContext
+)
+```
+
+When the attributes type has a required key, such as `messageAttributes<{ tenantId: string }>()`, that map has to be given.

@@ -14,7 +14,12 @@ import { Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
-import { WorkflowAlreadyInitialized } from '../error'
+import {
+  WorkflowAlreadyInitialized,
+  WorkflowNameAlreadyRegistered,
+  WorkflowRegisteredAfterInitialization,
+  WorkflowStateNotProvided
+} from '../error'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
 import { PersistenceNotConfigured } from '../persistence/error'
@@ -81,8 +86,8 @@ export class WorkflowRegistry {
 
   register(workflow: ClassConstructor<Workflow<WorkflowState>>): void {
     if (this.isInitialized) {
-      throw new Error(
-        `Attempted to register workflow (${workflow.prototype.constructor.name}) after workflows have been initialized`
+      throw new WorkflowRegisteredAfterInitialization(
+        workflow.prototype.constructor.name
       )
     }
 
@@ -91,8 +96,8 @@ export class WorkflowRegistry {
     )
 
     if (duplicateWorkflowName) {
-      throw new Error(
-        `Attempted to register two workflows with the same name (${workflow.prototype.constructor.name})`
+      throw new WorkflowNameAlreadyRegistered(
+        workflow.prototype.constructor.name
       )
     }
 
@@ -151,7 +156,9 @@ export class WorkflowRegistry {
       workflowInstance.configureWorkflow(mapper)
 
       if (!mapper.workflowStateCtor) {
-        throw new Error('Workflow state not provided. Use .withState()')
+        throw new WorkflowStateNotProvided(
+          WorkflowCtor.prototype.constructor.name
+        )
       }
       this.workflowStateNames.push(new mapper.workflowStateCtor().$name)
 

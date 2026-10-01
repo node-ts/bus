@@ -784,28 +784,43 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     handler: HandlerDefinition<Message>
   ): Promise<void> {
     const context = this.createHandlerContext(attributes)
-    let handlerCallback: () => Promise<void>
+    let handlerCallback: () => Promise<unknown>
 
     if (isClassHandler(handler)) {
       const classHandler = handler as ClassConstructor<Handler<Message>>
 
+      const container = this.coreDependencies.container
       let handlerInstance: Handler<Message> | undefined
-      try {
-        const handlerInstanceFromContainer =
-          this.coreDependencies.container!.get(classHandler, {
+      if (!container) {
+        // Without a container, class handlers are constructed like class workflows are
+        try {
+          handlerInstance = new classHandler()
+        } catch (e) {
+          throw new ClassHandlerNotResolved(
+            classHandler.name,
+            e instanceof Error ? e.message : String(e),
+            e
+          )
+        }
+      } else {
+        try {
+          handlerInstance = await container.get(classHandler, {
             message,
             messageAttributes: attributes
           })
-        if (handlerInstanceFromContainer instanceof Promise) {
-          handlerInstance = await handlerInstanceFromContainer
-        } else {
-          handlerInstance = handlerInstanceFromContainer
+        } catch (e) {
+          throw new ClassHandlerNotResolved(
+            classHandler.name,
+            e instanceof Error ? e.message : String(e),
+            e
+          )
         }
         if (!handlerInstance) {
-          throw new Error('Container failed to resolve an instance.')
+          throw new ClassHandlerNotResolved(
+            classHandler.name,
+            'Container failed to resolve an instance.'
+          )
         }
-      } catch (e) {
-        throw new ClassHandlerNotResolved((e as Error).message)
       }
 
       handlerCallback = async () =>

@@ -83,20 +83,34 @@ const placeOrderHandler = handlerFor(
 
 The context also has `failMessage()`, `returnMessage()` and `correlationId`. Class handlers get it as the third argument of `handle`, and class workflow handlers as the fourth, after the message, the workflow state and the attributes.
 
-`HandlerContext` and `BusSender` (`send` and `publish`, which `BusInstance` also implements) are interfaces, so a handler can be unit tested by calling it with a plain object:
+`HandlerContext` and `BusSender` (`send` and `publish`, which `BusInstance` also implements) are interfaces, so a handler can be unit tested by calling it with a plain object. `messageAttributes()` from `@node-ts/bus-messages` fills in empty `attributes` and `stickyAttributes`:
 
 ```typescript
+import { messageAttributes } from '@node-ts/bus-messages'
+
 const published: Event[] = []
-await placeOrderHandler.messageHandler(new PlaceOrder('1'), attributes, {
-  correlationId: 'test',
-  send: async () => {},
-  publish: async event => {
-    published.push(event)
-  },
-  failMessage: async () => {},
-  returnMessage: async () => {}
-})
+await placeOrderHandler.messageHandler(
+  new PlaceOrder('1'),
+  messageAttributes(),
+  {
+    correlationId: 'test',
+    send: async () => {},
+    publish: async event => {
+      published.push(event)
+    },
+    failMessage: async () => {},
+    returnMessage: async () => {}
+  }
+)
 expect(published).toEqual([new OrderPlaced('1')])
+```
+
+## Shutting down
+
+A bus that handles messages stops gracefully on `SIGINT` and `SIGTERM`. To use other signals, or to let a host such as NestJS or AWS Lambda own shutdown, replace them with `withInterruptSignals`, and call `bus.stop()` or `bus.dispose()` yourself:
+
+```typescript
+const bus = Bus.configure().withInterruptSignals([]).build()
 ```
 
 ## Dates and classes in messages

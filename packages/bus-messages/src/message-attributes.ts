@@ -46,3 +46,43 @@ export interface MessageAttributes<
    */
   stickyAttributes: StickyAttributesType
 }
+
+/**
+ * The fields given to `messageAttributes()`. `attributes` and `stickyAttributes` can be left out when every one of
+ * their keys is optional, and are required otherwise.
+ */
+export type MessageAttributesInput<
+  AttributesType extends MessageAttributeMap = MessageAttributeMap,
+  StickyAttributesType extends MessageAttributeMap = MessageAttributeMap
+> = { correlationId?: Uuid } & ({} extends AttributesType
+  ? { attributes?: AttributesType }
+  : { attributes: AttributesType }) &
+  ({} extends StickyAttributesType
+    ? { stickyAttributes?: StickyAttributesType }
+    : { stickyAttributes: StickyAttributesType })
+
+/**
+ * Creates `MessageAttributes` with `attributes` and `stickyAttributes` defaulted to `{}`, so a test can call a
+ * handler directly without spelling out empty attributes. Handlers still receive both fields, so they read them
+ * without `?.`.
+ * @param input the correlation id and the attributes to set
+ * @returns message attributes with any missing `attributes` or `stickyAttributes` set to `{}`
+ * @example
+ * await placeOrderHandler.messageHandler(PlaceOrder({ orderId: '1' }), messageAttributes(), fakeContext)
+ * @example
+ * messageAttributes({ correlationId: 'c', attributes: { tenantId: 'a' } })
+ */
+export const messageAttributes = <
+  AttributesType extends MessageAttributeMap = {},
+  StickyAttributesType extends MessageAttributeMap = {}
+>(
+  // The input can only be left out when neither map has a required key
+  ...[input]: {} extends AttributesType & StickyAttributesType
+    ? [input?: MessageAttributesInput<AttributesType, StickyAttributesType>]
+    : [input: MessageAttributesInput<AttributesType, StickyAttributesType>]
+): MessageAttributes<AttributesType, StickyAttributesType> =>
+  ({
+    ...input,
+    attributes: input?.attributes ?? {},
+    stickyAttributes: input?.stickyAttributes ?? {}
+  }) as MessageAttributes<AttributesType, StickyAttributesType>

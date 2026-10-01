@@ -1,5 +1,6 @@
 import {
   Message,
+  MessageAttributes,
   MessageDeclaration,
   MessageTypes,
   mergeMessageTypes
@@ -75,7 +76,7 @@ export class BusConfiguration {
   /**
    * Constructs an instance of a bus from the configuration
    * @throws BusAlreadyInitialized if the bus has already been built
-   * @throws ContainerNotRegistered if class handlers are registered without a container
+   * @throws ContainerNotRegistered if a class handler's constructor takes arguments and no container is registered
    * @throws TransportAlreadyInUse if the transport is already used by another bus
    * @throws MessageTypesConflict if the message types passed to `withMessageTypes()` define a `$name` or type
    * differently
@@ -87,9 +88,14 @@ export class BusConfiguration {
       throw new BusAlreadyInitialized()
     }
 
-    const classHandlers = this.handlerRegistry.getClassHandlers()
-    if (!this.container && classHandlers.length) {
-      throw new ContainerNotRegistered(classHandlers[0].constructor.name)
+    if (!this.container) {
+      // Without a container class handlers are constructed with no arguments, so fail now rather than on each message
+      const classHandlerWithArguments = (
+        this.handlerRegistry.getClassHandlers() as unknown as ClassConstructor<Handler>[]
+      ).find(classHandler => classHandler.length > 0)
+      if (classHandlerWithArguments) {
+        throw new ContainerNotRegistered(classHandlerWithArguments.name)
+      }
     }
 
     const transport: Transport = this.configuredTransport || new InMemoryQueue()
@@ -167,10 +173,13 @@ export class BusConfiguration {
    * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withHandler(...classHandler: ClassConstructor<Handler>[]): this
-  withHandler<MessageType extends Message>(
+  withHandler<
+    MessageType extends Message,
+    TMessageAttributes extends MessageAttributes = MessageAttributes
+  >(
     ...functionHandler: {
       messageType: MessageDeclaration<MessageType>
-      messageHandler: HandlerDefinition<MessageType>
+      messageHandler: HandlerDefinition<MessageType, TMessageAttributes>
     }[]
   ): this
   withHandler<MessageType extends Message>(
@@ -394,18 +403,25 @@ export class BusConfiguration {
   }
 
   /**
-   * Register additional signals that will cause the bus to gracefully shutdown
-   * @default [SIGINT, SIGTERM]
+   * Sets the process signals that gracefully stop the bus, replacing the defaults. Pass an empty array to listen
+   * for none, so a host such as NestJS or AWS Lambda can own shutdown and call `bus.stop()` or `bus.dispose()` itself.
+   * Send-only buses never listen for signals.
+   * @param signals The signals that stop the bus
+   * @default ['SIGINT', 'SIGTERM']
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * // Let the host handle SIGINT and SIGTERM
+   * Bus.configure().withInterruptSignals([])
+   * @example
+   * // Also stop on SIGUSR2
+   * Bus.configure().withInterruptSignals(['SIGINT', 'SIGTERM', 'SIGUSR2'])
    */
-  withAdditionalInterruptSignal(...signals: NodeJS.Signals[]): this {
+  withInterruptSignals(signals: NodeJS.Signals[]): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.interruptSignals = Array.from(
-      new Set([...this.interruptSignals, ...signals])
-    )
+    this.interruptSignals = Array.from(new Set(signals))
     return this
   }
 

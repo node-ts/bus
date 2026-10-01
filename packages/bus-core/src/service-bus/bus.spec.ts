@@ -8,7 +8,7 @@ import { testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { InMemoryQueue, Transport } from '../transport'
 import { sleep } from '../util'
-import { Persistence } from '../workflow'
+import { Persistence, WorkflowNameAlreadyRegistered } from '../workflow'
 import { TestWorkflow } from '../workflow/test'
 import { Bus } from './bus'
 import { BusConfiguration } from './bus-configuration'
@@ -56,8 +56,8 @@ describe('Bus', () => {
         config => config.withRetryStrategy({} as RetryStrategy)
       ],
       [
-        'withAdditionalInterruptSignal',
-        config => config.withAdditionalInterruptSignal('SIGUSR2')
+        'withInterruptSignals',
+        config => config.withInterruptSignals(['SIGUSR2'])
       ],
       ['withReceiver', config => config.withReceiver({} as Receiver)]
     ]
@@ -93,7 +93,7 @@ describe('Bus', () => {
           .withMessageTypes(testMessageTypes)
           .withWorkflow(TestWorkflow)
           .withWorkflow(TestWorkflow)
-      ).toThrow('Attempted to register two workflows with the same name')
+      ).toThrow(WorkflowNameAlreadyRegistered)
     })
   })
 
@@ -124,11 +124,10 @@ describe('Bus', () => {
       await bus.dispose()
     })
 
-    it('should stop the bus on user provided interrupts', async () => {
-      const additionalInterrupts: NodeJS.Signals[] = ['SIGUSR2']
+    it('should stop the bus on the signals given to withInterruptSignals', async () => {
       const bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
-        .withAdditionalInterruptSignal(...additionalInterrupts)
+        .withInterruptSignals(['SIGUSR2'])
         .build()
       await bus.initialize()
       await bus.start()
@@ -136,6 +135,50 @@ describe('Bus', () => {
       expect(bus.state).toBe(BusState.Stopping)
       await waitForStopped(bus)
       await bus.dispose()
+    })
+  })
+
+  describe('when interrupt signals are configured', () => {
+    const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGUSR2']
+    const countListeners = () =>
+      signals.map(signal => process.listenerCount(signal))
+    let listenersBefore: number[]
+    let listenersWithReplacedSignals: number[]
+    let listenersWithNoSignals: number[]
+
+    beforeAll(async () => {
+      listenersBefore = countListeners()
+
+      const replaced = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withInterruptSignals(['SIGUSR2'])
+        .build()
+      await replaced.initialize()
+      listenersWithReplacedSignals = countListeners()
+      await replaced.dispose()
+
+      const none = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withInterruptSignals([])
+        .build()
+      await none.initialize()
+      listenersWithNoSignals = countListeners()
+      await none.dispose()
+    })
+
+    it('should listen only for the given signals, replacing SIGINT and SIGTERM', () => {
+      const [sigint, sigterm, sigusr2] = listenersBefore
+      expect(listenersWithReplacedSignals).toEqual([
+        sigint,
+        sigterm,
+        sigusr2 + 1
+      ])
+    })
+
+    it('should listen for no signals when given an empty array', () => {
+      expect(listenersWithNoSignals).toEqual(listenersBefore)
     })
   })
 

@@ -8,11 +8,18 @@ import { Bus, BusInstance } from '../../service-bus'
 import { testMessageTypes } from '../../test'
 import { InMemoryQueue } from '../../transport'
 import { CoreDependencies, sleep } from '../../util'
+import {
+  WorkflowNameAlreadyRegistered,
+  WorkflowRegisteredAfterInitialization,
+  WorkflowStateNotProvided
+} from '../error'
 import { InMemoryPersistence } from '../persistence'
 import { FinalTask } from '../test/final-task'
 import { RunTaskHandler } from '../test/run-task-handler'
 import { TestCommand } from '../test/test-command'
 import { TestWorkflow } from '../test/test-workflow'
+import { TestWorkflowState } from '../test/test-workflow-state'
+import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowRegistry } from './workflow-registry'
 
 class TestFinalTaskHandler implements Handler<FinalTask> {
@@ -33,9 +40,103 @@ class TestFinalTaskHandler implements Handler<FinalTask> {
   }
 }
 
+class StatelessWorkflow extends Workflow<TestWorkflowState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<TestWorkflowState, StatelessWorkflow>
+  ): void {
+    mapper.startedBy(TestCommand, 'start')
+  }
+
+  start() {
+    return {}
+  }
+}
+
+const catchError = async (fn: () => unknown): Promise<unknown> => {
+  try {
+    await fn()
+    return undefined
+  } catch (error) {
+    return error
+  }
+}
+
 describe('WorkflowRegistry', () => {
   let sut: WorkflowRegistry
   const persistence = Mock.ofType(InMemoryPersistence)
+  const coreDependencies = {
+    loggerFactory: (name: string) => new DebugLogger(name)
+  } as unknown as CoreDependencies
+
+  describe('when registering a workflow after initializing', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext()
+      )
+      sut.register(TestWorkflow)
+      await sut.initialize(new DefaultHandlerRegistry(), undefined)
+      error = await catchError(() => sut.register(StatelessWorkflow))
+    })
+
+    it('should throw WorkflowRegisteredAfterInitialization naming the workflow', () => {
+      expect(error).toBeInstanceOf(WorkflowRegisteredAfterInitialization)
+      expect(
+        (error as WorkflowRegisteredAfterInitialization).workflowName
+      ).toEqual('StatelessWorkflow')
+      expect((error as WorkflowRegisteredAfterInitialization).help).toContain(
+        'withWorkflow(StatelessWorkflow)'
+      )
+    })
+  })
+
+  describe('when registering two workflows with the same name', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      sut = new WorkflowRegistry()
+      sut.register(TestWorkflow)
+      error = await catchError(() => sut.register(TestWorkflow))
+    })
+
+    it('should throw WorkflowNameAlreadyRegistered naming the workflow', () => {
+      expect(error).toBeInstanceOf(WorkflowNameAlreadyRegistered)
+      expect((error as WorkflowNameAlreadyRegistered).workflowName).toEqual(
+        'TestWorkflow'
+      )
+    })
+  })
+
+  describe('when initializing a workflow that does not declare its state', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext()
+      )
+      sut.register(StatelessWorkflow)
+      error = await catchError(() =>
+        sut.initialize(new DefaultHandlerRegistry(), undefined)
+      )
+    })
+
+    it('should throw WorkflowStateNotProvided naming the workflow and the fix', () => {
+      expect(error).toBeInstanceOf(WorkflowStateNotProvided)
+      expect((error as WorkflowStateNotProvided).message).toEqual(
+        "Workflow StatelessWorkflow doesn't declare its state"
+      )
+      expect((error as WorkflowStateNotProvided).help).toContain(
+        'mapper.withState('
+      )
+    })
+  })
 
   describe('when initializing', () => {
     beforeEach(() => {
