@@ -36,8 +36,8 @@
     "clean": "rm -rf dist",
     "build": "tsc",
     "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput",
-    "generate:message-types": "bus generate-message-types --entry 'src/helpers/**/*.ts' --exclude src/helpers/test-system-message.ts --out src/message-types.generated.ts",
-    "check:message-types": "bus generate-message-types --entry 'src/helpers/**/*.ts' --exclude src/helpers/test-system-message.ts --out src/message-types.generated.ts --check"
+    "generate:message-types": "bus generate-message-types --entry 'src/helpers/**/*.ts' --exclude src/helpers/test-system-message.ts --out src/helpers/message-types.generated.ts",
+    "check:message-types": "bus generate-message-types --entry 'src/helpers/**/*.ts' --exclude src/helpers/test-system-message.ts --out src/helpers/message-types.generated.ts --check"
   },
   "publishConfig": {
     "access": "public"

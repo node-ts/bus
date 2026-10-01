@@ -18,6 +18,7 @@ const readMessageTypes = (ts: typeof TS, source: string): Value | undefined => {
     ts.ScriptKind.TS
   )
   const imports = new Map<string, string>()
+  const calls: string[] = []
   let initializer: TS.Expression | undefined
 
   for (const statement of sourceFile.statements) {
@@ -35,6 +36,11 @@ const readMessageTypes = (ts: typeof TS, source: string): Value | undefined => {
           )
         }
       }
+    } else if (
+      ts.isExpressionStatement(statement) &&
+      ts.isCallExpression(statement.expression)
+    ) {
+      calls.push(statement.expression.getText(sourceFile).replace(/\s/g, ''))
     } else if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         if (
@@ -99,7 +105,9 @@ const readMessageTypes = (ts: typeof TS, source: string): Value | undefined => {
     return UNKNOWN
   }
 
-  return initializer && toValue(initializer)
+  return (
+    initializer && { messageTypes: toValue(initializer), calls: calls.sort() }
+  )
 }
 
 /**

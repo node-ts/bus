@@ -34,7 +34,9 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc",
-    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput",
+    "generate:message-types": "bus generate-message-types --entry 'test/**/*.ts' --out test/message-types.generated.ts",
+    "check:message-types": "bus generate-message-types --entry 'test/**/*.ts' --out test/message-types.generated.ts --check"
   },
   "publishConfig": {
     "access": "public"
@@ -45,6 +47,7 @@
     "tslib": "^2.8.1"
   },
   "devDependencies": {
+    "@node-ts/bus-cli": "workspace:^",
     "@node-ts/bus-core": "workspace:^",
     "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",

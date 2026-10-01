@@ -250,9 +250,17 @@ describe('generateMessageTypes', () => {
     })
 
     it('should report the type error as a warning', () => {
-      expect(sut.warnings).toEqual([
+      expect(sut.warnings).toContain(
         "src/order.ts:13:11: Type 'string' is not assignable to type 'number'."
-      ])
+      )
+    })
+
+    it('should warn that nothing imports the generated file', () => {
+      expect(sut.warnings).toContainEqual(
+        expect.stringContaining(
+          "Nothing in the project imports src/message-types.generated.ts, so its types won't be registered"
+        )
+      )
     })
   })
 
@@ -278,7 +286,11 @@ describe('generateMessageTypes', () => {
       sut = generateMessageTypes({
         cwd: fixture('supported'),
         entry: ['src/**/*.ts'],
-        exclude: ['src/place-order.ts', 'src/place-urgent-order.ts'],
+        exclude: [
+          'src/index.ts',
+          'src/place-order.ts',
+          'src/place-urgent-order.ts'
+        ],
         out: 'generated/types.ts'
       })
     })

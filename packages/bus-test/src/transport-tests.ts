@@ -15,7 +15,6 @@ import {
   messageRoundTripCases,
   RoundTripReceiver
 } from './message-round-trip-cases'
-import { withRoundTripSerializer } from './with-round-trip-serializer'
 
 const RETRY_DELAY = 5
 
@@ -52,10 +51,10 @@ export const transportTests = (
 
   describe('when the transport has been initialized', () => {
     beforeAll(async () => {
-      // Checks the transport (de)serializes through the bus' serializer, so
-      // class instances and their nested types survive the round trip
+      // The fixtures' generated message types register when ./helpers is imported. This checks the
+      // transport (de)serializes through the bus' serializer, so nested types survive the round trip
       bus = roundTripReceiver
-        .withHandlers(withRoundTripSerializer(Bus.configure()))
+        .withHandlers(Bus.configure())
         .withTransport(transport)
         .withHandler(
           handlerFor(TestCommand, (message, attributes) => {

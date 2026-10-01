@@ -25,9 +25,9 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
    export * from './message-types.generated'
    ```
 
-   Add the command to your `prebuild` script, and `--check` to CI (see the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts)). Include the files that declare your workflow state if you want their Dates and classes restored too.
+   The generated file registers its types when it's imported, so services that import your messages get them with nothing to configure. For messages declared in the service itself, import the generated file once where the messages are exported or the bus is configured. Add the command to your `prebuild` script, and `--check` to CI (see the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts)). Include the files that declare your workflow state if you want their Dates and classes restored too.
 
-4. Replace `.withSerializer(new ClassSerializer())` with `.withMessageTypes(messageTypes)`. If the service uses several message libraries, generate the types in each and pass them all: `.withMessageTypes(orderMessageTypes, billingMessageTypes)`.
+4. Remove `.withSerializer(new ClassSerializer())`. The default serializer reads the registered types. If the service uses several message libraries, generate the types in each; they're all registered when imported.
 
 The wire format doesn't change: Dates are ISO strings, Maps are objects and Sets are arrays, as with class-transformer, so messages already in your queues and workflow state already persisted are read the same way. Fields that class-transformer silently left as strings because they had no `@Type` are now restored too.
 
@@ -42,9 +42,8 @@ Two things behave differently:
 ## @node-ts/bus-core
 
 - **`JsonSerializer` no longer runs constructors.** It creates the received message, or the workflow state read by a persistence adapter, from its class' prototype and copies the parsed fields onto it. Field initializers no longer fill in fields missing from the payload, and constructors that need arguments no longer throw.
-- **Maps, Sets and bigints are now written as plain JSON** (an object of the entries, an array and a string) rather than being lost or throwing: `JSON.stringify` wrote a `Map` or `Set` as `{}` and threw on a `bigint`. Without message types they're read back as that plain JSON. Register generated message types with `withMessageTypes()` to restore them.
-- **`withMessageTypes()` and `withSerializer()` can't be used together**, and `build()` throws `MessageTypesWithCustomSerializer` if both are set. Message types configure the default serializer. A custom serializer can take them itself, e.g. by wrapping `new JsonSerializer(messageTypes)`.
-- With message types registered, `initialize()` throws `MessageTypesMissing` if a handled message or a workflow state has no entry.
+- **Maps, Sets and bigints are now written as plain JSON** (an object of the entries, an array and a string) rather than being lost or throwing: `JSON.stringify` wrote a `Map` or `Set` as `{}` and threw on a `bigint`. Without generated message types they're read back as that plain JSON.
+- Once any generated message types are registered, `initialize()` throws `MessageTypesMissing` if a handled message or a workflow state has no entry, when the default serializer is used. A custom serializer can read the registry with `getMessageTypes()` from `@node-ts/bus-messages`.
 - **Configure the bus before `build()`.** `asSendOnly` and every `with*` method on `BusConfiguration` now throw `BusAlreadyInitialized` when called after `build()`. `withConcurrency`, `withContainer`, `withRetryStrategy`, `withReceiver`, `withMessageReadMiddleware` and `withAdditionalInterruptSignal` used to be silently ignored at that point, so move any such calls before `build()`.
 - **`WorkflowHandler` parameters are `(message, workflowState, attributes)`.** The type used to say `(message, attributes, state)`, but the bus always called handlers in the new order. If you typed a handler against the old order, swap the parameters.
 - **`messageHandlingContext` typing is stricter.** It's typed by its own API (`get`, `set`, `run`, `isInHandlerContext`). Undocumented calls such as `getStore()` no longer type-check.

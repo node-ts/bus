@@ -66,12 +66,14 @@ const importPath = (
  * @param model the message types to write
  * @param outFile the absolute path the file is written to, which imports are relative to
  * @param importExtension how relative imports end, which depends on the project's module resolution
- * @returns the TypeScript source of the generated file
+ * @param source identifies the generated file in the registry, so reloading it replaces its types
+ * @returns the TypeScript source of the generated file. It registers the types when it's imported.
  */
 export const writeMessageTypes = (
   model: MessageTypesModel,
   outFile: string,
-  importExtension: ImportExtension
+  importExtension: ImportExtension,
+  source: string
 ): string => {
   // Classes are imported under their export name, made unique where two share a name
   const localNames = new Map<string, string>()
@@ -97,14 +99,20 @@ export const writeMessageTypes = (
 
   const lines = [
     GENERATED_HEADER,
-    "import type { MessageTypes } from '@node-ts/bus-messages'"
+    "import type { MessageTypes } from '@node-ts/bus-messages'",
+    "import { registerMessageTypes } from '@node-ts/bus-messages'"
   ]
   for (const path of [...importsByPath.keys()].sort()) {
     const specifiers = importsByPath.get(path)!.sort()
     lines.push(`import { ${specifiers.join(', ')} } from ${quote(path)}`)
   }
 
-  lines.push('', 'export const messageTypes: MessageTypes = {', '  messages: {')
+  lines.push(
+    '',
+    'export const messageTypes: MessageTypes = {',
+    `  source: ${quote(source)},`,
+    '  messages: {'
+  )
   model.messages.forEach(([name, typeKey], index) => {
     const comma = index < model.messages.length - 1 ? ',' : ''
     lines.push(`    ${propertyKey(name)}: ${quote(typeKey)}${comma}`)
@@ -129,6 +137,13 @@ export const writeMessageTypes = (
     }
     lines.push(typeIndex < model.types.length - 1 ? '    },' : '    }')
   })
-  lines.push('  }', '}', '')
+  lines.push(
+    '  }',
+    '}',
+    '',
+    '// Registers the types with the bus as soon as this file is imported',
+    'registerMessageTypes(messageTypes)',
+    ''
+  )
   return lines.join('\n')
 }

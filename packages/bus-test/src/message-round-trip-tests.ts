@@ -4,7 +4,6 @@ import {
   messageRoundTripCases,
   RoundTripReceiver
 } from './message-round-trip-cases'
-import { withRoundTripSerializer } from './with-round-trip-serializer'
 
 /**
  * A suite that sends messages with nested types (Dates, class instances several levels deep,
@@ -21,7 +20,7 @@ export const messageRoundTripTests = (transport: Transport): void => {
   describe('when messages make a round trip through the transport', () => {
     beforeAll(async () => {
       bus = receiver
-        .withHandlers(withRoundTripSerializer(Bus.configure()))
+        .withHandlers(Bus.configure())
         .withTransport(transport)
         .withLogger(() => Mock.ofType<Logger>().object)
         .build()

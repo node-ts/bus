@@ -18,7 +18,6 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs'
-import { createRequire } from 'node:module'
 import { dirname, join, relative } from 'node:path'
 import { Mock } from 'typemoq'
 import * as ts from 'typescript'
@@ -33,7 +32,8 @@ const TMP_DIRECTORY = join(__dirname, '..', '..', 'tmp')
 const OUT_FILE = 'src/message-types.generated.ts'
 
 // Loads the transpiled fixture at runtime
-const load = createRequire(__filename)
+// jest's require, so the generated file registers with the same @node-ts/bus-messages as the test
+const load = (path: string): any => jest.requireActual(path)
 
 class CapturedOutput implements CommandOutput {
   readonly lines: string[] = []
@@ -164,12 +164,11 @@ describe('runGenerateMessageTypes', () => {
   describe('when generating the file', () => {
     let result: { exitCode: number; output: string }
     let diagnostics: string[]
-    let messageTypes: MessageTypes
 
     beforeAll(async () => {
       result = await run(project)
       diagnostics = typeCheck(project)
-      messageTypes = transpileAndLoad(project)
+      transpileAndLoad(project)
     })
 
     it('should write it', () => {
@@ -226,7 +225,8 @@ describe('runGenerateMessageTypes', () => {
           tree: root
         })
 
-        const serializer = new JsonSerializer(messageTypes)
+        // Loading the generated file registered its types
+        const serializer = new JsonSerializer()
         received = serializer.deserialize(
           serializer.serialize(sent),
           PlaceOrder
@@ -373,7 +373,7 @@ describe('runGenerateMessageTypes', () => {
     beforeAll(async () => {
       sameNames = copyFixture('same-names')
       await run(sameNames)
-      const messageTypes = transpileAndLoad(sameNames)
+      transpileAndLoad(sameNames)
       const out = join(sameNames, 'out')
       classes = {
         Invoice: load(join(out, 'invoice.js')).Invoice,
@@ -381,7 +381,7 @@ describe('runGenerateMessageTypes', () => {
         BillingCustomer: load(join(out, 'billing', 'customer.js')).Customer,
         ShippingCustomer: load(join(out, 'shipping', 'customer.js')).Customer
       }
-      const serializer = new JsonSerializer(messageTypes)
+      const serializer = new JsonSerializer()
       invoice = serializer.deserialize(
         JSON.stringify({
           $name: 'fixture/invoice',
@@ -446,7 +446,8 @@ describe('runGenerateMessageTypes', () => {
       for (const libraryProject of libraries) {
         await run(libraryProject)
       }
-      const [typesA, typesB] = libraries.map(transpileAndLoad)
+      // Each library's generated file registers itself when it's loaded
+      libraries.forEach(transpileAndLoad)
       const [outA, outB] = libraries.map(library => join(library, 'out'))
       classes = {
         MessageA: load(join(outA, 'message.js')).MessageA,
@@ -458,7 +459,6 @@ describe('runGenerateMessageTypes', () => {
       bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
         .withReceiver(new JsonReceiver())
-        .withMessageTypes(typesA, typesB)
         .withHandler(
           handlerFor(classes.MessageA, message => {
             received.push(message)

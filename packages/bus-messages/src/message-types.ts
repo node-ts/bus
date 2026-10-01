@@ -39,11 +39,17 @@ export interface MessageTypeDefinition {
 
 /**
  * The runtime types of messages and workflow state, generated from their TypeScript source by
- * `bus generate-message-types` in `@node-ts/bus-cli`. Pass it to `withMessageTypes()` when configuring
- * the bus so that the default serializer restores Dates, Maps, Sets, BigInts and class instances at
- * any depth.
+ * `bus generate-message-types` in `@node-ts/bus-cli`. The generated file registers them with
+ * `registerMessageTypes()` when it's imported, so the default serializer restores Dates, Maps, Sets,
+ * BigInts and class instances at any depth.
  */
 export interface MessageTypes {
+  /**
+   * Identifies the generated file, e.g. `@my-org/messages/src/message-types.generated`. Registering
+   * message types with the same source replaces the earlier ones, e.g. when a module is reloaded.
+   */
+  source?: string
+
   /**
    * Maps the `$name` of each message and workflow state to the key of its entry in `types`
    */

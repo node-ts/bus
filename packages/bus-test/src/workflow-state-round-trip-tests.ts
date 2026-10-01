@@ -18,7 +18,6 @@ import {
   TestStartRoundTripWorkflow
 } from './helpers'
 import { createTestRoundTripCommand } from './message-round-trip-cases'
-import { withRoundTripSerializer } from './with-round-trip-serializer'
 
 /**
  * A suite that starts a workflow whose state has nested types (Dates, class instances several
@@ -74,7 +73,7 @@ export const workflowStateRoundTripTests = (persistence: Persistence): void => {
     let state: TestRoundTripWorkflowState
 
     beforeAll(async () => {
-      bus = withRoundTripSerializer(Bus.configure())
+      bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
         .withPersistence(persistence)
         .withWorkflow(TestRoundTripWorkflow)

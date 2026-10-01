@@ -1,6 +1,7 @@
 import {
   Command,
   Event,
+  getMessageTypes,
   Message,
   MessageAttributes
 } from '@node-ts/bus-messages'
@@ -30,7 +31,7 @@ import {
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
-import { MessageTypesMissing } from '../serialization'
+import { JsonSerializer, MessageTypesMissing } from '../serialization'
 import { Transport, TransportMessage } from '../transport'
 import {
   ClassConstructor,
@@ -265,8 +266,8 @@ export class BusInstance<TTransportMessage = {}> {
    * Initializes the bus with the provided configuration. This must be called before `.start()`
    *
    * @throws InvalidOperation if the bus has already been initialized
-   * @throws MessageTypesMissing if message types are configured but a handled message or a workflow state has
-   * no entry in them
+   * @throws MessageTypesMissing if message types are registered and the default serializer is used, but a
+   * handled message or a workflow state has no entry
    */
   async initialize(): Promise<void> {
     this.logger.debug('Initializing bus')
@@ -848,12 +849,17 @@ export class BusInstance<TTransportMessage = {}> {
    * registered once per instance and removed when the bus is disposed.
    */
   /**
-   * Checks every handled message and workflow state can be restored from the configured message types
+   * Once any message types are registered, checks every handled message and workflow state has an
+   * entry, so a generated file that's out of date or never imported is caught at startup. Projects
+   * that don't generate message types register none, and aren't checked.
    * @throws MessageTypesMissing if any of them has no entry
    */
   private assertMessageTypesRegistered(): void {
-    const { messageTypes } = this.coreDependencies
-    if (!messageTypes) {
+    const messageTypes = getMessageTypes()
+    if (
+      !(this.coreDependencies.serializer instanceof JsonSerializer) ||
+      !Object.keys(messageTypes.messages).length
+    ) {
       return
     }
     const missingNames = [

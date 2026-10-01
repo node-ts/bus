@@ -1,6 +1,6 @@
 /**
- * Thrown when message types registered with `withMessageTypes()` define the same `$name` or type
- * key differently, so it's ambiguous how to restore it
+ * Thrown when registered message types define the same `$name` or type key differently, so it's
+ * ambiguous how to restore it
  */
 export class MessageTypesConflict extends Error {
   readonly help: string
@@ -15,13 +15,13 @@ export class MessageTypesConflict extends Error {
   ) {
     super(
       kind === '$name'
-        ? `The message types registered with withMessageTypes() map the $name "${key}" to different types`
-        : `The message types registered with withMessageTypes() define the type "${key}" differently`
+        ? `Two registered message types map the $name "${key}" to different types`
+        : `Two registered message types define the type "${key}" differently`
     )
     this.help =
       kind === '$name'
         ? 'Two message libraries declare a message with the same $name. Give each message a unique $name'
-        : 'Regenerate each library with the current `bus generate-message-types`, which namespaces type keys by package and module'
+        : 'Regenerate each library with the current `bus generate-message-types`, which keys types by package and module'
 
     Object.setPrototypeOf(this, new.target.prototype)
   }

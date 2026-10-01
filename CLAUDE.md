@@ -48,8 +48,8 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - Transports: `bus-sqs` (SNS topics fanned out to SQS queues, with policy generation and optional opt-out of auto-provisioning), `bus-rabbitmq`.
 - Persistence (workflow state): `bus-postgres`, `bus-mongodb`.
 - `bus-sqs-lambda` — a `Receiver` that feeds Lambda SQS events into the bus instead of the bus polling the transport.
-- `bus-cli` — the `bus` command line. `bus generate-message-types` reads message classes with the TypeScript compiler API and writes a `MessageTypes` map (type in bus-messages) that `withMessageTypes()` hands to `JsonSerializer`, so Dates, Maps, Sets, bigints and nested classes are restored without decorators. See `packages/bus-cli/CLAUDE.md`.
-- `bus-test` — shared conformance suites. New transports call `transportTests(transport, publishSystemMessage, systemMessageTopicIdentifier, readAllFromDeadLetterQueue)` from their `*.integration.ts` (see bus-sqs / bus-rabbitmq); persistence adapters call `workflowStateRoundTripTests(persistence)`. Its fixtures' message types are generated into `src/message-types.generated.ts`: after changing a fixture run `pnpm --filter @node-ts/bus-test run generate:message-types` and commit the file (CI runs `pnpm check:message-types`).
+- `bus-cli` — the `bus` command line. `bus generate-message-types` reads message classes with the TypeScript compiler API and writes a `MessageTypes` map that registers itself on import with `registerMessageTypes()` (bus-messages, a registry on `globalThis` under `Symbol.for('@node-ts/bus/message-types')`). `JsonSerializer` reads the registry, so Dates, Maps, Sets, bigints and nested classes are restored without decorators or configuration. See `packages/bus-cli/CLAUDE.md`.
+- `bus-test` — shared conformance suites. New transports call `transportTests(transport, publishSystemMessage, systemMessageTopicIdentifier, readAllFromDeadLetterQueue)` from their `*.integration.ts` (see bus-sqs / bus-rabbitmq); persistence adapters call `workflowStateRoundTripTests(persistence)`. Its fixtures' message types are generated into `src/helpers/message-types.generated.ts` and registered by the helpers barrel. bus-rabbitmq, bus-postgres and bus-mongodb do the same for their test fixtures, because once anything registers types every handled message must have an entry. After changing a fixture run `pnpm --filter <package> run generate:message-types` and commit the file (CI runs `pnpm check:message-types`). Fixture `$name`s must be unique across packages, since the registry rejects one `$name` mapped to two classes.
 
 ### Bus lifecycle (bus-core/src/service-bus)
 
@@ -89,7 +89,7 @@ Follow these when writing code. The file named on each line is a good example to
 ### Messages
 
 - `class X extends Command | Event`, with `static NAME = '@node-ts/<package>/<kebab-name>'`, `$name = X.NAME` and `$version = 0`. Routing uses `$name`. The message's `$version` is its contract version and is unrelated to workflow-state `$version`.
-- No decorators, `reflect-metadata` or class-transformer. Nested types are restored from generated message types (`bus-test/src/message-types.generated.ts`). Received messages are created from the class prototype without running the constructor, so don't rely on constructor logic or field initializers in message classes.
+- No decorators, `reflect-metadata` or class-transformer. Nested types are restored from generated message types, which register themselves on import (`bus-test/src/helpers/message-types.generated.ts`, exported by `helpers/index.ts`). Received messages are created from the class prototype without running the constructor, so don't rely on constructor logic or field initializers in message classes.
 
 ### Tests
 

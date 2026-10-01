@@ -57,7 +57,7 @@ export class PlaceOrder extends Command {
 
 ### Generated message types
 
-To use `Date`, `Map`, `Set`, `bigint` and your own classes at any depth, generate the message types of your message library with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli) and pass them to `withMessageTypes()`:
+To use `Date`, `Map`, `Set`, `bigint` and your own classes at any depth, generate the message types of your message library with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli) and re-export the generated file from the library's entry:
 
 ```sh
 npm i --save-dev @node-ts/bus-cli typescript
@@ -65,13 +65,12 @@ npx bus generate-message-types --entry 'src/messages/**/*.ts'
 ```
 
 ```ts
-import { Bus } from '@node-ts/bus-core'
-import { messageTypes } from '@my-org/messages'
-
-const bus = Bus.configure().withMessageTypes(messageTypes).build()
+// src/index.ts
+export * from './message-types.generated'
+export * from './messages'
 ```
 
-A service that uses several message libraries passes each one's message types, e.g. `withMessageTypes(orderMessageTypes, billingMessageTypes)`.
+The generated file registers its types when it's imported, so any service that imports a message from the library gets them, with nothing to configure. A service can use several message libraries this way. For messages declared in the service itself, generate the file there and import it once (`import './message-types.generated'`) where the messages are exported or the bus is configured.
 
 The generator reads your TypeScript source, so messages stay plain classes with no decorators or `reflect-metadata`. Messages are still plain JSON on the wire. Add it to your `prebuild` script and check it in CI with `--check`, as shown in the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts), which also lists the supported types.
 

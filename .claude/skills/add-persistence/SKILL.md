@@ -52,7 +52,7 @@ An interface with JSDoc on every field. The README repeats these docs.
 
 ## 5. Tests
 
-- Copy `packages/bus-postgres/test/` (the `TestWorkflowState`, `TestCommand`, `RunTask`, `TaskRan` and `TestWorkflow` fixtures plus `index.ts`).
+- Copy `packages/bus-postgres/test/` (the `TestWorkflowState`, `TestCommand`, `RunTask`, `TaskRan` and `TestWorkflow` fixtures plus `index.ts`), renaming the `$name`s to `@node-ts/bus-<name>/...`. Copy bus-postgres' `generate:message-types`/`check:message-types` scripts and its `@node-ts/bus-cli` devDependency, and run the script, since `@node-ts/bus-test` registers message types and every handled message then needs an entry.
 - `src/<name>-persistence.integration.ts`, mirroring `postgres-persistence.integration.ts`:
   - Start with a top-level `configuration` constant.
   - In `beforeAll`: `Bus.configure().withLogger(() => Mock.ofType<Logger>().object).withPersistence(sut).withWorkflow(TestWorkflow).build()`, then `initialize()` and `start()`.

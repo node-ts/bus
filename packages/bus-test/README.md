@@ -58,7 +58,7 @@ describe('MyTransport', () => {
 
 Your transport has to retry a returned message at least 10 times before it dead-letters it, because the suite waits for 10 delivery attempts.
 
-The suite's bus restores message types with the generated message types of its own fixtures (`withMessageTypes()`, see [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli)). It sends messages with Dates, class instances several levels deep, arrays, Maps, Sets, bigints, optional and null fields, and checks they arrive with their types restored and their attributes and sticky attributes intact. Serialize and deserialize message bodies with `coreDependencies.messageSerializer` rather than calling `JSON.stringify`/`JSON.parse` on them yourself.
+The suite's fixtures register their generated message types when the package is imported (see [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli)). It sends messages with Dates, class instances several levels deep, arrays, Maps, Sets, bigints, optional and null fields, and checks they arrive with their types restored and their attributes and sticky attributes intact. Serialize and deserialize message bodies with `coreDependencies.messageSerializer` rather than calling `JSON.stringify`/`JSON.parse` on them yourself.
 
 ### Other suites
 

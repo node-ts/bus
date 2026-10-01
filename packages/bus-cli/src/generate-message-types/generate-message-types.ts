@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, readFileSync } from 'node:fs'
 import { dirname, join, matchesGlob, relative, resolve } from 'node:path'
 import type * as TS from 'typescript'
 import { MessageTypeGenerationFailed } from './error'
@@ -27,7 +27,8 @@ export interface GeneratedMessageTypes {
   messageCount: number
 
   /**
-   * Type errors in the project that didn't stop generation, such as strictness checks
+   * Type errors in the project that didn't stop generation, such as strictness checks, and a
+   * reminder if nothing imports the generated file
    */
   warnings: string[]
 }
@@ -87,7 +88,7 @@ const findPackage = (
 /**
  * Reads the messages and workflow state declared in a TypeScript project, and generates the source
  * of a file that maps each `$name` to how its fields are restored from JSON. Pass the exported
- * `messageTypes` to `Bus.configure().withMessageTypes()`. The project is only read, like
+ * file registers its types with the bus when it's imported. The project is only read, like
  * `tsc --noEmit`, with the project's own copy of TypeScript, and nothing is written.
  * @param options where the project is and which files to read
  * @returns the generated source, where to write it, and warnings about the project
@@ -130,7 +131,12 @@ export const generateMessageTypes = (
     throw new MessageTypeGenerationFailed(parseErrors.map(formatDiagnostic))
   }
 
-  const compilerOptions = { ...parsed.options, noEmit: true }
+  // Nothing is emitted, so output layout options only add noise, e.g. entry files outside rootDir
+  const compilerOptions = {
+    ...parsed.options,
+    noEmit: true,
+    rootDir: undefined
+  }
   const host = ts.createCompilerHost(compilerOptions)
   const isOutFile = (fileName: string) => resolve(fileName) === outFile
   const { fileExists, readFile, getSourceFile } = host
@@ -142,7 +148,20 @@ export const generateMessageTypes = (
       ? ts.createSourceFile(fileName, OUT_FILE_STUB, languageVersion)
       : getSourceFile(fileName, languageVersion, ...rest)
 
-  const rootNames = parsed.fileNames.filter(fileName => !isOutFile(fileName))
+  // Entry files are read even if the tsconfig leaves them out, e.g. test fixtures
+  const entryFileNames = entry
+    .flatMap(glob => globSync(glob, { cwd }))
+    .map(fileName => resolve(cwd, fileName))
+    .filter(
+      fileName =>
+        /\.[mc]?tsx?$/.test(fileName) && !/\.d\.[mc]?ts$/.test(fileName)
+    )
+  const rootNames = [
+    ...new Set([
+      ...parsed.fileNames.map(fileName => resolve(fileName)),
+      ...entryFileNames
+    ])
+  ].filter(fileName => !isOutFile(fileName))
   const program = ts.createProgram({
     rootNames,
     options: compilerOptions,
@@ -174,23 +193,33 @@ export const generateMessageTypes = (
   }
 
   const packageInfo = findPackage(dirname(configFile))
+  const keyPrefix = packageInfo.name ? `${packageInfo.name}/` : ''
   const { model, problems, warnings } = new MessageTypeReader({
     ts,
     program,
     cwd,
     keyRoot: packageInfo.root,
-    keyPrefix: packageInfo.name ? `${packageInfo.name}/` : ''
+    keyPrefix
   }).read(entryFiles)
   if (problems.length) {
     throw new MessageTypeGenerationFailed(problems)
   }
 
+  // The stub is only part of the program when another file imports it
+  if (!program.getSourceFile(outFile)) {
+    warnings.push(
+      `Nothing in the project imports ${toPosix(relative(cwd, outFile))}, so its types won't be registered. Export it from the package's entry, e.g. \`export * from './message-types.generated'\` in src/index.ts, or import it where the bus is configured`
+    )
+  }
+
+  const source = `${keyPrefix}${toPosix(relative(packageInfo.root, outFile)).replace(/\.[mc]?tsx?$/, '')}`
   return {
     outFile,
     content: writeMessageTypes(
       model,
       outFile,
-      resolveImportExtension(ts, parsed.options)
+      resolveImportExtension(ts, parsed.options),
+      source
     ),
     messageCount: model.messages.length,
     warnings

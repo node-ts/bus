@@ -1,4 +1,5 @@
 export * from './handle-checker'
+export * from './message-types.generated'
 export * from './test-address'
 export * from './test-big-int-command'
 export * from './test-command'

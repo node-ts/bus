@@ -1,17 +1,12 @@
-import { MessageTypes } from '@node-ts/bus-messages'
+import { MessageTypes, registerMessageTypes } from '@node-ts/bus-messages'
 import { Mock } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
-import {
-  JsonSerializer,
-  MessageTypesConflict,
-  MessageTypesMissing
-} from '../serialization'
-import { TestCommand, TestEvent } from '../test'
+import { MessageTypesMissing, Serializer } from '../serialization'
+import { resetMessageTypes, TestCommand, TestEvent } from '../test'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
-import { MessageTypesWithCustomSerializer } from './error'
 
 class TestMessageTypesWorkflowState extends WorkflowState {
   static NAME = '@node-ts/bus-core/test-message-types-workflow-state'
@@ -35,39 +30,69 @@ class TestMessageTypesWorkflow extends Workflow<TestMessageTypesWorkflowState> {
   }
 }
 
-const configure = (messageTypes: MessageTypes) =>
+const configure = () =>
   Bus.configure()
     .withLogger(() => Mock.ofType<Logger>().object)
-    .withMessageTypes(messageTypes)
     .withHandler(handlerFor(TestCommand, () => undefined))
     .withWorkflow(TestMessageTypesWorkflow)
 
 const entry = { fields: {} }
 
+/**
+ * A serializer that doesn't use the registered message types
+ */
+const customSerializer: Serializer = {
+  serialize: obj => JSON.stringify(obj),
+  deserialize: (serialized, classType) =>
+    Object.assign(new classType(), JSON.parse(serialized)),
+  toPlain: obj => JSON.parse(JSON.stringify(obj)) as object,
+  toClass: (obj, classType) => Object.assign(new classType(), obj)
+}
+
+/**
+ * Registers only the given message types, then initializes a bus
+ * @returns the bus, and what initialize() threw
+ */
+const initializeWith = async (
+  messageTypes: MessageTypes[],
+  configuration = configure()
+): Promise<{ bus: BusInstance; error: unknown }> => {
+  resetMessageTypes()
+  messageTypes.forEach(registerMessageTypes)
+  const bus = configuration.build()
+  const error = await bus.initialize().then(
+    () => undefined,
+    (caught: unknown) => caught
+  )
+  return { bus, error }
+}
+
 describe('BusInstance', () => {
-  describe('when initializing with message types', () => {
+  afterAll(() => resetMessageTypes())
+
+  describe('when initializing with message types registered', () => {
     describe('with an entry for every handled message and workflow state', () => {
       let bus: BusInstance
       let initializeError: unknown
 
       beforeAll(async () => {
-        bus = configure({
-          messages: {
-            [TestCommand.NAME]: 'TestCommand',
-            [TestEvent.NAME]: 'TestEvent',
-            [TestMessageTypesWorkflowState.NAME]:
-              'TestMessageTypesWorkflowState'
+        ;({ bus, error: initializeError } = await initializeWith([
+          {
+            source: 'library-a',
+            messages: { [TestCommand.NAME]: 'TestCommand' },
+            types: { TestCommand: entry }
           },
-          types: {
-            TestCommand: entry,
-            TestEvent: entry,
-            TestMessageTypesWorkflowState: entry
+          // A second library, registered by its own generated file
+          {
+            source: 'library-b',
+            messages: {
+              [TestEvent.NAME]: 'TestEvent',
+              [TestMessageTypesWorkflowState.NAME]:
+                'TestMessageTypesWorkflowState'
+            },
+            types: { TestEvent: entry, TestMessageTypesWorkflowState: entry }
           }
-        }).build()
-        initializeError = await bus.initialize().then(
-          () => undefined,
-          (error: unknown) => error
-        )
+        ]))
       })
 
       afterAll(async () => bus.dispose())
@@ -82,14 +107,12 @@ describe('BusInstance', () => {
       let initializeError: unknown
 
       beforeAll(async () => {
-        bus = configure({
-          messages: { [TestEvent.NAME]: 'TestEvent' },
-          types: { TestEvent: entry }
-        }).build()
-        initializeError = await bus.initialize().then(
-          () => undefined,
-          (error: unknown) => error
-        )
+        ;({ bus, error: initializeError } = await initializeWith([
+          {
+            messages: { [TestEvent.NAME]: 'TestEvent' },
+            types: { TestEvent: entry }
+          }
+        ]))
       })
 
       afterAll(async () => bus.dispose())
@@ -101,79 +124,50 @@ describe('BusInstance', () => {
           TestMessageTypesWorkflowState.NAME
         ])
       })
+
+      it('should say how to register them', () => {
+        expect((initializeError as MessageTypesMissing).help).toContain(
+          "import './message-types.generated'"
+        )
+      })
+    })
+
+    describe('with a custom serializer', () => {
+      let bus: BusInstance
+      let initializeError: unknown
+
+      beforeAll(async () => {
+        ;({ bus, error: initializeError } = await initializeWith(
+          [
+            {
+              messages: { [TestEvent.NAME]: 'TestEvent' },
+              types: { TestEvent: entry }
+            }
+          ],
+          configure().withSerializer(customSerializer)
+        ))
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should not check the registered message types', () => {
+        expect(initializeError).toBeUndefined()
+      })
     })
   })
 
-  describe('when initializing with message types from several libraries', () => {
+  describe('when initializing without any message types registered', () => {
     let bus: BusInstance
     let initializeError: unknown
 
     beforeAll(async () => {
-      const shared = {
-        messages: { [TestEvent.NAME]: 'TestEvent' },
-        types: { TestEvent: entry }
-      }
-      bus = configure({
-        messages: { [TestCommand.NAME]: 'TestCommand' },
-        types: { TestCommand: entry }
-      })
-        .withMessageTypes(shared, {
-          messages: {
-            [TestMessageTypesWorkflowState.NAME]:
-              'TestMessageTypesWorkflowState'
-          },
-          types: { TestMessageTypesWorkflowState: entry }
-        })
-        // Registering the same entries twice is allowed
-        .withMessageTypes(shared)
-        .build()
-      initializeError = await bus.initialize().then(
-        () => undefined,
-        (error: unknown) => error
-      )
+      ;({ bus, error: initializeError } = await initializeWith([]))
     })
 
     afterAll(async () => bus.dispose())
 
-    it('should merge them', () => {
+    it('should not check for them', () => {
       expect(initializeError).toBeUndefined()
-    })
-  })
-
-  describe('when message types from several libraries conflict', () => {
-    it('should throw MessageTypesConflict for a $name mapped to different types', () => {
-      expect(() =>
-        configure({
-          messages: { [TestCommand.NAME]: 'A' },
-          types: { A: entry }
-        })
-          .withMessageTypes({
-            messages: { [TestCommand.NAME]: 'B' },
-            types: { B: entry }
-          })
-          .build()
-      ).toThrow(MessageTypesConflict)
-    })
-
-    it('should throw MessageTypesConflict for a type key defined differently', () => {
-      expect(() =>
-        configure({ messages: {}, types: { Customer: { fields: {} } } })
-          .withMessageTypes({
-            messages: {},
-            types: { Customer: { fields: { joinedAt: 'Date' } } }
-          })
-          .build()
-      ).toThrow(MessageTypesConflict)
-    })
-  })
-
-  describe('when building with message types and a custom serializer', () => {
-    it('should throw MessageTypesWithCustomSerializer', () => {
-      expect(() =>
-        configure({ messages: {}, types: {} })
-          .withSerializer(new JsonSerializer())
-          .build()
-      ).toThrow(MessageTypesWithCustomSerializer)
     })
   })
 })

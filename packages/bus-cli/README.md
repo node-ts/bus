@@ -27,10 +27,12 @@ JSON has no Dates or classes, so a message read from a queue is plain data: `pla
 ```ts
 // src/message-types.generated.ts
 import type { MessageTypes } from '@node-ts/bus-messages'
+import { registerMessageTypes } from '@node-ts/bus-messages'
 import { Customer } from './customer'
 import { PlaceOrder } from './place-order'
 
 export const messageTypes: MessageTypes = {
+  source: '@my-org/messages/src/message-types.generated',
   messages: {
     '@my-org/orders/place-order': '@my-org/messages/src/place-order#PlaceOrder'
   },
@@ -48,37 +50,35 @@ export const messageTypes: MessageTypes = {
     }
   }
 }
+
+registerMessageTypes(messageTypes)
 ```
 
 Each class and named object type is keyed by its package name, the module that declares it and its name. Two declarations with the same name, in one library or in two, never share an entry.
 
-The file is ordinary TypeScript with no transformer or bundler plugin, so it compiles with tsc, esbuild, SWC, tsx, Vite or anything else. Export it from your message library, and register it when configuring the bus:
+The file is ordinary TypeScript with no transformer or bundler plugin, so it compiles with tsc, esbuild, SWC, tsx, Vite or anything else. **It registers its types with the bus when it's imported**, so there's nothing to configure: import the messages, and the bus' default serializer restores them.
 
-```ts
-// in the message library's index.ts
-export * from './message-types.generated'
-```
+- **A message library** (a separate or published package): re-export the file from the package's entry. Importing any message from the package then loads the entry, and the registration with it:
 
-```ts
-import { Bus } from '@node-ts/bus-core'
-import { messageTypes } from '@my-org/messages'
+  ```ts
+  // src/index.ts of the message library
+  export * from './message-types.generated'
+  export * from './place-order'
+  ```
 
-const bus = Bus.configure()
-  .withMessageTypes(messageTypes)
-  .withHandler(placeOrderHandler)
-  .build()
-```
+- **Messages declared in the service that runs the bus**: import the file once, in the barrel that exports the messages or where the bus is configured, before `bus.initialize()`:
 
-A service that uses several message libraries registers all of them, in one call or several:
+  ```ts
+  import './messages/message-types.generated'
+  ```
 
-```ts
-import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
-import { messageTypes as billingMessageTypes } from '@my-org/billing-messages'
+The generator warns if nothing in the project imports the generated file. If your package sets `"sideEffects": false` for bundlers, list the generated file in it (`"sideEffects": ["./dist/message-types.generated.js"]`), or the bundler may drop the registration.
 
-Bus.configure().withMessageTypes(orderMessageTypes, billingMessageTypes)
-```
+A service can use any number of message libraries. Their registrations are merged on `globalThis`, so they're shared even if two copies of `@node-ts/bus-messages` are installed, and importing a file twice does nothing. Registration throws `MessageTypesConflict` if two libraries map the same `$name` to different types. Once any types are registered, `bus.initialize()` throws `MessageTypesMissing` if a message it handles or a workflow state it persists has no entry, which usually means a generated file is out of date or isn't imported, and its message says what to add.
 
-They're merged when the bus is built, which throws `MessageTypesConflict` if two of them map the same `$name` to different types. `bus.initialize()` then throws `MessageTypesMissing` if a message it handles or a workflow state it persists has no entry, which usually means the generated file is out of date. Messages stay plain JSON on the wire, so nothing is added to them, and services that don't use the generated file can still read them.
+The registry is read by the default `JsonSerializer`. A custom serializer set with `withSerializer()` can read it with `getMessageTypes()` from `@node-ts/bus-messages`, and isn't checked at startup.
+
+Messages stay plain JSON on the wire, so nothing is added to them, and services that don't use the generated file can still read them.
 
 ### Options
 

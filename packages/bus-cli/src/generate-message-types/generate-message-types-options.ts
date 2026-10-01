@@ -10,7 +10,8 @@ export interface GenerateMessageTypesOptions {
 
   /**
    * Globs of the files to read messages and workflow state from. Every exported, non-abstract class
-   * with a `$name` in these files is included.
+   * with a `$name` in these files is included. Files the tsconfig doesn't include, such as test
+   * fixtures, are read too.
    * @default every file in the project
    */
   entry?: string[]

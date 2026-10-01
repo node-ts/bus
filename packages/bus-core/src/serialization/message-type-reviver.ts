@@ -3,7 +3,6 @@ import {
   MessageTypeDefinition,
   MessageTypes
 } from '@node-ts/bus-messages'
-import { MessageTypeReferenceNotFound } from './error'
 
 type PlainObject = { [key: string]: unknown }
 
@@ -24,21 +23,10 @@ const isPlainObject = (value: unknown): value is PlainObject =>
  */
 export class MessageTypeReviver {
   /**
-   * @param messageTypes the generated message types
-   * @throws MessageTypeReferenceNotFound if the message types refer to a type they don't define
+   * @param getMessageTypes gets the message types to restore with, which are read on every call so
+   * types registered later are used too
    */
-  constructor(private readonly messageTypes: MessageTypes) {
-    assertReferencesExist(messageTypes)
-  }
-
-  /**
-   * Checks whether there's an entry for a message or workflow state
-   * @param name the `$name` of the message or workflow state
-   * @returns true if there's an entry for it
-   */
-  has(name: string): boolean {
-    return Object.hasOwn(this.messageTypes.messages, name)
-  }
+  constructor(private readonly getMessageTypes: () => MessageTypes) {}
 
   /**
    * Restores a parsed message or workflow state. Objects are created from their class' prototype and
@@ -48,16 +36,17 @@ export class MessageTypeReviver {
    * @returns the restored object
    */
   revive<T extends object>(plain: object, prototype: object): T {
+    const messageTypes = this.getMessageTypes()
     const name = (plain as { $name?: unknown }).$name
     const definition =
-      typeof name === 'string' && this.has(name)
-        ? this.messageTypes.types[this.messageTypes.messages[name]]
+      typeof name === 'string' && Object.hasOwn(messageTypes.messages, name)
+        ? messageTypes.types[messageTypes.messages[name]]
         : undefined
     return reviveObject(
       plain as PlainObject,
       definition,
       prototype,
-      this.messageTypes,
+      messageTypes,
       0
     ) as T
   }
@@ -161,39 +150,3 @@ const reviveValue = (
 
 const isDateSource = (value: unknown): value is string | number =>
   typeof value === 'string' || typeof value === 'number'
-
-const assertReferencesExist = (messageTypes: MessageTypes): void => {
-  const assertExists = (typeKey: string, referencedFrom: string) => {
-    if (!Object.hasOwn(messageTypes.types, typeKey)) {
-      throw new MessageTypeReferenceNotFound(typeKey, referencedFrom)
-    }
-  }
-  const assertFieldType = (
-    fieldType: MessageFieldType | 'plain',
-    referencedFrom: string
-  ): void => {
-    if (typeof fieldType === 'string') {
-      return
-    }
-    if ('type' in fieldType) {
-      assertExists(fieldType.type, referencedFrom)
-    } else if ('array' in fieldType) {
-      assertFieldType(fieldType.array, referencedFrom)
-    } else if ('set' in fieldType) {
-      assertFieldType(fieldType.set, referencedFrom)
-    } else if ('map' in fieldType) {
-      assertFieldType(fieldType.map, referencedFrom)
-    } else {
-      assertFieldType(fieldType.record, referencedFrom)
-    }
-  }
-
-  for (const [name, typeKey] of Object.entries(messageTypes.messages)) {
-    assertExists(typeKey, name)
-  }
-  for (const [typeKey, definition] of Object.entries(messageTypes.types)) {
-    for (const [field, fieldType] of Object.entries(definition.fields)) {
-      assertFieldType(fieldType, `${typeKey}.${field}`)
-    }
-  }
-}
