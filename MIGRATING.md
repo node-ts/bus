@@ -79,6 +79,10 @@ Two things behave differently:
 - **The `mongodb` driver is now version 7** (MongoDB server 4.2 or later). `MongodbPersistence` takes a `MongoClient` from `mongodb` 7, so upgrade your own copy of the driver.
 - **Workflow state keys use a new encoding, and existing data isn't migrated.** Keys are now percent-encoded (`%` → `%25`, `$` → `%24`, `.` → `%2E`) instead of using the old `__` scheme. Workflow state saved by 1.x isn't found by 2.0. Before you upgrade, let running workflows finish, or migrate their documents yourself. Drop any existing index on the old key paths, or `initializeWorkflow` fails with an index conflict.
 
+## @node-ts/bus-postgres
+
+- **Index names longer than 63 bytes are shortened with a hash**, so they no longer truncate to the same name. Nothing is dropped or renamed: names that fit are unchanged, and an index 1.x created under its truncated name is reused. If 1.x skipped an index because its truncated name collided with another, `initializeWorkflow` now creates it on the next start. That `CREATE INDEX` blocks writes to the table while it builds, so on a large table you may want to create it yourself first with `CREATE INDEX CONCURRENTLY`, using the name and SQL that `initializeWorkflow` logs at debug level.
+
 ## @node-ts/bus-sqs
 
 - **A message that can't be parsed goes straight to the dead letter queue.** It used to be made visible again until the queue's redrive policy moved it, which re-read it on every poll.
