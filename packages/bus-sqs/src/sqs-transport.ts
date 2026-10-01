@@ -151,14 +151,21 @@ export class SqsTransport implements Transport<SQSMessage> {
       the redrive policy kicks in. This approach was not preferred due to the additional number of handles that would
       need to happen.
     */
+    await this.deadLetterSqsMessage(transportMessage.raw)
+  }
+
+  /**
+   * Copies a message to the dead letter queue, then deletes it from the service queue
+   */
+  private async deadLetterSqsMessage(sqsMessage: SQSMessage): Promise<void> {
     const command = new SendMessageCommand({
       QueueUrl: this.deadLetterQueueUrl,
-      MessageBody: transportMessage.raw.Body!,
-      MessageAttributes: transportMessage.raw.MessageAttributes
+      MessageBody: sqsMessage.Body!,
+      MessageAttributes: sqsMessage.MessageAttributes
     })
     await this.sqs.send(command)
 
-    await this.deleteMessage(transportMessage)
+    await this.deleteSqsMessage(sqsMessage)
   }
 
   async readNextMessage(): Promise<TransportMessage<SQSMessage> | undefined> {
@@ -226,12 +233,13 @@ export class SqsTransport implements Transport<SQSMessage> {
         attributes
       }
     } catch (error) {
+      // Parsing fails the same way on every delivery, so retrying can't help
       this.logger.warn(
-        "Could not parse message. Message will be retried, though it's likely to end up in the dead letter queue",
+        'Could not parse message. It will be sent to the dead letter queue',
         { sqsMessage, error }
       )
 
-      await this.makeMessageVisible(sqsMessage)
+      await this.deadLetterSqsMessage(sqsMessage)
       return undefined
     }
   }

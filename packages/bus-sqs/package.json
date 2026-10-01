@@ -51,8 +51,6 @@
     "@node-ts/bus-test": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
     "@types/amqplib": "^0.10.8",
-    "class-transformer": "^0.5.1",
-    "reflect-metadata": "^0.2.2",
     "typemoq": "^2.1.0",
     "typescript": "^6.0.3"
   },

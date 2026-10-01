@@ -1,3 +1,4 @@
+export * from './message-types.generated'
 export * from './run-task'
 export * from './task-ran'
 export * from './test-command'

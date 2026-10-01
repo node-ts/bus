@@ -17,6 +17,7 @@ pnpm i
 pnpm build                 # tsc in every package (outputs to each package's dist/)
 pnpm build:watch
 pnpm check:packages        # after build: pack each package, run publint + attw, check ESM and CJS entries match
+pnpm check:message-types   # after build: fail if a committed message-types.generated.ts is out of date
 pnpm format                # prettier write; CI runs `pnpm format:check`
 pnpm lint                  # after build: ESLint (eslint.config.mjs, type-aware typescript-eslint); CI runs it too
 pnpm test                  # all spec + integration tests, with coverage
@@ -28,8 +29,8 @@ pnpm exec dotenv -e test.env -- jest packages/bus-core/src/service-bus/bus-insta
 pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts -t "some test name"
 ```
 
-- Jest is configured once at the root (`jest.config.ts`, ts-jest using `tsconfig.test.json` which enables decorators); `test/setup.ts` imports `reflect-metadata` and drops the default logger's `@node-ts/…` console warnings and errors (set `BUS_TEST_LOGS=true` to see them). Other console output still shows, so don't leave `console.log` in tests.
-- Tests: `*.spec.ts` = unit, `*.integration.ts` = integration. `packages/bus-test` is excluded from direct runs.
+- Jest is configured once at the root (`jest.config.ts`, ts-jest using `tsconfig.test.json`; a `moduleNameMapper` lets relative `.js` imports, as in generated message types, resolve to `.ts` source); `test/setup.ts` drops the default logger's `@node-ts/…` console warnings and errors (set `BUS_TEST_LOGS=true` to see them). Other console output still shows, so don't leave `console.log` in tests.
+- Tests: `*.spec.ts` = unit, `*.integration.ts` = integration. `packages/bus-test/src/in-memory.integration.ts` runs bus-test's own round trip suites over the in-memory queue and persistence.
 - **Build before testing across packages**: every package has `main: ./dist/index.js`, so e.g. bus-sqs tests import the built bus-core and bus-test, not their source. Changes in bus-core need `pnpm build` before they're visible to other packages.
 - Integration tests for adapters need local infra; `docker compose up -d` starts it all from the root `docker-compose.yml`. Endpoints default to the compose ports and can be overridden with env vars (listed in `test.env`): `LOCALSTACK_ENDPOINT` (default `http://localhost:4566`, dummy AWS creds in `test.env`), `RABBITMQ_URL` (`amqp://guest:guest@0.0.0.0`), `POSTGRES_URL` (`postgres://postgres:password@localhost:6432/postgres`), `MONGODB_URL` (`mongodb://localhost:27017/workflows`). CI runs all integration tests against CircleCI secondary containers (`.circleci/config.yml`).
 - Formatting is automatic: a `.claude/settings.json` hook runs prettier on every file Claude edits, and husky + lint-staged format on commit.
@@ -47,8 +48,8 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - Transports: `bus-sqs` (SNS topics fanned out to SQS queues, with policy generation and optional opt-out of auto-provisioning), `bus-rabbitmq`.
 - Persistence (workflow state): `bus-postgres`, `bus-mongodb`.
 - `bus-sqs-lambda` — a `Receiver` that feeds Lambda SQS events into the bus instead of the bus polling the transport.
-- `bus-class-serializer` — class-transformer based `Serializer`.
-- `bus-test` — shared transport conformance suite. New transports call `transportTests(transport, publishSystemMessage, systemMessageTopicIdentifier, readAllFromDeadLetterQueue)` from their `*.integration.ts` (see bus-sqs / bus-rabbitmq).
+- `bus-cli` — the `bus` command line. `bus generate-message-types` reads message classes with the TypeScript compiler API and writes a `MessageTypes` map that registers itself on import with `registerMessageTypes()` (bus-messages, a registry on `globalThis` under `Symbol.for('@node-ts/bus/message-types')`). `JsonSerializer` reads the registry, so Dates, Maps, Sets, bigints and nested classes are restored without decorators or configuration. See `packages/bus-cli/CLAUDE.md`.
+- `bus-test` — shared conformance suites. New transports call `transportTests(transport, publishSystemMessage, systemMessageTopicIdentifier, readAllFromDeadLetterQueue)` from their `*.integration.ts` (see bus-sqs / bus-rabbitmq); persistence adapters call `workflowStateRoundTripTests(persistence)`. Its fixtures' message types are generated into `src/helpers/message-types.generated.ts` and registered by the helpers barrel. bus-rabbitmq, bus-postgres and bus-mongodb do the same for their test fixtures, because once anything registers types every handled message must have an entry. After changing a fixture run `pnpm --filter <package> run generate:message-types` and commit the file (CI runs `pnpm check:message-types`). Fixture `$name`s must be unique across packages, since the registry rejects one `$name` mapped to two classes.
 
 ### Bus lifecycle (bus-core/src/service-bus)
 
@@ -88,6 +89,7 @@ Follow these when writing code. The file named on each line is a good example to
 ### Messages
 
 - `class X extends Command | Event`, with `static NAME = '@node-ts/<package>/<kebab-name>'`, `$name = X.NAME` and `$version = 0`. Routing uses `$name`. The message's `$version` is its contract version and is unrelated to workflow-state `$version`.
+- No decorators, `reflect-metadata` or class-transformer. Nested types are restored from generated message types, which register themselves on import (`bus-test/src/helpers/message-types.generated.ts`, exported by `helpers/index.ts`). Received messages are created from the class prototype without running the constructor, so don't rely on constructor logic or field initializers in message classes.
 
 ### Tests
 

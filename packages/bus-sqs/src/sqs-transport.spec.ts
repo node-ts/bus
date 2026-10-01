@@ -8,16 +8,22 @@ import {
 import {
   ChangeMessageVisibilityCommand,
   CreateQueueCommand,
+  DeleteMessageCommand,
   GetQueueAttributesCommand,
   GetQueueUrlCommand,
   Message,
   ReceiveMessageCommand,
+  SendMessageCommand,
   SetQueueAttributesCommand,
   SQSClient
 } from '@aws-sdk/client-sqs'
 import {
   CoreDependencies,
   DebugLogger,
+  DefaultHandlerRegistry,
+  JsonSerializer,
+  Logger,
+  MessageSerializer,
   RetryStrategy,
   TransportMessage
 } from '@node-ts/bus-core'
@@ -196,6 +202,88 @@ describe('sqs-transport', () => {
       const attribute2 = messageAttributes['stickyAttributes.attribute2']
       expect(attribute2.DataType).toEqual('Number')
       expect(attribute2.StringValue).toEqual('2')
+    })
+  })
+
+  describe('when reading a message that cannot be parsed', () => {
+    const sqs = Mock.ofType<SQSClient>()
+    const poisonMessage: Message = {
+      MessageId: randomUUID(),
+      ReceiptHandle: 'receipt-handle',
+      Body: JSON.stringify({ Message: '{not json' })
+    }
+    let result: TransportMessage<Message> | undefined
+
+    beforeAll(async () => {
+      const sut = new SqsTransport(
+        {
+          queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
+        } as SqsTransportConfiguration,
+        sqs.object
+      )
+      sut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object,
+        messageSerializer: new MessageSerializer(
+          new JsonSerializer(),
+          new DefaultHandlerRegistry()
+        )
+      } as any as CoreDependencies)
+      sut.deadLetterQueueUrl = 'dead-letter-queue-url'
+
+      sqs
+        .setup(s =>
+          s.send(
+            It.is((command: any) => command instanceof ReceiveMessageCommand)
+          )
+        )
+        .returns(async () => ({ Messages: [poisonMessage] }) as any)
+      sqs
+        .setup(s =>
+          s.send(It.is((command: any) => command instanceof SendMessageCommand))
+        )
+        .returns(async () => ({}) as any)
+      sqs
+        .setup(s =>
+          s.send(
+            It.is((command: any) => command instanceof DeleteMessageCommand)
+          )
+        )
+        .returns(async () => ({}) as any)
+
+      result = await sut.readNextMessage()
+    })
+
+    it('should not return it', () => {
+      expect(result).toBeUndefined()
+    })
+
+    it('should copy it to the dead letter queue', () => {
+      sqs.verify(
+        s =>
+          s.send(
+            It.is(
+              (command: SendMessageCommand) =>
+                command instanceof SendMessageCommand &&
+                command.input.QueueUrl === 'dead-letter-queue-url' &&
+                command.input.MessageBody === poisonMessage.Body
+            )
+          ),
+        Times.once()
+      )
+    })
+
+    it('should delete it from the service queue', () => {
+      sqs.verify(
+        s =>
+          s.send(
+            It.is(
+              (command: DeleteMessageCommand) =>
+                command instanceof DeleteMessageCommand &&
+                command.input.ReceiptHandle === poisonMessage.ReceiptHandle
+            )
+          ),
+        Times.once()
+      )
     })
   })
 

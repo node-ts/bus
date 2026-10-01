@@ -219,6 +219,10 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.consumptionQueueEvents.emit(ConsumptionQueueEvent.Stopped)
   }
 
+  /**
+   * Waits for the next consumed message. A message that can't be parsed is sent to the dead letter
+   * queue and acked, and undefined is returned.
+   */
   async readNextMessage(): Promise<
     TransportMessage<RabbitMqMessage> | undefined
   > {
@@ -269,6 +273,35 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     if (!rabbitMessage) {
       return undefined
     }
+
+    try {
+      return this.toTransportMessage(rabbitMessage)
+    } catch (error) {
+      // Parsing fails the same way on every delivery, so retrying can't help, and leaving the
+      // message unsettled would hold a prefetch slot forever
+      this.logger.warn(
+        'Could not parse message. It will be sent to the dead letter queue',
+        {
+          messageId: rabbitMessage.properties.messageId,
+          deadLetterQueue: this.deadLetterQueue,
+          error: serializeError(error)
+        }
+      )
+      this.settleMessage(rabbitMessage, 'dead-lettered', channel => {
+        channel.sendToQueue(
+          this.deadLetterQueue,
+          rabbitMessage.content,
+          rabbitMessage.properties
+        )
+        channel.ack(rabbitMessage)
+      })
+      return undefined
+    }
+  }
+
+  private toTransportMessage(
+    rabbitMessage: ConsumeMessage
+  ): TransportMessage<RabbitMqMessage> {
     const payloadStr = rabbitMessage.content.toString('utf8')
     const payload =
       this.coreDependencies.messageSerializer.deserialize(payloadStr)

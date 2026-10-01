@@ -52,7 +52,7 @@ export class BusConfiguration {
   private workflowRegistry = new WorkflowRegistry()
   private handlerRegistry = new DefaultHandlerRegistry()
   private loggerFactory: LoggerFactory = defaultLoggerFactory
-  private serializer = new JsonSerializer()
+  private serializer: Serializer | undefined
   private persistence: Persistence = new InMemoryPersistence()
   private messageReadMiddlewares = new MiddlewareDispatcher<
     TransportMessage<any>
@@ -64,6 +64,8 @@ export class BusConfiguration {
 
   /**
    * Constructs an instance of a bus from the configuration
+   * @throws BusAlreadyInitialized if the bus has already been built
+   * @throws ContainerNotRegistered if class handlers are registered without a container
    */
   build(): BusInstance {
     if (!!this.busInstance) {
@@ -75,13 +77,15 @@ export class BusConfiguration {
       throw new ContainerNotRegistered(classHandlers[0].constructor.name)
     }
 
+    const serializer = this.serializer ?? new JsonSerializer()
+
     const coreDependencies: CoreDependencies = {
       container: this.container,
       handlerRegistry: this.handlerRegistry,
       loggerFactory: this.loggerFactory,
-      serializer: this.serializer,
+      serializer,
       messageSerializer: new MessageSerializer(
-        this.serializer,
+        serializer,
         this.handlerRegistry
       ),
       retryStrategy: this.retryStrategy,
@@ -235,7 +239,10 @@ export class BusConfiguration {
   /**
    * Configures Bus to use a different serialization provider. The provider is responsible for
    * transforming messages to/from a serialized representation, as well as ensuring all object
-   * properties are a strong type
+   * properties are a strong type. The message types registered by generated files are only used by
+   * the default serializer, and checked at `initialize()` only with it. A custom serializer can read
+   * them with `getMessageTypes()` from `@node-ts/bus-messages`.
+   * @default JsonSerializer
    * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withSerializer(serializer: Serializer): this {

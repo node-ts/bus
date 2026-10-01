@@ -1,5 +1,3 @@
-import 'reflect-metadata'
-
 // The default DebugLogger writes warnings and errors to the console, and many tests make handlers
 // fail on purpose, so the test output fills with expected errors. Drop only the lines the bus's own
 // loggers write (they start with an `@node-ts/` namespace). Anything else written to the console,

@@ -35,6 +35,7 @@ const workflowLookup: MessageWorkflowMapping = {
  */
 export class WorkflowRegistry {
   private workflowRegistry: ClassConstructor<Workflow<WorkflowState>>[] = []
+  private workflowStateNames: string[] = []
   private isInitialized = false
   private isInitializing = false
   private logger: Logger
@@ -121,6 +122,7 @@ export class WorkflowRegistry {
       if (!mapper.workflowStateCtor) {
         throw new Error('Workflow state not provided. Use .withState()')
       }
+      this.workflowStateNames.push(new mapper.workflowStateCtor().$name)
 
       this.registerFnStartedBy(mapper, handlerRegistry, container)
       this.registerFnHandles(mapper, handlerRegistry, WorkflowCtor, container)
@@ -146,6 +148,14 @@ export class WorkflowRegistry {
     this.isInitialized = true
     this.isInitializing = false
     this.logger.info('Workflows initialized')
+  }
+
+  /**
+   * Gets the `$name` of the state of every workflow that's been initialized
+   * @returns the workflow state names
+   */
+  getWorkflowStateNames(): string[] {
+    return [...this.workflowStateNames]
   }
 
   async dispose(): Promise<void> {

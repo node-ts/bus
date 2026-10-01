@@ -1,5 +1,4 @@
 ---
-'@node-ts/bus-class-serializer': major
 '@node-ts/bus-core': major
 '@node-ts/bus-messages': major
 '@node-ts/bus-mongodb': major

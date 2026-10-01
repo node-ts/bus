@@ -5,8 +5,6 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    // TestCommand uses class-transformer's @Type decorator
-    "experimentalDecorators": true,
     // The suite calls the test runner's describe, it and expect globals
     "types": ["node", "jest"]
   }

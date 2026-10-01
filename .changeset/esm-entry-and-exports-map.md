@@ -1,5 +1,4 @@
 ---
-'@node-ts/bus-class-serializer': minor
 '@node-ts/bus-core': minor
 '@node-ts/bus-messages': minor
 '@node-ts/bus-mongodb': minor

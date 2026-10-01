@@ -214,9 +214,6 @@ importers:
       publint:
         specifier: ^0.3.24
         version: 0.3.24
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       supports-color:
         specifier: ^11.0.0
         version: 11.0.0
@@ -236,17 +233,41 @@ importers:
         specifier: ^8.71.0
         version: 8.71.0(eslint@10.11.0(supports-color@11.0.0))(supports-color@11.0.0)(typescript@6.0.3)
 
-  packages/bus-class-serializer:
+  packages/bus-cli:
+    dependencies:
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
     devDependencies:
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
-      class-transformer:
-        specifier: ^0.5.1
-        version: 0.5.1
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
+      '@node-ts/bus-messages':
+        specifier: workspace:^
+        version: link:../bus-messages
+      '@types/node':
+        specifier: ^24.19.0
+        version: 24.19.0
+      typemoq:
+        specifier: ^2.1.0
+        version: 2.1.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/bus-cli/test/imports-generated: {}
+
+  packages/bus-cli/test/non-strict: {}
+
+  packages/bus-cli/test/same-names: {}
+
+  packages/bus-cli/test/supported: {}
+
+  packages/bus-cli/test/two-libraries/a: {}
+
+  packages/bus-cli/test/two-libraries/b: {}
+
+  packages/bus-cli/test/unsupported: {}
 
   packages/bus-core:
     dependencies:
@@ -310,18 +331,21 @@ importers:
         specifier: ^2.8.1
         version: 2.8.1
     devDependencies:
+      '@node-ts/bus-cli':
+        specifier: workspace:^
+        version: link:../bus-cli
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
+      '@node-ts/bus-test':
+        specifier: workspace:^
+        version: link:../bus-test
       '@node-ts/code-standards':
         specifier: ^0.0.10
         version: 0.0.10
       '@types/amqplib':
         specifier: ^0.10.8
         version: 0.10.8
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       typemoq:
         specifier: ^2.1.0
         version: 2.1.0
@@ -341,9 +365,15 @@ importers:
         specifier: ^2.8.1
         version: 2.8.1
     devDependencies:
+      '@node-ts/bus-cli':
+        specifier: workspace:^
+        version: link:../bus-cli
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
+      '@node-ts/bus-test':
+        specifier: workspace:^
+        version: link:../bus-test
       '@node-ts/code-standards':
         specifier: ^0.0.10
         version: 0.0.10
@@ -353,9 +383,6 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       typemoq:
         specifier: ^2.1.0
         version: 2.1.0
@@ -378,6 +405,9 @@ importers:
         specifier: ^2.8.1
         version: 2.8.1
     devDependencies:
+      '@node-ts/bus-cli':
+        specifier: workspace:^
+        version: link:../bus-cli
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
@@ -387,9 +417,6 @@ importers:
       '@node-ts/code-standards':
         specifier: ^0.0.10
         version: 0.0.10
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       typemoq:
         specifier: ^2.1.0
         version: 2.1.0
@@ -427,12 +454,6 @@ importers:
       '@types/amqplib':
         specifier: ^0.10.8
         version: 0.10.8
-      class-transformer:
-        specifier: ^0.5.1
-        version: 0.5.1
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       typemoq:
         specifier: ^2.1.0
         version: 2.1.0
@@ -470,12 +491,6 @@ importers:
       '@types/aws-lambda':
         specifier: ^8.10.164
         version: 8.10.164
-      class-transformer:
-        specifier: ^0.5.1
-        version: 0.5.1
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       typemoq:
         specifier: ^2.1.0
         version: 2.1.0
@@ -485,21 +500,12 @@ importers:
 
   packages/bus-test:
     dependencies:
-      '@node-ts/bus-class-serializer':
-        specifier: workspace:^
-        version: link:../bus-class-serializer
       '@node-ts/bus-messages':
         specifier: workspace:^
         version: link:../bus-messages
-      class-transformer:
-        specifier: ^0.5.1
-        version: 0.5.1
       jest:
         specifier: '>=29'
         version: 30.5.2(@types/node@24.19.0)(supports-color@11.0.0)(ts-node@10.9.2(@types/node@24.19.0)(typescript@6.0.3))
-      reflect-metadata:
-        specifier: ^0.2.2
-        version: 0.2.2
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
@@ -507,6 +513,9 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0
     devDependencies:
+      '@node-ts/bus-cli':
+        specifier: workspace:^
+        version: link:../bus-cli
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
@@ -1991,9 +2000,6 @@ packages:
   cjs-module-lexer@2.2.1:
     resolution: {integrity: sha512-Ca8swihM+/4yKecYHY52kgJd300hi2lADU/a1RxNTRe+RJ9jvqQlESpbz9DnG9mowez8qwXHB8qYdIUw9e+F5Q==}
 
-  class-transformer@0.5.1:
-    resolution: {integrity: sha512-SQa1Ws6hUbfC98vKGxZH3KFY0Y1lm5Zm0SY8XX9zbK7FJCyVEac3ATW0RIpwzW+oOfmHE5PMPufDG9hCfoEOMw==}
-
   cli-highlight@2.1.11:
     resolution: {integrity: sha512-9KDcoEVwyUXrjcJNvHD0NFc/hiwe/WPVYIleQh2O1N2Zro5gWJZ/K+3DGn8w8P/F6FxOgzyC5bxDyHIgCSPhGg==}
     engines: {node: '>=8.0.0', npm: '>=5.0.0'}
@@ -3023,9 +3029,6 @@ packages:
 
   react-is@19.3.0:
     resolution: {integrity: sha512-UpMYezM4v5/18F28aC66AEsjXIgE02kyEMH6yLdgLXu/UTfa1Ntwck/nNLrbqJsEXW7gPb0coNO9FQse9WTovA==}
-
-  reflect-metadata@0.2.2:
-    resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
@@ -5158,8 +5161,6 @@ snapshots:
 
   cjs-module-lexer@2.2.1: {}
 
-  class-transformer@0.5.1: {}
-
   cli-highlight@2.1.11:
     dependencies:
       chalk: 4.1.2
@@ -6343,8 +6344,6 @@ snapshots:
   react-is@18.3.1: {}
 
   react-is@19.3.0: {}
-
-  reflect-metadata@0.2.2: {}
 
   require-directory@2.1.1: {}
 

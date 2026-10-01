@@ -18,7 +18,7 @@ Requires Node.js 24 or later.
 
 - [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - Core bus library for sending and receiving messages and managing workflows
 - [@node-ts/bus-messages](https://github.com/node-ts/bus/tree/master/packages/bus-messages) - A set of message type definitions used to define your own messages, events and commands
-- [@node-ts/bus-class-serializer](https://github.com/node-ts/bus/tree/master/packages/bus-class-serializer) - A json serializer that converts to class instances
+- [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli) - Command line tools, including `bus generate-message-types`, which lets the default serializer restore Dates and class instances in messages
 - [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence adapter for @node-ts/bus
 - [@node-ts/bus-mongodb](https://github.com/node-ts/bus/tree/master/packages/bus-mongodb) - A MongoDB persistence adapter for @node-ts/bus
 - [@node-ts/bus-rabbitmq](https://github.com/node-ts/bus/tree/master/packages/bus-rabbitmq) - A Rabbit MQ transport adapter for @node-ts/bus

@@ -6,6 +6,7 @@ import {
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
+import { workflowStateRoundTripTests } from '@node-ts/bus-test'
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { Mock } from 'typemoq'
@@ -21,6 +22,8 @@ const configuration: PostgresConfiguration = {
   },
   schemaName: 'workflows'
 }
+
+const roundTripSchemaName = 'workflows_round_trip'
 
 describe('PostgresPersistence', () => {
   let sut: PostgresPersistence
@@ -46,6 +49,7 @@ describe('PostgresPersistence', () => {
   afterAll(async () => {
     await postgres.query('drop table if exists "workflows"."testworkflowstate"')
     await postgres.query('drop schema if exists ' + configuration.schemaName)
+    await postgres.query(`drop schema if exists ${roundTripSchemaName} cascade`)
     await bus.dispose()
   })
 
@@ -277,4 +281,11 @@ describe('PostgresPersistence', () => {
       expect(results[0].$workflowId).toEqual(workflowState.$workflowId)
     })
   })
+
+  workflowStateRoundTripTests(
+    new PostgresPersistence({
+      ...configuration,
+      schemaName: roundTripSchemaName
+    })
+  )
 })

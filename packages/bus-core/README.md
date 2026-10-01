@@ -19,13 +19,40 @@ npm i @node-ts/bus-core @node-ts/bus-messages --save
 Configure and initialize the bus when your application starts up.
 
 ```typescript
-import { Bus } from '@node-ts/bus-core'
-async function run() {
-  const bus = await Bus.configure().initialize()
+import { Bus, handlerFor } from '@node-ts/bus-core'
+import { Command } from '@node-ts/bus-messages'
 
-  // Start listening for messages and dispatch them to handlers when read
+class SendWelcomeEmail extends Command {
+  static NAME = '@my-org/accounts/send-welcome-email'
+  $name = SendWelcomeEmail.NAME
+  $version = 0
+
+  constructor(readonly email: string) {
+    super()
+  }
+}
+
+const run = async () => {
+  const bus = Bus.configure()
+    .withHandler(
+      handlerFor(SendWelcomeEmail, ({ email }) =>
+        console.log(`Welcome ${email}`)
+      )
+    )
+    .build()
+
+  // Create the queues and subscriptions, then start dispatching messages to handlers
+  await bus.initialize()
   await bus.start()
+
+  await bus.send(new SendWelcomeEmail('ada@example.com'))
 }
 ```
+
+## Dates and classes in messages
+
+Messages are sent as plain JSON. The default `JsonSerializer` restores the top-level class of a message it reads, but nested values stay as JSON parsed them, so a `Date` arrives as an ISO string. To restore Dates, Maps, Sets, bigints and class instances at any depth of messages and workflow state, generate your message types with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli). The generated file registers them when it's imported, so re-export it from your message library's entry (or import it once in the service that declares the messages), and the bus picks them up with nothing to configure.
+
+See the [messages guide](https://github.com/node-ts/bus/tree/master/packages/bus-messages#messages) for the plain-data alternative and the known limits.
 
 For more information, visit our docs at [https://bus.node-ts.com](https://bus.node-ts.com)
