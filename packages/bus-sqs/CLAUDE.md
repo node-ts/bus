@@ -17,7 +17,7 @@ An SQS/SNS transport. Read the root `CLAUDE.md` first.
 - `returnMessage` sets the message's visibility timeout to `retryStrategy.calculateRetryDelay(ApproximateReceiveCount) / 1000`. SQS moves the message to the DLQ itself after `maxReceiveCount` receives. The value is capped at `MAX_SQS_VISIBILITY_TIMEOUT_SECONDS` (12 hours).
 - `fail` copies the message to the DLQ and then deletes it, so it gets a new MessageId and its receive count resets.
 - Receiving takes one message at a time. If more than one arrives, they're all made visible again and nothing is returned.
-- Message attributes are carried as SNS attributes named `attributes.<k>`, `stickyAttributes.<k>` and `correlationId`. Falsy values are dropped. `fromMessageAttributeMap` is exported because `bus-sqs-lambda` uses it.
+- Message attributes are carried as SNS attributes named `attributes.<k>`, `stickyAttributes.<k>` and `correlationId`. Booleans use DataType `String.boolean` (SNS has no boolean type and rejects `Boolean`). `false` and `0` are kept; empty strings, `undefined` and `null` are dropped because SNS rejects empty values. `fromMessageAttributeMap` is exported because `bus-sqs-lambda` uses it.
 
 ## Tests
 

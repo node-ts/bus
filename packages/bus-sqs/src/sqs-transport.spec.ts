@@ -77,6 +77,82 @@ describe('sqs-transport', () => {
     })
   })
 
+  describe('when converting boolean and falsy message attributes to SNS attribute values', () => {
+    const messageOptions: MessageAttributes = {
+      attributes: { flag: true, off: false, zero: 0, empty: '', name: 'x' },
+      stickyAttributes: { flag: true, off: false, zero: 0, empty: '' }
+    }
+
+    let messageAttributes: SnsMessageAttributeMap
+
+    beforeEach(() => {
+      messageAttributes = toMessageAttributeMap(messageOptions)
+    })
+
+    it('should encode booleans as a String with a boolean type suffix', () => {
+      expect(messageAttributes['attributes.flag']).toEqual({
+        DataType: 'String.boolean',
+        StringValue: 'true'
+      })
+      expect(messageAttributes['stickyAttributes.flag']).toEqual({
+        DataType: 'String.boolean',
+        StringValue: 'true'
+      })
+    })
+
+    it('should keep false and 0 values', () => {
+      expect(messageAttributes['attributes.off']).toEqual({
+        DataType: 'String.boolean',
+        StringValue: 'false'
+      })
+      expect(messageAttributes['attributes.zero']).toEqual({
+        DataType: 'Number',
+        StringValue: '0'
+      })
+      expect(messageAttributes['stickyAttributes.off']).toEqual({
+        DataType: 'String.boolean',
+        StringValue: 'false'
+      })
+      expect(messageAttributes['stickyAttributes.zero']).toEqual({
+        DataType: 'Number',
+        StringValue: '0'
+      })
+    })
+
+    it('should omit empty strings, which SNS rejects', () => {
+      expect(messageAttributes['attributes.empty']).toBeUndefined()
+      expect(messageAttributes['stickyAttributes.empty']).toBeUndefined()
+    })
+  })
+
+  describe('when round tripping message attributes through the SNS envelope', () => {
+    const messageOptions: MessageAttributes = {
+      correlationId: randomUUID(),
+      attributes: { flag: true, off: false, zero: 0, name: 'x' },
+      stickyAttributes: { flag: true, off: false, zero: 0, name: 'y' }
+    }
+
+    let messageAttributes: MessageAttributes
+
+    beforeEach(() => {
+      // SNS delivers attributes to SQS in the envelope as { Type, Value }
+      const envelopeAttributes: SqsMessageAttributes = {}
+      Object.entries(toMessageAttributeMap(messageOptions)).forEach(
+        ([key, value]) => {
+          envelopeAttributes[key] = {
+            Type: value.DataType!,
+            Value: value.StringValue!
+          }
+        }
+      )
+      messageAttributes = fromMessageAttributeMap(envelopeAttributes)
+    })
+
+    it('should decode the original values and types', () => {
+      expect(messageAttributes).toEqual(messageOptions)
+    })
+  })
+
   describe('when converting message attributes to SNS attribute values', () => {
     const messageOptions: MessageAttributes = {
       correlationId: randomUUID(),
