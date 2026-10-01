@@ -710,42 +710,48 @@ export class SqsTransport implements Transport<SQSMessage> {
   }
 }
 
+/**
+ * The SNS DataType used for boolean attribute values. SNS has no boolean type, so booleans are sent as a String
+ * with a custom type suffix, which SNS allows and passes through to subscribers unchanged.
+ */
+const BOOLEAN_DATA_TYPE = 'String.boolean'
+
+const toAttributeValue = (
+  value: string | number | boolean
+): MessageAttributeValue => ({
+  DataType:
+    typeof value === 'number'
+      ? 'Number'
+      : typeof value === 'boolean'
+        ? BOOLEAN_DATA_TYPE
+        : 'String',
+  StringValue: value.toString()
+})
+
+/**
+ * Converts message attributes to SNS message attributes, named `attributes.<key>`, `stickyAttributes.<key>` and
+ * `correlationId`. Strings, numbers and booleans keep their type, including `false` and `0`. Empty strings,
+ * `undefined` and `null` are left out because SNS rejects empty attribute values.
+ * @param messageOptions The attributes of the message being sent
+ * @returns The SNS message attributes to publish with the message
+ */
 export function toMessageAttributeMap(
   messageOptions: MessageAttributes
 ): SnsMessageAttributeMap {
   const map: SnsMessageAttributeMap = {}
 
-  const toAttributeValue = (value: string | number | boolean) => {
-    const attribute: MessageAttributeValue = {
-      DataType:
-        typeof value === 'number'
-          ? 'Number'
-          : typeof value === 'boolean'
-            ? 'Boolean'
-            : 'String',
-      StringValue: value.toString()
-    }
-
-    return attribute
-  }
-
-  if (messageOptions.attributes) {
-    Object.keys(messageOptions.attributes).forEach(key => {
-      const value = messageOptions.attributes[key]
-      if (!!value) {
-        map[`attributes.${key}`] = toAttributeValue(value)
+  const addAttributes = (
+    prefix: string,
+    attributes: MessageAttributeMap | undefined
+  ) =>
+    Object.entries(attributes ?? {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        map[`${prefix}.${key}`] = toAttributeValue(value)
       }
     })
-  }
 
-  if (messageOptions.stickyAttributes) {
-    Object.keys(messageOptions.stickyAttributes).forEach(key => {
-      const value = messageOptions.stickyAttributes[key]
-      if (!!value) {
-        map[`stickyAttributes.${key}`] = toAttributeValue(value)
-      }
-    })
-  }
+  addAttributes('attributes', messageOptions.attributes)
+  addAttributes('stickyAttributes', messageOptions.stickyAttributes)
 
   if (messageOptions.correlationId) {
     map.correlationId = {
@@ -842,11 +848,11 @@ function getAttributeValue(
   key: string
 ): string | number | boolean {
   const attribute = attributes[key]
-  const value =
-    attribute.Type === 'Number'
-      ? Number(attribute.Value)
-      : attribute.Type === 'Boolean'
-        ? attribute.Value === 'true'
-        : attribute.Value
-  return value
+  if (attribute.Type === 'Number') {
+    return Number(attribute.Value)
+  }
+  if (attribute.Type === BOOLEAN_DATA_TYPE) {
+    return attribute.Value === 'true'
+  }
+  return attribute.Value
 }

@@ -11,9 +11,10 @@ import {
   SetQueueAttributesCommandInput,
   SQSClient
 } from '@aws-sdk/client-sqs'
-import { Bus, BusInstance, Logger } from '@node-ts/bus-core'
-import { Message } from '@node-ts/bus-messages'
+import { Bus, BusInstance, handlerFor, Logger } from '@node-ts/bus-core'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
+import { EventEmitter } from 'node:events'
 import { Mock } from 'typemoq'
 import {
   fromMessageAttributeMap,
@@ -21,6 +22,7 @@ import {
   SqsTransport
 } from './sqs-transport'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
+import { AttributeRoundTripCommand } from './test'
 
 function getEnvVar(key: string): string {
   const value = process.env[key]
@@ -183,6 +185,61 @@ describe('SqsTransport', () => {
 
     it('should only set the queue policy', () => {
       expect(setQueueAttributeNames).toEqual([['Policy']])
+    })
+  })
+
+  describe('when sending a command with boolean and falsy attributes', () => {
+    const configuration: SqsTransportConfiguration = {
+      awsRegion: AWS_REGION,
+      awsAccountId: AWS_ACCOUNT_ID,
+      queueName: `${resourcePrefix}-attribute-round-trip`,
+      deadLetterQueueName: `${resourcePrefix}-attribute-round-trip-dead-letter`
+    }
+    const messageOptions: MessageAttributes = {
+      attributes: { flag: true, off: false, zero: 0, name: 'x' },
+      stickyAttributes: { flag: true, off: false, zero: 0, name: 'y' }
+    }
+    const sut = new SqsTransport(configuration, sqs, sns)
+    let bus: BusInstance
+    let receivedAttributes: MessageAttributes
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      bus = Bus.configure()
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(
+          handlerFor(AttributeRoundTripCommand, (_, attributes) => {
+            handled.emit('received', attributes)
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      const received = new Promise<MessageAttributes>(resolve =>
+        handled.once('received', resolve)
+      )
+      await bus.send(new AttributeRoundTripCommand(), messageOptions)
+      receivedAttributes = await received
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: sut.queueUrl }))
+      await sqs.send(
+        new DeleteQueueCommand({ QueueUrl: sut.deadLetterQueueUrl })
+      )
+    })
+
+    it('should receive the attributes with their original values and types', () => {
+      expect(receivedAttributes.attributes).toEqual(messageOptions.attributes)
+    })
+
+    it('should receive the sticky attributes with their original values and types', () => {
+      expect(receivedAttributes.stickyAttributes).toEqual(
+        messageOptions.stickyAttributes
+      )
     })
   })
 })
