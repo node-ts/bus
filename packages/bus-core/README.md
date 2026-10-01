@@ -19,12 +19,33 @@ npm i @node-ts/bus-core @node-ts/bus-messages --save
 Configure and initialize the bus when your application starts up.
 
 ```typescript
-import { Bus } from '@node-ts/bus-core'
-async function run() {
-  const bus = await Bus.configure().initialize()
+import { Bus, handlerFor } from '@node-ts/bus-core'
+import { Command } from '@node-ts/bus-messages'
 
-  // Start listening for messages and dispatch them to handlers when read
+class SendWelcomeEmail extends Command {
+  static NAME = '@my-org/accounts/send-welcome-email'
+  $name = SendWelcomeEmail.NAME
+  $version = 0
+
+  constructor(readonly email: string) {
+    super()
+  }
+}
+
+const run = async () => {
+  const bus = Bus.configure()
+    .withHandler(
+      handlerFor(SendWelcomeEmail, ({ email }) =>
+        console.log(`Welcome ${email}`)
+      )
+    )
+    .build()
+
+  // Create the queues and subscriptions, then start dispatching messages to handlers
+  await bus.initialize()
   await bus.start()
+
+  await bus.send(new SendWelcomeEmail('ada@example.com'))
 }
 ```
 
