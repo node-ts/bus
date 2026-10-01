@@ -73,6 +73,17 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 
 Follow these when writing code. The file named on each line is a good example to copy. Some older code breaks these rules (noted below); don't copy those parts.
 
+### Design principles
+
+Apply these to every API and change; the full text, with what each rules out, is in [CONTRIBUTING.md](./CONTRIBUTING.md#design-principles). If a task conflicts with one, raise it rather than working around it.
+
+1. Functions first, classes optional: every capability works with plain functions.
+2. DI is an adapter, not a requirement: handlers get dependencies from closures or the handler context; `withContainer` only resolves classes.
+3. No hidden process-wide state: per-message state belongs to its bus; global defaults are overridable per bus.
+4. If it compiles, it works: handler names, state keys and attributes are type-checked against runtime.
+5. Handlers are testable as plain functions with a fake context, without a bus or mocking framework.
+6. Errors name the class or message involved and the fix.
+
 ### Source
 
 - File names are kebab-case and match the PascalCase export, with one main class or interface per file (`serialization/json-serializer.ts` → `JsonSerializer`). Each feature folder has an `index.ts` made only of `export * from './x'`. Only export from the package root `src/index.ts` what consumers need. Internal pieces such as `WorkflowRegistry`, `message-lifecycle-context` and `test/` fixtures stay unexported.

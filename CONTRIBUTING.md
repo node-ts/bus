@@ -1,6 +1,29 @@
 # Contributing
 
-Setup, scripts and local infrastructure are covered in the [README](./README.md#development) and [CLAUDE.md](./CLAUDE.md). This file covers changesets and releases.
+Setup, scripts and local infrastructure are covered in the [README](./README.md#development) and [CLAUDE.md](./CLAUDE.md). This file covers the design principles, changesets and releases.
+
+## Design principles
+
+Every API and change should follow these. When a design conflicts with one, change the design or raise it in the issue first.
+
+1. **Functions first, classes optional.**
+   Every capability works with plain functions; classes are an equivalent alternative.
+   Rules out: features that only work through a base class, decorator or `implements`.
+2. **DI is an adapter, not a requirement.**
+   Dependencies reach handlers through closures or the handler context; `withContainer` only resolves classes.
+   Rules out: requiring a container, or capturing the bus in a module global, to send or publish from a handler.
+3. **No hidden process-wide state.**
+   Per-message state belongs to its bus, and global defaults can be overridden per bus.
+   Rules out: one bus's handling context, correlation or registry leaking into another bus in the same process.
+4. **If it compiles, it works.**
+   Handler names, state keys and attributes are type-checked to match what happens at runtime.
+   Rules out: `any`, string names that aren't checked, and types that accept code which then fails at startup.
+5. **Handlers are testable as plain functions.**
+   Call a handler directly with a fake context; no bus or mocking framework is needed.
+   Rules out: handlers that can only be exercised through a running bus or with `as any`.
+6. **Errors say what failed and how to fix it.**
+   Every error names the class or message involved and the remedy.
+   Rules out: plain `new Error(...)`, generic messages, and errors that hide their cause.
 
 ## Changesets
 
