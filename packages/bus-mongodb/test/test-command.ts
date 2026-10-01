@@ -1,7 +1,7 @@
 import { Command } from '@node-ts/bus-messages'
 
 export class TestCommand extends Command {
-  static NAME = '@node-ts/bus-core/test-command'
+  static NAME = '@node-ts/bus-mongodb/test-command'
   $name = TestCommand.NAME
   $version = 0
 

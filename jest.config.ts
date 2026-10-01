@@ -14,7 +14,9 @@ const config: Config = {
   ],
   testRegex: '(src\\/.+\\.|/)(integration|spec)\\.ts$',
   testEnvironment: 'node',
-  testPathIgnorePatterns: ['node_modules/', 'dist/', 'bus-test/'],
+  // Generated files import with a .js extension, which resolves to the .ts source
+  moduleNameMapper: { '^(\\.{1,2}/.*)\\.js$': '$1' },
+  testPathIgnorePatterns: ['node_modules/', 'dist/'],
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',

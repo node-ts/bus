@@ -1,7 +1,7 @@
 {
-  "name": "@node-ts/bus-class-serializer",
-  "version": "1.1.2",
-  "description": "A JSON serializer for @node-ts/bus based on class-transformer for strong marshalling of messages",
+  "name": "@node-ts/bus-cli",
+  "version": "0.0.0",
+  "description": "Command line tools for @node-ts/bus, including the message type generator.",
   "homepage": "https://github.com/node-ts/bus#readme",
   "license": "MIT",
   "engines": {
@@ -10,6 +10,9 @@
   "type": "commonjs",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "bus": "./bus.mjs"
+  },
   "exports": {
     ".": {
       "import": {
@@ -25,12 +28,13 @@
   },
   "files": [
     "dist",
+    "bus.mjs",
     "CHANGELOG.md"
   ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/node-ts/bus.git",
-    "directory": "packages/bus-class-serializer"
+    "directory": "packages/bus-cli"
   },
   "scripts": {
     "clean": "rm -rf dist",
@@ -40,31 +44,29 @@
   "publishConfig": {
     "access": "public"
   },
+  "bugs": {
+    "url": "https://github.com/node-ts/bus/issues"
+  },
+  "dependencies": {
+    "tslib": "^2.8.1"
+  },
   "devDependencies": {
     "@node-ts/bus-core": "workspace:^",
-    "class-transformer": "^0.5.1",
-    "reflect-metadata": "^0.2.2"
+    "@node-ts/bus-messages": "workspace:^",
+    "@types/node": "^24.19.0",
+    "typemoq": "^2.1.0",
+    "typescript": "^6.0.3"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "workspace:^",
-    "class-transformer": "^0.5.1"
+    "typescript": ">=5.0.0 <7"
   },
   "keywords": [
-    "serializer",
+    "cli",
+    "code generation",
+    "serialization",
     "esb",
-    "redis",
-    "typescript",
-    "enterprise integration patterns",
     "bus",
     "messaging",
-    "microservices",
-    "distributed systems",
-    "framework",
-    "enterprise framework",
-    "CQRS",
-    "ES",
-    "NServiceBus",
-    "Mule ESB"
-  ],
-  "gitHead": "265ea7e16c614971d4b01c3642682d6c93feb52f"
+    "typescript"
+  ]
 }

@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "strict": false,
+    "target": "ES2022",
+    "module": "commonjs",
+    "types": [],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

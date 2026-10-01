@@ -1,4 +1,7 @@
 export * from './command'
+export * from './error'
 export * from './event'
 export * from './message'
 export * from './message-attributes'
+export * from './message-type-registry'
+export * from './message-types'

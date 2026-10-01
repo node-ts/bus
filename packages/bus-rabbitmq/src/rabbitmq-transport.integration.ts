@@ -18,7 +18,13 @@ import {
   TestSystemMessage,
   transportTests
 } from '@node-ts/bus-test'
-import { Channel, ChannelModel, connect, ConsumeMessage } from 'amqplib'
+import {
+  Channel,
+  ChannelModel,
+  connect,
+  ConsumeMessage,
+  GetMessage
+} from 'amqplib'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
@@ -298,6 +304,81 @@ describe('RabbitMqTransport', () => {
       it('should not log any errors', () => {
         logger.verify(l => l.error(It.isAny(), It.isAny()), Times.never())
       })
+    })
+  })
+
+  describe('with a message that cannot be parsed', () => {
+    const poisonConfiguration: RabbitMqTransportConfiguration = {
+      queueName: '@node-ts/bus-rabbitmq-poison-test',
+      deadLetterQueueName: '@node-ts/bus-rabbitmq-poison-test-dead-letter',
+      connectionString: configuration.connectionString
+    }
+    const sut = new RabbitMqTransport(poisonConfiguration)
+    const handlerEvents = new EventEmitter()
+    const poisonPayload = '{not json'
+    let deadLetter: GetMessage | false
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      for (const queueName of [
+        poisonConfiguration.queueName,
+        poisonConfiguration.deadLetterQueueName!
+      ]) {
+        const purgeChannel = await connection.createChannel()
+        purgeChannel.on('error', () => undefined)
+        await purgeChannel.purgeQueue(queueName).catch(() => undefined)
+      }
+
+      // A concurrency of 1 gives a prefetch of 1, so an unsettled poison message would block every message after it
+      bus = Bus.configure()
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(
+          handlerFor(TestCommand, command => {
+            handlerEvents.emit('received', command)
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      channel.sendToQueue(
+        poisonConfiguration.queueName,
+        Buffer.from(poisonPayload),
+        { messageId: randomUUID() }
+      )
+      const handled = new Promise(resolve =>
+        handlerEvents.once('received', resolve)
+      )
+      await bus.send(new TestCommand('after-poison'))
+      await handled
+
+      deadLetter = await channel.get(poisonConfiguration.deadLetterQueueName!, {
+        noAck: true
+      })
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should keep handling the messages after it', () => {
+      // Handling the next message is what the beforeAll waits for
+      expect(deadLetter).not.toBeUndefined()
+    })
+
+    it('should send it to the dead letter queue unchanged', () => {
+      expect(deadLetter).not.toBe(false)
+      expect((deadLetter as GetMessage).content.toString()).toEqual(
+        poisonPayload
+      )
+    })
+
+    it('should remove it from the service queue', async () => {
+      const { messageCount } = await channel.checkQueue(
+        poisonConfiguration.queueName
+      )
+      expect(messageCount).toEqual(0)
     })
   })
 
