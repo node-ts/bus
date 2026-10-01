@@ -1,72 +1,128 @@
 import { relative } from 'node:path'
-import * as ts from 'typescript'
+import type * as TS from 'typescript'
 import { FieldModel, MessageTypesModel, TypeModel } from './message-types-model'
 
 const PLAIN = 'plain'
 type Described = FieldModel | typeof PLAIN
 
-/**
- * Names the generated file declares itself, so classes can't be imported under them
- */
-const RESERVED_KEYS = ['MessageTypes', 'messageTypes']
-
 const MAX_NAME_DEPTH = 10
 
-const PLAIN_FLAGS =
-  ts.TypeFlags.StringLike |
-  ts.TypeFlags.NumberLike |
-  ts.TypeFlags.BooleanLike |
-  ts.TypeFlags.EnumLike |
-  ts.TypeFlags.Null |
-  ts.TypeFlags.Undefined |
-  ts.TypeFlags.Void |
-  ts.TypeFlags.Never
+/**
+ * Where a value is: how problems describe it, and the key an anonymous object type there gets
+ */
+interface At {
+  where: string
+  key: string
+}
 
-const NULLISH_FLAGS =
-  ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void
+const child = (at: At, suffix: string): At => ({
+  where: `${at.where}${suffix}`,
+  key: `${at.key}${suffix}`
+})
 
-const SKIPPED_MEMBER_FLAGS =
-  ts.SymbolFlags.Method |
-  ts.SymbolFlags.GetAccessor |
-  ts.SymbolFlags.SetAccessor |
-  ts.SymbolFlags.Prototype
+/**
+ * Diagnostics that mean a type or module can't be resolved, so the generated types would be wrong.
+ * Other semantic errors, such as strictness checks, don't change the types and are only warnings.
+ */
+const BLOCKING_DIAGNOSTIC_CODES = new Set([
+  2304, // Cannot find name
+  2305, // Module has no exported member
+  2306, // File is not a module
+  2307, // Cannot find module
+  2503, // Cannot find namespace
+  2552, // Cannot find name. Did you mean ...?
+  2614, // Module has no exported member. Did you mean to use a default import?
+  2694, // Namespace has no exported member
+  2724, // Module has no exported member. Did you mean ...?
+  2792, // Cannot find module. Did you mean to set moduleResolution?
+  2834, // Relative imports need an extension
+  2835 // Relative imports need an extension. Did you mean ...?
+])
+
+/**
+ * Where the reader is and what it reads
+ */
+export interface MessageTypeReaderOptions {
+  /**
+   * The project's own copy of the TypeScript compiler
+   */
+  ts: typeof TS
+  /**
+   * The program of the message library
+   */
+  program: TS.Program
+  /**
+   * The directory paths in problems and warnings are shown relative to
+   */
+  cwd: string
+  /**
+   * The directory that type keys are relative to, usually the package root
+   */
+  keyRoot: string
+  /**
+   * Prepended to every type key, usually the package name, so two libraries' keys can't collide
+   */
+  keyPrefix: string
+}
 
 /**
  * Reads the runtime types of messages and workflow state from their TypeScript source, using the
  * type checker. Nothing is emitted or changed.
+ *
+ * Every class and named object type is keyed by the module that declares it plus its name, so two
+ * declarations with the same name never share an entry.
  */
 export class MessageTypeReader {
-  private readonly checker: ts.TypeChecker
+  private readonly ts: typeof TS
+  private readonly program: TS.Program
+  private readonly checker: TS.TypeChecker
   private readonly problems: string[] = []
-  private readonly messages = new Map<string, ts.Symbol>()
+  private readonly warnings: string[] = []
+  private readonly messages = new Map<string, TS.Symbol>()
   private readonly messageKeys = new Map<string, string>()
   private readonly types = new Map<string, TypeModel>()
-  private readonly keysBySymbol = new Map<ts.Symbol, string>()
-  private readonly describedObjects = new Map<ts.Type, Described>()
+  private readonly keysBySymbol = new Map<TS.Symbol, string>()
+  private readonly describedObjects = new Map<TS.Type, Described>()
   private readonly objectsInProgress = new Set<string>()
   private readonly objectsReferencedInProgress = new Set<string>()
-  private readonly usedKeys = new Set<string>(RESERVED_KEYS)
-  private readonly checkedFiles = new Set<ts.SourceFile>()
+  private readonly usedKeys = new Set<string>()
+  private readonly checkedFiles = new Set<TS.SourceFile>()
+  private readonly plainFlags: number
+  private readonly nullishFlags: number
+  private readonly skippedMemberFlags: number
 
-  /**
-   * @param program the program of the message library
-   * @param cwd the directory paths in problems are shown relative to
-   */
-  constructor(
-    private readonly program: ts.Program,
-    private readonly cwd: string
-  ) {
+  constructor(private readonly options: MessageTypeReaderOptions) {
+    const { ts, program } = options
+    this.ts = ts
+    this.program = program
     this.checker = program.getTypeChecker()
+    this.plainFlags =
+      ts.TypeFlags.StringLike |
+      ts.TypeFlags.NumberLike |
+      ts.TypeFlags.BooleanLike |
+      ts.TypeFlags.EnumLike |
+      ts.TypeFlags.Null |
+      ts.TypeFlags.Undefined |
+      ts.TypeFlags.Void |
+      ts.TypeFlags.Never
+    this.nullishFlags =
+      ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void
+    this.skippedMemberFlags =
+      ts.SymbolFlags.Method |
+      ts.SymbolFlags.GetAccessor |
+      ts.SymbolFlags.SetAccessor |
+      ts.SymbolFlags.Prototype
   }
 
   /**
    * Reads every exported, non-abstract class with a `$name` in the given files
    * @param sourceFiles the files to read messages and workflow state from
-   * @returns the types read, and the problems that stop them being generated
+   * @returns the types read, the problems that stop them being generated, and warnings that don't
    */
-  read(sourceFiles: ts.SourceFile[]): {
+  read(sourceFiles: TS.SourceFile[]): {
     model: MessageTypesModel
     problems: string[]
+    warnings: string[]
   } {
     for (const sourceFile of sourceFiles) {
       this.checkDiagnostics(sourceFile)
@@ -77,10 +133,11 @@ export class MessageTypeReader {
       messages: [...this.messageKeys].sort(([a], [b]) => compare(a, b)),
       types: [...this.types.values()].sort((a, b) => compare(a.key, b.key))
     }
-    return { model, problems: this.problems }
+    return { model, problems: this.problems, warnings: this.warnings }
   }
 
-  private readSourceFile(sourceFile: ts.SourceFile): void {
+  private readSourceFile(sourceFile: TS.SourceFile): void {
+    const { ts } = this
     const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
     if (!moduleSymbol) {
       return
@@ -92,27 +149,26 @@ export class MessageTypeReader {
       if (
         !(symbol.flags & ts.SymbolFlags.Class) ||
         !declaration ||
-        declaration.getSourceFile() !== sourceFile
-      ) {
-        continue
-      }
-      if (
-        ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Abstract
+        declaration.getSourceFile() !== sourceFile ||
+        isAbstract(ts, declaration)
       ) {
         continue
       }
       const instanceType = this.checker.getDeclaredTypeOfSymbol(symbol)
       const nameProperty = this.checker.getPropertyOfType(instanceType, '$name')
-      if (!nameProperty) {
-        continue
+      if (nameProperty) {
+        this.readMessage(symbol, nameProperty)
       }
-      this.readMessage(symbol, nameProperty)
     }
   }
 
-  private readMessage(symbol: ts.Symbol, nameProperty: ts.Symbol): void {
+  private readMessage(symbol: TS.Symbol, nameProperty: TS.Symbol): void {
     const where = this.describeLocation(symbol)
     const name = this.resolveName(nameProperty)
+    // A `$name` that is only declared, e.g. a data field of a nested class, doesn't make it a message
+    if (name === 'not-set') {
+      return
+    }
     if (name === undefined) {
       this.problems.push(
         `${where}: its $name can't be worked out without running the code. Set it to a string literal, or to a static property that is one`
@@ -138,7 +194,8 @@ export class MessageTypeReader {
     }
   }
 
-  private resolveName(nameProperty: ts.Symbol): string | undefined {
+  private resolveName(nameProperty: TS.Symbol): string | 'not-set' | undefined {
+    const { ts } = this
     const type = this.checker.getTypeOfSymbol(nameProperty)
     if (type.isStringLiteral()) {
       return type.value
@@ -152,13 +209,14 @@ export class MessageTypeReader {
         return this.evaluateString(declaration.initializer, 0)
       }
     }
-    return undefined
+    return 'not-set'
   }
 
   private evaluateString(
-    expression: ts.Expression,
+    expression: TS.Expression,
     depth: number
   ): string | undefined {
+    const { ts } = this
     if (depth > MAX_NAME_DEPTH) {
       return undefined
     }
@@ -194,7 +252,8 @@ export class MessageTypeReader {
     return undefined
   }
 
-  private classKey(symbol: ts.Symbol, where: string): string | undefined {
+  private classKey(symbol: TS.Symbol, where: string): string | undefined {
+    const { ts } = this
     const existing = this.keysBySymbol.get(symbol)
     if (existing) {
       return existing
@@ -220,7 +279,7 @@ export class MessageTypeReader {
     }
     const instanceType = this.checker.getDeclaredTypeOfSymbol(
       symbol
-    ) as ts.InterfaceType
+    ) as TS.InterfaceType
     if (instanceType.typeParameters?.length) {
       this.problems.push(
         `${where}: ${symbol.getName()} is generic, which isn't supported. Use a class without type parameters`
@@ -229,7 +288,7 @@ export class MessageTypeReader {
     }
 
     this.checkDiagnostics(sourceFile)
-    const key = this.uniqueKey(exportName)
+    const key = this.uniqueKey(this.declarationKey(symbol, sourceFile))
     this.keysBySymbol.set(symbol, key)
     const typeModel: TypeModel = {
       key,
@@ -237,16 +296,20 @@ export class MessageTypeReader {
       fields: []
     }
     this.types.set(key, typeModel)
-    typeModel.fields = this.fieldsOf(instanceType, symbol.getName())
+    typeModel.fields = this.fieldsOf(instanceType, symbol.getName(), key)
     return key
   }
 
-  private fieldsOf(type: ts.Type, owner: string): TypeModel['fields'] {
+  private fieldsOf(
+    type: TS.Type,
+    owner: string,
+    ownerKey: string
+  ): TypeModel['fields'] {
     const fields: TypeModel['fields'] = []
     for (const property of this.checker.getPropertiesOfType(type)) {
       const name = property.getName()
       if (
-        property.flags & SKIPPED_MEMBER_FLAGS ||
+        property.flags & this.skippedMemberFlags ||
         name.startsWith('#') ||
         name.startsWith('__#')
       ) {
@@ -257,7 +320,10 @@ export class MessageTypeReader {
       const propertyType = declaration
         ? this.checker.getTypeOfSymbolAtLocation(property, declaration)
         : this.checker.getTypeOfSymbol(property)
-      const fieldType = this.describe(propertyType, `${owner}.${name}`)
+      const fieldType = this.describe(propertyType, {
+        where: `${owner}.${name}`,
+        key: `${ownerKey}.${name}`
+      })
       if (fieldType !== PLAIN) {
         fields.push([name, fieldType])
       }
@@ -265,10 +331,11 @@ export class MessageTypeReader {
     return fields
   }
 
-  private describe(type: ts.Type, where: string): Described {
+  private describe(type: TS.Type, at: At): Described {
+    const { ts } = this
     const flags = type.flags
     if (isErrorType(type)) {
-      return this.problem(`${where}: its type can't be resolved`)
+      return this.problem(`${at.where}: its type can't be resolved`)
     }
     if (flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
       return PLAIN
@@ -276,40 +343,42 @@ export class MessageTypeReader {
     if (flags & ts.TypeFlags.BigIntLike) {
       return 'BigInt'
     }
-    if (flags & PLAIN_FLAGS || flags & ts.TypeFlags.NonPrimitive) {
+    if (flags & this.plainFlags || flags & ts.TypeFlags.NonPrimitive) {
       return PLAIN
     }
     if (flags & ts.TypeFlags.ESSymbolLike) {
-      return this.problem(`${where}: symbols can't be sent as JSON`)
+      return this.problem(`${at.where}: symbols can't be sent as JSON`)
     }
     if (flags & ts.TypeFlags.TypeParameter) {
       return this.problem(
-        `${where}: generic type parameters aren't supported. Use a concrete type`
+        `${at.where}: generic type parameters aren't supported. Use a concrete type`
       )
     }
     if (type.isUnion()) {
-      return this.describeUnion(type, where)
+      return this.describeUnion(type, at)
     }
     if (type.isIntersection()) {
       // A branded primitive such as `string & { __brand: 'Id' }` is sent as the primitive
       const primitive = type.types.find(
-        member => member.flags & (PLAIN_FLAGS | ts.TypeFlags.BigIntLike)
+        member => member.flags & (this.plainFlags | ts.TypeFlags.BigIntLike)
       )
       return primitive
-        ? this.describe(primitive, where)
-        : this.describeObjectType(type, where)
+        ? this.describe(primitive, at)
+        : this.describeObjectType(type, at)
     }
     if (flags & ts.TypeFlags.Object) {
-      return this.describeObject(type as ts.ObjectType, where)
+      return this.describeObject(type as TS.ObjectType, at)
     }
     return this.problem(
-      `${where}: ${this.checker.typeToString(type)} isn't supported`
+      `${at.where}: ${this.checker.typeToString(type)} isn't supported`
     )
   }
 
-  private describeUnion(type: ts.UnionType, where: string): Described {
-    const members = type.types.filter(member => !(member.flags & NULLISH_FLAGS))
-    const described = members.map(member => this.describe(member, where))
+  private describeUnion(type: TS.UnionType, at: At): Described {
+    const members = type.types.filter(
+      member => !(member.flags & this.nullishFlags)
+    )
+    const described = members.map(member => this.describe(member, at))
     const restored = described.filter(member => member !== PLAIN)
     if (!restored.length) {
       return PLAIN
@@ -319,24 +388,25 @@ export class MessageTypeReader {
       return restored[0]
     }
     return this.problem(
-      `${where}: ${this.checker.typeToString(type)} mixes types that are restored differently, and they can't be told apart once they're JSON. Use one type, or a separate field for each`
+      `${at.where}: ${this.checker.typeToString(type)} mixes types that are restored differently, and they can't be told apart once they're JSON. Use one type, or a separate field for each`
     )
   }
 
-  private describeObject(type: ts.ObjectType, where: string): Described {
+  private describeObject(type: TS.ObjectType, at: At): Described {
+    const { ts } = this
     if (this.checker.isArrayType(type)) {
-      const [item] = this.checker.getTypeArguments(type as ts.TypeReference)
-      const described = this.describe(item, `${where}[]`)
+      const [item] = this.checker.getTypeArguments(type as TS.TypeReference)
+      const described = this.describe(item, child(at, '[]'))
       return described === PLAIN ? PLAIN : { array: described }
     }
     if (this.checker.isTupleType(type)) {
-      const items = this.checker.getTypeArguments(type as ts.TypeReference)
+      const items = this.checker.getTypeArguments(type as TS.TypeReference)
       const restored = items
-        .map((item, index) => this.describe(item, `${where}[${index}]`))
+        .map((item, index) => this.describe(item, child(at, `[${index}]`)))
         .some(item => item !== PLAIN)
       return restored
         ? this.problem(
-            `${where}: tuples with values that need restoring aren't supported. Use an array or a class`
+            `${at.where}: tuples with values that need restoring aren't supported. Use an array or a class`
           )
         : PLAIN
     }
@@ -348,34 +418,40 @@ export class MessageTypeReader {
       symbol.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.Class) &&
       this.isFromDefaultLibrary(symbol)
     ) {
-      return this.describeBuiltIn(type, symbol.getName(), where)
+      return this.describeBuiltIn(type, symbol.getName(), at)
     }
     if (
       this.checker.getSignaturesOfType(type, ts.SignatureKind.Call).length ||
       this.checker.getSignaturesOfType(type, ts.SignatureKind.Construct).length
     ) {
-      return this.problem(`${where}: functions can't be sent as JSON`)
+      return this.problem(`${at.where}: functions can't be sent as JSON`)
     }
     if (symbol && symbol.flags & ts.SymbolFlags.Class) {
-      if ((type as ts.TypeReference).typeArguments?.length) {
+      if ((type as TS.TypeReference).typeArguments?.length) {
         return this.problem(
-          `${where}: ${this.checker.typeToString(type)} is a generic class, which isn't supported. Use a class without type parameters`
+          `${at.where}: ${this.checker.typeToString(type)} is a generic class, which isn't supported. Use a class without type parameters`
         )
       }
-      const key = this.classKey(symbol, where)
+      const declaration = symbol.declarations?.find(ts.isClassDeclaration)
+      if (declaration && isAbstract(ts, declaration)) {
+        return this.problem(
+          `${at.where}: ${symbol.getName()} is abstract. JSON doesn't say which subclass a value was, so it would be restored as ${symbol.getName()}. Use a concrete class, or a separate field for each subclass`
+        )
+      }
+      const key = this.classKey(symbol, at.where)
       return key ? { type: key } : PLAIN
     }
-    return this.describeObjectType(type, where)
+    return this.describeObjectType(type, at)
   }
 
   private describeBuiltIn(
-    type: ts.ObjectType,
+    type: TS.ObjectType,
     name: string,
-    where: string
+    at: At
   ): Described {
     const typeArguments =
-      (type as ts.TypeReference).target !== undefined
-        ? this.checker.getTypeArguments(type as ts.TypeReference)
+      (type as TS.TypeReference).target !== undefined
+        ? this.checker.getTypeArguments(type as TS.TypeReference)
         : []
     switch (name) {
       case 'Date':
@@ -384,30 +460,31 @@ export class MessageTypeReader {
         return PLAIN
       case 'Set':
       case 'ReadonlySet': {
-        const item = this.describe(typeArguments[0], `${where}[]`)
+        const item = this.describe(typeArguments[0], child(at, '[]'))
         return { set: item }
       }
       case 'Map':
       case 'ReadonlyMap': {
         const [keyType, valueType] = typeArguments
-        const keys = this.describeMapKey(keyType, where)
+        const keys = this.describeMapKey(keyType, at)
         if (keys === undefined) {
           return PLAIN
         }
-        const value = this.describe(valueType, `${where}[value]`)
+        const value = this.describe(valueType, child(at, '[value]'))
         return keys === 'number' ? { map: value, keys } : { map: value }
       }
       default:
         return this.problem(
-          `${where}: ${this.checker.typeToString(type)} isn't supported. Supported built-in types are Date, Map, Set and bigint`
+          `${at.where}: ${this.checker.typeToString(type)} isn't supported. Supported built-in types are Date, Map, Set and bigint`
         )
     }
   }
 
   private describeMapKey(
-    keyType: ts.Type,
-    where: string
+    keyType: TS.Type,
+    at: At
   ): 'string' | 'number' | undefined {
+    const { ts } = this
     const members = keyType.isUnion() ? keyType.types : [keyType]
     if (members.every(member => member.flags & ts.TypeFlags.StringLike)) {
       return 'string'
@@ -416,12 +493,13 @@ export class MessageTypeReader {
       return 'number'
     }
     this.problem(
-      `${where}: Map keys must be strings or numbers to be sent as JSON, not ${this.checker.typeToString(keyType)}`
+      `${at.where}: Map keys must be strings or numbers to be sent as JSON, not ${this.checker.typeToString(keyType)}`
     )
     return undefined
   }
 
-  private describeObjectType(type: ts.Type, where: string): Described {
+  private describeObjectType(type: TS.Type, at: At): Described {
+    const { ts } = this
     const known = this.describedObjects.get(type)
     if (known !== undefined) {
       if (typeof known === 'object' && 'type' in known) {
@@ -438,13 +516,13 @@ export class MessageTypeReader {
     )
     if (method) {
       return this.problem(
-        `${where}: ${this.checker.typeToString(type)} has a method (${method.getName()}), which can't be sent as JSON. Use a class, or an object type without methods`
+        `${at.where}: ${this.checker.typeToString(type)} has a method (${method.getName()}), which can't be sent as JSON. Use a class, or an object type without methods`
       )
     }
 
     const indexInfos = this.checker.getIndexInfosOfType(type)
     const indexed = indexInfos.map(info =>
-      this.describe(info.type, `${where}[key]`)
+      this.describe(info.type, child(at, '[key]'))
     )
     const restoredIndex = indexed.find(item => item !== PLAIN)
     if (!properties.length) {
@@ -452,10 +530,12 @@ export class MessageTypeReader {
     }
     if (restoredIndex !== undefined) {
       return this.problem(
-        `${where}: object types that have both named properties and an index signature that needs restoring aren't supported`
+        `${at.where}: object types that have both named properties and an index signature that needs restoring aren't supported`
       )
     }
 
+    // Named interfaces and type aliases are keyed by their declaration. Anonymous object types, and
+    // instantiations of generic ones, are keyed by the field they're used in.
     const alias = type.aliasSymbol
     const symbol = type.getSymbol()
     const named =
@@ -463,17 +543,26 @@ export class MessageTypeReader {
         ? alias
         : symbol &&
             symbol.flags & ts.SymbolFlags.Interface &&
-            !(type as ts.TypeReference).typeArguments?.length
+            !(type as TS.TypeReference).typeArguments?.length
           ? symbol
           : undefined
-    const key = this.uniqueKey(named ? named.getName() : where)
+    const namedDeclaration = named?.declarations?.[0]
+    const key = this.uniqueKey(
+      named && namedDeclaration
+        ? this.declarationKey(named, namedDeclaration.getSourceFile())
+        : at.key
+    )
     const reference: Described = { type: key }
     this.describedObjects.set(type, reference)
     this.objectsInProgress.add(key)
     const typeModel: TypeModel = { key, fields: [] }
     this.types.set(key, typeModel)
 
-    typeModel.fields = this.fieldsOf(type, named ? named.getName() : where)
+    typeModel.fields = this.fieldsOf(
+      type,
+      named ? named.getName() : at.where,
+      key
+    )
 
     this.objectsInProgress.delete(key)
     if (
@@ -488,9 +577,21 @@ export class MessageTypeReader {
     return reference
   }
 
+  /**
+   * The key of a declaration: the package, the module that declares it and its name, e.g.
+   * `@my-org/messages/src/customer#Customer`
+   */
+  private declarationKey(symbol: TS.Symbol, sourceFile: TS.SourceFile): string {
+    const modulePath = relative(this.options.keyRoot, sourceFile.fileName)
+      .split('\\')
+      .join('/')
+      .replace(/\.(d\.)?[mc]?tsx?$/, '')
+    return `${this.options.keyPrefix}${modulePath}#${symbol.getName()}`
+  }
+
   private exportNameOf(
-    symbol: ts.Symbol,
-    sourceFile: ts.SourceFile
+    symbol: TS.Symbol,
+    sourceFile: TS.SourceFile
   ): string | undefined {
     const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
     if (!moduleSymbol) {
@@ -503,16 +604,17 @@ export class MessageTypeReader {
     return name === 'default' ? undefined : name
   }
 
-  private checkDiagnostics(sourceFile: ts.SourceFile): void {
+  /**
+   * Syntax errors and types or modules that can't be resolved stop generation. Other errors, such
+   * as strictness checks the project's own build may not apply, are reported as warnings.
+   */
+  private checkDiagnostics(sourceFile: TS.SourceFile): void {
+    const { ts } = this
     if (this.checkedFiles.has(sourceFile)) {
       return
     }
     this.checkedFiles.add(sourceFile)
-    const diagnostics = [
-      ...this.program.getSyntacticDiagnostics(sourceFile),
-      ...this.program.getSemanticDiagnostics(sourceFile)
-    ].filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error)
-    for (const diagnostic of diagnostics) {
+    const format = (diagnostic: TS.Diagnostic) => {
       const message = ts.flattenDiagnosticMessageText(
         diagnostic.messageText,
         '\n'
@@ -521,25 +623,40 @@ export class MessageTypeReader {
         diagnostic.start !== undefined
           ? sourceFile.getLineAndCharacterOfPosition(diagnostic.start)
           : undefined
-      this.problems.push(
-        `${this.relativePath(sourceFile.fileName)}${position ? `:${position.line + 1}:${position.character + 1}` : ''}: ${message}`
-      )
+      return `${this.relativePath(sourceFile.fileName)}${position ? `:${position.line + 1}:${position.character + 1}` : ''}: ${message}`
+    }
+    const isError = (diagnostic: TS.Diagnostic) =>
+      diagnostic.category === ts.DiagnosticCategory.Error
+
+    for (const diagnostic of this.program
+      .getSyntacticDiagnostics(sourceFile)
+      .filter(isError)) {
+      this.problems.push(format(diagnostic))
+    }
+    for (const diagnostic of this.program
+      .getSemanticDiagnostics(sourceFile)
+      .filter(isError)) {
+      if (BLOCKING_DIAGNOSTIC_CODES.has(diagnostic.code)) {
+        this.problems.push(format(diagnostic))
+      } else {
+        this.warnings.push(format(diagnostic))
+      }
     }
   }
 
-  private isFromDefaultLibrary(symbol: ts.Symbol): boolean {
+  private isFromDefaultLibrary(symbol: TS.Symbol): boolean {
     return (symbol.declarations ?? []).some(declaration =>
       this.program.isSourceFileDefaultLibrary(declaration.getSourceFile())
     )
   }
 
-  private resolveAlias(symbol: ts.Symbol): ts.Symbol {
-    return symbol.flags & ts.SymbolFlags.Alias
+  private resolveAlias(symbol: TS.Symbol): TS.Symbol {
+    return symbol.flags & this.ts.SymbolFlags.Alias
       ? this.checker.getAliasedSymbol(symbol)
       : symbol
   }
 
-  private describeLocation(symbol: ts.Symbol): string {
+  private describeLocation(symbol: TS.Symbol): string {
     const declaration = symbol.declarations?.[0]
     return declaration
       ? `${symbol.getName()} (${this.relativePath(declaration.getSourceFile().fileName)})`
@@ -547,7 +664,7 @@ export class MessageTypeReader {
   }
 
   private relativePath(fileName: string): string {
-    return relative(this.cwd, fileName).split('\\').join('/')
+    return relative(this.options.cwd, fileName).split('\\').join('/')
   }
 
   private uniqueKey(base: string): string {
@@ -567,8 +684,11 @@ export class MessageTypeReader {
 
 const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
+const isAbstract = (ts: typeof TS, declaration: TS.ClassDeclaration): boolean =>
+  (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Abstract) !== 0
+
 /**
  * The checker gives a type it can't resolve, such as one from a missing import, the intrinsic `error` type
  */
-const isErrorType = (type: ts.Type): boolean =>
+const isErrorType = (type: TS.Type): boolean =>
   (type as { intrinsicName?: string }).intrinsicName === 'error'

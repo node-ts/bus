@@ -1,4 +1,4 @@
-import * as ts from 'typescript'
+import type * as TS from 'typescript'
 
 type Value =
   string | number | boolean | null | Value[] | { [key: string]: Value }
@@ -9,7 +9,7 @@ const UNKNOWN = '\u0000unknown'
  * Reads the `messageTypes` export of a generated file into a value that doesn't depend on how the
  * file is formatted: object keys are sorted, and identifiers are replaced by what they import.
  */
-const readMessageTypes = (source: string): Value | undefined => {
+const readMessageTypes = (ts: typeof TS, source: string): Value | undefined => {
   const sourceFile = ts.createSourceFile(
     'message-types.ts',
     source,
@@ -18,7 +18,7 @@ const readMessageTypes = (source: string): Value | undefined => {
     ts.ScriptKind.TS
   )
   const imports = new Map<string, string>()
-  let initializer: ts.Expression | undefined
+  let initializer: TS.Expression | undefined
 
   for (const statement of sourceFile.statements) {
     if (
@@ -47,7 +47,7 @@ const readMessageTypes = (source: string): Value | undefined => {
     }
   }
 
-  const toValue = (expression: ts.Expression): Value => {
+  const toValue = (expression: TS.Expression): Value => {
     if (
       ts.isParenthesizedExpression(expression) ||
       ts.isAsExpression(expression) ||
@@ -106,18 +106,20 @@ const readMessageTypes = (source: string): Value | undefined => {
  * Checks whether two generated files declare the same message types, ignoring formatting,
  * comments, quote style and the order of imports and object keys. This lets a formatter or
  * linter reformat the generated file without `--check` failing.
+ * @param ts the TypeScript compiler API, used to parse both files
  * @param existing the source of the file on disk
  * @param generated the source that would be generated now
  * @returns true if both declare the same message types
  */
 export const isSameMessageTypes = (
+  ts: typeof TS,
   existing: string,
   generated: string
 ): boolean => {
-  const existingValue = readMessageTypes(existing)
+  const existingValue = readMessageTypes(ts, existing)
   return (
     existingValue !== undefined &&
     JSON.stringify(existingValue) ===
-      JSON.stringify(readMessageTypes(generated))
+      JSON.stringify(readMessageTypes(ts, generated))
   )
 }

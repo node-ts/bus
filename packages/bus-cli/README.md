@@ -13,10 +13,12 @@ Requires Node.js 24 or later.
 Add it as a dev dependency of the package that declares your messages:
 
 ```sh
-npm i --save-dev @node-ts/bus-cli
+npm i --save-dev @node-ts/bus-cli typescript
 ```
 
-It brings its own copy of `typescript`, which it uses to read your source the way `tsc --noEmit` does. Nothing in your project is compiled or changed, apart from the file it generates.
+`typescript` (5.0 or later) is a peer dependency: the generator loads your project's own copy, so your source is read with the compiler version and defaults your build uses, the way `tsc --noEmit` does. Nothing in your project is compiled or changed, apart from the file it generates.
+
+Generation stops on syntax errors and on types or modules that can't be resolved, since the generated types would be wrong. Other type errors, such as strictness checks, are printed as warnings and don't stop it. Code that imports the generated file is fine before the file exists, or while it's out of date, so a fresh clone generates it on the first run.
 
 ## `bus generate-message-types`
 
@@ -30,17 +32,25 @@ import { PlaceOrder } from './place-order'
 
 export const messageTypes: MessageTypes = {
   messages: {
-    '@my-org/orders/place-order': 'PlaceOrder'
+    '@my-org/orders/place-order': '@my-org/messages/src/place-order#PlaceOrder'
   },
   types: {
-    Customer: { class: Customer, fields: { joinedAt: 'Date' } },
-    PlaceOrder: {
+    '@my-org/messages/src/customer#Customer': {
+      class: Customer,
+      fields: { joinedAt: 'Date' }
+    },
+    '@my-org/messages/src/place-order#PlaceOrder': {
       class: PlaceOrder,
-      fields: { placedAt: 'Date', customer: { type: 'Customer' } }
+      fields: {
+        placedAt: 'Date',
+        customer: { type: '@my-org/messages/src/customer#Customer' }
+      }
     }
   }
 }
 ```
+
+Each class and named object type is keyed by its package name, the module that declares it and its name. Two declarations with the same name, in one library or in two, never share an entry.
 
 The file is ordinary TypeScript with no transformer or bundler plugin, so it compiles with tsc, esbuild, SWC, tsx, Vite or anything else. Export it from your message library, and register it when configuring the bus:
 
@@ -59,7 +69,16 @@ const bus = Bus.configure()
   .build()
 ```
 
-`bus.initialize()` then throws `MessageTypesMissing` if a message it handles or a workflow state it persists has no entry, which usually means the generated file is out of date. Messages stay plain JSON on the wire, so nothing is added to them, and services that don't use the generated file can still read them.
+A service that uses several message libraries registers all of them, in one call or several:
+
+```ts
+import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
+import { messageTypes as billingMessageTypes } from '@my-org/billing-messages'
+
+Bus.configure().withMessageTypes(orderMessageTypes, billingMessageTypes)
+```
+
+They're merged when the bus is built, which throws `MessageTypesConflict` if two of them map the same `$name` to different types. `bus.initialize()` then throws `MessageTypesMissing` if a message it handles or a workflow state it persists has no entry, which usually means the generated file is out of date. Messages stay plain JSON on the wire, so nothing is added to them, and services that don't use the generated file can still read them.
 
 ### Options
 
@@ -110,13 +129,17 @@ Formatters and linters are free to change the generated file. `--check` compares
 | Optional fields, `T \| null`, `T \| undefined`              | as `T`, or left out | as `T`, or left as `null`/`undefined`    |
 | `unknown`, `any`                                            | itself              | as parsed                                |
 
-Generation fails, listing every problem, for anything else, such as functions, symbols, `RegExp` and other built-in classes, generic classes, tuples that contain types that need restoring, `Map` keys that aren't strings or numbers, unions of types that are restored differently (`Date | string`), interfaces with methods, classes that aren't exported by name or are declared outside the project, types that can't be resolved, and a `$name` that can't be worked out without running the code. A `$name` must be a string literal, or a static property or constant that is one, such as `$name = PlaceOrder.NAME`.
+Generation fails, listing every problem, for anything else, such as functions, symbols, `RegExp` and other built-in classes, generic classes, tuples that contain types that need restoring, `Map` keys that aren't strings or numbers, unions of types that are restored differently (`Date | string`), interfaces with methods, fields typed as an abstract class, classes that aren't exported by name or are declared outside the project, types that can't be resolved, and a `$name` that can't be worked out without running the code. A `$name` must be a string literal, or a static property or constant that is one, such as `$name = PlaceOrder.NAME`.
 
 ### Known limits
 
 - **Constructors aren't run.** Restored objects are created from their class' prototype and their fields are copied on, so constructor logic and field initializers don't run. A field that is missing from the payload stays `undefined`, even if the class gives it a default.
 - **`#private` fields aren't restored.** They can't be read by `JSON.stringify` or set from outside the class. TypeScript `private` fields are ordinary properties, so they work.
 - Getters and methods come from the prototype, so they work, but getter values aren't sent.
+- **Values are restored as their declared class.** JSON doesn't say which subclass a value was, so a field declared as `Payment` that held a `CardPayment` comes back as a `Payment`, without `CardPayment`'s methods. Fields typed as an abstract class fail generation for this reason. Use a separate field for each subclass, or a plain type with a discriminant.
+- A message that extends another message needs its own `$name`, and gets its parent's fields as well as its own. A class with a `$name` that is only declared, such as a data field of a nested class, isn't treated as a message.
+- Circular references can't be sent, because `JSON.stringify` rejects them. Recursive types are fine.
+- Values that don't match their type, such as an invalid Date string or a bigint like `"1.5"`, are left as they were parsed rather than failing the message. Payloads nested more than 500 levels deep are restored down to that depth.
 
 ### Programmatic use
 

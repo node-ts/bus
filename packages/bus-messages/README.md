@@ -60,7 +60,7 @@ export class PlaceOrder extends Command {
 To use `Date`, `Map`, `Set`, `bigint` and your own classes at any depth, generate the message types of your message library with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli) and pass them to `withMessageTypes()`:
 
 ```sh
-npm i --save-dev @node-ts/bus-cli
+npm i --save-dev @node-ts/bus-cli typescript
 npx bus generate-message-types --entry 'src/messages/**/*.ts'
 ```
 
@@ -70,6 +70,8 @@ import { messageTypes } from '@my-org/messages'
 
 const bus = Bus.configure().withMessageTypes(messageTypes).build()
 ```
+
+A service that uses several message libraries passes each one's message types, e.g. `withMessageTypes(orderMessageTypes, billingMessageTypes)`.
 
 The generator reads your TypeScript source, so messages stay plain classes with no decorators or `reflect-metadata`. Messages are still plain JSON on the wire. Add it to your `prebuild` script and check it in CI with `--check`, as shown in the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts), which also lists the supported types.
 

@@ -14,6 +14,11 @@ export type ImportExtension = 'js' | 'none'
 
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/
 
+/**
+ * Names the generated file declares itself, so classes can't be imported under them
+ */
+const RESERVED_NAMES = ['MessageTypes', 'messageTypes']
+
 const quote = (value: string): string =>
   `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')}'`
 
@@ -68,14 +73,25 @@ export const writeMessageTypes = (
   outFile: string,
   importExtension: ImportExtension
 ): string => {
+  // Classes are imported under their export name, made unique where two share a name
+  const localNames = new Map<string, string>()
+  const usedNames = new Set(RESERVED_NAMES)
   const importsByPath = new Map<string, string[]>()
   for (const { key, class: classModel } of model.types) {
     if (!classModel) {
       continue
     }
+    let localName = classModel.exportName
+    for (let suffix = 2; usedNames.has(localName); suffix++) {
+      localName = `${classModel.exportName}_${suffix}`
+    }
+    usedNames.add(localName)
+    localNames.set(key, localName)
     const path = importPath(outFile, classModel.fileName, importExtension)
     const specifier =
-      classModel.exportName === key ? key : `${classModel.exportName} as ${key}`
+      classModel.exportName === localName
+        ? localName
+        : `${classModel.exportName} as ${localName}`
     importsByPath.set(path, [...(importsByPath.get(path) ?? []), specifier])
   }
 
@@ -97,7 +113,7 @@ export const writeMessageTypes = (
   model.types.forEach((typeModel, typeIndex) => {
     lines.push(`    ${propertyKey(typeModel.key)}: {`)
     if (typeModel.class) {
-      lines.push(`      class: ${typeModel.key},`)
+      lines.push(`      class: ${localNames.get(typeModel.key)},`)
     }
     if (typeModel.fields.length) {
       lines.push('      fields: {')

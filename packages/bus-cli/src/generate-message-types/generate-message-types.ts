@@ -1,7 +1,9 @@
-import { matchesGlob, relative, resolve } from 'node:path'
-import * as ts from 'typescript'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, matchesGlob, relative, resolve } from 'node:path'
+import type * as TS from 'typescript'
 import { MessageTypeGenerationFailed } from './error'
 import { GenerateMessageTypesOptions } from './generate-message-types-options'
+import { loadTypeScript } from './load-type-script'
 import { MessageTypeReader } from './message-type-reader'
 import { ImportExtension, writeMessageTypes } from './message-types-writer'
 
@@ -23,6 +25,11 @@ export interface GeneratedMessageTypes {
    * The number of messages and workflow states in the file
    */
   messageCount: number
+
+  /**
+   * Type errors in the project that didn't stop generation, such as strictness checks
+   */
+  warnings: string[]
 }
 
 /**
@@ -30,16 +37,20 @@ export interface GeneratedMessageTypes {
  */
 export const DEFAULT_MESSAGE_TYPES_FILE = 'src/message-types.generated.ts'
 
-const toPosix = (path: string): string => path.split('\\').join('/')
+/**
+ * Stands in for the generated file while the project is read. Code that imports the generated file
+ * then still type checks on the first run, before the file exists, or while it's out of date.
+ */
+const OUT_FILE_STUB = `export const messageTypes: any = { messages: {}, types: {} }\n`
 
-const formatDiagnostic = (diagnostic: ts.Diagnostic): string =>
-  ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+const toPosix = (path: string): string => path.split('\\').join('/')
 
 /**
  * Imports need the `.js` extension when TypeScript resolves modules the way Node.js does
  */
 const resolveImportExtension = (
-  options: ts.CompilerOptions
+  ts: typeof TS,
+  options: TS.CompilerOptions
 ): ImportExtension => {
   const { module, moduleResolution } = options
   const isNodeResolution =
@@ -53,12 +64,34 @@ const resolveImportExtension = (
 }
 
 /**
+ * Finds the package the project belongs to, whose name prefixes every type key so two message
+ * libraries can be registered together
+ */
+const findPackage = (
+  directory: string
+): { root: string; name: string | undefined } => {
+  for (let current = directory; ; current = dirname(current)) {
+    const manifest = join(current, 'package.json')
+    if (existsSync(manifest)) {
+      const { name } = JSON.parse(readFileSync(manifest, 'utf8')) as {
+        name?: string
+      }
+      return { root: current, name }
+    }
+    if (dirname(current) === current) {
+      return { root: directory, name: undefined }
+    }
+  }
+}
+
+/**
  * Reads the messages and workflow state declared in a TypeScript project, and generates the source
  * of a file that maps each `$name` to how its fields are restored from JSON. Pass the exported
  * `messageTypes` to `Bus.configure().withMessageTypes()`. The project is only read, like
- * `tsc --noEmit`, and nothing is written.
+ * `tsc --noEmit`, with the project's own copy of TypeScript, and nothing is written.
  * @param options where the project is and which files to read
- * @returns the generated source and where to write it
+ * @returns the generated source, where to write it, and warnings about the project
+ * @throws TypeScriptNotFound if the project doesn't have TypeScript installed
  * @throws MessageTypeGenerationFailed if the project can't be read, or a message has a type that
  * can't be restored from JSON
  * @example
@@ -69,10 +102,13 @@ export const generateMessageTypes = (
   options: GenerateMessageTypesOptions = {}
 ): GeneratedMessageTypes => {
   const cwd = resolve(options.cwd ?? process.cwd())
+  const ts = loadTypeScript(cwd)
   const configFile = resolve(cwd, options.project ?? 'tsconfig.json')
   const outFile = resolve(cwd, options.out ?? DEFAULT_MESSAGE_TYPES_FILE)
   const entry = options.entry ?? []
   const exclude = options.exclude ?? []
+  const formatDiagnostic = (diagnostic: TS.Diagnostic): string =>
+    ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
 
   const configProblems: string[] = []
   const parsed = ts.getParsedCommandLineOfConfigFile(configFile, undefined, {
@@ -94,14 +130,24 @@ export const generateMessageTypes = (
     throw new MessageTypeGenerationFailed(parseErrors.map(formatDiagnostic))
   }
 
-  // The generated file is left out, so an out-of-date copy can't stop it being regenerated
-  const rootNames = parsed.fileNames.filter(
-    fileName => resolve(fileName) !== outFile
-  )
+  const compilerOptions = { ...parsed.options, noEmit: true }
+  const host = ts.createCompilerHost(compilerOptions)
+  const isOutFile = (fileName: string) => resolve(fileName) === outFile
+  const { fileExists, readFile, getSourceFile } = host
+  host.fileExists = fileName => isOutFile(fileName) || fileExists(fileName)
+  host.readFile = fileName =>
+    isOutFile(fileName) ? OUT_FILE_STUB : readFile(fileName)
+  host.getSourceFile = (fileName, languageVersion, ...rest) =>
+    isOutFile(fileName)
+      ? ts.createSourceFile(fileName, OUT_FILE_STUB, languageVersion)
+      : getSourceFile(fileName, languageVersion, ...rest)
+
+  const rootNames = parsed.fileNames.filter(fileName => !isOutFile(fileName))
   const program = ts.createProgram({
     rootNames,
-    options: { ...parsed.options, noEmit: true },
-    projectReferences: parsed.projectReferences
+    options: compilerOptions,
+    projectReferences: parsed.projectReferences,
+    host
   })
 
   const isEntry = (fileName: string): boolean => {
@@ -127,9 +173,14 @@ export const generateMessageTypes = (
     ])
   }
 
-  const { model, problems } = new MessageTypeReader(program, cwd).read(
-    entryFiles
-  )
+  const packageInfo = findPackage(dirname(configFile))
+  const { model, problems, warnings } = new MessageTypeReader({
+    ts,
+    program,
+    cwd,
+    keyRoot: packageInfo.root,
+    keyPrefix: packageInfo.name ? `${packageInfo.name}/` : ''
+  }).read(entryFiles)
   if (problems.length) {
     throw new MessageTypeGenerationFailed(problems)
   }
@@ -139,8 +190,9 @@ export const generateMessageTypes = (
     content: writeMessageTypes(
       model,
       outFile,
-      resolveImportExtension(parsed.options)
+      resolveImportExtension(ts, parsed.options)
     ),
-    messageCount: model.messages.length
+    messageCount: model.messages.length,
+    warnings
   }
 }

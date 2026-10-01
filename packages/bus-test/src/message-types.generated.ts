@@ -16,105 +16,141 @@ import { TestStartRoundTripWorkflow } from './helpers/test-start-round-trip-work
 
 export const messageTypes: MessageTypes = {
   messages: {
-    '@node-ts/bus-core/test-command': 'TestCommand',
-    '@node-ts/bus-core/test-event': 'TestEvent',
-    '@node-ts/bus-sqs/test-fail-message': 'TestFailMessage',
-    '@node-ts/bus-test/test-big-int-command': 'TestBigIntCommand',
+    '@node-ts/bus-core/test-command':
+      '@node-ts/bus-test/src/helpers/test-command#TestCommand',
+    '@node-ts/bus-core/test-event':
+      '@node-ts/bus-test/src/helpers/test-event#TestEvent',
+    '@node-ts/bus-sqs/test-fail-message':
+      '@node-ts/bus-test/src/helpers/test-fail-message#TestFailMessage',
+    '@node-ts/bus-test/test-big-int-command':
+      '@node-ts/bus-test/src/helpers/test-big-int-command#TestBigIntCommand',
     '@node-ts/bus-test/test-continue-round-trip-workflow':
-      'TestContinueRoundTripWorkflow',
-    '@node-ts/bus-test/test-poisoned-message': 'TestPoisonedMessage',
-    '@node-ts/bus-test/test-round-trip-command': 'TestRoundTripCommand',
+      '@node-ts/bus-test/src/helpers/test-continue-round-trip-workflow#TestContinueRoundTripWorkflow',
+    '@node-ts/bus-test/test-poisoned-message':
+      '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage',
+    '@node-ts/bus-test/test-round-trip-command':
+      '@node-ts/bus-test/src/helpers/test-round-trip-command#TestRoundTripCommand',
     '@node-ts/bus-test/test-round-trip-workflow-state':
-      'TestRoundTripWorkflowState',
+      '@node-ts/bus-test/src/helpers/test-round-trip-workflow-state#TestRoundTripWorkflowState',
     '@node-ts/bus-test/test-start-round-trip-workflow':
-      'TestStartRoundTripWorkflow'
+      '@node-ts/bus-test/src/helpers/test-start-round-trip-workflow#TestStartRoundTripWorkflow'
   },
   types: {
-    TestAddress: {
+    '@node-ts/bus-test/src/helpers/test-address#TestAddress': {
       class: TestAddress,
       fields: {
-        location: { type: 'TestGeoPoint' }
+        location: {
+          type: '@node-ts/bus-test/src/helpers/test-geo-point#TestGeoPoint'
+        }
       }
     },
-    TestBigIntCommand: {
+    '@node-ts/bus-test/src/helpers/test-big-int-command#TestBigIntCommand': {
       class: TestBigIntCommand,
       fields: {
         amount: 'BigInt'
       }
     },
-    TestCommand: {
+    '@node-ts/bus-test/src/helpers/test-command#TestCommand': {
       class: TestCommand,
       fields: {
         date: 'Date'
       }
     },
-    TestContinueRoundTripWorkflow: {
-      class: TestContinueRoundTripWorkflow,
-      fields: {}
-    },
-    TestCustomer: {
+    '@node-ts/bus-test/src/helpers/test-continue-round-trip-workflow#TestContinueRoundTripWorkflow':
+      {
+        class: TestContinueRoundTripWorkflow,
+        fields: {}
+      },
+    '@node-ts/bus-test/src/helpers/test-customer#TestCustomer': {
       class: TestCustomer,
       fields: {
-        address: { type: 'TestAddress' },
-        previousAddresses: { array: { type: 'TestAddress' } },
+        address: {
+          type: '@node-ts/bus-test/src/helpers/test-address#TestAddress'
+        },
+        previousAddresses: {
+          array: {
+            type: '@node-ts/bus-test/src/helpers/test-address#TestAddress'
+          }
+        },
         joinedAt: 'Date'
       }
     },
-    TestEvent: {
+    '@node-ts/bus-test/src/helpers/test-event#TestEvent': {
       class: TestEvent,
       fields: {}
     },
-    TestFailMessage: {
+    '@node-ts/bus-test/src/helpers/test-fail-message#TestFailMessage': {
       class: TestFailMessage,
       fields: {}
     },
-    TestGeoPoint: {
+    '@node-ts/bus-test/src/helpers/test-geo-point#TestGeoPoint': {
       class: TestGeoPoint,
       fields: {
         surveyedAt: 'Date'
       }
     },
-    TestOrderLine: {
+    '@node-ts/bus-test/src/helpers/test-order-line#TestOrderLine': {
       class: TestOrderLine,
       fields: {
         addedAt: 'Date'
       }
     },
-    TestPoisonedMessage: {
+    '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage': {
       class: TestPoisonedMessage,
       fields: {}
     },
-    TestRoundTripCommand: {
-      class: TestRoundTripCommand,
-      fields: {
-        placedAt: 'Date',
-        customer: { type: 'TestCustomer' },
-        lines: { array: { type: 'TestOrderLine' } },
-        reminders: { array: 'Date' },
-        linesBySku: { map: { type: 'TestOrderLine' } },
-        tags: { set: 'plain' },
-        shippedAt: 'Date',
-        deliveredAt: 'Date',
-        billingAddress: { type: 'TestAddress' },
-        cancelledAt: 'Date',
-        referrer: { type: 'TestCustomer' },
-        untypedDate: 'Date'
+    '@node-ts/bus-test/src/helpers/test-round-trip-command#TestRoundTripCommand':
+      {
+        class: TestRoundTripCommand,
+        fields: {
+          placedAt: 'Date',
+          customer: {
+            type: '@node-ts/bus-test/src/helpers/test-customer#TestCustomer'
+          },
+          lines: {
+            array: {
+              type: '@node-ts/bus-test/src/helpers/test-order-line#TestOrderLine'
+            }
+          },
+          reminders: { array: 'Date' },
+          linesBySku: {
+            map: {
+              type: '@node-ts/bus-test/src/helpers/test-order-line#TestOrderLine'
+            }
+          },
+          tags: { set: 'plain' },
+          shippedAt: 'Date',
+          deliveredAt: 'Date',
+          billingAddress: {
+            type: '@node-ts/bus-test/src/helpers/test-address#TestAddress'
+          },
+          cancelledAt: 'Date',
+          referrer: {
+            type: '@node-ts/bus-test/src/helpers/test-customer#TestCustomer'
+          },
+          untypedDate: 'Date'
+        }
+      },
+    '@node-ts/bus-test/src/helpers/test-round-trip-workflow-state#TestRoundTripWorkflowState':
+      {
+        class: TestRoundTripWorkflowState,
+        fields: {
+          startedAt: 'Date',
+          customer: {
+            type: '@node-ts/bus-test/src/helpers/test-customer#TestCustomer'
+          },
+          checkpoints: { array: 'Date' }
+        }
+      },
+    '@node-ts/bus-test/src/helpers/test-start-round-trip-workflow#TestStartRoundTripWorkflow':
+      {
+        class: TestStartRoundTripWorkflow,
+        fields: {
+          startedAt: 'Date',
+          customer: {
+            type: '@node-ts/bus-test/src/helpers/test-customer#TestCustomer'
+          }
+        }
       }
-    },
-    TestRoundTripWorkflowState: {
-      class: TestRoundTripWorkflowState,
-      fields: {
-        startedAt: 'Date',
-        customer: { type: 'TestCustomer' },
-        checkpoints: { array: 'Date' }
-      }
-    },
-    TestStartRoundTripWorkflow: {
-      class: TestStartRoundTripWorkflow,
-      fields: {
-        startedAt: 'Date',
-        customer: { type: 'TestCustomer' }
-      }
-    }
   }
 }

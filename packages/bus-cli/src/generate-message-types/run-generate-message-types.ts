@@ -7,13 +7,14 @@ import {
 } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { MessageTypeGenerationFailed } from './error'
+import { MessageTypeGenerationFailed, TypeScriptNotFound } from './error'
 import {
   DEFAULT_MESSAGE_TYPES_FILE,
   generateMessageTypes
 } from './generate-message-types'
 import { GenerateMessageTypesOptions } from './generate-message-types-options'
 import { isSameMessageTypes } from './is-same-message-types'
+import { loadTypeScript } from './load-type-script'
 
 /**
  * Where the command writes its output, so tests can capture it
@@ -67,13 +68,18 @@ const generate = (
   output: CommandOutput
 ): number => {
   try {
-    const { outFile, content, messageCount } = generateMessageTypes(options)
+    const { outFile, content, messageCount, warnings } =
+      generateMessageTypes(options)
+    for (const warning of warnings) {
+      output.error(`Warning: ${warning}`)
+    }
     const displayPath = relative(options.cwd!, outFile)
     const existing = existsSync(outFile)
       ? readFileSync(outFile, 'utf8')
       : undefined
     const isUpToDate =
-      existing !== undefined && isSameMessageTypes(existing, content)
+      existing !== undefined &&
+      isSameMessageTypes(loadTypeScript(options.cwd!), existing, content)
 
     if (check) {
       if (isUpToDate) {
@@ -96,8 +102,11 @@ const generate = (
     output.log(`Wrote ${messageCount} message types to ${displayPath}`)
     return 0
   } catch (error) {
-    if (error instanceof MessageTypeGenerationFailed) {
-      output.error(error.message)
+    if (
+      error instanceof MessageTypeGenerationFailed ||
+      error instanceof TypeScriptNotFound
+    ) {
+      output.error(`${error.message}\n\n${error.help}`)
       return 1
     }
     throw error

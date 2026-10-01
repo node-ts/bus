@@ -1,4 +1,13 @@
-import { JsonSerializer } from '@node-ts/bus-core'
+import {
+  Bus,
+  BusInstance,
+  handlerFor,
+  JsonSerializer,
+  Logger,
+  MessageSerializer,
+  Receiver,
+  TransportMessage
+} from '@node-ts/bus-core'
 import { MessageTypes } from '@node-ts/bus-messages'
 import {
   cpSync,
@@ -11,11 +20,13 @@ import {
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, relative } from 'node:path'
+import { Mock } from 'typemoq'
 import * as ts from 'typescript'
 import { runCli } from '../cli'
 import { CommandOutput } from './run-generate-message-types'
 
-const SUPPORTED = join(__dirname, '..', '..', 'test', 'supported')
+const TEST_DIRECTORY = join(__dirname, '..', '..', 'test')
+const SUPPORTED = join(TEST_DIRECTORY, 'supported')
 // Inside the package, so the generated file can resolve @node-ts/bus-messages
 const TMP_DIRECTORY = join(__dirname, '..', '..', 'tmp')
 
@@ -83,6 +94,33 @@ const transpileAndLoad = (project: string): MessageTypes => {
   ).messageTypes
 }
 
+/**
+ * Copies a fixture project into the package's tmp directory
+ */
+const copyFixture = (name: string): string => {
+  mkdirSync(TMP_DIRECTORY, { recursive: true })
+  const project = mkdtempSync(join(TMP_DIRECTORY, `${name.replace('/', '-')}-`))
+  cpSync(join(TEST_DIRECTORY, name), project, { recursive: true })
+  return project
+}
+
+/**
+ * Hands JSON payloads straight to the bus' serializer, as a host would
+ */
+class JsonReceiver implements Receiver<string, TransportMessage<string>> {
+  async receive(
+    receivedMessage: string,
+    messageSerializer: MessageSerializer
+  ): Promise<TransportMessage<string>> {
+    return {
+      id: undefined,
+      domainMessage: messageSerializer.deserialize(receivedMessage),
+      raw: receivedMessage,
+      attributes: { attributes: {}, stickyAttributes: {} }
+    }
+  }
+}
+
 const typeCheck = (project: string): string[] => {
   const configFile = join(project, 'tsconfig.json')
   const parsed = ts.getParsedCommandLineOfConfigFile(configFile, undefined, {
@@ -136,7 +174,7 @@ describe('runGenerateMessageTypes', () => {
 
     it('should write it', () => {
       expect(result.exitCode).toEqual(0)
-      expect(result.output).toEqual(`Wrote 4 message types to ${OUT_FILE}`)
+      expect(result.output).toEqual(`Wrote 6 message types to ${OUT_FILE}`)
     })
 
     it('should type check with the project', () => {
@@ -296,6 +334,23 @@ describe('runGenerateMessageTypes', () => {
     })
   })
 
+  describe('when the generated file is out of date and no longer type checks', () => {
+    let result: { exitCode: number; output: string }
+
+    beforeAll(async () => {
+      writeFileSync(
+        join(project, OUT_FILE),
+        "import { Gone } from './gone.js'\nexport const messageTypes = { messages: {}, types: { Gone } }\n"
+      )
+      result = await run(project)
+    })
+
+    it('should regenerate it', () => {
+      expect(result.exitCode).toEqual(0)
+      expect(result.output).toEqual(`Wrote 6 message types to ${OUT_FILE}`)
+    })
+  })
+
   describe('when given an unknown option', () => {
     let result: { exitCode: number; output: string }
 
@@ -306,6 +361,145 @@ describe('runGenerateMessageTypes', () => {
     it('should fail with the usage', () => {
       expect(result.exitCode).toEqual(2)
       expect(result.output).toContain('Usage: bus generate-message-types')
+    })
+  })
+
+  describe('when one library declares two classes with the same name', () => {
+    let sameNames: string
+    let invoice: any
+    let shipment: any
+    let classes: any
+
+    beforeAll(async () => {
+      sameNames = copyFixture('same-names')
+      await run(sameNames)
+      const messageTypes = transpileAndLoad(sameNames)
+      const out = join(sameNames, 'out')
+      classes = {
+        Invoice: load(join(out, 'invoice.js')).Invoice,
+        Shipment: load(join(out, 'shipment.js')).Shipment,
+        BillingCustomer: load(join(out, 'billing', 'customer.js')).Customer,
+        ShippingCustomer: load(join(out, 'shipping', 'customer.js')).Customer
+      }
+      const serializer = new JsonSerializer(messageTypes)
+      invoice = serializer.deserialize(
+        JSON.stringify({
+          $name: 'fixture/invoice',
+          customer: { billedAt: '2020-01-01T00:00:00.000Z' },
+          contact: { calledAt: '2020-01-02T00:00:00.000Z' }
+        }),
+        classes.Invoice
+      )
+      shipment = serializer.deserialize(
+        JSON.stringify({
+          $name: 'fixture/shipment',
+          customer: {
+            shippedAt: '2020-01-03T00:00:00.000Z',
+            address: { verifiedAt: '2020-01-04T00:00:00.000Z' }
+          },
+          contact: { visitedAt: '2020-01-05T00:00:00.000Z' }
+        }),
+        classes.Shipment
+      )
+    })
+
+    afterAll(() => {
+      rmSync(sameNames, { recursive: true, force: true })
+    })
+
+    it('should restore each message with its own Customer', () => {
+      expect(invoice.customer).toBeInstanceOf(classes.BillingCustomer)
+      expect(invoice.customer.billedAt).toEqual(
+        new Date('2020-01-01T00:00:00.000Z')
+      )
+      expect(shipment.customer).toBeInstanceOf(classes.ShippingCustomer)
+      expect(shipment.customer.shippedAt).toEqual(
+        new Date('2020-01-03T00:00:00.000Z')
+      )
+      expect(shipment.customer.address.verifiedAt).toEqual(
+        new Date('2020-01-04T00:00:00.000Z')
+      )
+    })
+
+    it('should restore each message with its own Contact', () => {
+      expect(invoice.contact.calledAt).toEqual(
+        new Date('2020-01-02T00:00:00.000Z')
+      )
+      expect(shipment.contact.visitedAt).toEqual(
+        new Date('2020-01-05T00:00:00.000Z')
+      )
+    })
+  })
+
+  describe('when a bus registers two libraries that declare classes with the same name', () => {
+    const projects: string[] = []
+    const received: any[] = []
+    let classes: any
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      const libraries = ['a', 'b'].map(library => {
+        const libraryProject = copyFixture(`two-libraries/${library}`)
+        projects.push(libraryProject)
+        return libraryProject
+      })
+      for (const libraryProject of libraries) {
+        await run(libraryProject)
+      }
+      const [typesA, typesB] = libraries.map(transpileAndLoad)
+      const [outA, outB] = libraries.map(library => join(library, 'out'))
+      classes = {
+        MessageA: load(join(outA, 'message.js')).MessageA,
+        MessageB: load(join(outB, 'message.js')).MessageB,
+        CustomerA: load(join(outA, 'customer.js')).Customer,
+        CustomerB: load(join(outB, 'customer.js')).Customer
+      }
+
+      bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withReceiver(new JsonReceiver())
+        .withMessageTypes(typesA, typesB)
+        .withHandler(
+          handlerFor(classes.MessageA, message => {
+            received.push(message)
+          })
+        )
+        .withHandler(
+          handlerFor(classes.MessageB, message => {
+            received.push(message)
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.receive(
+        JSON.stringify({
+          $name: 'fixture/message-a',
+          customer: { joinedAt: '2020-01-01T00:00:00.000Z' }
+        })
+      )
+      await bus.receive(
+        JSON.stringify({
+          $name: 'fixture/message-b',
+          customer: { leftAt: '2020-01-02T00:00:00.000Z' }
+        })
+      )
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      projects.forEach(libraryProject =>
+        rmSync(libraryProject, { recursive: true, force: true })
+      )
+    })
+
+    it("should restore each message with its library's Customer", () => {
+      const [a, b] = received
+      expect(a).toBeInstanceOf(classes.MessageA)
+      expect(a.customer).toBeInstanceOf(classes.CustomerA)
+      expect(a.customer.joinedAt).toEqual(new Date('2020-01-01T00:00:00.000Z'))
+      expect(b).toBeInstanceOf(classes.MessageB)
+      expect(b.customer).toBeInstanceOf(classes.CustomerB)
+      expect(b.customer.leftAt).toEqual(new Date('2020-01-02T00:00:00.000Z'))
     })
   })
 })
