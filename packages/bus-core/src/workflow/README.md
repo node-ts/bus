@@ -88,6 +88,38 @@ A workflow must have the following conditions met:
 3. Contain at least 1 message handling function declared with `.startedBy()`
 4. Be registered with the library using `Bus.configure().withWorkflow(myWorkflow)` from `@node-ts/bus-core`
 
+### Sending messages from a workflow
+
+Each workflow handler is called with the message, the workflow state, the message attributes and a `HandlerContext`. Send and publish through the context rather than an injected bus. Messages sent through it carry the workflow id in their sticky attributes, so replies are routed back to the same workflow instance by `when` handlers that don't declare a lookup.
+
+```typescript
+import { HandlerContext, Workflow, WorkflowMapper } from '@node-ts/bus-core'
+import { MessageAttributes } from '@node-ts/bus-messages'
+
+export class OrderWorkflow extends Workflow<OrderState> {
+  configureWorkflow(mapper: WorkflowMapper<OrderState, OrderWorkflow>) {
+    mapper
+      .withState(OrderState)
+      .startedBy(OrderPlaced, 'start')
+      .when(CardCharged, 'charged')
+  }
+
+  async start(
+    message: OrderPlaced,
+    _state: OrderState,
+    _attributes: MessageAttributes,
+    ctx: HandlerContext
+  ) {
+    await ctx.send(new ChargeCard(message.orderId))
+    return { orderId: message.orderId }
+  }
+
+  charged() {
+    return this.completeWorkflow({ charged: true })
+  }
+}
+```
+
 ### Completing a workflow
 
 Workflows that have completed their work should be marked as completed. This means that they will no longer react to any future events. This is done by returning `completeWorkflow()` at the end of your message handler.

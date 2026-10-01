@@ -49,6 +49,39 @@ const run = async () => {
 }
 ```
 
+## Sending and publishing from a handler
+
+Every handler gets a third argument, a `HandlerContext` bound to the bus that received the message. Use it to send and publish instead of capturing the bus in a closure or resolving it from a container. Messages sent through it are held until the handler resolves, and dropped if it throws, and they carry the `correlationId` and sticky attributes of the message being handled.
+
+```typescript
+import { handlerFor } from '@node-ts/bus-core'
+
+const placeOrderHandler = handlerFor(
+  PlaceOrder,
+  async (message, attributes, ctx) => {
+    await ctx.publish(new OrderPlaced(message.orderId))
+  }
+)
+```
+
+The context also has `failMessage()`, `returnMessage()` and `correlationId`. Class handlers get it as the third argument of `handle`, and class workflow handlers as the fourth, after the message, the workflow state and the attributes.
+
+`HandlerContext` and `BusSender` (`send` and `publish`, which `BusInstance` also implements) are interfaces, so a handler can be unit tested by calling it with a plain object:
+
+```typescript
+const published: Event[] = []
+await placeOrderHandler.messageHandler(new PlaceOrder('1'), attributes, {
+  correlationId: 'test',
+  send: async () => {},
+  publish: async event => {
+    published.push(event)
+  },
+  failMessage: async () => {},
+  returnMessage: async () => {}
+})
+expect(published).toEqual([new OrderPlaced('1')])
+```
+
 ## Dates and classes in messages
 
 Messages are sent as plain JSON. The default `JsonSerializer` restores the top-level class of a message it reads, but nested values stay as JSON parsed them, so a `Date` arrives as an ISO string. To restore Dates, Maps, Sets, bigints and class instances at any depth of messages and workflow state, generate your message types with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli). The generated file registers them when it's imported, so re-export it from your message library's entry (or import it once in the service that declares the messages), and the bus picks them up with nothing to configure.

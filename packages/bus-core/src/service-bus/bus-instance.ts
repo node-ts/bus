@@ -16,8 +16,10 @@ import {
   ReturnMessageOutsideHandlingContext
 } from '../error'
 import {
+  BusSender,
   FunctionHandler,
   Handler,
+  HandlerContext,
   HandlerDefinition,
   HandlerDispatchRejected,
   HandlerRegistry,
@@ -120,7 +122,12 @@ export interface AfterDispatch {
   message: Message
   attributes: MessageAttributes
 }
-export class BusInstance<TTransportMessage = {}> {
+
+/**
+ * A bus built by `Bus.configure().build()`. It sends and publishes messages, and unless it's send-only, receives
+ * them and dispatches them to handlers.
+ */
+export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Emitted before a command is sent to the transport
    */
@@ -704,6 +711,27 @@ export class BusInstance<TTransportMessage = {}> {
     }
   }
 
+  /**
+   * Creates the context passed to a handler. Its methods delegate to this bus, so sends go through the handler's
+   * outbox and pick up the correlation and sticky attributes of the message being handled, including the
+   * workflow id when called from a workflow handler.
+   */
+  private createHandlerContext(attributes: MessageAttributes): HandlerContext {
+    return Object.freeze({
+      correlationId: attributes.correlationId,
+      send: async <TCommand extends Command>(
+        command: TCommand,
+        messageAttributes?: Partial<MessageAttributes>
+      ) => this.send(command, messageAttributes),
+      publish: async <TEvent extends Event>(
+        event: TEvent,
+        messageAttributes?: Partial<MessageAttributes>
+      ) => this.publish(event, messageAttributes),
+      failMessage: async () => this.failMessage(),
+      returnMessage: async () => this.returnMessage()
+    })
+  }
+
   private logListenerRejected(emitterName: string) {
     return (error: unknown) =>
       this.logger.error('Async lifecycle listener rejected', {
@@ -742,6 +770,7 @@ export class BusInstance<TTransportMessage = {}> {
     attributes: MessageAttributes,
     handler: HandlerDefinition<Message>
   ): Promise<void> {
+    const context = this.createHandlerContext(attributes)
     let handlerCallback: () => Promise<void>
 
     if (isClassHandler(handler)) {
@@ -766,10 +795,11 @@ export class BusInstance<TTransportMessage = {}> {
         throw new ClassHandlerNotResolved((e as Error).message)
       }
 
-      handlerCallback = async () => handlerInstance!.handle(message, attributes)
+      handlerCallback = async () =>
+        handlerInstance!.handle(message, attributes, context)
     } else {
       const fnHandler = handler as FunctionHandler<Message>
-      handlerCallback = async () => fnHandler(message, attributes)
+      handlerCallback = async () => fnHandler(message, attributes, context)
     }
 
     const outbox: Outbox = { state: OutboxState.Open, messages: [] }

@@ -6,20 +6,24 @@ If an error is thrown during the processing of the message, then the message is 
 
 ## Implementation
 
-Each message handler is a new class definition. Handlers can receive any type of message from `@node-ts/bus-messages`, ie: `Command`, `Event`, or `Message`.
+A handler is a function declared with `handlerFor`. Handlers can receive any type of message from `@node-ts/bus-messages`, ie: `Command`, `Event`, or `Message`. Each handler is called with the message, its attributes and a `HandlerContext`.
 
 ```typescript
 // send-welcome-email-handler.ts
-import { Handler } from '@node-ts/bus-core'
-import { SendWelcomeEmail } from 'contracts'
+import { handlerFor } from '@node-ts/bus-core'
+import { SendWelcomeEmail, WelcomeEmailSent } from 'contracts'
 import { emailService } from 'domain'
 
 /**
  * Handles all `SendWelcomeEmail` messages and delegates them through to the emailService to send a welcome email
  */
-export const handleSendWelcomeEmail: Handler<SendWelcomeEmail> = async ({
-  message
-}) => emailService.sendWelcomeEmail(message)
+export const sendWelcomeEmailHandler = handlerFor(
+  SendWelcomeEmail,
+  async (message, attributes, ctx) => {
+    await emailService.sendWelcomeEmail(message.email)
+    await ctx.publish(new WelcomeEmailSent(message.email))
+  }
+)
 ```
 
 The next step is to register the handler with the `Bus` so that the underlying transport can be configured and subscribed to the various topics:
@@ -27,18 +31,47 @@ The next step is to register the handler with the `Bus` so that the underlying t
 ```typescript
 // application.ts
 import { Bus } from '@node-ts/bus-core'
-import { handleSendWelcomeEmail } from './handle-send-welcome-email'
+import { sendWelcomeEmailHandler } from './send-welcome-email-handler'
 
 const run = async () => {
-  const bus = Bus.configure()
-    .withHandler(SendWelcomeEmail, handleSendWelcomeEmail)
-    .build()
+  const bus = Bus.configure().withHandler(sendWelcomeEmailHandler).build()
   await bus.initialize()
   await bus.start()
 }
 
 run.then(() => undefined)
 ```
+
+## Sending and publishing from a handler
+
+The `HandlerContext` passed to every handler is bound to the bus that received the message, so there's no need to capture the bus in a closure or resolve it from a container. It has:
+
+- `send(command, attributes?)` and `publish(event, attributes?)`. These are held until the handler resolves and dropped if it throws, so a failed handler doesn't emit messages. They carry the `correlationId` and sticky attributes of the message being handled, and inside a workflow, the workflow id.
+- `failMessage()` to send the message straight to the dead letter queue, and `returnMessage()` to return it to the queue for a retry.
+- `correlationId`, the correlation id of the message being handled.
+
+Class handlers get it as the third argument of `handle(message, attributes, ctx)`, so they don't need the bus injected.
+
+`HandlerContext` is an interface, so a handler can be tested by calling it with a plain object, without a bus:
+
+```typescript
+const published: Event[] = []
+await sendWelcomeEmailHandler.messageHandler(
+  new SendWelcomeEmail('ada@example.com'),
+  { attributes: {}, stickyAttributes: {} },
+  {
+    correlationId: 'test',
+    send: async () => {},
+    publish: async event => {
+      published.push(event)
+    },
+    failMessage: async () => {},
+    returnMessage: async () => {}
+  }
+)
+```
+
+Code outside handlers that only sends messages can depend on the `BusSender` interface (`send` and `publish`), which both `BusInstance` and `HandlerContext` implement.
 
 ## Consuming messages
 
@@ -49,13 +82,16 @@ Messages read from the underlying transport aren't immediately removed. Instead,
 Additional metadata can be sent along with messages that don't belong to the message body, but is instead added to the message headers or attributes as metadata. This is sent to messages handlers as a second, optional parameter. For example:
 
 ```typescript
-import { Handler } from '@node-ts/bus-core'
+import { handlerFor } from '@node-ts/bus-core'
 
-export const handleWithAttributes: Handler<Command> = ({ context }) =>
-  console.log(
-    'The user id sent in the message attributes is',
-    context.attributes.userId
-  )
+export const handlerWithAttributes = handlerFor(
+  UserCreated,
+  (message, attributes) =>
+    console.log(
+      'The user id sent in the message attributes is',
+      attributes.attributes.userId
+    )
+)
 ```
 
 ## System and non-domain messages
