@@ -58,7 +58,7 @@
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
-    "@node-ts/bus-core": "^1.3.4"
+    "@node-ts/bus-core": "^1.0.15"
   },
   "keywords": [
     "esb",
