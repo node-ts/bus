@@ -7,11 +7,20 @@ import { MessageTypeReferenceNotFound } from './error'
 
 type PlainObject = { [key: string]: unknown }
 
+/**
+ * How many nested values deep types are restored. Anything deeper is left as JSON parsed it, so a
+ * deeply nested payload can't overflow the stack.
+ */
+export const MAX_REVIVE_DEPTH = 500
+
+const INTEGER = /^-?\d+$/
+
 const isPlainObject = (value: unknown): value is PlainObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * Restores parsed JSON to the runtime types described by generated `MessageTypes`
+ * Restores parsed JSON to the runtime types described by generated `MessageTypes`. It never throws on
+ * a payload: a value that doesn't match its type, such as an invalid Date or bigint, is left as parsed.
  */
 export class MessageTypeReviver {
   /**
@@ -48,7 +57,8 @@ export class MessageTypeReviver {
       plain as PlainObject,
       definition,
       prototype,
-      this.messageTypes
+      this.messageTypes,
+      0
     ) as T
   }
 }
@@ -57,7 +67,8 @@ const reviveObject = (
   plain: PlainObject,
   definition: MessageTypeDefinition | undefined,
   prototype: object,
-  messageTypes: MessageTypes
+  messageTypes: MessageTypes,
+  depth: number
 ): object => {
   const revived = Object.create(prototype) as PlainObject
   for (const [key, value] of Object.entries(plain)) {
@@ -66,7 +77,7 @@ const reviveObject = (
     // can't change or reject the copy
     Object.defineProperty(revived, key, {
       value: hasFieldType
-        ? reviveValue(value, definition.fields[key], messageTypes)
+        ? reviveValue(value, definition.fields[key], messageTypes, depth + 1)
         : value,
       writable: true,
       enumerable: true,
@@ -79,20 +90,24 @@ const reviveObject = (
 const reviveValue = (
   value: unknown,
   fieldType: MessageFieldType,
-  messageTypes: MessageTypes
+  messageTypes: MessageTypes,
+  depth: number
 ): unknown => {
-  if (value === null || value === undefined) {
+  if (value === null || value === undefined || depth > MAX_REVIVE_DEPTH) {
     return value
   }
+  const reviveItem = (item: unknown, itemType: MessageFieldType) =>
+    reviveValue(item, itemType, messageTypes, depth + 1)
   if (fieldType === 'Date') {
     return value instanceof Date || !isDateSource(value)
       ? value
       : new Date(value)
   }
   if (fieldType === 'BigInt') {
-    return typeof value === 'string' || typeof value === 'number'
-      ? BigInt(value)
-      : value
+    const isInteger =
+      (typeof value === 'string' && INTEGER.test(value)) ||
+      (typeof value === 'number' && Number.isSafeInteger(value))
+    return isInteger ? BigInt(value) : value
   }
   if ('type' in fieldType) {
     const definition = messageTypes.types[fieldType.type]
@@ -101,13 +116,14 @@ const reviveValue = (
           value,
           definition,
           definition.class?.prototype ?? Object.prototype,
-          messageTypes
+          messageTypes,
+          depth
         )
       : value
   }
   if ('array' in fieldType) {
     return Array.isArray(value)
-      ? value.map(item => reviveValue(item, fieldType.array, messageTypes))
+      ? value.map(item => reviveItem(item, fieldType.array))
       : value
   }
   if ('set' in fieldType) {
@@ -118,7 +134,7 @@ const reviveValue = (
     return new Set(
       itemType === 'plain'
         ? value
-        : value.map(item => reviveValue(item, itemType, messageTypes))
+        : value.map(item => reviveItem(item, itemType))
     )
   }
   if ('map' in fieldType) {
@@ -129,9 +145,7 @@ const reviveValue = (
     return new Map(
       Object.entries(value).map(([key, item]) => [
         fieldType.keys === 'number' ? Number(key) : key,
-        valueType === 'plain'
-          ? item
-          : reviveValue(item, valueType, messageTypes)
+        valueType === 'plain' ? item : reviveItem(item, valueType)
       ])
     )
   }
@@ -139,7 +153,7 @@ const reviveValue = (
     ? Object.fromEntries(
         Object.entries(value).map(([key, item]) => [
           key,
-          reviveValue(item, fieldType.record, messageTypes)
+          reviveItem(item, fieldType.record)
         ])
       )
     : value

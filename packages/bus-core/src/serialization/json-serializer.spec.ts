@@ -234,6 +234,109 @@ describe('JsonSerializer', () => {
     })
   })
 
+  describe('when the payload has values that do not match their types', () => {
+    let result: Shape
+
+    beforeAll(() => {
+      sut = new JsonSerializer(messageTypes)
+      result = sut.deserialize(
+        JSON.stringify({
+          $name: 'shape',
+          big: '1.5',
+          createdAt: 'not a date',
+          origin: 'not an object',
+          points: { not: 'an array' },
+          byName: ['not', 'an', 'object'],
+          tags: 'not an array'
+        }),
+        Shape
+      )
+    })
+
+    it('should leave an invalid bigint as it was parsed', () => {
+      expect(result.big).toEqual('1.5')
+    })
+
+    it('should leave an invalid Date as an invalid Date', () => {
+      expect(Number.isNaN(result.createdAt.getTime())).toEqual(true)
+    })
+
+    it('should leave values of the wrong shape as they were parsed', () => {
+      expect(result.origin).toEqual('not an object')
+      expect(result.points).toEqual({ not: 'an array' })
+      expect(result.byName).toEqual(['not', 'an', 'object'])
+      expect(result.tags).toEqual('not an array')
+    })
+  })
+
+  describe('when the payload is nested deeper than the stack allows', () => {
+    const depth = 100_000
+    let result: Node
+    let error: unknown
+
+    class Node {
+      $name = 'node'
+      at: Date
+      child?: Node
+    }
+
+    beforeAll(() => {
+      sut = new JsonSerializer({
+        messages: { node: 'Node' },
+        types: {
+          Node: {
+            class: Node,
+            fields: { at: 'Date', child: { type: 'Node' } }
+          }
+        }
+      })
+      const serialized =
+        '{"$name":"node","at":"2020-01-01T00:00:00.000Z","child":'.repeat(
+          depth
+        ) +
+        'null' +
+        '}'.repeat(depth)
+      try {
+        result = sut.deserialize(serialized, Node)
+      } catch (caught) {
+        error = caught
+      }
+    })
+
+    it('should not throw', () => {
+      expect(error).toBeUndefined()
+    })
+
+    it('should restore the levels near the top', () => {
+      expect(result.child!.child).toBeInstanceOf(Node)
+      expect(result.child!.child!.at).toBeInstanceOf(Date)
+    })
+  })
+
+  describe('when the payload has a field named like a getter', () => {
+    let result: Point
+
+    beforeAll(() => {
+      sut = new JsonSerializer(messageTypes)
+      result = sut.toClass({ x: 1, label: 'from payload' }, Point)
+    })
+
+    it('should keep the payload value', () => {
+      expect(result).toBeInstanceOf(Point)
+      expect(result.label).toEqual('from payload')
+    })
+  })
+
+  // JSON can't represent a circular reference, so sending one fails rather than losing data
+  describe('when serializing an object with a circular reference', () => {
+    it('should throw a TypeError', () => {
+      sut = new JsonSerializer()
+      const point = createPoint(1) as Point & { self?: Point }
+      point.self = point
+      expect(() => sut.serialize(point)).toThrow(TypeError)
+    })
+  })
+
   describe('when message types refer to a type they do not define', () => {
     it('should throw MessageTypeReferenceNotFound', () => {
       expect(
