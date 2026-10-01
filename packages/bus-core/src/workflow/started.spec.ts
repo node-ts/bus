@@ -1,6 +1,7 @@
 import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { Bus, BusInstance } from '../service-bus'
+import { messageTypesFor } from '../test'
 import { sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { InMemoryPersistence } from './persistence'
@@ -173,6 +174,18 @@ describe('Workflow', () => {
 
   beforeAll(async () => {
     bus = Bus.configure()
+      .withMessageTypes(
+        messageTypesFor(
+          AssignmentCreated,
+          AssignmentAssigned,
+          CreateAssignmentBundle,
+          NotifyAssignmentAssigned,
+          AssignmentReassigned,
+          NotifyUnassignedAssignmentReassigned,
+          AssignmentCompleted,
+          'assignment-workflow-state'
+        )
+      )
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get: type => new type(bus)

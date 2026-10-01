@@ -1,7 +1,6 @@
 import {
   Command,
   Event,
-  getMessageTypes,
   Message,
   MessageAttributes
 } from '@node-ts/bus-messages'
@@ -26,14 +25,14 @@ import {
   isClassHandler
 } from '../handler'
 import { Logger } from '../logger'
-import { messageHandlingContext } from '../message-handling-context'
-import { messageLifecycleContext } from '../message-lifecycle-context'
+import { MessageHandlingContext } from '../message-handling-context'
+import { MessageLifecycleContext } from '../message-lifecycle-context'
 import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
-import { JsonSerializer, MessageTypesMissing } from '../serialization'
+import { MessageTypesMissing } from '../serialization'
 import { Transport, TransportMessage } from '../transport'
 import {
   ClassConstructor,
@@ -184,6 +183,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
   private readonly outbox = new AsyncLocalStorage<Outbox>()
+  private readonly messageLifecycleContext = new MessageLifecycleContext()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -196,7 +196,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly handlerRegistry: HandlerRegistry,
     private readonly container: ContainerAdapter | undefined,
     private readonly sendOnly: boolean,
-    private readonly receiver: Receiver | undefined
+    private readonly receiver: Receiver | undefined,
+    private readonly messageHandlingContext: MessageHandlingContext
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
@@ -273,8 +274,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Initializes the bus with the provided configuration. This must be called before `.start()`
    *
    * @throws InvalidOperation if the bus has already been initialized
-   * @throws MessageTypesMissing if message types are registered and the default serializer is used, but a
-   * handled message or a workflow state has no entry
+   * @throws MessageTypesMissing if the bus receives messages, but a handled message or a workflow state has no
+   * entry in the message types passed to `withMessageTypes()`
    */
   async initialize(): Promise<void> {
     this.logger.debug('Initializing bus')
@@ -288,7 +289,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         this.handlerRegistry,
         this.container
       )
-      this.assertMessageTypesRegistered()
+      this.assertMessageTypesConfigured()
     }
 
     if (this.transport.connect) {
@@ -364,10 +365,11 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Instructs the bus that the current message being handled cannot be processed even with
    * retries and instead should immediately be routed to the dead letter queue
-   * @throws FailMessageOutsideHandlingContext if called outside a message handling context
+   * @throws FailMessageOutsideHandlingContext if called outside a message handling context of this bus, including
+   * while another bus is handling a message
    */
   async failMessage(): Promise<void> {
-    const message = messageHandlingContext.get()
+    const message = this.messageHandlingContext.get()
     if (!message) {
       throw new FailMessageOutsideHandlingContext()
     }
@@ -378,20 +380,31 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Instructs that the current message should be returned to the queue for retry. When the message came from a
    * Receiver, it's also reported to the receiver host as failed so the host doesn't delete it.
-   * @throws ReturnMessageOutsideHandlingContext if called outside a message handling context
+   * @throws ReturnMessageOutsideHandlingContext if called outside a message handling context of this bus,
+   * including while another bus is handling a message
    */
   async returnMessage(): Promise<void> {
-    const context = messageLifecycleContext.get()
-    const message = messageHandlingContext.get()
+    const context = this.messageLifecycleContext.get()
+    const message = this.messageHandlingContext.get()
     if (!context || !message) {
       throw new ReturnMessageOutsideHandlingContext()
     }
-    messageLifecycleContext.set({
+    this.messageLifecycleContext.set({
       ...context,
       messageReturnedToQueue: true
     })
     this.logger.debug('Returning message', { message })
     return this.transport.returnMessage(message)
+  }
+
+  /**
+   * Gets the message this bus is handling in the current async stack, such as from read middleware, a lifecycle
+   * listener or code called by a handler. Handlers get the same details from their handler context.
+   * @returns the transport message being handled, or `undefined` outside a message handling context of this bus,
+   * including while another bus is handling a message
+   */
+  getHandlingContext(): TransportMessage<unknown> | undefined {
+    return this.messageHandlingContext.get()
   }
 
   /**
@@ -571,17 +584,17 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       this.logger.debug('Message read from transport', { message })
       this.afterReceive.emit({ message })
 
-      handled = await messageHandlingContext.run(
+      handled = await this.messageHandlingContext.run(
         message,
         async () => {
           try {
-            await messageLifecycleContext.run(
+            await this.messageLifecycleContext.run(
               { messageReturnedToQueue: false },
               async () => {
                 await this.messageReadMiddleware.dispatch(message)
                 returnedToReceiverHost =
                   !!this.receiver &&
-                  messageLifecycleContext.get().messageReturnedToQueue
+                  this.messageLifecycleContext.get().messageReturnedToQueue
 
                 this.afterDispatch.emit({
                   message: message.domainMessage,
@@ -743,7 +756,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private prepareTransportOptions(
     clientOptions: Partial<MessageAttributes>
   ): MessageAttributes {
-    const handlingContext = messageHandlingContext.get()
+    const handlingContext = this.messageHandlingContext.get()
 
     const messageAttributes: MessageAttributes = {
       // The optional operator? decided not to work here
@@ -860,7 +873,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       message.attributes
     )
 
-    const { messageReturnedToQueue } = messageLifecycleContext.get()
+    const { messageReturnedToQueue } = this.messageLifecycleContext.get()
     if (messageReturnedToQueue) {
       this.logger.debug(
         'Message was returned to queue by a handler and will not be deleted',
@@ -879,19 +892,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * registered once per instance and removed when the bus is disposed.
    */
   /**
-   * Once any message types are registered, checks every handled message and workflow state has an
-   * entry, so a generated file that's out of date or never imported is caught at startup. Projects
-   * that don't generate message types register none, and aren't checked.
+   * Checks every handled message and workflow state has an entry in the bus' message types, so a generated file
+   * that's out of date or wasn't passed to `withMessageTypes()` is caught at startup. Send-only buses and buses
+   * with no handlers or workflows only serialize, which doesn't need message types, so they aren't checked.
    * @throws MessageTypesMissing if any of them has no entry
    */
-  private assertMessageTypesRegistered(): void {
-    const messageTypes = getMessageTypes()
-    if (
-      !(this.coreDependencies.serializer instanceof JsonSerializer) ||
-      !Object.keys(messageTypes.messages).length
-    ) {
-      return
-    }
+  private assertMessageTypesConfigured(): void {
+    const { messageTypes } = this.coreDependencies
     const missingNames = [
       ...this.handlerRegistry.getMessageNames(),
       ...this.workflowRegistry.getWorkflowStateNames()

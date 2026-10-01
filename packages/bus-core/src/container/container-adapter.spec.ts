@@ -3,7 +3,7 @@ import { Mock, Times } from 'typemoq'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
 import { Handler, HandlerDispatchRejected } from '../handler'
 import { Bus, BusInstance, OnError } from '../service-bus'
-import { TestEvent, TestEvent2 } from '../test'
+import { TestEvent, TestEvent2, testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { MessageLogger } from '../test/test-event-handler'
 import { ClassConstructor, Listener, sleep } from '../util'
@@ -51,6 +51,7 @@ describe('ContainerAdapter', () => {
   describe('when an adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
             return container[type.name] as T
@@ -98,6 +99,7 @@ describe('ContainerAdapter', () => {
   describe('when an async adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
             return Promise.resolve(container[type.name] as T)
@@ -144,6 +146,7 @@ describe('ContainerAdapter', () => {
   describe('when an async context aware adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(
             type: ClassConstructor<T>,
@@ -211,7 +214,7 @@ describe('ContainerAdapter', () => {
   describe('when no adapter is installed', () => {
     describe('and no class handlers are registered', () => {
       it('should initialize without errors', async () => {
-        const bus = Bus.configure().build()
+        const bus = Bus.configure().withMessageTypes(testMessageTypes).build()
         await bus.initialize()
         await bus.dispose()
       })
@@ -221,7 +224,10 @@ describe('ContainerAdapter', () => {
       it('should throw a ContainerNotRegistered error', async () => {
         let bus: BusInstance | undefined = undefined
         try {
-          bus = Bus.configure().withHandler(TestEventClassHandler).build()
+          bus = Bus.configure()
+            .withMessageTypes(testMessageTypes)
+            .withHandler(TestEventClassHandler)
+            .build()
           await bus.initialize()
           fail('Bus initialization should throw a ContainerNotRegistered error')
         } catch (error) {

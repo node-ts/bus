@@ -28,7 +28,7 @@ export interface GeneratedMessageTypes {
 
   /**
    * Type errors in the project that didn't stop generation, such as strictness checks, and a
-   * reminder if nothing imports the generated file
+   * reminder if nothing imports the generated file, so it can't be passed to a bus
    */
   warnings: string[]
 }
@@ -66,7 +66,7 @@ const resolveImportExtension = (
 
 /**
  * Finds the package the project belongs to, whose name prefixes every type key so two message
- * libraries can be registered together
+ * libraries can be passed to the same bus
  */
 const findPackage = (
   directory: string
@@ -87,8 +87,8 @@ const findPackage = (
 
 /**
  * Reads the messages and workflow state declared in a TypeScript project, and generates the source
- * of a file that maps each `$name` to how its fields are restored from JSON. Pass the exported
- * file registers its types with the bus when it's imported. The project is only read, like
+ * of a file that maps each `$name` to how its fields are restored from JSON. Pass the file's
+ * `messageTypes` export to `Bus.configure().withMessageTypes()`. The project is only read, like
  * `tsc --noEmit`, with the project's own copy of TypeScript, and nothing is written.
  * @param options where the project is and which files to read
  * @returns the generated source, where to write it, and warnings about the project
@@ -208,7 +208,7 @@ export const generateMessageTypes = (
   // The stub is only part of the program when another file imports it
   if (!program.getSourceFile(outFile)) {
     warnings.push(
-      `Nothing in the project imports ${toPosix(relative(cwd, outFile))}, so its types won't be registered. Export it from the package's entry, e.g. \`export * from './message-types.generated'\` in src/index.ts, or import it where the bus is configured`
+      `Nothing in the project imports ${toPosix(relative(cwd, outFile))}, so no bus gets its types. Pass its \`messageTypes\` to \`Bus.configure().withMessageTypes(messageTypes)\` where the bus is configured, or export it from the package's entry, e.g. \`export * from './message-types.generated'\` in src/index.ts, so services can`
     )
   }
 

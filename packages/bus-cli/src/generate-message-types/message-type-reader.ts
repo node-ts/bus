@@ -404,7 +404,7 @@ export class MessageTypeReader {
 
   /**
    * The key of a message without a class: a definition, interface or type alias. Unlike other object
-   * types, it gets an entry even when none of its fields need restoring, so the bus knows it's registered.
+   * types, it gets an entry even when none of its fields need restoring, so the bus knows it has its message types.
    */
   private objectMessageKey(symbol: TS.Symbol, type: TS.Type): string {
     // Already read as a field of another message

@@ -7,6 +7,7 @@ import {
 } from '../error'
 import { MessageNameMissing, handlerFor } from '../handler'
 import { Logger } from '../logger'
+import { testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
 import { TestEvent2 } from '../test/test-event-2'
@@ -40,6 +41,7 @@ describe('BusInstance', () => {
         Mock.ofType<Middleware<TransportMessage<unknown>>>()
 
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(queue)
         .withHandler(handler)
         .withMessageReadMiddleware(messageReadMiddleware.object)
@@ -247,6 +249,7 @@ describe('BusInstance', () => {
       it('should throw a ContainerNotRegistered error', () => {
         expect(() =>
           Bus.configure()
+            .withMessageTypes(testMessageTypes)
             .withConcurrency(1)
             .withHandler(TestEventClassHandler)
             .build()
@@ -260,6 +263,7 @@ describe('BusInstance', () => {
       it('should attach sticky attributes', async () => {
         const events = new EventEmitter()
         const bus: BusInstance = Bus.configure()
+          .withMessageTypes(testMessageTypes)
           .withHandler(
             handlerFor(
               TestCommand,
@@ -303,6 +307,7 @@ describe('BusInstance', () => {
       }
       expect(() =>
         Bus.configure()
+          .withMessageTypes(testMessageTypes)
           // @ts-expect-error a message type without a static NAME and a $name doesn't type check
           .withHandler(handlerFor(ExternalMessage, async () => undefined))
           .build()
@@ -313,6 +318,7 @@ describe('BusInstance', () => {
       const events = new EventEmitter()
       const queue = new InMemoryQueue()
       const bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(queue)
         .withCustomHandler(
           async (message: TestSystemMessage) => {
@@ -351,6 +357,7 @@ describe('BusInstance', () => {
       const queue = Mock.ofType<InMemoryQueue>()
       const events = new EventEmitter()
       const bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(queue.object)
         .withLogger(() => logger.object)
         .build()
@@ -386,6 +393,7 @@ describe('BusInstance', () => {
       const queue = Mock.ofType<InMemoryQueue>()
       const events = new EventEmitter()
       const bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(queue.object)
         .withLogger(() => logger.object)
         .build()
@@ -421,7 +429,7 @@ describe('BusInstance', () => {
       it('should throw a FailMessageOutsideHandlingContext error', async () => {
         let bus: BusInstance | undefined
         try {
-          bus = Bus.configure().build()
+          bus = Bus.configure().withMessageTypes(testMessageTypes).build()
           await bus.failMessage()
           fail('Expected FailMessageOutsideHandlingContext to have been thrown')
         } catch (error) {
@@ -441,6 +449,7 @@ describe('BusInstance', () => {
         const queue = new InMemoryQueue()
         const queueMock = jest.spyOn(queue, 'fail')
         const bus = Bus.configure()
+          .withMessageTypes(testMessageTypes)
           .withTransport(queue)
           .withHandler(
             handlerFor(TestCommand, async () => {
@@ -470,6 +479,7 @@ describe('BusInstance', () => {
 
     beforeAll(async () => {
       sut = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .build()
       await sut.initialize()
@@ -492,6 +502,7 @@ describe('BusInstance', () => {
 
     beforeAll(async () => {
       sut = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withConcurrency(1)
         .withHandler(
@@ -540,6 +551,7 @@ describe('BusInstance', () => {
 
     beforeAll(async () => {
       sut = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(new SlowStartingQueue())
         .build()
@@ -570,6 +582,7 @@ describe('BusInstance', () => {
         resolve => (releaseHandler = resolve)
       )
       sut = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withHandler(
           handlerFor(TestEvent, async () => {

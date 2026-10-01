@@ -1,5 +1,6 @@
 import { Bus, BusInstance, Logger, Transport } from '@node-ts/bus-core'
 import { Mock } from 'typemoq'
+import { messageTypes } from './helpers'
 import {
   messageRoundTripCases,
   RoundTripReceiver
@@ -21,6 +22,7 @@ export const messageRoundTripTests = (transport: Transport): void => {
     beforeAll(async () => {
       bus = receiver
         .withHandlers(Bus.configure())
+        .withMessageTypes(messageTypes)
         .withTransport(transport)
         .withLogger(() => Mock.ofType<Logger>().object)
         .build()

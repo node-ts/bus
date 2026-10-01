@@ -27,10 +27,10 @@ JSON has no Dates or classes, so a message read from a queue is plain data: `pla
 ```ts
 // src/message-types.generated.ts
 import type { MessageTypes } from '@node-ts/bus-messages'
-import { registerMessageTypes } from '@node-ts/bus-messages'
 import { Customer } from './customer'
 import { PlaceOrder } from './place-order'
 
+// Pass to the bus with Bus.configure().withMessageTypes(messageTypes)
 export const messageTypes: MessageTypes = {
   source: '@my-org/messages/src/message-types.generated',
   messages: {
@@ -50,15 +50,24 @@ export const messageTypes: MessageTypes = {
     }
   }
 }
-
-registerMessageTypes(messageTypes)
 ```
 
 Each class and named object type is keyed by its package name, the module that declares it and its name. Two declarations with the same name, in one library or in two, never share an entry.
 
-The file is ordinary TypeScript with no transformer or bundler plugin, so it compiles with tsc, esbuild, SWC, tsx, Vite or anything else. **It registers its types with the bus when it's imported**, so there's nothing to configure: import the messages, and the bus' default serializer restores them.
+The file is ordinary TypeScript with no transformer or bundler plugin, so it compiles with tsc, esbuild, SWC, tsx, Vite or anything else. It only exports `messageTypes` and has no side effects. **Pass it to every bus that receives these messages** with `withMessageTypes()`:
 
-- **A message library** (a separate or published package): re-export the file from the package's entry. Importing any message from the package then loads the entry, and the registration with it:
+```ts
+import { Bus } from '@node-ts/bus-core'
+import { messageTypes as orderMessageTypes } from '@my-org/messages'
+import { messageTypes } from './messages/message-types.generated'
+
+const bus = Bus.configure()
+  .withMessageTypes(orderMessageTypes, messageTypes)
+  .withHandler(placeOrderHandler)
+  .build()
+```
+
+- **A message library** (a separate or published package): re-export the file from the package's entry, so services that use the library can pass its `messageTypes` to their bus:
 
   ```ts
   // src/index.ts of the message library
@@ -66,17 +75,13 @@ The file is ordinary TypeScript with no transformer or bundler plugin, so it com
   export * from './place-order'
   ```
 
-- **Messages declared in the service that runs the bus**: import the file once, in the barrel that exports the messages or where the bus is configured, before `bus.initialize()`:
+- **Messages declared in the service that runs the bus**: import `messageTypes` from the file where the bus is configured.
 
-  ```ts
-  import './messages/message-types.generated'
-  ```
+The generator warns if nothing in the project imports the generated file, since it then can't reach a bus.
 
-The generator warns if nothing in the project imports the generated file. If your package sets `"sideEffects": false` for bundlers, list the generated file in it (`"sideEffects": ["./dist/message-types.generated.js"]`), or the bundler may drop the registration.
+A bus can be given the message types of any number of message libraries, in one call or several. They're merged when the bus is built, and `build()` throws `MessageTypesConflict`, naming both files, if two of them map the same `$name` to different types. Each bus has its own message types, so two buses in one process can use different ones. A bus that receives messages throws `MessageTypesMissing` from `initialize()` if a message it handles or a workflow state it persists has no entry, which usually means a generated file is out of date or wasn't passed to `withMessageTypes()`, and its message says what to add. Send-only buses don't need message types.
 
-A service can use any number of message libraries. Their registrations are merged on `globalThis`, so they're shared even if two copies of `@node-ts/bus-messages` are installed, and importing a file twice does nothing. Registration throws `MessageTypesConflict` if two libraries map the same `$name` to different types. Once any types are registered, `bus.initialize()` throws `MessageTypesMissing` if a message it handles or a workflow state it persists has no entry, which usually means a generated file is out of date or isn't imported, and its message says what to add.
-
-The registry is read by the default `JsonSerializer`. A custom serializer set with `withSerializer()` can read it with `getMessageTypes()` from `@node-ts/bus-messages`, and isn't checked at startup.
+The bus passes its message types to its serializer each time it reads a message or workflow state, so a custom serializer set with `withSerializer()` gets them as the last argument of `deserialize` and `toClass`.
 
 Messages stay plain JSON on the wire, so nothing is added to them, and services that don't use the generated file can still read them.
 

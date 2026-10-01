@@ -78,7 +78,7 @@ Messages travel as JSON, which has no Dates or classes. When a message arrives, 
 
 #### Plain data
 
-Declare fields as the types JSON already has: strings (with ISO strings for dates), numbers, booleans, arrays and plain object types. This needs no setup, and it's the way to go for plain JavaScript projects, or when services in other languages read the same messages.
+Declare fields as the types JSON already has: strings (with ISO strings for dates), numbers, booleans, arrays and plain object types. Nothing needs restoring, which suits plain JavaScript projects, or services in other languages that read the same messages.
 
 ```ts
 export class PlaceOrder extends Command {
@@ -93,6 +93,17 @@ export class PlaceOrder extends Command {
   placedAt: string
   customer: { name: string; email: string }
 }
+```
+
+A bus that receives messages still needs an entry in its message types for each message it handles (see below). Generating them works the same for plain-data messages. In a plain JavaScript project, where the generator can't read types, write the entries by hand, with no fields to restore:
+
+```js
+const messageTypes = {
+  messages: { '@my-org/orders/place-order': 'PlaceOrder' },
+  types: { PlaceOrder: { fields: {} } }
+}
+
+Bus.configure().withMessageTypes(messageTypes)
 ```
 
 #### Generated message types
@@ -110,7 +121,19 @@ export * from './message-types.generated'
 export * from './messages'
 ```
 
-The generated file registers its types when it's imported, so any service that imports a message from the library gets them, with nothing to configure. A service can use several message libraries this way. For messages declared in the service itself, generate the file there and import it once (`import './message-types.generated'`) where the messages are exported or the bus is configured.
+Services that handle the library's messages pass its `messageTypes` to their bus, along with those of any other library they use and their own:
+
+```ts
+import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
+import { messageTypes } from './message-types.generated'
+
+const bus = Bus.configure()
+  .withMessageTypes(orderMessageTypes, messageTypes)
+  .withHandler(orderPlacedHandler)
+  .build()
+```
+
+The generated file only exports the types, so nothing is shared between buses: each bus restores messages with the message types it was given. `mergeMessageTypes()` merges several of them the way the bus does, throwing `MessageTypesConflict` if two define a `$name` differently.
 
 The generator reads your TypeScript source, so messages stay plain classes or definitions, with no decorators or `reflect-metadata`. It reads exported message classes, `defineCommand` and `defineEvent` definitions, and interfaces or type aliases with a literal `$name`, and warns about anything else with a `$name` that it skips. Messages are still plain JSON on the wire. Add it to your `prebuild` script and check it in CI with `--check`, as shown in the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts), which also lists the supported types.
 

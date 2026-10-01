@@ -9,10 +9,10 @@ interface Store {
 }
 
 /**
- * A context that stores the transport message when it is received from the bus. Any calls in deeper stacks can
- * access the context by calling `messageHandlingContext.get()`.
+ * A context that stores the transport message while a bus handles it, so calls in deeper stacks can read it.
+ * Each bus has its own, so one bus never sees a message that another bus in the same process is handling.
  */
-class MessageHandlingContext {
+export class MessageHandlingContext {
   private readonly storage = new AsyncLocalStorage<Store>()
 
   /**
@@ -56,5 +56,3 @@ class MessageHandlingContext {
     return this.storage.getStore()?.isInHandlerContext === true
   }
 }
-
-export const messageHandlingContext = new MessageHandlingContext()

@@ -27,7 +27,7 @@ An interface with JSDoc on every field. The README repeats these docs.
 
 `export class <Name>Persistence implements Persistence`. The constructor takes the configuration and an optional pre-built client or pool for tests.
 
-- `prepare(coreDependencies)`: store the dependencies and create the logger with `loggerFactory('@node-ts/bus-persistence:<name>-persistence')` (existing persistence packages use this shared prefix).
+- `prepare(coreDependencies)`: create the logger with `loggerFactory('@node-ts/bus-persistence:<name>-persistence')` (existing persistence packages use this shared prefix).
 - `initialize?()` and `dispose?()`: open and close connections.
 - `initializeWorkflow(workflowStateCtor, messageWorkflowMappings)`:
   - Create one table or collection per workflow state, named from `new workflowStateCtor().$name`, normalised the same way as bus-postgres.
@@ -37,9 +37,9 @@ An interface with JSDoc on every field. The README repeats these docs.
 - `getWorkflowState(ctor, mapping, message, attributes, includeCompleted = false)`:
   - Match the value from `mapping.lookup(message, attributes)` against the stored state property `mapping.mapsTo`.
   - Return only `$status === 'running'` unless `includeCompleted` is true.
-  - Hydrate results with `coreDependencies.serializer.toClass(…, ctor)`.
+  - Return the stored state as it was saved. Don't convert it with a serializer: the bus restores its classes with its own serializer and message types, so one persistence can be shared by several buses.
   - Always bind values as parameters. Validate or escape `mapsTo` before putting it in a query.
-- `saveWorkflowState(state)`:
+- `saveWorkflowState(state)`: the state is already plain JSON values, so store it as it is (e.g. `JSON.stringify`).
   - When `$version === 0`, insert.
   - Otherwise, update conditionally on `id` and the old `version`.
   - Store `$version + 1`.
@@ -52,10 +52,10 @@ An interface with JSDoc on every field. The README repeats these docs.
 
 ## 5. Tests
 
-- Copy `packages/bus-postgres/test/` (the `TestWorkflowState`, `TestCommand`, `RunTask`, `TaskRan` and `TestWorkflow` fixtures plus `index.ts`), renaming the `$name`s to `@node-ts/bus-<name>/...`. Copy bus-postgres' `generate:message-types`/`check:message-types` scripts and its `@node-ts/bus-cli` devDependency, and run the script, since `@node-ts/bus-test` registers message types and every handled message then needs an entry.
+- Copy `packages/bus-postgres/test/` (the `TestWorkflowState`, `TestCommand`, `RunTask`, `TaskRan` and `TestWorkflow` fixtures plus `index.ts`), renaming the `$name`s to `@node-ts/bus-<name>/...`. Copy bus-postgres' `generate:message-types`/`check:message-types` scripts and its `@node-ts/bus-cli` devDependency, and run the script, since every bus that receives messages needs message types for them. Export the generated file from `test/index.ts`.
 - `src/<name>-persistence.integration.ts`, mirroring `postgres-persistence.integration.ts`:
   - Start with a top-level `configuration` constant.
-  - In `beforeAll`: `Bus.configure().withLogger(() => Mock.ofType<Logger>().object).withPersistence(sut).withWorkflow(TestWorkflow).build()`, then `initialize()` and `start()`.
+  - In `beforeAll`: `Bus.configure().withLogger(() => Mock.ofType<Logger>().object).withMessageTypes(messageTypes).withPersistence(sut).withWorkflow(TestWorkflow).build()`, then `initialize()` and `start()`.
   - In nested `when` blocks, assert that:
     - the storage was created
     - an insert gives `$version` 1

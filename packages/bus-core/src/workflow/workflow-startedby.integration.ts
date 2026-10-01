@@ -3,6 +3,7 @@ import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { Bus, BusInstance } from '../service-bus'
+import { testMessageTypes } from '../test'
 import { sleep } from '../util'
 import { InMemoryPersistence } from './persistence'
 import { TestCommand } from './test'
@@ -21,6 +22,7 @@ describe('Workflow Started By', () => {
 
   beforeAll(async () => {
     bus = Bus.configure()
+      .withMessageTypes(testMessageTypes)
       .withPersistence(inMemoryPersistence.object)
       .withWorkflow(TestDiscardedWorkflow)
       .withWorkflow(TestVoidStartedByWorkflow)
@@ -90,6 +92,7 @@ describe('Workflow Started By', () => {
       })
 
       retriedBus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withLogger(target =>
           target === '@node-ts/bus-core:workflow-registry'
             ? workflowRegistryLogger.object

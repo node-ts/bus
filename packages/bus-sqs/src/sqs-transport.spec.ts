@@ -225,7 +225,8 @@ describe('sqs-transport', () => {
         loggerFactory: () => Mock.ofType<Logger>().object,
         messageSerializer: new MessageSerializer(
           new JsonSerializer(),
-          new DefaultHandlerRegistry()
+          new DefaultHandlerRegistry(),
+          { messages: {}, types: {} }
         )
       } as any as CoreDependencies)
       sut.deadLetterQueueUrl = 'dead-letter-queue-url'

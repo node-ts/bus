@@ -1,9 +1,15 @@
-import { Message, MessageDeclaration } from '@node-ts/bus-messages'
+import {
+  Message,
+  MessageDeclaration,
+  MessageTypes,
+  mergeMessageTypes
+} from '@node-ts/bus-messages'
 import { ContainerAdapter } from '../container'
 import { ContainerNotRegistered } from '../error'
 import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
 import { HandlerDefinition, isClassHandler } from '../handler/handler'
-import { LoggerFactory, defaultLoggerFactory } from '../logger'
+import { LoggerFactory, createDefaultLoggerFactory } from '../logger'
+import { MessageHandlingContext } from '../message-handling-context'
 import { Receiver } from '../receiver'
 import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, Serializer } from '../serialization'
@@ -19,7 +25,7 @@ import { Persistence, Workflow, WorkflowState } from '../workflow'
 import { InMemoryPersistence } from '../workflow/persistence'
 import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { BusInstance } from './bus-instance'
-import { BusAlreadyInitialized } from './error'
+import { BusAlreadyInitialized, TransportAlreadyInUse } from './error'
 
 /**
  * Gets the message type a class handler handles. A `messageType` getter is read from the prototype without
@@ -30,6 +36,12 @@ const resolveClassHandlerMessageType = (
   handler: ClassConstructor<Handler>
 ): MessageDeclaration<Message> =>
   handler.prototype.messageType ?? new handler().messageType
+
+/**
+ * Every transport instance a bus has been built with. A transport holds one queue and one connection, so it can
+ * only belong to one bus. This holds no message state, and drops transports that are garbage collected.
+ */
+const TRANSPORTS_IN_USE = new WeakSet<Transport>()
 
 export interface BusInitializeOptions {
   /**
@@ -48,7 +60,7 @@ export class BusConfiguration {
   private container: ContainerAdapter | undefined
   private workflowRegistry = new WorkflowRegistry()
   private handlerRegistry = new DefaultHandlerRegistry()
-  private loggerFactory: LoggerFactory = defaultLoggerFactory
+  private loggerFactory: LoggerFactory = createDefaultLoggerFactory()
   private serializer: Serializer | undefined
   private persistence: Persistence = new InMemoryPersistence()
   private messageReadMiddlewares = new MiddlewareDispatcher<
@@ -58,11 +70,17 @@ export class BusConfiguration {
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
   private receiver: Receiver | undefined
+  private messageTypes: MessageTypes[] = []
 
   /**
    * Constructs an instance of a bus from the configuration
    * @throws BusAlreadyInitialized if the bus has already been built
    * @throws ContainerNotRegistered if class handlers are registered without a container
+   * @throws TransportAlreadyInUse if the transport is already used by another bus
+   * @throws MessageTypesConflict if the message types passed to `withMessageTypes()` define a `$name` or type
+   * differently
+   * @throws MessageTypeReferenceNotFound if message types passed to `withMessageTypes()` refer to a type they
+   * don't define
    */
   build(): BusInstance {
     if (!!this.busInstance) {
@@ -74,7 +92,14 @@ export class BusConfiguration {
       throw new ContainerNotRegistered(classHandlers[0].constructor.name)
     }
 
+    const transport: Transport = this.configuredTransport || new InMemoryQueue()
+    if (TRANSPORTS_IN_USE.has(transport)) {
+      throw new TransportAlreadyInUse(transport.constructor.name)
+    }
+
     const serializer = this.serializer ?? new JsonSerializer()
+    const messageTypes = mergeMessageTypes(this.messageTypes)
+    const messageHandlingContext = new MessageHandlingContext()
 
     const coreDependencies: CoreDependencies = {
       container: this.container,
@@ -83,19 +108,25 @@ export class BusConfiguration {
       serializer,
       messageSerializer: new MessageSerializer(
         serializer,
-        this.handlerRegistry
+        this.handlerRegistry,
+        messageTypes
       ),
+      messageTypes,
       retryStrategy: this.retryStrategy,
       interruptSignals: this.interruptSignals
     }
 
     if (!this.sendOnly) {
       this.persistence?.prepare(coreDependencies)
-      this.workflowRegistry.prepare(coreDependencies, this.persistence)
+      this.workflowRegistry.prepare(
+        coreDependencies,
+        this.persistence,
+        messageHandlingContext
+      )
     }
 
-    const transport: Transport = this.configuredTransport || new InMemoryQueue()
     transport.prepare(coreDependencies)
+    TRANSPORTS_IN_USE.add(transport)
 
     this.busInstance = new BusInstance(
       transport,
@@ -106,7 +137,8 @@ export class BusConfiguration {
       this.handlerRegistry,
       this.container,
       this.sendOnly,
-      this.receiver
+      this.receiver,
+      messageHandlingContext
     )
     return this.busInstance
   }
@@ -208,7 +240,8 @@ export class BusConfiguration {
   }
 
   /**
-   * Configures Bus to use a different transport than the default MemoryQueue
+   * Configures Bus to use a different transport than the default MemoryQueue. A transport instance holds one
+   * queue and one connection, so each bus needs its own instance.
    * @throws BusAlreadyInitialized if called after the bus has been built
    */
   withTransport(transportConfiguration: Transport): this {
@@ -236,9 +269,8 @@ export class BusConfiguration {
   /**
    * Configures Bus to use a different serialization provider. The provider is responsible for
    * transforming messages to/from a serialized representation, as well as ensuring all object
-   * properties are a strong type. The message types registered by generated files are only used by
-   * the default serializer, and checked at `initialize()` only with it. A custom serializer can read
-   * them with `getMessageTypes()` from `@node-ts/bus-messages`.
+   * properties are a strong type. The bus passes its message types (see `withMessageTypes()`) to the
+   * serializer each time it restores an object, so one serializer can be shared by several buses.
    * @default JsonSerializer
    * @throws BusAlreadyInitialized if called after the bus has been built
    */
@@ -248,6 +280,34 @@ export class BusConfiguration {
     }
 
     this.serializer = serializer
+    return this
+  }
+
+  /**
+   * Gives the bus the message types generated by `bus generate-message-types` (from `@node-ts/bus-cli`), which
+   * say how to restore the Dates, Maps, Sets, bigints and classes of each message and workflow state it
+   * receives. Pass the `messageTypes` export of every generated file whose messages the bus handles. Calling
+   * this again adds to the message types already passed.
+   *
+   * A bus that receives messages must have message types for every message it handles and every workflow state
+   * it persists, or `initialize()` throws `MessageTypesMissing`. Send-only buses don't need them.
+   * @param messageTypes the message types of one or more generated files
+   * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
+   * import { messageTypes } from './message-types.generated'
+   *
+   * const bus = Bus.configure()
+   *   .withMessageTypes(orderMessageTypes, messageTypes)
+   *   .withHandler(orderPlacedHandler)
+   *   .build()
+   */
+  withMessageTypes(...messageTypes: MessageTypes[]): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.messageTypes.push(...messageTypes)
     return this
   }
 

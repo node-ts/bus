@@ -484,6 +484,9 @@ importers:
       '@aws-sdk/client-sqs':
         specifier: ^3.1142.0
         version: 3.1142.0
+      '@node-ts/bus-cli':
+        specifier: workspace:^
+        version: link:../bus-cli
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core

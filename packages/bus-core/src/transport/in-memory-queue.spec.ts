@@ -9,7 +9,13 @@ import { Logger, LoggerFactory } from '../logger'
 import { RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, MessageSerializer } from '../serialization'
 import { Bus } from '../service-bus/bus'
-import { TestCommand, TestCommand2, TestEvent, TestEvent2 } from '../test'
+import {
+  TestCommand,
+  TestCommand2,
+  TestEvent,
+  TestEvent2,
+  testMessageTypes
+} from '../test'
 import { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 
 const event = new TestEvent()
@@ -29,7 +35,12 @@ describe('InMemoryQueue', () => {
   let loggerFactory: LoggerFactory
 
   const serializer = new JsonSerializer()
-  const messageSerializer = new MessageSerializer(serializer, handlerRegistry)
+  const messageTypes = { messages: {}, types: {} }
+  const messageSerializer = new MessageSerializer(
+    serializer,
+    handlerRegistry,
+    messageTypes
+  )
 
   const retryStrategy = Mock.ofType<RetryStrategy>()
 
@@ -38,6 +49,7 @@ describe('InMemoryQueue', () => {
     container: undefined,
     loggerFactory,
     messageSerializer,
+    messageTypes,
     serializer,
     retryStrategy: retryStrategy.object,
     interruptSignals: []
@@ -215,6 +227,7 @@ describe('InMemoryQueue', () => {
     it('should only fail the handled message', async () => {
       const emitter = new EventEmitter()
       const bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withConcurrency(1)
         .withHandler(
           handlerFor(TestEvent, async () => {
@@ -366,6 +379,7 @@ describe('InMemoryQueue', () => {
     beforeEach(async () => {
       sut = new InMemoryQueue()
       const bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
         .asSendOnly()

@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { Mock } from 'typemoq'
 import {
+  messageTypes,
   TestAddress,
   TestContinueRoundTripWorkflow,
   TestCustomer,
@@ -23,8 +24,8 @@ import { createTestRoundTripCommand } from './message-round-trip-cases'
  * A suite that starts a workflow whose state has nested types (Dates, class instances several
  * levels deep and arrays of Dates), then checks the state the next handler reads back from the
  * persistence has its types restored.
- * @param persistence A fully configured persistence that's the subject under test. It's used by
- * its own bus and disposed when the suite ends, so don't share it with another bus.
+ * @param persistence A fully configured persistence that's the subject under test. It's disposed when
+ * the suite's bus is disposed, unless another bus that uses it is still running.
  */
 export const workflowStateRoundTripTests = (persistence: Persistence): void => {
   const events = new EventEmitter()
@@ -75,6 +76,7 @@ export const workflowStateRoundTripTests = (persistence: Persistence): void => {
     beforeAll(async () => {
       bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes(messageTypes)
         .withPersistence(persistence)
         .withWorkflow(TestRoundTripWorkflow)
         .build()

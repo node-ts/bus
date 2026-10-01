@@ -23,20 +23,18 @@ const isPlainObject = (value: unknown): value is PlainObject =>
  */
 export class MessageTypeReviver {
   /**
-   * @param getMessageTypes gets the message types to restore with, which are read on every call so
-   * types registered later are used too
-   */
-  constructor(private readonly getMessageTypes: () => MessageTypes) {}
-
-  /**
    * Restores a parsed message or workflow state. Objects are created from their class' prototype and
    * the parsed fields are copied on, so constructors aren't run.
    * @param plain the parsed message or workflow state
    * @param prototype the prototype of the top-level object
+   * @param messageTypes the message types to restore with
    * @returns the restored object
    */
-  revive<T extends object>(plain: object, prototype: object): T {
-    const messageTypes = this.getMessageTypes()
+  revive<T extends object>(
+    plain: object,
+    prototype: object,
+    messageTypes: MessageTypes
+  ): T {
     const name = (plain as { $name?: unknown }).$name
     const definition =
       typeof name === 'string' && Object.hasOwn(messageTypes.messages, name)

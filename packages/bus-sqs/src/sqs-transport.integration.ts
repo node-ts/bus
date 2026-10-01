@@ -22,7 +22,7 @@ import {
   SqsTransport
 } from './sqs-transport'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
-import { AttributeRoundTripCommand } from './test'
+import { AttributeRoundTripCommand, messageTypes } from './test'
 
 function getEnvVar(key: string): string {
   const value = process.env[key]
@@ -206,6 +206,7 @@ describe('SqsTransport', () => {
     beforeAll(async () => {
       const handled = new EventEmitter()
       bus = Bus.configure()
+        .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withHandler(

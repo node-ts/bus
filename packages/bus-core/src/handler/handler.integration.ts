@@ -7,7 +7,8 @@ import {
   MessageLogger,
   randomInt,
   TestCommand2,
-  testEventHandler
+  testEventHandler,
+  testMessageTypes
 } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestCommand3 } from '../test/test-command-3'
@@ -60,6 +61,7 @@ describe('Handler', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withConcurrency(2)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
@@ -234,6 +236,7 @@ describe('Handler', () => {
         .callback(() => events.emit('received'))
 
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
             return new type(messageLogger.object)

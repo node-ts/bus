@@ -53,7 +53,7 @@ Export the configuration and the transport, plus any attribute helpers other pac
   - `publishSystemMessage(value)` publishes a raw `TestSystemMessage` with the attribute `systemMessage = value` onto `systemMessageTopicIdentifier`.
   - `readAllFromDeadLetterQueue()` reads, deletes and returns `{ message, attributes }[]`.
   - Create broker resources in `beforeAll` and purge or delete them in `afterAll`. Put any env vars in the root `test.env`.
-  - Importing `@node-ts/bus-test` registers its fixtures' generated message types, and once any are registered every message a bus handles needs an entry. If the test builds other buses with its own fixture messages, give them unique `$name`s, add `generate:message-types`/`check:message-types` scripts and a `@node-ts/bus-cli` devDependency, and export the generated file from the fixtures' `index.ts` (see bus-rabbitmq's `src/test`).
+  - The shared suites pass bus-test's own generated message types to their buses. Every other bus the test builds that receives messages needs `.withMessageTypes(messageTypes)` with its fixtures' types: add `generate:message-types`/`check:message-types` scripts and a `@node-ts/bus-cli` devDependency, and export the generated file from the fixtures' `index.ts` (see bus-rabbitmq's `src/test`). Give each bus its own transport instance, since `build()` throws `TransportAlreadyInUse` for one another bus uses.
   - bus-test is imported from its build (`dist`), like bus-core, so run `pnpm build` after changing it. `packages/bus-test/README.md` documents the suite's parameters for third-party transport authors.
 - `src/<name>-transport.spec.ts`: unit tests using a typemoq mock of the client, following the test conventions in the root `CLAUDE.md`.
 

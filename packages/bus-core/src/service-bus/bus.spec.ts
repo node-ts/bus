@@ -4,6 +4,7 @@ import { Logger } from '../logger'
 import { Receiver } from '../receiver'
 import { RetryStrategy } from '../retry-strategy'
 import { Serializer } from '../serialization'
+import { testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { InMemoryQueue, Transport } from '../transport'
 import { sleep } from '../util'
@@ -21,7 +22,9 @@ describe('Bus', () => {
     let bus: BusInstance
 
     beforeAll(() => {
-      sut = Bus.configure().withLogger(() => Mock.ofType<Logger>().object)
+      sut = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
       bus = sut.build()
     })
 
@@ -69,22 +72,27 @@ describe('Bus', () => {
 
   describe('when configuring bus concurrency', () => {
     it('should accept a concurrency of 1', () => {
-      Bus.configure().withConcurrency(1)
+      Bus.configure().withMessageTypes(testMessageTypes).withConcurrency(1)
     })
 
     it('should accept a concurrency > 1', () => {
-      Bus.configure().withConcurrency(10)
+      Bus.configure().withMessageTypes(testMessageTypes).withConcurrency(10)
     })
 
     it('should throw an error when concurrency < 1', () => {
-      expect(() => Bus.configure().withConcurrency(0)).toThrow()
+      expect(() =>
+        Bus.configure().withMessageTypes(testMessageTypes).withConcurrency(0)
+      ).toThrow()
     })
   })
 
   describe('when registering the same workflow twice', () => {
     it('should throw', () => {
       expect(() =>
-        Bus.configure().withWorkflow(TestWorkflow).withWorkflow(TestWorkflow)
+        Bus.configure()
+          .withMessageTypes(testMessageTypes)
+          .withWorkflow(TestWorkflow)
+          .withWorkflow(TestWorkflow)
       ).toThrow('Attempted to register two workflows with the same name')
     })
   })
@@ -97,7 +105,7 @@ describe('Bus', () => {
     }
 
     it('should stop the bus on SIGINT', async () => {
-      const bus = Bus.configure().build()
+      const bus = Bus.configure().withMessageTypes(testMessageTypes).build()
       await bus.initialize()
       await bus.start()
       process.emit('SIGINT')
@@ -107,7 +115,7 @@ describe('Bus', () => {
     })
 
     it('should stop the bus on SIGTERM', async () => {
-      const bus = Bus.configure().build()
+      const bus = Bus.configure().withMessageTypes(testMessageTypes).build()
       await bus.initialize()
       await bus.start()
       process.emit('SIGTERM')
@@ -119,6 +127,7 @@ describe('Bus', () => {
     it('should stop the bus on user provided interrupts', async () => {
       const additionalInterrupts: NodeJS.Signals[] = ['SIGUSR2']
       const bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withAdditionalInterruptSignal(...additionalInterrupts)
         .build()
       await bus.initialize()
@@ -141,6 +150,7 @@ describe('Bus', () => {
         throw stopError
       }
       bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
         .withTransport(transport)
         .withLogger(() => logger.object)
         .build()
@@ -181,6 +191,7 @@ describe('Bus', () => {
       listenersBefore = countListeners()
       const buses = new Array(busCount).fill(undefined).map(() =>
         Bus.configure()
+          .withMessageTypes(testMessageTypes)
           .withLogger(() => Mock.ofType<Logger>().object)
           .build()
       )
@@ -208,7 +219,7 @@ describe('Bus', () => {
   describe('when disposing the bus', () => {
     describe('after its been initialized', () => {
       it('should dispose', async () => {
-        const bus = Bus.configure().build()
+        const bus = Bus.configure().withMessageTypes(testMessageTypes).build()
         await bus.initialize()
         await bus.dispose()
       })
