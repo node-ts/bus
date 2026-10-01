@@ -61,7 +61,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 
 ### Handlers
 
-- Function handlers via `handlerFor(MessageClass, fn)`; class handlers implement `Handler` and require a `ContainerAdapter` (`withContainer`) to resolve them.
+- Function handlers via `handlerFor(MessageClass | definition, fn)`; class handlers implement `Handler` and require a `ContainerAdapter` (`withContainer`) to resolve them.
 - Handlers are called with `(message, attributes, ctx)` and class workflow handlers with `(message, state, attributes, ctx)`. `ctx` is a `HandlerContext` (`handler/handler-context.ts`) that `BusInstance.createHandlerContext` builds per dispatch; its methods delegate to the bus, so sends use the handler's outbox and the current `messageHandlingContext`. Extend this interface rather than adding new ways to reach the bus.
 - `DefaultHandlerRegistry` maps message `$name` to handlers; custom handlers (`withCustomHandler`) take a resolver for external/system messages that don't follow the `Message` shape, optionally with a topic identifier the transport subscribes to.
 
@@ -101,6 +101,7 @@ Apply these to every API and change; the full text, with what each rules out, is
 ### Messages
 
 - `class X extends Command | Event`, with `static NAME = '@node-ts/<package>/<kebab-name>'`, `$name = X.NAME` and `$version = 0`. Routing uses `$name`. The message's `$version` is its contract version and is unrelated to workflow-state `$version`.
+- The bus reads a message type's name from its static `NAME` without constructing it (`handler/default-handler-registry.ts`), so `NAME` is required and must equal `$name`. `defineCommand`/`defineEvent` (`bus-messages/src/define-command.ts`) declare data-only messages without a class, as a factory with a `NAME` whose messages are plain objects. Anything that takes a message type accepts `MessageDeclaration<T>` (a class or a definition), not `ClassConstructor`.
 - No decorators, `reflect-metadata` or class-transformer. Nested types are restored from generated message types, which register themselves on import (`bus-test/src/helpers/message-types.generated.ts`, exported by `helpers/index.ts`). Received messages are created from the class prototype without running the constructor, so don't rely on constructor logic or field initializers in message classes.
 
 ### Tests

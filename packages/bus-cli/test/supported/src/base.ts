@@ -4,7 +4,7 @@ export abstract class Message {
 }
 
 /**
- * Abstract, so it's skipped even though it has a $name
+ * Abstract, so it's skipped with a warning even though it has a $name
  */
 export abstract class AbstractMessage extends Message {
   $name = 'fixture/abstract'

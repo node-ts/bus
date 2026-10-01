@@ -1,7 +1,11 @@
-import { Message } from '@node-ts/bus-messages'
+import { Message, MessageDeclaration } from '@node-ts/bus-messages'
 import { LoggerFactory } from '../logger'
 import { ClassConstructor } from '../util'
-import { HandlerAlreadyRegistered, SystemMessageMissingResolver } from './error'
+import {
+  HandlerAlreadyRegistered,
+  MessageNameInherited,
+  MessageNameMissing
+} from './error'
 import {
   Handler,
   HandlerDefinition,
@@ -33,15 +37,24 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
     })
   }
 
-  register<TMessage extends MessageBase>(
-    messageType: ClassConstructor<TMessage>,
+  register<TMessage extends Message>(
+    messageType: MessageDeclaration<TMessage>,
     handler: HandlerDefinition<TMessage>
   ): void {
-    const message = new messageType()
-    if (!('$name' in message)) {
-      throw new SystemMessageMissingResolver(messageType)
+    // undefined at runtime when a circular import hasn't finished loading the message's module
+    if ((messageType as unknown) === undefined || messageType === null) {
+      throw new MessageNameMissing(messageType)
     }
-    const messageName = message.$name
+    // Read from the class or definition, so a constructor with required arguments or side effects isn't run
+    const messageName: unknown = messageType.NAME
+    if (typeof messageName !== 'string' || !messageName) {
+      throw new MessageNameMissing(messageType)
+    }
+    // A subclass without its own NAME would be routed by its parent's name, so its own messages would never arrive
+    const isClass = messageType.prototype !== undefined
+    if (isClass && !Object.hasOwn(messageType, 'NAME')) {
+      throw new MessageNameInherited(messageType, messageName)
+    }
 
     if (!this.registry[messageName]) {
       // Register that the message will have subscriptions
@@ -116,7 +129,11 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
     if (!(messageName in this.registry)) {
       return undefined
     }
-    return this.registry[messageName].messageType as ClassConstructor<T>
+    const messageType = this.registry[messageName].messageType
+    // A definition from defineCommand or defineEvent is an arrow function with no prototype. Its messages are plain objects.
+    return (messageType.prototype === undefined
+      ? Object
+      : messageType) as unknown as ClassConstructor<T>
   }
 
   getExternallyManagedTopicIdentifiers(): string[] {

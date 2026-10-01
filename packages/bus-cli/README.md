@@ -91,7 +91,15 @@ Messages stay plain JSON on the wire, so nothing is added to them, and services 
 | `--check`              |                                  | Writes nothing, and fails if the file is missing or out of date. Use it in CI |
 | `--watch`              |                                  | Regenerates the file whenever a source file in the project changes            |
 
-Paths and globs are relative to the current directory. Every exported, non-abstract class with a `$name` that is declared in an entry file is included, so messages and workflow state are both picked up. Classes they use are included wherever they're declared in the project. Re-exports, such as an `index.ts`, don't add anything.
+Paths and globs are relative to the current directory. These are included when they're declared and exported in an entry file, so messages and workflow state are both picked up:
+
+- non-abstract classes with a `$name`
+- messages declared with `defineCommand` or `defineEvent` from `@node-ts/bus-messages`, as a named or default export, which are restored as plain objects
+- interfaces and type aliases with a string literal `$name`, such as a message from another system that's handled with `withCustomHandler`. One that only describes a message declared another way, such as `type PlaceOrder = MessageOf<typeof PlaceOrder>`, isn't read twice.
+
+Classes and types they use are included wherever they're declared in the project. Re-exports, such as an `index.ts`, don't add anything.
+
+Anything else with a `$name` is skipped with a warning that says why, so a message that would fail at startup with `MessageTypesMissing` is caught when it's generated: a class or definition that isn't exported, an abstract class with a `$name`, a class whose `$name` is never set (unless a message uses it as a field), an interface whose `$name` isn't a string literal or that is generic, an interface with the `$name` of a class or definition, a definition inside an exported object, a class that inherits its static `NAME` (the bus rejects it), and a message re-exported from a file that isn't an entry file. A class whose static `NAME` isn't its `$name` fails generation, since the bus routes by `NAME`.
 
 ### Scripts
 
@@ -129,7 +137,7 @@ Formatters and linters are free to change the generated file. `--check` compares
 | Optional fields, `T \| null`, `T \| undefined`              | as `T`, or left out | as `T`, or left as `null`/`undefined`    |
 | `unknown`, `any`                                            | itself              | as parsed                                |
 
-Generation fails, listing every problem, for anything else, such as functions, symbols, `RegExp` and other built-in classes, generic classes, tuples that contain types that need restoring, `Map` keys that aren't strings or numbers, unions of types that are restored differently (`Date | string`), interfaces with methods, fields typed as an abstract class, classes that aren't exported by name or are declared outside the project, types that can't be resolved, and a `$name` that can't be worked out without running the code. A `$name` must be a string literal, or a static property or constant that is one, such as `$name = PlaceOrder.NAME`.
+Generation fails, listing every problem, for anything else, such as functions, symbols, `RegExp` and other built-in classes, generic classes, tuples that contain types that need restoring, two interfaces with the same `$name`, `Map` keys that aren't strings or numbers, unions of types that are restored differently (`Date | string`), interfaces with methods, fields typed as an abstract class, classes that aren't exported by name or are declared outside the project, types that can't be resolved, and a `$name` that can't be worked out without running the code. A `$name` must be a string literal, or a static property or constant that is one, such as `$name = PlaceOrder.NAME`, and `defineCommand` and `defineEvent` must be given a string literal.
 
 ### Known limits
 

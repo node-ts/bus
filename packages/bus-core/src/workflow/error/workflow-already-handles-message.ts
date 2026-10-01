@@ -1,10 +1,9 @@
-import { Message } from '@node-ts/bus-messages'
-import { ClassConstructor } from '../../util'
+import { Message, MessageDeclaration } from '@node-ts/bus-messages'
 
 export class WorkflowAlreadyHandlesMessage extends Error {
   constructor(
     readonly workflowName: string,
-    readonly messageType: ClassConstructor<Message>
+    readonly messageType: MessageDeclaration<Message>
   ) {
     super(`Attempted to re-register the same message handler for a workflow`)
 

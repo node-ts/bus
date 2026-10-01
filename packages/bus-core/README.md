@@ -49,6 +49,8 @@ const run = async () => {
 }
 ```
 
+Messages that are only data can also be declared without a class, with `defineCommand` and `defineEvent` from `@node-ts/bus-messages`. See the [messages guide](https://github.com/node-ts/bus/tree/master/packages/bus-messages#without-a-class).
+
 ## Sending and publishing from a handler
 
 Every handler gets a third argument, a `HandlerContext` bound to the bus that received the message. Use it to send and publish instead of capturing the bus in a closure or resolving it from a container. Messages sent through it are held until the handler resolves, and dropped if it throws, and they carry the `correlationId` and sticky attributes of the message being handled.

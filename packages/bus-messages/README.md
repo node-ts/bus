@@ -34,9 +34,49 @@ export class PlaceOrder extends Command {
 }
 ```
 
-Messages travel as JSON, which has no Dates or classes. When a message arrives, the bus creates it from its class' prototype, so `instanceof`, getters and methods work, but nested values are only what JSON can hold: `placedAt` is an ISO string and `customer` is a plain object. There are two ways to deal with that.
+The static `NAME` must be the `$name` of its instances, and a subclass needs its own: the bus reads it to route the message without constructing the class, so constructors can take arguments. A message class without one doesn't type check with `handlerFor`, `startedBy` or `when`.
 
-### Plain data
+### Without a class
+
+A message that is only data can be declared with `defineCommand` or `defineEvent` instead. Give the name first and the type of the fields second:
+
+```ts
+import { defineCommand, defineEvent, MessageOf } from '@node-ts/bus-messages'
+
+export const PlaceOrder = defineCommand('@my-org/orders/place-order')<{
+  orderId: string
+  placedAt: Date
+  customer: Customer
+}>()
+export type PlaceOrder = MessageOf<typeof PlaceOrder>
+
+// The contract version defaults to 0
+export const OrderPlaced = defineEvent('@my-org/orders/order-placed', {
+  version: 1
+})<{ orderId: string }>()
+export type OrderPlaced = MessageOf<typeof OrderPlaced>
+```
+
+The definition is a function that creates the message, adding its `$name` and `$version`, and it has the same static `NAME` as a class. Use it anywhere a message class goes:
+
+```ts
+await bus.send(PlaceOrder({ orderId: '1', placedAt: new Date(), customer }))
+
+handlerFor(PlaceOrder, async placeOrder => placeOrder.placedAt.getTime())
+
+mapper.startedBy(PlaceOrder, 'start').when(OrderPlaced, 'complete', {
+  lookup: orderPlaced => orderPlaced.orderId,
+  mapsTo: 'orderId'
+})
+```
+
+Messages declared this way are plain objects, both when they're created and when they're received, so there's no prototype, `instanceof` or methods. Both styles can be mixed freely, and messages declared either way look the same on the wire.
+
+### Dates and nested classes
+
+Messages travel as JSON, which has no Dates or classes. When a message arrives, the bus creates it from its class' prototype (or as a plain object, for a message declared with `defineCommand` or `defineEvent`), so `instanceof`, getters and methods of a message class work, but nested values are only what JSON can hold: `placedAt` is an ISO string and `customer` is a plain object. There are two ways to deal with that.
+
+#### Plain data
 
 Declare fields as the types JSON already has: strings (with ISO strings for dates), numbers, booleans, arrays and plain object types. This needs no setup, and it's the way to go for plain JavaScript projects, or when services in other languages read the same messages.
 
@@ -55,7 +95,7 @@ export class PlaceOrder extends Command {
 }
 ```
 
-### Generated message types
+#### Generated message types
 
 To use `Date`, `Map`, `Set`, `bigint` and your own classes at any depth, generate the message types of your message library with [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli) and re-export the generated file from the library's entry:
 
@@ -72,7 +112,7 @@ export * from './messages'
 
 The generated file registers its types when it's imported, so any service that imports a message from the library gets them, with nothing to configure. A service can use several message libraries this way. For messages declared in the service itself, generate the file there and import it once (`import './message-types.generated'`) where the messages are exported or the bus is configured.
 
-The generator reads your TypeScript source, so messages stay plain classes with no decorators or `reflect-metadata`. Messages are still plain JSON on the wire. Add it to your `prebuild` script and check it in CI with `--check`, as shown in the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts), which also lists the supported types.
+The generator reads your TypeScript source, so messages stay plain classes or definitions, with no decorators or `reflect-metadata`. It reads exported message classes, `defineCommand` and `defineEvent` definitions, and interfaces or type aliases with a literal `$name`, and warns about anything else with a `$name` that it skips. Messages are still plain JSON on the wire. Add it to your `prebuild` script and check it in CI with `--check`, as shown in the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts), which also lists the supported types.
 
 Keep two limits in mind with either approach:
 

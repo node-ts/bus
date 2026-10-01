@@ -22,7 +22,7 @@ export class OrderState {
 }
 
 /**
- * Not exported, and not used by a message, so it's left out
+ * Not exported, and not used by a message, so it's left out with a warning
  */
 class Internal {
   $name = 'fixture/internal'

@@ -1,4 +1,8 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Message,
+  MessageAttributes,
+  MessageDeclaration
+} from '@node-ts/bus-messages'
 import { HandlerContext } from '../handler'
 import { ClassConstructor } from '../util'
 import {
@@ -61,14 +65,14 @@ export class WorkflowMapper<
   WorkflowType extends Workflow<WorkflowStateType>
 > {
   readonly onStartedBy = new Map<
-    ClassConstructor<Message>,
+    MessageDeclaration<Message>,
     {
       workflowCtor: ClassConstructor<Workflow<WorkflowState>>
       workflowHandler: KeyOfType<WorkflowType, AnyFunction>
     }
   >()
   readonly onWhen = new Map<
-    ClassConstructor<Message>,
+    MessageDeclaration<Message>,
     OnWhenHandler<WorkflowStateType, WorkflowType>
   >()
   private workflowStateType: ClassConstructor<WorkflowStateType> | undefined
@@ -93,12 +97,13 @@ export class WorkflowMapper<
    * new workflow state was saved (for example because another handler of the same message failed) starts a second
    * workflow instance. Make the handler idempotent, such as by returning `discardWorkflow()` when a workflow already
    * exists for the message, if that matters.
-   * @param message The message that starts the workflow
+   * @param message The message that starts the workflow: a message class, or a definition from `defineCommand` or
+   * `defineEvent`
    * @param workflowHandler The name of the workflow method that handles `message`
    * @throws WorkflowAlreadyStartedByMessage if the workflow is already started by `message`
    */
   startedBy<MessageType extends Message>(
-    message: ClassConstructor<MessageType>,
+    message: MessageDeclaration<MessageType>,
     workflowHandler: KeyOfType<WorkflowType, AnyFunction>
   ): this {
     if (this.onStartedBy.has(message)) {
@@ -111,8 +116,16 @@ export class WorkflowMapper<
     return this
   }
 
+  /**
+   * Dispatches `message` to the workflow instances it maps to
+   * @param message The message to handle: a message class, or a definition from `defineCommand` or `defineEvent`
+   * @param workflowHandler The name of the workflow method that handles `message`
+   * @param customLookup How to find the workflow instance for `message`. By default it's found by the `workflowId`
+   * sticky attribute that's added to messages sent from the workflow.
+   * @throws WorkflowAlreadyHandlesMessage if the workflow already handles `message`
+   */
   when<MessageType extends Message>(
-    message: ClassConstructor<MessageType>,
+    message: MessageDeclaration<MessageType>,
     workflowHandler: KeyOfType<WorkflowType, AnyFunction>,
     customLookup?: MessageWorkflowMapping<MessageType, WorkflowStateType>
   ): this {
