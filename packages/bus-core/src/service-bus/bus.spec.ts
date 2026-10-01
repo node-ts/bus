@@ -41,6 +41,10 @@ describe('Bus', () => {
       ['withTransport', config => config.withTransport({} as Transport)],
       ['withLogger', config => config.withLogger(() => ({}) as Logger)],
       ['withSerializer', config => config.withSerializer({} as Serializer)],
+      [
+        'withMessageTypes',
+        config => config.withMessageTypes({ messages: {}, types: {} })
+      ],
       ['withPersistence', config => config.withPersistence({} as Persistence)],
       ['withConcurrency', config => config.withConcurrency(2)],
       ['withContainer', config => config.withContainer({} as ContainerAdapter)],

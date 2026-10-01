@@ -30,6 +30,7 @@ import {
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
+import { MessageTypesMissing } from '../serialization'
 import { Transport, TransportMessage } from '../transport'
 import {
   ClassConstructor,
@@ -264,6 +265,8 @@ export class BusInstance<TTransportMessage = {}> {
    * Initializes the bus with the provided configuration. This must be called before `.start()`
    *
    * @throws InvalidOperation if the bus has already been initialized
+   * @throws MessageTypesMissing if message types are configured but a handled message or a workflow state has
+   * no entry in them
    */
   async initialize(): Promise<void> {
     this.logger.debug('Initializing bus')
@@ -277,6 +280,7 @@ export class BusInstance<TTransportMessage = {}> {
         this.handlerRegistry,
         this.container
       )
+      this.assertMessageTypesRegistered()
     }
 
     if (this.transport.connect) {
@@ -843,6 +847,24 @@ export class BusInstance<TTransportMessage = {}> {
    * Subscribes to the interrupt signals to gracefully stop the bus. Listeners are
    * registered once per instance and removed when the bus is disposed.
    */
+  /**
+   * Checks every handled message and workflow state can be restored from the configured message types
+   * @throws MessageTypesMissing if any of them has no entry
+   */
+  private assertMessageTypesRegistered(): void {
+    const { messageTypes } = this.coreDependencies
+    if (!messageTypes) {
+      return
+    }
+    const missingNames = [
+      ...this.handlerRegistry.getMessageNames(),
+      ...this.workflowRegistry.getWorkflowStateNames()
+    ].filter(name => !Object.hasOwn(messageTypes.messages, name))
+    if (missingNames.length) {
+      throw new MessageTypesMissing(missingNames)
+    }
+  }
+
   private subscribeToInterruptSignals(signals: NodeJS.Signals[]): void {
     if (this.sendOnly) {
       // Only applies to message handling buses

@@ -3,12 +3,8 @@
   "include": ["src/**/*.ts", "src/index.mts"],
   "exclude": ["src/**/*.spec.ts", "src/**/*.integration.ts", "src/**/test"],
   "compilerOptions": {
-    "outDir": "./dist",
     "rootDir": "./src",
-
-    "target": "ES6",
-
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "outDir": "./dist",
+    "types": ["node"]
   }
 }

@@ -1,3 +1,4 @@
+import { MessageTypes } from '@node-ts/bus-messages'
 import { ContainerAdapter } from '../container'
 import { HandlerRegistry } from '../handler'
 import { LoggerFactory } from '../logger'
@@ -14,6 +15,10 @@ export interface CoreDependencies {
   handlerRegistry: HandlerRegistry
   serializer: Serializer
   messageSerializer: MessageSerializer
+  /**
+   * The generated message types configured with `withMessageTypes()`, if any
+   */
+  messageTypes?: MessageTypes
   loggerFactory: LoggerFactory
   container: ContainerAdapter | undefined
   retryStrategy: RetryStrategy
