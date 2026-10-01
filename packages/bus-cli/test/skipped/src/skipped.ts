@@ -35,3 +35,14 @@ export interface SameNameAsClass {
   $name: 'skipped/class-message'
   at: Date
 }
+
+export const Grouped = {
+  GroupedCommand: defineCommand('skipped/grouped')()
+}
+
+export abstract class ParentMessage {
+  static NAME = 'skipped/parent'
+  $name = ParentMessage.NAME
+}
+
+export class InheritsName extends ParentMessage {}

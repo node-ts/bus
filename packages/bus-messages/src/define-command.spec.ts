@@ -69,14 +69,31 @@ describe('defineCommand', () => {
   })
 
   describe('when the fields are wrong', () => {
-    it('should not type check', () => {
-      // @ts-expect-error placedAt is required
-      const missingField = () => PlaceOrder({ orderId: '1' })
-      // @ts-expect-error orderId is a string
-      const wrongType = () => PlaceOrder({ orderId: 1, placedAt: new Date() })
-      // @ts-expect-error a command with required fields needs them
-      const noFields = () => PlaceOrder()
-      expect([missingField, wrongType, noFields]).toHaveLength(3)
+    let sut: unknown[]
+
+    beforeAll(() => {
+      // The @ts-expect-error lines fail the type check if the fields were accepted
+      sut = [
+        // @ts-expect-error placedAt is required
+        PlaceOrder({ orderId: '1' }),
+        // @ts-expect-error orderId is a string
+        PlaceOrder({ orderId: 1, placedAt: new Date() }),
+        // @ts-expect-error a command with required fields needs them
+        PlaceOrder()
+      ]
+    })
+
+    it('should not type check, though the fields are not validated at runtime', () => {
+      expect(sut).toEqual([
+        { orderId: '1', $name: 'test/place-order', $version: 0 },
+        {
+          orderId: 1,
+          placedAt: expect.any(Date),
+          $name: 'test/place-order',
+          $version: 0
+        },
+        { $name: 'test/place-order', $version: 0 }
+      ])
     })
   })
 })

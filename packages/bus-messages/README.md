@@ -34,7 +34,7 @@ export class PlaceOrder extends Command {
 }
 ```
 
-The static `NAME` must be the `$name` of its instances: the bus reads it to route the message without constructing the class, so constructors can take arguments. A message class without one doesn't type check with `handlerFor`, `startedBy` or `when`.
+The static `NAME` must be the `$name` of its instances, and a subclass needs its own: the bus reads it to route the message without constructing the class, so constructors can take arguments. A message class without one doesn't type check with `handlerFor`, `startedBy` or `when`.
 
 ### Without a class
 

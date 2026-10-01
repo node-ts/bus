@@ -1,7 +1,11 @@
 import { Message, MessageDeclaration } from '@node-ts/bus-messages'
 import { LoggerFactory } from '../logger'
 import { ClassConstructor } from '../util'
-import { HandlerAlreadyRegistered, MessageNameMissing } from './error'
+import {
+  HandlerAlreadyRegistered,
+  MessageNameInherited,
+  MessageNameMissing
+} from './error'
 import {
   Handler,
   HandlerDefinition,
@@ -37,10 +41,19 @@ export class DefaultHandlerRegistry implements HandlerRegistry {
     messageType: MessageDeclaration<TMessage>,
     handler: HandlerDefinition<TMessage>
   ): void {
+    // undefined at runtime when a circular import hasn't finished loading the message's module
+    if ((messageType as unknown) === undefined || messageType === null) {
+      throw new MessageNameMissing(messageType)
+    }
     // Read from the class or definition, so a constructor with required arguments or side effects isn't run
     const messageName: unknown = messageType.NAME
     if (typeof messageName !== 'string' || !messageName) {
       throw new MessageNameMissing(messageType)
+    }
+    // A subclass without its own NAME would be routed by its parent's name, so its own messages would never arrive
+    const isClass = messageType.prototype !== undefined
+    if (isClass && !Object.hasOwn(messageType, 'NAME')) {
+      throw new MessageNameInherited(messageType, messageName)
     }
 
     if (!this.registry[messageName]) {

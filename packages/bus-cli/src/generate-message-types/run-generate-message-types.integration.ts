@@ -173,7 +173,7 @@ describe('runGenerateMessageTypes', () => {
 
     it('should write it', () => {
       expect(result.exitCode).toEqual(0)
-      expect(result.output).toContain(`Wrote 11 message types to ${OUT_FILE}`)
+      expect(result.output).toContain(`Wrote 12 message types to ${OUT_FILE}`)
     })
 
     it('should print a warning for each declaration with a $name it skips', () => {
@@ -426,7 +426,7 @@ describe('runGenerateMessageTypes', () => {
 
     it('should regenerate it', () => {
       expect(result.exitCode).toEqual(0)
-      expect(result.output).toContain(`Wrote 11 message types to ${OUT_FILE}`)
+      expect(result.output).toContain(`Wrote 12 message types to ${OUT_FILE}`)
     })
   })
 

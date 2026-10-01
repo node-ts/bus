@@ -90,3 +90,17 @@ export const DynamicDefinition = defineCommand(String(Math.random()))()
 export const DefinitionWithFunction = defineCommand('bad/definition-function')<{
   callback: () => void
 }>()
+
+export class ParentWithName {
+  static NAME = 'bad/parent-name'
+  $name = ParentWithName.NAME
+}
+
+export class ChildWithOwnName extends ParentWithName {
+  $name = 'bad/child-name'
+}
+
+export class MismatchedName {
+  static NAME = 'bad/static-name'
+  $name = 'bad/instance-name'
+}

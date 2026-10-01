@@ -201,10 +201,13 @@ export class MessageTypeReader {
         this.readClass(symbol)
         continue
       }
-      if (symbol.flags & ts.SymbolFlags.Variable) {
+      // A variable, or the expression of an `export default`
+      if (symbol.flags & ts.SymbolFlags.Value) {
         const definition = this.definitionOf(symbol)
         if (definition) {
           this.readDefinition(symbol, definition)
+        } else {
+          this.warnAboutGroupedDefinitions(symbol)
         }
       }
       if (
@@ -261,6 +264,7 @@ export class MessageTypeReader {
       )
       return
     }
+    this.checkStaticName(symbol, name)
     this.addMessage(
       name,
       {
@@ -270,6 +274,40 @@ export class MessageTypeReader {
       },
       () => this.classKey(symbol, symbol.getName())
     )
+  }
+
+  /**
+   * The bus routes a message class by its static `NAME`, so one that isn't the class' `$name`, or that's
+   * inherited from the class it extends, sends its messages to the wrong handlers or is rejected by the bus
+   */
+  private checkStaticName(symbol: TS.Symbol, name: string): void {
+    const { ts } = this
+    const staticNameProperty = this.checker.getPropertyOfType(
+      this.checker.getTypeOfSymbol(symbol),
+      'NAME'
+    )
+    if (!staticNameProperty) {
+      return
+    }
+    const where = this.describeLocation(symbol)
+    const classDeclaration = symbol.declarations?.find(ts.isClassDeclaration)
+    const isOwn = (staticNameProperty.declarations ?? []).some(
+      declaration => declaration.parent === classDeclaration
+    )
+    const staticName = this.resolveName(staticNameProperty)
+    if (typeof staticName === 'string' && staticName !== 'not-set') {
+      if (staticName !== name) {
+        this.problems.push(
+          `${where}: its static NAME "${staticName}"${isOwn ? '' : ', which it inherits,'} isn't its $name "${name}", so the bus would route it as "${staticName}". Give it its own static NAME and set $name to it`
+        )
+        return
+      }
+    }
+    if (!isOwn) {
+      this.warnings.push(
+        `${where}: it inherits its static NAME, so the bus rejects it as a message with MessageNameInherited. Give it its own static NAME and set $name to it`
+      )
+    }
   }
 
   /**
@@ -388,7 +426,10 @@ export class MessageTypeReader {
    * returns a message, so it's found however they're imported
    */
   private definitionOf(symbol: TS.Symbol): Definition | undefined {
-    const type = this.checker.getTypeOfSymbol(symbol)
+    return this.definitionOfType(this.checker.getTypeOfSymbol(symbol))
+  }
+
+  private definitionOfType(type: TS.Type): Definition | undefined {
     const nameProperty = this.checker.getPropertyOfType(type, 'NAME')
     const signatures = type.getCallSignatures()
     if (!nameProperty || signatures.length !== 1) {
@@ -398,6 +439,29 @@ export class MessageTypeReader {
     return this.checker.getPropertyOfType(messageType, '$name')
       ? { nameProperty, messageType }
       : undefined
+  }
+
+  /**
+   * Definitions held in an exported object, such as `export const Orders = { PlaceOrder: defineCommand(...)() }`,
+   * have no export of their own to key them by, so they're warned about rather than read
+   */
+  private warnAboutGroupedDefinitions(symbol: TS.Symbol): void {
+    const type = this.checker.getTypeOfSymbol(symbol)
+    if (!(type.flags & this.ts.TypeFlags.Object)) {
+      return
+    }
+    for (const property of this.checker.getPropertiesOfType(type)) {
+      const definition = this.definitionOfType(
+        this.checker.getTypeOfSymbol(property)
+      )
+      const nameType =
+        definition && this.checker.getTypeOfSymbol(definition.nameProperty)
+      if (nameType?.isStringLiteral()) {
+        this.warnings.push(
+          `${symbol.getName()}.${property.getName()} (${this.relativePath(symbol.declarations![0].getSourceFile().fileName)}): it's a definition inside an object, so it isn't read as a message. Export it as its own const, e.g. \`export const ${property.getName()} = ...\``
+        )
+      }
+    }
   }
 
   /**

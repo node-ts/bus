@@ -35,9 +35,10 @@ describe('generateMessageTypes', () => {
     })
 
     it('should map every message and workflow state to a key for its declaration', () => {
-      expect(sut.messageCount).toEqual(11)
+      expect(sut.messageCount).toEqual(12)
       expect(sut.content).toContain(`  messages: {
     'fixture/cancel-order': '${SUPPORTED}/interface-messages#CancelOrder',
+    'fixture/default-event': '${SUPPORTED}/default-definition#default',
     'fixture/file-deleted': '${SUPPORTED}/interface-messages#FileDeleted',
     'fixture/file-uploaded': '${SUPPORTED}/interface-messages#FileUploaded',
     'fixture/order-shipped': '${SUPPORTED}/defined-messages#OrderShipped',
@@ -58,6 +59,15 @@ describe('generateMessageTypes', () => {
         shipAt: 'Date',
         to: { type: '${SUPPORTED}/address#Address' },
         parcels: { array: { type: '${SUPPORTED}/defined-messages#ShipOrder.parcels[]' } }
+      }
+    },`)
+    })
+
+    it('should read a definition that is a default export', () => {
+      expect(sut.content)
+        .toContain(`    '${SUPPORTED}/default-definition#default': {
+      fields: {
+        happenedAt: 'Date'
       }
     },`)
     })
@@ -351,7 +361,7 @@ describe('generateMessageTypes', () => {
     })
 
     it('should only include messages declared in those files', () => {
-      expect(sut.messageCount).toEqual(9)
+      expect(sut.messageCount).toEqual(10)
       expect(sut.content).not.toContain('PlaceOrder')
     })
 
@@ -394,8 +404,8 @@ describe('generateMessageTypes', () => {
       })
     })
 
-    it('should only read the message', () => {
-      expect(sut.messageCount).toEqual(1)
+    it('should only read the messages', () => {
+      expect(sut.messageCount).toEqual(2)
     })
 
     it.each([
@@ -428,6 +438,14 @@ describe('generateMessageTypes', () => {
         'SameNameAsClass (src/skipped.ts): its $name "skipped/class-message" is also used by ClassMessage (src/skipped.ts), which is read instead'
       ],
       [
+        'a definition inside an exported object',
+        "Grouped.GroupedCommand (src/skipped.ts): it's a definition inside an object, so it isn't read as a message"
+      ],
+      [
+        'a class that inherits its static NAME',
+        'InheritsName (src/skipped.ts): it inherits its static NAME, so the bus rejects it as a message with MessageNameInherited'
+      ],
+      [
         'a message re-exported from a file that is not an entry',
         "Elsewhere (src/not-entry/elsewhere.ts): it's exported from src/index.ts, but the file that declares it isn't an entry file, so it isn't read as a message. Add src/not-entry/elsewhere.ts to the entry files"
       ]
@@ -436,7 +454,7 @@ describe('generateMessageTypes', () => {
     })
 
     it('should warn about nothing else', () => {
-      expect(sut.warnings).toHaveLength(8)
+      expect(sut.warnings).toHaveLength(11)
     })
   })
 
@@ -507,6 +525,14 @@ describe('generateMessageTypes', () => {
         "DynamicDefinition (src/unsupported.ts): its $name can't be worked out without running the code. Pass a string literal to defineCommand or defineEvent"
       ],
       [
+        'a subclass whose inherited static NAME is not its $name',
+        'ChildWithOwnName (src/unsupported.ts): its static NAME "bad/parent-name", which it inherits, isn\'t its $name "bad/child-name"'
+      ],
+      [
+        'a static NAME that is not the $name',
+        'MismatchedName (src/unsupported.ts): its static NAME "bad/static-name" isn\'t its $name "bad/instance-name"'
+      ],
+      [
         'a definition with a field that cannot be restored',
         "DefinitionWithFunction.callback: functions can't be sent as JSON"
       ]
@@ -515,7 +541,7 @@ describe('generateMessageTypes', () => {
     })
 
     it('should report nothing else', () => {
-      expect(error.problems).toHaveLength(19)
+      expect(error.problems).toHaveLength(21)
     })
   })
 })

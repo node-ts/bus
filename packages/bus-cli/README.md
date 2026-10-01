@@ -94,12 +94,12 @@ Messages stay plain JSON on the wire, so nothing is added to them, and services 
 Paths and globs are relative to the current directory. These are included when they're declared and exported in an entry file, so messages and workflow state are both picked up:
 
 - non-abstract classes with a `$name`
-- messages declared with `defineCommand` or `defineEvent` from `@node-ts/bus-messages`, which are restored as plain objects
+- messages declared with `defineCommand` or `defineEvent` from `@node-ts/bus-messages`, as a named or default export, which are restored as plain objects
 - interfaces and type aliases with a string literal `$name`, such as a message from another system that's handled with `withCustomHandler`. One that only describes a message declared another way, such as `type PlaceOrder = MessageOf<typeof PlaceOrder>`, isn't read twice.
 
 Classes and types they use are included wherever they're declared in the project. Re-exports, such as an `index.ts`, don't add anything.
 
-Anything else with a `$name` is skipped with a warning that says why, so a message that would fail at startup with `MessageTypesMissing` is caught when it's generated: a class or definition that isn't exported, an abstract class with a `$name`, a class whose `$name` is never set (unless a message uses it as a field), an interface whose `$name` isn't a string literal or that is generic, an interface with the `$name` of a class or definition, and a message re-exported from a file that isn't an entry file.
+Anything else with a `$name` is skipped with a warning that says why, so a message that would fail at startup with `MessageTypesMissing` is caught when it's generated: a class or definition that isn't exported, an abstract class with a `$name`, a class whose `$name` is never set (unless a message uses it as a field), an interface whose `$name` isn't a string literal or that is generic, an interface with the `$name` of a class or definition, a definition inside an exported object, a class that inherits its static `NAME` (the bus rejects it), and a message re-exported from a file that isn't an entry file. A class whose static `NAME` isn't its `$name` fails generation, since the bus routes by `NAME`.
 
 ### Scripts
 

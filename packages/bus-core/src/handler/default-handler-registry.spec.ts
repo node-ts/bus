@@ -10,7 +10,11 @@ import {
   testEventHandler
 } from '../test'
 import { DefaultHandlerRegistry } from './default-handler-registry'
-import { HandlerAlreadyRegistered, MessageNameMissing } from './error'
+import {
+  HandlerAlreadyRegistered,
+  MessageNameInherited,
+  MessageNameMissing
+} from './error'
 import { HandlerDefinition, MessageBase } from './handler'
 
 describe('HandlerRegistry', () => {
@@ -109,6 +113,66 @@ describe('HandlerRegistry', () => {
       expect((error as MessageNameMissing).message).toContain(
         'TestCommandWithoutName has no static NAME'
       )
+    })
+  })
+
+  describe('when registering a handler for a subclass that inherits its static NAME', () => {
+    class TestParentCommand extends Command {
+      static NAME = '@node-ts/bus-core/test-parent-command'
+      $name = TestParentCommand.NAME
+      $version = 0
+    }
+
+    class TestChildCommand extends TestParentCommand {
+      $name = '@node-ts/bus-core/test-child-command'
+    }
+
+    let error: unknown
+
+    beforeEach(() => {
+      error = undefined
+      try {
+        handlerRegistry.register(TestChildCommand, genericHandler)
+      } catch (caught) {
+        error = caught
+      }
+    })
+
+    it('should throw MessageNameInherited naming the class and its parent', () => {
+      expect(error).toBeInstanceOf(MessageNameInherited)
+      expect((error as MessageNameInherited).message).toContain(
+        'TestChildCommand inherits its static NAME'
+      )
+      expect((error as MessageNameInherited).help).toContain('static NAME =')
+    })
+
+    it('should not register it under the parent name', () => {
+      expect(handlerRegistry.getMessageNames()).toEqual([])
+    })
+  })
+
+  describe('when registering a handler for an undefined message type', () => {
+    let error: unknown
+
+    beforeEach(() => {
+      error = undefined
+      try {
+        // A circular import gives undefined at runtime, though the type says otherwise
+        handlerRegistry.register(
+          undefined as unknown as typeof TestCommand,
+          genericHandler
+        )
+      } catch (caught) {
+        error = caught
+      }
+    })
+
+    it('should throw MessageNameMissing that mentions circular imports', () => {
+      expect(error).toBeInstanceOf(MessageNameMissing)
+      expect((error as MessageNameMissing).message).toContain(
+        'The message type is undefined'
+      )
+      expect((error as MessageNameMissing).help).toContain('circular import')
     })
   })
 
