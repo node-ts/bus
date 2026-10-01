@@ -1,6 +1,7 @@
 import { CoreDependencies, Logger } from '@node-ts/bus-core'
 import { Pool } from 'pg'
 import { IMock, It, Mock, Times } from 'typemoq'
+import { TestWorkflowState } from '../test'
 import { InvalidSchemaName } from './error'
 import { PostgresPersistence } from './postgres-persistence'
 
@@ -54,6 +55,59 @@ describe('PostgresPersistence', () => {
 
     it('should not query postgres', () => {
       pool.verify(p => p.query(It.isAny()), Times.never())
+    })
+  })
+
+  describe('when initializing a workflow that another process creates at the same time', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      pool = Mock.ofType<Pool>()
+      pool
+        .setup(async p => p.query(It.isAny()))
+        .returns(async () =>
+          Promise.reject(
+            Object.assign(new Error('duplicate key value'), { code: '23505' })
+          )
+        )
+      sut = new PostgresPersistence(
+        { connection: {}, schemaName: 'workflows' },
+        pool.object
+      )
+      sut.prepare(coreDependencies)
+      error = await sut
+        .initializeWorkflow(TestWorkflowState, [])
+        .catch((e: unknown) => e)
+    })
+
+    it('should treat the duplicate object as created', () => {
+      expect(error).toBeUndefined()
+    })
+  })
+
+  describe('when initializing a workflow fails for another reason', () => {
+    const queryError = Object.assign(new Error('permission denied'), {
+      code: '42501'
+    })
+    let error: unknown
+
+    beforeAll(async () => {
+      pool = Mock.ofType<Pool>()
+      pool
+        .setup(async p => p.query(It.isAny()))
+        .returns(async () => Promise.reject(queryError))
+      sut = new PostgresPersistence(
+        { connection: {}, schemaName: 'workflows' },
+        pool.object
+      )
+      sut.prepare(coreDependencies)
+      error = await sut
+        .initializeWorkflow(TestWorkflowState, [])
+        .catch((e: unknown) => e)
+    })
+
+    it('should throw the error', () => {
+      expect(error).toBe(queryError)
     })
   })
 })

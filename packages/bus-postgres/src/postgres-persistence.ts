@@ -7,6 +7,7 @@ import {
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { createHash } from 'node:crypto'
 import { escapeIdentifier, escapeLiteral, Pool } from 'pg'
 import { InvalidSchemaName, WorkflowStateNotFound } from './error'
 import { PostgresConfiguration } from './postgres-configuration'
@@ -15,6 +16,50 @@ import { PostgresConfiguration } from './postgres-configuration'
  * The name of the field that stores workflow state as JSON in the database row.
  */
 const WORKFLOW_DATA_FIELD_NAME = 'data'
+
+/**
+ * The longest identifier postgres stores (`NAMEDATALEN - 1`). Longer ones are truncated.
+ */
+const IDENTIFIER_MAX_BYTES = 63
+
+/**
+ * How many hex characters of the full name's hash a shortened index name keeps
+ */
+const INDEX_NAME_HASH_LENGTH = 12
+
+/**
+ * Postgres error codes raised when two processes create the same object at once: a unique
+ * violation on a system catalog, duplicate_table, duplicate_schema and duplicate_object (the
+ * row type of a table)
+ */
+const DUPLICATE_OBJECT_ERROR_CODES = new Set([
+  '23505',
+  '42P07',
+  '42P06',
+  '42710'
+])
+
+/**
+ * An index this persistence creates on a workflow table
+ */
+interface WorkflowIndex {
+  /**
+   * The fields the index is named after
+   */
+  nameFields: string[]
+  /**
+   * The SQL list of the columns or expressions in the index
+   */
+  keys: string
+  /**
+   * The SQL predicate of a partial index
+   */
+  predicate?: string
+  /**
+   * Each key as postgres deparses it, used to recognise an existing index
+   */
+  deparsedKeys: string[]
+}
 
 /**
  * The schema and table that store one type of workflow state
@@ -162,7 +207,7 @@ export class PostgresPersistence implements Persistence {
   private async ensureSchemaExists(schema: string): Promise<void> {
     const sql = `create schema if not exists ${escapeIdentifier(schema)};`
     this.logger.debug('Ensuring workflow schema exists', { sql })
-    await this.postgres.query(sql)
+    await this.createIfMissing(sql)
   }
 
   private async ensureTableExists(table: WorkflowTable): Promise<void> {
@@ -176,66 +221,106 @@ export class PostgresPersistence implements Persistence {
     this.logger.debug('Ensuring postgres table for workflow state exists', {
       sql
     })
-    await this.postgres.query(sql)
+    await this.createIfMissing(sql)
   }
 
   private async ensureIndexesExist(
     table: WorkflowTable,
     messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
   ): Promise<void> {
-    const createPrimaryIndex = this.createPrimaryIndex(table)
+    const primaryIndex: WorkflowIndex = {
+      nameFields: ['id', 'version'],
+      keys: 'id, version',
+      deparsedKeys: ['id', 'version']
+    }
 
-    const allWorkflowFields = messageWorkflowMappings.map(
-      mapping => mapping.mapsTo
+    const distinctWorkflowFields = new Set(
+      messageWorkflowMappings.map(mapping => mapping.mapsTo)
     )
-    const distinctWorkflowFields = new Set(allWorkflowFields)
-    const workflowFields: string[] = [...distinctWorkflowFields]
+    const secondaryIndexes = [...distinctWorkflowFields].map(
+      (workflowField): WorkflowIndex => {
+        const workflowStateField = resolveWorkflowStateField(workflowField)
+        return {
+          nameFields: [workflowField],
+          keys: `(${workflowStateField})`,
+          predicate: `(${workflowStateField}) is not null`,
+          deparsedKeys: [deparseWorkflowStateField(workflowField)]
+        }
+      }
+    )
 
-    const createSecondaryIndexes = workflowFields.map(async workflowField => {
-      const indexName = resolveIndexName(table, workflowField)
-      const workflowStateField = resolveWorkflowStateField(workflowField)
-      // Support Postgres 9.4+
-      const createSecondaryIndex = `
-        DO
-        $$
-        BEGIN
-          IF to_regclass(${resolveQualifiedIndexLiteral(table, indexName)}) IS NULL THEN
-            CREATE INDEX
-              ${escapeIdentifier(indexName)}
-            ON
-              ${table.qualifiedName} ((${workflowStateField}))
-            WHERE
-              (${workflowStateField}) is not null;
-          END IF;
-        END
-        $$;
-      `
-      this.logger.debug('Ensuring secondary index exists', {
-        createSecondaryIndex
-      })
-      await this.postgres.query(createSecondaryIndex)
-    })
-
-    await Promise.all([createPrimaryIndex, ...createSecondaryIndexes])
+    await Promise.all(
+      [primaryIndex, ...secondaryIndexes].map(async index =>
+        this.ensureIndexExists(table, index)
+      )
+    )
   }
 
-  private async createPrimaryIndex(table: WorkflowTable): Promise<void> {
-    const primaryIndexName = resolveIndexName(table, 'id', 'version')
+  private async ensureIndexExists(
+    table: WorkflowTable,
+    index: WorkflowIndex
+  ): Promise<void> {
+    const indexName = resolveIndexName(table, ...index.nameFields)
+    const legacyIndexName = resolveLegacyIndexName(table, ...index.nameFields)
+    // Earlier versions gave every index its legacy name, which postgres truncated to 63 bytes.
+    // An index with the same keys under that truncated name is reused rather than duplicated.
+    const legacyIndexCheck =
+      indexName === legacyIndexName
+        ? ''
+        : `AND NOT EXISTS (
+            SELECT 1 FROM pg_index
+            WHERE
+              indexrelid = to_regclass(${resolveQualifiedIndexLiteral(table, legacyIndexName)})
+              AND indrelid = to_regclass(${escapeLiteral(table.qualifiedName)})
+              AND indisvalid
+              AND indnatts = ${index.deparsedKeys.length}
+              ${index.deparsedKeys
+                .map(
+                  (deparsedKey, i) =>
+                    `AND pg_get_indexdef(indexrelid, ${i + 1}, false) = ${escapeLiteral(deparsedKey)}`
+                )
+                .join('\n')}
+          )`
+    const predicate = index.predicate ? `WHERE ${index.predicate}` : ''
     // Support Postgres 9.4+
-    const createPrimaryIndexSql = `
+    const sql = `
       DO
       $$
       BEGIN
-        IF to_regclass(${resolveQualifiedIndexLiteral(table, primaryIndexName)}) IS NULL THEN
-          CREATE INDEX ${escapeIdentifier(primaryIndexName)} ON ${table.qualifiedName} (id, version);
+        IF to_regclass(${resolveQualifiedIndexLiteral(table, indexName)}) IS NULL
+          ${legacyIndexCheck}
+        THEN
+          CREATE INDEX ${escapeIdentifier(indexName)}
+          ON ${table.qualifiedName} (${index.keys})
+          ${predicate};
         END IF;
       END
       $$;
     `
-    this.logger.debug('Ensuring primary index exists', {
-      createPrimaryIndexSql
-    })
-    await this.postgres.query(createPrimaryIndexSql)
+    this.logger.debug('Ensuring index exists', { sql })
+    await this.createIfMissing(sql)
+  }
+
+  /**
+   * Runs a statement that creates a database object if it's missing. Checking for the object
+   * and creating it isn't atomic, so when another process creates it at the same time, postgres
+   * fails with a duplicate error once that process commits. The object exists by then, so the
+   * error is ignored.
+   */
+  private async createIfMissing(sql: string): Promise<void> {
+    try {
+      await this.postgres.query(sql)
+    } catch (error) {
+      if (!isDuplicateObjectError(error)) {
+        throw error
+      }
+      this.logger.debug(
+        'Object was created at the same time by another process',
+        {
+          sql
+        }
+      )
+    }
   }
 
   private async upsertWorkflowState(
@@ -337,10 +422,53 @@ const toSnakeCase = (value: string): string =>
   value.replace(/([A-Z])/g, c => `_${c.toLowerCase()}`)
 
 /**
- * Resolves the unquoted name of an index from the fields contained in that index
+ * Resolves the name earlier versions gave an index. Postgres truncates it to
+ * `IDENTIFIER_MAX_BYTES` when it's longer.
  */
-const resolveIndexName = (table: WorkflowTable, ...fields: string[]): string =>
-  `${table.schemaName}_${table.tableName}_${fields.join('_')}_idx`
+const resolveLegacyIndexName = (
+  table: WorkflowTable,
+  ...fields: string[]
+): string => `${table.schemaName}_${table.tableName}_${fields.join('_')}_idx`
+
+/**
+ * Resolves the unquoted name of an index from the fields contained in that index. A name that
+ * fits in a postgres identifier is kept as it was. A longer one is truncated and ends with a hash
+ * of the full name, so indexes on different fields never truncate to the same name.
+ * @example resolveIndexName(table, 'id', 'version') => 'workflows_my_state_id_version_idx'
+ */
+const resolveIndexName = (
+  table: WorkflowTable,
+  ...fields: string[]
+): string => {
+  const legacyIndexName = resolveLegacyIndexName(table, ...fields)
+  if (Buffer.byteLength(legacyIndexName) <= IDENTIFIER_MAX_BYTES) {
+    return legacyIndexName
+  }
+  const hash = createHash('sha256')
+    .update(legacyIndexName)
+    .digest('hex')
+    .substring(0, INDEX_NAME_HASH_LENGTH)
+  const suffix = `_${hash}_idx`
+  const prefix = truncateToBytes(
+    legacyIndexName,
+    IDENTIFIER_MAX_BYTES - Buffer.byteLength(suffix)
+  )
+  return `${prefix}${suffix}`
+}
+
+/**
+ * Truncates a string to at most `maxBytes` bytes of UTF-8 without splitting a character
+ */
+const truncateToBytes = (value: string, maxBytes: number): string => {
+  let result = ''
+  for (const character of value) {
+    if (Buffer.byteLength(result + character) > maxBytes) {
+      break
+    }
+    result += character
+  }
+  return result
+}
 
 /**
  * Resolves a SQL string literal of the schema-qualified index name, as accepted by `to_regclass`
@@ -358,3 +486,18 @@ const resolveQualifiedIndexLiteral = (
  */
 const resolveWorkflowStateField = (field: string): string =>
   `${WORKFLOW_DATA_FIELD_NAME}->>${escapeLiteral(field)}`
+
+/**
+ * Resolves how postgres deparses an index key on a workflow state field, as returned by
+ * `pg_get_indexdef(index, column, false)` with `standard_conforming_strings` on
+ */
+const deparseWorkflowStateField = (field: string): string =>
+  `((${WORKFLOW_DATA_FIELD_NAME} ->> '${field.replace(/'/g, "''")}'::text))`
+
+/**
+ * Whether an error is postgres reporting that an object being created already exists
+ */
+const isDuplicateObjectError = (error: unknown): boolean => {
+  const code = (error as { code?: unknown } | undefined)?.code
+  return typeof code === 'string' && DUPLICATE_OBJECT_ERROR_CODES.has(code)
+}
