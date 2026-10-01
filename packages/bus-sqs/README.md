@@ -62,6 +62,10 @@ On startup the transport compares the service queue's `VisibilityTimeout` and `R
 
 Set `autoProvision: false` when queues and topics are provisioned elsewhere (e.g. CDK, CloudFormation or Terraform). The transport then creates nothing. On `initialize()` it checks that the service queue, the dead letter queue, each topic and each topic's subscription to the service queue exist, and throws if any are missing. It doesn't attach a queue policy or update queue attributes, so `visibilityTimeout`, `maxReceiveCount`, `messageRetentionPeriod` and `queuePolicy` have no effect.
 
+## Message attributes
+
+Message attributes are sent as SNS message attributes named `attributes.<key>`, `stickyAttributes.<key>` and `correlationId`. Strings use the `String` data type and numbers use `Number`. SNS has no boolean type, so booleans are sent as `String.boolean` with the value `true` or `false`, and are decoded back to booleans when received. Keep this in mind when writing SNS subscription filter policies or reading the messages outside the bus. `false` and `0` are kept. Empty strings are left out, because SNS rejects empty attribute values.
+
 ## Development
 
 Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
