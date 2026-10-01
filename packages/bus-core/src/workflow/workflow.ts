@@ -33,13 +33,14 @@ export type WhenHandler<
 ) => WorkflowHandler<Message, MessageAttributes, WorkflowStateType>
 
 type KeyOfType<T, U> = { [P in keyof T]: T[P] extends U ? P : never }[keyof T]
+type AnyFunction = (...args: any[]) => any
 
 export type OnWhenHandler<
   WorkflowStateType extends WorkflowState = WorkflowState,
   WorkflowType extends Workflow<WorkflowStateType> = Workflow<WorkflowStateType>
 > = {
   workflowCtor: ClassConstructor<Workflow<WorkflowState>>
-  workflowHandler: KeyOfType<WorkflowType, Function>
+  workflowHandler: KeyOfType<WorkflowType, AnyFunction>
   customLookup: MessageWorkflowMapping | undefined
 }
 
@@ -54,7 +55,7 @@ export class WorkflowMapper<
     ClassConstructor<Message>,
     {
       workflowCtor: ClassConstructor<Workflow<WorkflowState>>
-      workflowHandler: KeyOfType<WorkflowType, Function>
+      workflowHandler: KeyOfType<WorkflowType, AnyFunction>
     }
   >()
   readonly onWhen = new Map<
@@ -89,7 +90,7 @@ export class WorkflowMapper<
    */
   startedBy<MessageType extends Message>(
     message: ClassConstructor<MessageType>,
-    workflowHandler: KeyOfType<WorkflowType, Function>
+    workflowHandler: KeyOfType<WorkflowType, AnyFunction>
   ): this {
     if (this.onStartedBy.has(message)) {
       throw new WorkflowAlreadyStartedByMessage(this.workflow.name, message)
@@ -103,7 +104,7 @@ export class WorkflowMapper<
 
   when<MessageType extends Message>(
     message: ClassConstructor<MessageType>,
-    workflowHandler: KeyOfType<WorkflowType, Function>,
+    workflowHandler: KeyOfType<WorkflowType, AnyFunction>,
     customLookup?: MessageWorkflowMapping<MessageType, WorkflowStateType>
   ): this {
     if (this.onWhen.has(message)) {

@@ -1,13 +1,14 @@
-import { Mock } from 'typemoq'
+import { It, Mock, Times } from 'typemoq'
 import { ContainerAdapter } from '../container'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
 import { RetryStrategy } from '../retry-strategy'
 import { Serializer } from '../serialization'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
-import { Transport } from '../transport'
+import { InMemoryQueue, Transport } from '../transport'
 import { sleep } from '../util'
 import { Persistence } from '../workflow'
+import { TestWorkflow } from '../workflow/test'
 import { Bus } from './bus'
 import { BusConfiguration } from './bus-configuration'
 import { BusInstance } from './bus-instance'
@@ -80,6 +81,14 @@ describe('Bus', () => {
     })
   })
 
+  describe('when registering the same workflow twice', () => {
+    it('should throw', () => {
+      expect(() =>
+        Bus.configure().withWorkflow(TestWorkflow).withWorkflow(TestWorkflow)
+      ).toThrow('Attempted to register two workflows with the same name')
+    })
+  })
+
   describe('when interrupt signals are sent', () => {
     const waitForStopped = async (bus: BusInstance) => {
       while (bus.state !== BusState.Stopped) {
@@ -118,6 +127,43 @@ describe('Bus', () => {
       expect(bus.state).toBe(BusState.Stopping)
       await waitForStopped(bus)
       await bus.dispose()
+    })
+  })
+
+  describe('when the bus fails to stop on an interrupt signal', () => {
+    const logger = Mock.ofType<Logger>()
+    const stopError = new Error('Transport failed to stop')
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      const transport: Transport = new InMemoryQueue()
+      transport.stop = async () => {
+        throw stopError
+      }
+      bus = Bus.configure()
+        .withTransport(transport)
+        .withLogger(() => logger.object)
+        .build()
+      await bus.initialize()
+      await bus.start()
+      process.emit('SIGINT')
+      while (bus.state === BusState.Started) {
+        await sleep(10)
+      }
+      await sleep(50)
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should log the error', () => {
+      logger.verify(
+        l =>
+          l.error(
+            'Failed to stop bus after an interrupt signal',
+            It.isObjectWith({ signal: 'SIGINT' })
+          ),
+        Times.once()
+      )
     })
   })
 

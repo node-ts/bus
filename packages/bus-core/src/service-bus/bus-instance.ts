@@ -5,9 +5,9 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomUUID } from 'node:crypto'
 import { serializeError } from 'serialize-error'
 import throat from 'throat'
-import { v4 as generateUuid } from 'uuid'
 import { ContainerAdapter } from '../container'
 import {
   ClassHandlerNotResolved,
@@ -48,7 +48,7 @@ const EMPTY_QUEUE_SLEEP_MS = 500
 
 interface InterruptSignalListener {
   signal: NodeJS.Signals
-  listener: () => Promise<void>
+  listener: () => void
 }
 
 enum OutboxState {
@@ -428,7 +428,14 @@ export class BusInstance<TTransportMessage = {}> {
     for (let i = 0; i < this.concurrency; i++) {
       // Count the worker before it's scheduled so a stop() straight after start() waits for it
       this.runningWorkerCount++
-      setTimeout(async () => this.applicationLoop(), 0)
+      setTimeout(() => {
+        // The loop handles its own errors, so this only catches a bug in the loop itself
+        this.applicationLoop().catch(error =>
+          this.logger.error('Application loop exited unexpectedly', {
+            error: serializeError(error)
+          })
+        )
+      }, 0)
     }
 
     this.logger.info(`Bus started with concurrency ${this.concurrency}`)
@@ -712,7 +719,7 @@ export class BusInstance<TTransportMessage = {}> {
         (handlingContext
           ? handlingContext.attributes.correlationId
           : undefined) ||
-        generateUuid(),
+        randomUUID(),
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
         ...(handlingContext ? handlingContext.attributes.stickyAttributes : {}),
@@ -844,13 +851,19 @@ export class BusInstance<TTransportMessage = {}> {
 
     const startedStates = [BusState.Started, BusState.Starting]
     signals.forEach(signal => {
-      const listener = async () => {
+      const listener = () => {
         if (!startedStates.includes(this.state)) {
           // No need to stop a non-started bus
           return
         }
         this.logger.info(`Received ${signal} signal. Stopping bus...`)
-        await this.stop()
+        // Signal listeners can't be awaited, so log a failed stop instead of leaving it unhandled
+        this.stop().catch(error =>
+          this.logger.error('Failed to stop bus after an interrupt signal', {
+            signal,
+            error: serializeError(error)
+          })
+        )
       }
       process.on(signal, listener)
       this.interruptSignalListeners.push({ signal, listener })

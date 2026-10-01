@@ -154,9 +154,8 @@ describe('BusInstance Outboxing', () => {
         .withHandler(
           handlerFor(TestCommand, async () => {
             // Deliberately not awaited, so the send happens after the handler resolves
-            setTimeout(async () => {
-              await bus.publish(new TestEvent('late'))
-              lateSendCompleted()
+            setTimeout(() => {
+              void bus.publish(new TestEvent('late')).then(lateSendCompleted)
             }, 50)
           })
         )
@@ -210,9 +209,8 @@ describe('BusInstance Outboxing', () => {
         .withHandler(
           handlerFor(TestCommand, async () => {
             // Deliberately not awaited, so the send happens after the handler fails
-            setTimeout(async () => {
-              await bus.publish(new TestEvent('late'))
-              lateSendCompleted()
+            setTimeout(() => {
+              void bus.publish(new TestEvent('late')).then(lateSendCompleted)
             }, 50)
             throw new Error('Failing Handler')
           })

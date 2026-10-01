@@ -31,7 +31,7 @@ describe('Workflow Started By', () => {
   })
 
   afterAll(async () => {
-    bus.dispose()
+    await bus.dispose()
   })
 
   describe('when a workflow that discards during startedBy is executed', () => {

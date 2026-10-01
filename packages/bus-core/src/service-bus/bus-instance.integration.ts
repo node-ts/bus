@@ -90,15 +90,15 @@ describe('BusInstance', () => {
 
         await bus.start()
 
-        await new Promise(async resolve => {
+        const received = new Promise(resolve => {
           callback.reset()
           callback
             .setup(c => c())
             .callback(resolve)
             .verifiable(Times.once())
-
-          await bus.publish(event)
         })
+        await bus.publish(event)
+        await received
       })
 
       afterAll(async () => bus.stop())
@@ -121,7 +121,7 @@ describe('BusInstance', () => {
         callback.reset()
         let callCount = 0
 
-        await new Promise<void>(async resolve => {
+        const retried = new Promise<void>(resolve => {
           callback
             .setup(c => c())
             .callback(() => {
@@ -132,9 +132,9 @@ describe('BusInstance', () => {
               }
             })
             .verifiable(Times.exactly(2))
-
-          await bus.publish(event)
         })
+        await bus.publish(event)
+        await retried
 
         callback.verifyAll()
       })
@@ -356,9 +356,9 @@ describe('BusInstance', () => {
 
       queue
         .setup(q => q.readNextMessage())
-        .callback(async () => {
-          await bus.stop()
-          events.emit('event')
+        .callback(() => {
+          // The mock can't await the stop, so the test waits for 'event' instead
+          void bus.stop().then(() => events.emit('event'))
         })
         .throws(new Error())
 

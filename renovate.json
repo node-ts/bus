@@ -1,0 +1,56 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "UTC",
+  "prConcurrentLimit": 5,
+  "rangeStrategy": "update-lockfile",
+  "postUpdateOptions": ["pnpmDedupe"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first day of the month"]
+  },
+  "packageRules": [
+    {
+      "description": "Workspace packages are versioned by changesets",
+      "matchPackageNames": ["@node-ts/**"],
+      "enabled": false
+    },
+    {
+      "description": "Keep peer ranges wide so consumers aren't forced to upgrade",
+      "matchDepTypes": ["peerDependencies"],
+      "rangeStrategy": "widen"
+    },
+    {
+      "groupName": "AWS SDK",
+      "matchPackageNames": ["@aws-sdk/**"]
+    },
+    {
+      "groupName": "types",
+      "matchPackageNames": ["@types/**"]
+    },
+    {
+      "groupName": "dev tooling",
+      "matchPackageNames": [
+        "@arethetypeswrong/cli",
+        "@changesets/**",
+        "@eslint/**",
+        "@tsconfig/**",
+        "dotenv-cli",
+        "eslint",
+        "eslint-config-prettier",
+        "globals",
+        "husky",
+        "jest",
+        "lint-staged",
+        "prettier",
+        "prettier-plugin-organize-imports",
+        "publint",
+        "ts-jest",
+        "ts-node",
+        "typescript",
+        "typescript-eslint"
+      ]
+    }
+  ]
+}

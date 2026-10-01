@@ -7,8 +7,8 @@ import {
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { Collection, Db, Document, MongoClient } from 'mongodb'
+import { randomUUID } from 'node:crypto'
 import { Mock } from 'typemoq'
-import * as uuid from 'uuid'
 import { TestCommand, TestWorkflow, TestWorkflowState } from '../test'
 import { WorkflowStateNotFound } from './error'
 import { MongodbConfiguration } from './mongodb-configuration'
@@ -179,7 +179,7 @@ describe('MongodbPersistence', () => {
 
   describe('when saving new workflow state', () => {
     const workflowState = new TestWorkflowState()
-    workflowState.$workflowId = uuid.v4()
+    workflowState.$workflowId = randomUUID()
     workflowState.$status = WorkflowStatus.Running
     workflowState.$version = 0
     workflowState.eventValue = 'abc'
@@ -283,10 +283,10 @@ describe('MongodbPersistence', () => {
 
   describe('when saving workflow state with keys that repeat $ or __', () => {
     const workflowState = Object.assign(new TestWorkflowState(), {
-      $workflowId: uuid.v4(),
+      $workflowId: randomUUID(),
       $status: WorkflowStatus.Running,
       $version: 0,
-      property1: uuid.v4(),
+      property1: randomUUID(),
       $repeated$dollars: 'a',
       repeated__under__scores: 'b'
     })
@@ -323,10 +323,10 @@ describe('MongodbPersistence', () => {
       $$: 7
     }
     const workflowState = Object.assign(new TestWorkflowState(), {
-      $workflowId: uuid.v4(),
+      $workflowId: randomUUID(),
       $status: WorkflowStatus.Running,
       $version: 0,
-      property1: uuid.v4(),
+      property1: randomUUID(),
       ...trickyKeys,
       nested: { ...trickyKeys, $deeper: [{ ...trickyKeys }] }
     })

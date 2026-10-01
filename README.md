@@ -46,6 +46,7 @@ pnpm i
 - `build` - build all packages
 - `build:watch` - build all packages and watch for changes with incremental builds
 - `clean` - remove all _dist_ and _node_modules_ folders
-- `lint` - lint inspect
+- `lint` - run ESLint (typescript-eslint, type-aware) over the repo. Run `build` first, since cross-package types come from each package's `dist`
+- `format` - format with prettier (`format:check` to only check)
 - `test` - run unit and integration tests
 - `test:watch` - run tests in watch mode, rerun on changes

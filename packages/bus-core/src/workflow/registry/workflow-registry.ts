@@ -1,5 +1,5 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import * as uuid from 'uuid'
+import { randomUUID } from 'node:crypto'
 import { ContainerAdapter } from '../../container'
 import { HandlerDispatchRejected, HandlerRegistry } from '../../handler'
 import { Logger } from '../../logger'
@@ -12,6 +12,7 @@ import { Persistence } from '../persistence'
 import { PersistenceNotConfigured } from '../persistence/error'
 import { OnWhenHandler, Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
+import { WorkflowHandlerFn } from './workflow-handler-fn'
 
 /**
  * A default lookup that will match a workflow by its id with the workflowId
@@ -46,9 +47,7 @@ export class WorkflowRegistry {
     this.persistence = persistence
   }
 
-  async register(
-    workflow: ClassConstructor<Workflow<WorkflowState>>
-  ): Promise<void> {
+  register(workflow: ClassConstructor<Workflow<WorkflowState>>): void {
     if (this.isInitialized) {
       throw new Error(
         `Attempted to register workflow (${workflow.prototype.constructor.name}) after workflows have been initialized`
@@ -297,7 +296,7 @@ export class WorkflowRegistry {
     const data = new workflowStateType()
     data.$version = 0
     data.$status = WorkflowStatus.Running
-    data.$workflowId = uuid.v4()
+    data.$workflowId = randomUUID()
     this.logger.debug('Created new workflow state', {
       workflowId: data.$workflowId,
       workflowStateType
@@ -359,7 +358,10 @@ export class WorkflowRegistry {
       workflow = new workflowCtor()
     }
 
-    const handler = workflow[workflowHandler] as Function
+    const handler = workflow[workflowHandler] as unknown as WorkflowHandlerFn<
+      Message,
+      WorkflowState
+    >
 
     // Invoke the workflow handler
     const workflowStateOutput = await handler.bind(workflow)(

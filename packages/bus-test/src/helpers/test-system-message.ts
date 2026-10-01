@@ -1,7 +1,7 @@
-import * as uuid from 'uuid'
+import { randomUUID } from 'node:crypto'
 
 export class TestSystemMessage {
-  static NAME = `integration-${uuid.v4()}`
+  static NAME = `integration-${randomUUID()}`
   readonly $name = TestSystemMessage.NAME
   readonly $version: number = 0
 }

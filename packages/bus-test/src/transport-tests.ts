@@ -1,9 +1,9 @@
 import { ClassSerializer } from '@node-ts/bus-class-serializer'
 import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
-import * as uuid from 'uuid'
 import {
   HandleChecker,
   TestCommand,
@@ -99,7 +99,7 @@ export const transportTests = (
     afterAll(async () => bus.dispose())
 
     describe('when a system message is received', () => {
-      const attrValue = uuid.v4()
+      const attrValue = randomUUID()
 
       it('should handle the system message', async () => {
         const messageHandled = new Promise<void>(resolve =>
@@ -121,9 +121,9 @@ export const transportTests = (
     })
 
     describe('when sending a command', () => {
-      const testCommand = new TestCommand(uuid.v4(), new Date())
+      const testCommand = new TestCommand(randomUUID(), new Date())
       const messageOptions: MessageAttributes = {
-        correlationId: uuid.v4(),
+        correlationId: randomUUID(),
         attributes: {
           attribute1: 'a',
           attribute2: 1
@@ -174,7 +174,7 @@ export const transportTests = (
     describe('when publishing an event', () => {
       const testEvent = new TestEvent()
       const messageOptions: MessageAttributes = {
-        correlationId: uuid.v4(),
+        correlationId: randomUUID(),
         attributes: {
           foo: 'bar'
         },
@@ -199,7 +199,7 @@ export const transportTests = (
     })
 
     describe('when handing a poisoned message', () => {
-      const poisonedMessage = new TestPoisonedMessage(uuid.v4())
+      const poisonedMessage = new TestPoisonedMessage(randomUUID())
       let deadMessages: { message: Message; attributes: MessageAttributes }[]
 
       beforeAll(async () => {
@@ -224,8 +224,8 @@ export const transportTests = (
     })
 
     describe('when failing a message', () => {
-      const messageToFail = new TestFailMessage(uuid.v4())
-      const correlationId = uuid.v4()
+      const messageToFail = new TestFailMessage(randomUUID())
+      const correlationId = randomUUID()
       let deadLetterQueueMessages: {
         message: Message
         attributes: MessageAttributes

@@ -1,5 +1,5 @@
 import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
-import * as uuid from 'uuid'
+import { randomUUID } from 'node:crypto'
 import { Bus, BusInstance } from '../service-bus'
 import { sleep } from '../util'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
@@ -125,7 +125,7 @@ class AssignmentWorkflow extends Workflow<AssignmentWorkflowState> {
   async sendCreateAssignment(
     message: AssignmentAssigned
   ): Promise<Partial<AssignmentWorkflowState>> {
-    const bundleId = uuid.v4()
+    const bundleId = randomUUID()
     const createAssignmentBundle = new CreateAssignmentBundle(
       message.assignmentId,
       bundleId
@@ -216,7 +216,7 @@ describe('Workflow', () => {
     describe('and then a message for the next step is received', () => {
       const assignmentAssigned = new AssignmentAssigned(
         event.assignmentId,
-        uuid.v4()
+        randomUUID()
       )
       let startedWorkflowState: AssignmentWorkflowState[]
 

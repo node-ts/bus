@@ -45,8 +45,11 @@ jobs:
           name: Check packages
           command: pnpm run check:packages
       - run:
-          name: Lint
+          name: Format
           command: pnpm run format:check
+      - run:
+          name: Lint
+          command: pnpm run lint
       - run:
           name: Unit Test
           command: pnpm run test:unit --maxConcurrency=1 # CircleCI runs out of mem

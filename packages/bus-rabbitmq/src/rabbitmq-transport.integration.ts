@@ -20,8 +20,8 @@ import {
 } from '@node-ts/bus-test'
 import { Channel, ChannelModel, connect, ConsumeMessage } from 'amqplib'
 import { EventEmitter } from 'events'
+import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
-import * as uuid from 'uuid'
 import { RabbitMqConnectionRecoveryFailed } from './error'
 import { RabbitMqTransport } from './rabbitmq-transport'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
@@ -42,7 +42,7 @@ const configuration: RabbitMqTransportConfiguration = {
 describe('RabbitMqTransport', () => {
   jest.setTimeout(10000)
 
-  let rabbitMqTransport = new RabbitMqTransport(configuration)
+  const rabbitMqTransport = new RabbitMqTransport(configuration)
   let connection: ChannelModel
   let channel: Channel
   const messageSerializer = new MessageSerializer(
@@ -59,7 +59,7 @@ describe('RabbitMqTransport', () => {
       '',
       Buffer.from(JSON.stringify(message)),
       {
-        messageId: uuid.v4(),
+        messageId: randomUUID(),
         headers: {
           attributes: JSON.stringify(attributes)
         }
@@ -69,20 +69,23 @@ describe('RabbitMqTransport', () => {
 
   const readAllFromDeadLetterQueue = async () => {
     // Wait for message to arrive to give the handler time to fail it
-    const rabbitMessage = await new Promise<ConsumeMessage>(async resolve => {
-      const consumerTag = uuid.v4()
-      channel.consume(
-        configuration.deadLetterQueueName!,
-        message => {
-          channel.ack(message!)
-          channel.cancel(consumerTag)
-          resolve(message!)
-        },
-        {
-          consumerTag
-        }
-      )
-    })
+    const rabbitMessage = await new Promise<ConsumeMessage>(
+      (resolve, reject) => {
+        const consumerTag = randomUUID()
+        channel
+          .consume(
+            configuration.deadLetterQueueName!,
+            message => {
+              channel.ack(message!)
+              channel.cancel(consumerTag).then(() => resolve(message!), reject)
+            },
+            {
+              consumerTag
+            }
+          )
+          .catch(reject)
+      }
+    )
     await channel.purgeQueue(configuration.deadLetterQueueName!)
 
     const payload = rabbitMessage.content.toString('utf8')
@@ -206,7 +209,7 @@ describe('RabbitMqTransport', () => {
     describe('when the channel is closed by the broker', () => {
       beforeAll(async () => {
         // Checking a queue that doesn't exist makes the broker close the channel
-        await sut['channel']!.checkQueue(uuid.v4()).catch(() => undefined)
+        await sut['channel']!.checkQueue(randomUUID()).catch(() => undefined)
         await sendAndWaitForHandling('after-channel-closed')
       })
 
@@ -340,14 +343,15 @@ describe('RabbitMqTransport', () => {
 
     const readFromDeadLetterQueue = async () => {
       const deadLetterChannel = await connection.createChannel()
-      const rabbitMessage = await new Promise<ConsumeMessage>(resolve =>
-        deadLetterChannel.consume(
-          retryConfiguration.deadLetterQueueName!,
-          message => {
-            deadLetterChannel.ack(message!)
-            resolve(message!)
-          }
-        )
+      const rabbitMessage = await new Promise<ConsumeMessage>(
+        (resolve, reject) => {
+          deadLetterChannel
+            .consume(retryConfiguration.deadLetterQueueName!, message => {
+              deadLetterChannel.ack(message!)
+              resolve(message!)
+            })
+            .catch(reject)
+        }
       )
       await deadLetterChannel.close()
       return JSON.parse(rabbitMessage.content.toString()) as TestRetryCommand

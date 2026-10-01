@@ -33,7 +33,7 @@ class TestFinalTaskHandler implements Handler<FinalTask> {
 
 describe('WorkflowRegistry', () => {
   let sut: WorkflowRegistry
-  let persistence = Mock.ofType(InMemoryPersistence)
+  const persistence = Mock.ofType(InMemoryPersistence)
 
   describe('when initializing', () => {
     beforeEach(() => {

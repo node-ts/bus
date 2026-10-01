@@ -23,7 +23,7 @@ class MessageLifecycleContext {
    * @returns The lifecycle context, or `undefined` outside of a message lifecycle context
    */
   get(): Context {
-    return this.storage.getStore()?.message!
+    return this.storage.getStore()?.message as Context
   }
 
   /**
