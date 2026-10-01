@@ -1,9 +1,4 @@
-// class-transformer's @Type reads reflect metadata when the class is defined,
-// so load the polyfill here rather than relying on the consumer to do it first
-import 'reflect-metadata'
-
 import { WorkflowState } from '@node-ts/bus-core'
-import { Type } from 'class-transformer'
 import { TestCustomer } from './test-customer'
 
 /**
@@ -16,12 +11,9 @@ export class TestRoundTripWorkflowState extends WorkflowState {
 
   orderId: string
 
-  @Type(() => Date)
   startedAt: Date
 
-  @Type(() => TestCustomer)
   customer: TestCustomer
 
-  @Type(() => Date)
   checkpoints: Date[]
 }

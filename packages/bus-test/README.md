@@ -58,7 +58,20 @@ describe('MyTransport', () => {
 
 Your transport has to retry a returned message at least 10 times before it dead-letters it, because the suite waits for 10 delivery attempts.
 
-The suite's bus uses `ClassSerializer` from [@node-ts/bus-class-serializer](https://www.npmjs.com/package/@node-ts/bus-class-serializer), and checks that a command arrives as an instance of its class with a nested `Date` restored. Serialize and deserialize message bodies with `coreDependencies.messageSerializer` rather than calling `JSON.stringify`/`JSON.parse` on them yourself.
+The suite's bus restores message types with the generated message types of its own fixtures (`withMessageTypes()`, see [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli)). It sends messages with Dates, class instances several levels deep, arrays, Maps, Sets, bigints, optional and null fields, and checks they arrive with their types restored and their attributes and sticky attributes intact. Serialize and deserialize message bodies with `coreDependencies.messageSerializer` rather than calling `JSON.stringify`/`JSON.parse` on them yourself.
+
+### Other suites
+
+- **`messageRoundTripTests(transport)`** runs only the round trip cases above, for a transport that can't run the full suite.
+- **`workflowStateRoundTripTests(persistence)`** starts a workflow whose state has Dates and nested class instances, and checks the next handler reads the state back with its types restored. Run it from a persistence adapter's integration test with a persistence instance of its own, since the suite disposes it.
+
+```ts
+import { workflowStateRoundTripTests } from '@node-ts/bus-test'
+
+describe('MyPersistence', () => {
+  workflowStateRoundTripTests(new MyPersistence(configuration))
+})
+```
 
 For complete examples, see the implementations in this repository:
 

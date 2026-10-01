@@ -82,6 +82,7 @@ export const createTestRoundTripCommand = (): TestRoundTripCommand => {
 export class RoundTripReceiver {
   readonly events = new EventEmitter()
   roundTripCommand: Received<TestRoundTripCommand> | undefined
+  bigIntCommand: TestBigIntCommand | undefined
 
   /**
    * Registers the handlers that `messageRoundTripCases` needs with the bus under test
@@ -96,7 +97,12 @@ export class RoundTripReceiver {
           this.events.emit('received')
         })
       )
-      .withHandler(handlerFor(TestBigIntCommand, () => undefined))
+      .withHandler(
+        handlerFor(TestBigIntCommand, message => {
+          this.bigIntCommand = message
+          this.events.emit('received-big-int')
+        })
+      )
   }
 }
 
@@ -222,16 +228,17 @@ export const messageRoundTripCases = (
       expect(message.referrer).toBeNull()
     })
 
-    // class-transformer constructs the message with no arguments, so field initializers fill in fields
-    // that are missing from the payload. Constructors that use their arguments throw instead.
-    it('should apply field initializers to fields missing from the payload', () => {
-      expect(message.channel).toEqual('web')
+    // Messages are created from their class' prototype without running the constructor, so field
+    // initializers don't fill in fields that are missing from the payload. Under class-transformer the
+    // constructor ran with no arguments, which set them, and threw for constructors that use their arguments.
+    it('should not run field initializers for fields missing from the payload', () => {
+      expect(message.channel).toBeUndefined()
     })
 
-    // Bug: class-transformer silently leaves a Date without `@Type(() => Date)` as its JSON string
-    it('should leave a Date without a type hint as a string', () => {
-      expect(typeof message.untypedDate).toEqual('string')
-      expect(message.untypedDate).toEqual(sent.untypedDate.toISOString())
+    // class-transformer silently left this Date as a string because it had no `@Type(() => Date)`
+    it('should restore a Date that had no type hint', () => {
+      expect(message.untypedDate).toBeInstanceOf(Date)
+      expect(message.untypedDate.getTime()).toEqual(sent.untypedDate.getTime())
     })
 
     it('should keep the message attributes', () => {
@@ -248,21 +255,21 @@ export const messageRoundTripCases = (
       id: randomUUID(),
       amount: 2n ** 64n
     })
-    let sendError: unknown
+    let message: TestBigIntCommand
 
     beforeAll(async () => {
-      sendError = await getBus()
-        .send(sent)
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        )
+      const received = new Promise(resolve =>
+        receiver.events.once('received-big-int', resolve)
+      )
+      await getBus().send(sent)
+      await received
+      message = receiver.bigIntCommand!
     })
 
-    // Bug: JSON.stringify can't serialize a bigint, so the message can't be sent
-    it('should fail to send', () => {
-      expect(sendError).toBeInstanceOf(TypeError)
-      expect((sendError as TypeError).message).toMatch(/BigInt/)
+    // JSON.stringify couldn't serialize a bigint, so under class-transformer the send failed
+    it('should restore the bigint', () => {
+      expect(message).toBeInstanceOf(TestBigIntCommand)
+      expect(message.amount).toEqual(2n ** 64n)
     })
   })
 }

@@ -45,6 +45,9 @@ jobs:
           name: Check packages
           command: pnpm run check:packages
       - run:
+          name: Check generated message types
+          command: pnpm run check:message-types
+      - run:
           name: Format
           command: pnpm run format:check
       - run:

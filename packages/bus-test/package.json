@@ -35,7 +35,9 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc",
-    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput",
+    "generate:message-types": "bus generate-message-types --entry 'src/helpers/**/*.ts' --exclude src/helpers/test-system-message.ts --out src/message-types.generated.ts",
+    "check:message-types": "bus generate-message-types --entry 'src/helpers/**/*.ts' --exclude src/helpers/test-system-message.ts --out src/message-types.generated.ts --check"
   },
   "publishConfig": {
     "access": "public"
@@ -44,14 +46,12 @@
     "url": "https://github.com/node-ts/bus/issues"
   },
   "dependencies": {
-    "@node-ts/bus-class-serializer": "workspace:^",
     "@node-ts/bus-messages": "workspace:^",
-    "class-transformer": "^0.5.1",
-    "reflect-metadata": "^0.2.2",
     "tslib": "^2.8.1",
     "typemoq": "^2.1.0"
   },
   "devDependencies": {
+    "@node-ts/bus-cli": "workspace:^",
     "@node-ts/bus-core": "workspace:^",
     "@node-ts/code-standards": "^0.0.10",
     "@types/jest": "^30.0.0",

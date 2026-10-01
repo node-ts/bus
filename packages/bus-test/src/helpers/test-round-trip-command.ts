@@ -1,9 +1,4 @@
-// class-transformer's @Type reads reflect metadata when the class is defined,
-// so load the polyfill here rather than relying on the consumer to do it first
-import 'reflect-metadata'
-
 import { Command } from '@node-ts/bus-messages'
-import { Type } from 'class-transformer'
 import { TestAddress } from './test-address'
 import { TestCustomer } from './test-customer'
 import { TestOrderLine } from './test-order-line'
@@ -19,39 +14,28 @@ export class TestRoundTripCommand extends Command {
 
   id: string
 
-  @Type(() => Date)
   placedAt: Date
 
-  @Type(() => TestCustomer)
   customer: TestCustomer
 
-  @Type(() => TestOrderLine)
   lines: TestOrderLine[]
 
-  @Type(() => Date)
   reminders: Date[]
 
-  @Type(() => TestOrderLine)
   linesBySku: Map<string, TestOrderLine>
 
-  @Type(() => String)
   tags: Set<string>
 
   note?: string
 
-  @Type(() => Date)
   shippedAt?: Date
 
-  @Type(() => Date)
   deliveredAt?: Date
 
-  @Type(() => TestAddress)
   billingAddress?: TestAddress
 
-  @Type(() => Date)
   cancelledAt: Date | null
 
-  @Type(() => TestCustomer)
   referrer: TestCustomer | null
 
   /**
@@ -60,7 +44,7 @@ export class TestRoundTripCommand extends Command {
   channel: string = 'web'
 
   /**
-   * Deliberately missing its `@Type` decorator
+   * The only Date that had no `@Type` decorator under class-transformer
    */
   untypedDate: Date
 

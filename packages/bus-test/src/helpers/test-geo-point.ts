@@ -1,5 +1,3 @@
-import { Type } from 'class-transformer'
-
 /**
  * The deepest class in `TestRoundTripCommand`: command → customer → address → geo point
  */
@@ -7,7 +5,6 @@ export class TestGeoPoint {
   latitude: number
   longitude: number
 
-  @Type(() => Date)
   surveyedAt: Date
 
   get coordinates(): string {
