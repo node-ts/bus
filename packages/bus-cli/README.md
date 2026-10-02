@@ -1,8 +1,8 @@
 # @node-ts/bus-cli
 
-Command line tools for [@node-ts/bus](https://bus.node-ts.com). Its first command, `bus generate-message-types`, lets the bus restore Dates, Maps, Sets, bigints and class instances at any depth of your messages, with no decorators, `reflect-metadata` or runtime schema.
+Command line tools for [@node-ts/bus](https://node-ts.github.io/bus). Its first command, `bus generate-message-types`, lets the bus restore Dates, Maps, Sets, bigints and class instances at any depth of your messages, with no decorators, `reflect-metadata` or runtime schema.
 
-🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
+🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
 
 🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 

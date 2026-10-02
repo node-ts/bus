@@ -1,6 +1,7 @@
 {
   "name": "@node-ts/bus-sqs",
   "description": "An AWS SQS transport adapter for @node-ts/bus-core.",
+  "homepage": "https://node-ts.github.io/bus/",
   "version": "1.1.5",
   "license": "MIT",
   "engines": {

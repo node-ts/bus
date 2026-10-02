@@ -2,7 +2,7 @@
 
 The core messaging framework. This package provides an in-memory queue and persistence by default, but is designed to be used with other @node-ts/bus-\* packages that provide compatibility with other transports (SQS, RabbitMQ, Azure Queues) and persistence technologies (PostgreSQL, SQL Server, Oracle).
 
-🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
+🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
 
 🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 
@@ -131,4 +131,4 @@ A bus that receives messages checks at `initialize()` that it has message types 
 
 See the [messages guide](https://github.com/node-ts/bus/tree/master/packages/bus-messages#messages) for the plain-data alternative and the known limits.
 
-For more information, visit our docs at [https://bus.node-ts.com](https://bus.node-ts.com)
+For more information, visit our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus)

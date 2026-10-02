@@ -10,7 +10,7 @@ Requires Node.js 24 or later.
 
 ## Further info
 
-🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
+🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
 
 🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 
@@ -26,7 +26,7 @@ Requires Node.js 24 or later.
 
 ## Development
 
-This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://bus.node-ts.com](https://bus.node-ts.com).
+This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus).
 
 The [design principles](./CONTRIBUTING.md#design-principles) that every API follows, and changesets, releases and the versioning policy, are covered in [CONTRIBUTING.md](./CONTRIBUTING.md). Upgrading from 1.x is covered in [MIGRATING.md](./MIGRATING.md).
 

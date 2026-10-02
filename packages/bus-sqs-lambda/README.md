@@ -1,10 +1,10 @@
 # @node-ts/bus-sqs-lambda
 
-An Amazon SQS and Lambda receiver for [@node-ts/bus](https://bus.node-ts.com).
+An Amazon SQS and Lambda receiver for [@node-ts/bus](https://node-ts.github.io/bus).
 
 This package allows the host application to receive SQS messages via a Lambda handler directly, rather than subscribing to the SQS transport.
 
-🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
+🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
 
 🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 

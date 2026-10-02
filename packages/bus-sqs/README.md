@@ -1,8 +1,8 @@
 # @node-ts/bus-sqs
 
-An Amazon SQS transport adapter for [@node-ts/bus](https://bus.node-ts.com)
+An Amazon SQS transport adapter for [@node-ts/bus](https://node-ts.github.io/bus)
 
-🔥 View our docs at [https://bus.node-ts.com](https://bus.node-ts.com) 🔥
+🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
 
 🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
 

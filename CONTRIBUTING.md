@@ -45,11 +45,11 @@ Write the summary for someone upgrading: what changed, what they need to do, and
 
 ## Docs
 
-The consumer docs at [bus.node-ts.com](https://bus.node-ts.com) are built from [`docs/`](./docs) with VitePress. **Docs ship with features: every PR that changes what users see adds or updates its page in the same PR.** A breaking change also updates [MIGRATING.md](./MIGRATING.md), which the site renders at `/upgrading/v2`.
+The consumer docs at [node-ts.github.io/bus](https://node-ts.github.io/bus) are built from [`docs/`](./docs) with VitePress. **Docs ship with features: every PR that changes what users see adds or updates its page in the same PR.** A breaking change also updates [MIGRATING.md](./MIGRATING.md), which the site renders at `/upgrading/v2`.
 
 ```sh
 pnpm build            # the snippets and API reference are built from the packages
-pnpm docs:dev         # preview at http://localhost:5173
+pnpm docs:dev         # preview at http://localhost:5173/bus/
 pnpm docs:typecheck   # type check the snippets
 pnpm docs:build       # fails on a dead internal link or an unresolved {@link}
 pnpm docs:check-redirects
@@ -58,46 +58,45 @@ pnpm docs:check-redirects
 - Every page follows the template in [docs/README.md](./docs/README.md): frontmatter with a `title` and `description`, a one-paragraph intro, the content, and a "See also" section. Use only the components listed there. A new page goes in the section of the sidebar it belongs to, in `docs/.vitepress/config.mts`.
 - Every TypeScript snippet is a file in `docs/snippets`, embedded with `<<< @/snippets/file.ts#region`, so that it's type checked against the packages. Don't write TypeScript inline in a page.
 - The API reference (`/api/`) is generated from the packages' JSDoc at build time. A `{@link}` that doesn't resolve fails the build; missing JSDoc is only a warning.
-- Old URLs keep working through `docs/public/_redirects`. When you move or remove a page, add a 301 from its old path.
+- GitHub Pages can't send redirects, so old URLs keep working through stub pages: the build writes one at each old path in `docs/redirects.json`, which sends the browser on to the new page. When you move or remove a page, add its old path there. Paths with no page and no stub get the 404 page, which links home.
+
+CircleCI's `docs` job runs the type check, the build and the redirect check on every branch, including pull requests.
 
 ### Deploying
 
-The site is hosted on Cloudflare Pages, and CircleCI uploads it with `wrangler pages deploy` ([.circleci/deploy-docs.sh](./.circleci/deploy-docs.sh)):
+[`.github/workflows/docs.yml`](./.github/workflows/docs.yml) builds the site and deploys it to GitHub Pages with the workflow's own `GITHUB_TOKEN`, so there are no secrets to set up. It runs:
 
-- Every push to `master` deploys to the `next` alias, `https://next.<project>.pages.dev`.
-- Production deploys from the `deploy` job when `changeset publish` has published at least one package, so the site matches the latest release.
-- For a docs-only fix, trigger a pipeline on `master` with the `deploy-docs` parameter set to `true` (in CircleCI, **Trigger Pipeline**, then add the boolean parameter). This also re-deploys production if its step failed after a publish, since a re-run finds nothing new to publish.
+- **On every GitHub Release**, so the site follows what's on npm. CircleCI's `deploy` job creates the releases with the `GITHUB_TOKEN` personal access token (see [CircleCI environment variables](#circleci-environment-variables)), and releases created with a personal access token trigger workflows. A release of several packages creates several releases; their runs queue, and the last one wins.
+- **By hand, for a docs-only fix:** on GitHub, **Actions → Docs → Run workflow**, with **Use workflow from** set to `master`.
 
-PRs aren't deployed; build them locally with `pnpm docs:build` and `pnpm docs:preview`.
+To roll back, run the workflow by hand with **Use workflow from** set to the tag of an earlier release, such as `@node-ts/bus-core@2.0.0`.
 
-Set these in the CircleCI project settings (Project Settings → Environment Variables). The deploy steps fail, saying which is missing, until they're set:
-
-- `CLOUDFLARE_API_TOKEN`: a Cloudflare API token with only the **Account → Cloudflare Pages → Edit** permission, for the account that has the Pages project.
-- `CLOUDFLARE_ACCOUNT_ID`: that account's id.
-- `CLOUDFLARE_PAGES_PROJECT` (optional): the Pages project's name, if it isn't `node-ts-bus`.
-- `CLOUDFLARE_WEB_ANALYTICS_TOKEN` (optional): the site token of a Cloudflare Web Analytics site, which the build adds as the cookieless analytics beacon. Leave it unset if Web Analytics is turned on in the Pages project's settings instead, which adds the beacon itself.
-
-### Setting up hosting (maintainers)
+### Setting up GitHub Pages (maintainers)
 
 Done once:
 
-1. Create the Pages project as a direct upload project, with `production` as its production branch: `npx wrangler pages project create node-ts-bus --production-branch production`, or in the dashboard under **Workers & Pages → Create → Pages → Upload assets**.
-2. Create the API token and add the environment variables above.
-3. Turn on Web Analytics, either in the Pages project (**Metrics → Web Analytics**) or as a site under **Analytics & Logs → Web Analytics** with its token in `CLOUDFLARE_WEB_ANALYTICS_TOKEN`.
-4. Trigger a pipeline on `master` with `deploy-docs` set, and check the site at `https://node-ts-bus.pages.dev`, including a few old URLs such as `/installing/installation` and `/guide/transports/rabbitmq`.
+1. In the repository, **Settings → Pages → Build and deployment → Source**: choose **GitHub Actions**. This creates the `github-pages` environment.
+2. **Settings → Environments → github-pages → Deployment branches and tags**: keep `master`, and click **Add deployment branch or tag rule**, with **Ref type** `Tag` and **Name pattern** `@node-ts/*`. Without it, the runs that releases trigger can't deploy, since they run on the release's tag.
+3. Run the workflow by hand (above), and check the site at `https://node-ts.github.io/bus/`, including a few old URLs such as `https://node-ts.github.io/bus/installing/installation` and `https://node-ts.github.io/bus/guide/transports/rabbitmq`.
 
-### Switching bus.node-ts.com to Cloudflare Pages (maintainers)
+### Moving bus.node-ts.com to the new site (maintainers)
 
-`bus.node-ts.com` is a CNAME to `hosting.gitbook.io` in the `node-ts.com` Cloudflare zone.
+`bus.node-ts.com` is a CNAME to `hosting.gitbook.io` in the `node-ts.com` Cloudflare zone. Until the domain lapses on 2027-10-27, a Cloudflare redirect rule sends every old URL to the same path on the new site, where the redirect stubs send it on to its page: `bus.node-ts.com/installing/installation` → `node-ts.github.io/bus/installing/installation` → `node-ts.github.io/bus/getting-started/installation`.
 
-1. Check the `pages.dev` deploy, as above.
-2. In GitBook, remove the custom domain from the space, so that it's served at `https://node-ts.gitbook.io/bus`.
-3. In the Pages project, add `bus.node-ts.com` under **Custom domains**. Cloudflare replaces the CNAME with one to the project.
-4. Check that `https://bus.node-ts.com` serves the new site over HTTPS, and that the old URLs redirect (`pnpm docs:check-redirects` checks the build, not the live site).
-5. Submit `https://bus.node-ts.com/sitemap.xml` in Google Search Console.
-6. Freeze the GitBook space: leave it published at `https://node-ts.gitbook.io/bus` as the unmaintained 1.x docs, which `/upgrading/v2` links to, and stop editing it.
+1. Set up GitHub Pages (above).
+2. In the Cloudflare dashboard, open the `node-ts.com` zone, then **DNS → Records**. Delete the `bus` CNAME and **Add record**: **Type** `AAAA`, **Name** `bus`, **IPv6 address** `100::`, **Proxy status** Proxied. A redirect rule only runs on proxied records, and the address is a placeholder, since every request is redirected.
+3. Still in the zone, **Rules → Redirect Rules → Create rule**:
+   - **Rule name**: `bus.node-ts.com to GitHub Pages`
+   - **If incoming requests match**: Custom filter expression, **Field** `Hostname`, **Operator** `equals`, **Value** `bus.node-ts.com`
+   - **Then**: **Type** `Dynamic`, **Expression** `concat("https://node-ts.github.io/bus", http.request.uri.path)`, **Status code** `301`, **Preserve query string** on
+   - **Deploy**
+4. Check that `https://bus.node-ts.com/installing/installation` ends on `https://node-ts.github.io/bus/getting-started/installation`, and `https://bus.node-ts.com/` on the home page.
+5. In GitBook, remove the custom domain from the space, so it's served at `https://node-ts.gitbook.io/bus`. Then freeze the space: leave it published as the unmaintained 1.x docs, which `/upgrading/v2` links to, and stop editing it.
+6. In Google Search Console, **Add property → URL prefix** `https://node-ts.github.io/bus/`. The legacy site's verification file is still deployed (`docs/public/google54b7168c649f74a6.html`), so the HTML file method should verify it. Then **Sitemaps → Add a new sitemap** `https://node-ts.github.io/bus/sitemap.xml`.
 
-**Rolling back:** remove the custom domain from the Pages project, point the `bus` CNAME back to `hosting.gitbook.io` in the `node-ts.com` zone, and add the custom domain to the GitBook space again.
+**Rolling back:** delete the redirect rule, put the `bus` record back as a CNAME to `hosting.gitbook.io` with **Proxy status** DNS only, and add `bus.node-ts.com` as the custom domain of the GitBook space again.
+
+When the domain lapses, the redirect stops, and links to bus.node-ts.com stop working. Everything in this repository links to node-ts.github.io/bus.
 
 ## Releases (maintainers)
 
