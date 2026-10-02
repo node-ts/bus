@@ -22,6 +22,9 @@ class OrderState extends WorkflowState {
   placedAt: Date
   customer: { name: string }
   lines: { sku: string }[]
+  meta: unknown
+  settings: Record<string, unknown>
+  payload: object
 }
 
 const OrderPlaced = defineCommand(
@@ -85,6 +88,17 @@ describe('defineWorkflow', () => {
       // Nothing returned, and the functions of the context
       workflow.startedBy(OrderPlaced, () => undefined)
       workflow.startedBy(OrderPlaced, async () => {})
+
+      // Fields typed unknown, object or Record<string, unknown> take any nested object
+      workflow.startedBy(OrderPlaced, () => ({
+        meta: { anything: 1 },
+        settings: { a: { b: 1 } },
+        payload: { x: { y: 1 } }
+      }))
+
+      // Nothing is known about what an any returns, so it isn't checked
+      workflow.startedBy(OrderPlaced, () => JSON.parse('{}'))
+      workflow.startedBy(OrderPlaced, async (): Promise<any> => ({}))
       workflow.when(OrderPlaced, (_m, _s, ctx) => ctx.complete({ total: 1 }))
       workflow.when(OrderPlaced, (_m, _s, ctx) => ctx.discard())
 
