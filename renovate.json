@@ -6,6 +6,10 @@
   "prConcurrentLimit": 5,
   "rangeStrategy": "update-lockfile",
   "postUpdateOptions": ["pnpmDedupe"],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": ["at any time"]
+  },
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 6am on the first day of the month"]

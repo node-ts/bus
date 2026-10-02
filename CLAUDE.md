@@ -89,6 +89,8 @@ Apply these to every API and change; the full text, with what each rules out, is
 5. Handlers are testable as plain functions with a fake context, without a bus or mocking framework.
 6. Errors name the class or message involved and the fix.
 
+**Clean room:** implement from public pattern literature and observed behaviour only. Never port, translate or copy code, docs or samples from another messaging framework, and never read NServiceBus source (RPL 1.5 plus a commercial licence). See [CONTRIBUTING.md](./CONTRIBUTING.md#clean-room-contributions).
+
 ### Source
 
 - File names are kebab-case and match the PascalCase export, with one main class or interface per file (`serialization/json-serializer.ts` → `JsonSerializer`). Each feature folder has an `index.ts` made only of `export * from './x'`. Only export from the package root `src/index.ts` what consumers need. Internal pieces such as `WorkflowRegistry`, `message-lifecycle-context` and `test/` fixtures stay unexported.
