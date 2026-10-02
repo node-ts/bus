@@ -1,6 +1,93 @@
 # Contributing
 
-Setup, scripts and local infrastructure are covered in the [README](./README.md#development) and [CLAUDE.md](./CLAUDE.md). This file covers the design principles, changesets and releases.
+Thanks for helping with `@node-ts/bus`. This file covers setting up the repo, proposing a change, the rules every contribution follows, and how releases work. [CLAUDE.md](./CLAUDE.md) has the detailed code conventions and architecture notes, for people and coding agents alike.
+
+- **Questions and ideas** go in [Discussions](https://github.com/node-ts/bus/discussions). Anyone can answer there, but no one is committed to replying.
+- **Bugs and feature requests** go in [issues](https://github.com/node-ts/bus/issues/new/choose), using the forms.
+- **Security vulnerabilities** are reported privately, as described in [SECURITY.md](./SECURITY.md). Never put them in a public issue.
+- Everyone taking part follows the [code of conduct](./CODE_OF_CONDUCT.md).
+
+## Getting started
+
+You need:
+
+- Node.js 24.11.1, the version in `.nvmrc` (`nvm use`).
+- pnpm 12.4.1, the version in `packageManager`. `corepack enable` installs it. npm and yarn are rejected by the `preinstall` script.
+- Docker with Compose, for the integration tests.
+
+```sh
+git clone https://github.com/node-ts/bus.git
+cd bus
+pnpm i
+pnpm build
+pnpm test:unit
+```
+
+Every package's `main` is its built `dist/index.js`, so packages import each other's build output, not their source. After changing a package that others use (usually bus-core), run `pnpm build` again, or keep `pnpm build:watch` running.
+
+| Script                     | What it does                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| `pnpm build`               | Compiles every package to its `dist/`                                                       |
+| `pnpm build:watch`         | Rebuilds on change                                                                          |
+| `pnpm test:unit`           | Runs the `*.spec.ts` unit tests                                                             |
+| `pnpm test:integration`    | Runs every `*.integration.ts` against the local infrastructure (see below)                  |
+| `pnpm test`                | Runs both, with coverage                                                                    |
+| `pnpm lint`                | Runs ESLint with type information (build first, since cross-package types come from `dist`) |
+| `pnpm format`              | Formats with prettier. CI runs `pnpm format:check`                                          |
+| `pnpm check:packages`      | After a build, packs each package and checks its exports with publint and attw              |
+| `pnpm check:message-types` | After a build, fails if a committed `message-types.generated.ts` is out of date             |
+
+To run a single file or test, go through `dotenv` so `test.env` is loaded:
+
+```sh
+pnpm exec dotenv -e test.env -- jest packages/bus-core/src/service-bus/bus-instance.integration.ts
+pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts -t "some test name"
+```
+
+pnpm fails the install when a dependency has a build script that `allowBuilds` in `pnpm-workspace.yaml` neither approves nor denies. If you add such a dependency, add it there.
+
+## Local infrastructure
+
+The adapter integration tests need real brokers and databases. `docker-compose.yml` at the root starts them all:
+
+```sh
+docker compose up -d     # start
+pnpm test:integration
+docker compose down      # stop
+```
+
+| Service    | Image                     | Port                       | Used by                 |
+| ---------- | ------------------------- | -------------------------- | ----------------------- |
+| RabbitMQ   | `rabbitmq:3-management`   | 5672 (management UI 15672) | bus-rabbitmq            |
+| LocalStack | `localstack/localstack:3` | 4566 (SQS, SNS, IAM, STS)  | bus-sqs, bus-sqs-lambda |
+| PostgreSQL | `postgres:16`             | 6432 (password `password`) | bus-postgres            |
+| MongoDB    | `mongo:7`                 | 27017                      | bus-mongodb             |
+
+Each integration test defaults to these ports. To point at services somewhere else, set the variables listed in `test.env` (`LOCALSTACK_ENDPOINT`, `RABBITMQ_URL`, `POSTGRES_URL`, `MONGODB_URL` and so on). `test.env` also sets dummy AWS credentials for LocalStack. You only need the services for the packages you're testing, for example `docker compose up -d postgres`. CI runs the same integration tests against its own copies of these services.
+
+## Proposing a change
+
+1. **Start with an issue or Discussion** for a new feature or an API change, so the design can be agreed against the [design principles](#design-principles) before you write code. Small fixes can go straight to a PR. Issues labelled [`good first issue`](https://github.com/node-ts/bus/labels/good%20first%20issue) are a good place to start.
+2. **Roadmap issues** (labelled `roadmap`, in a `Phase N` milestone, overview in [#271](https://github.com/node-ts/bus/issues/271)) are worked on in milestone order, and an issue isn't started while it's blocked by another open issue. The `Dependency gate` check fails a PR that breaks either rule.
+3. **Branch from `master`, one issue per PR.** Fill in the [PR template](./.github/pull_request_template.md): `Closes #N`, then the Summary, Background, Problem and Approach sections, which the `Dependency gate` check requires. A PR with no linked issue needs the `no-issue` label, which the maintainer adds.
+4. **Before you push**, run `pnpm build`, `pnpm lint`, `pnpm format:check` and the tests for the packages you changed. Husky and lint-staged format and lint staged files on commit.
+5. **Add tests** for every change: `*.spec.ts` for unit tests and `*.integration.ts` for tests that build a real bus or use real infrastructure, next to the code they test. A new transport must pass bus-test's `transportTests` suite, and a new persistence must pass `workflowStateRoundTripTests`. The test conventions are in [CLAUDE.md](./CLAUDE.md#tests).
+6. **Add a changeset** if a published package changes in a way users can see (see [Changesets](#changesets)).
+7. **Write short, lowercase, imperative commit subjects**, such as `fix rabbitmq reconnect after channel close`. PRs are squash-merged, and the PR title becomes the commit subject.
+
+The maintainer reviews every PR before it merges. Reviews happen as time allows, with no guaranteed response time.
+
+There's no CLA and no DCO sign-off. PR review is the gate. Under [GitHub's terms of service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license), what you contribute is licensed under this repo's [MIT licence](./LICENSE).
+
+## Clean-room contributions
+
+Contributions must be your original work.
+
+- Don't port, translate or copy code, documentation or samples from other messaging frameworks.
+- In particular, NServiceBus is licensed under the Reciprocal Public License (RPL) 1.5 plus a commercial licence. Don't consult its source code while implementing features here.
+- Implement from public pattern literature and observed behaviour only. That includes [Enterprise Integration Patterns](https://www.enterpriseintegrationpatterns.com/), the original saga paper (Garcia-Molina and Salem, _Sagas_, 1987), and public write-ups of the outbox and inbox patterns.
+
+If you're unsure whether a source is acceptable, ask in the issue before you start writing code.
 
 ## Design principles
 

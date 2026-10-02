@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest a new feature or a change to an existing one.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Check the [roadmap](https://github.com/node-ts/bus/issues/271) and the [existing issues](https://github.com/node-ts/bus/issues?q=is%3Aissue) first, in case it's already planned. To talk an idea through before proposing it, start a thread in [Discussions](https://github.com/node-ts/bus/discussions).
+
+        New features follow the [design principles](https://github.com/node-ts/bus/blob/master/CONTRIBUTING.md#design-principles).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? An example of the API you'd write helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other designs you thought about.
+  - type: dropdown
+    id: packages
+    attributes:
+      label: Packages
+      description: Which packages would this change? Leave it blank if it's a new package.
+      multiple: true
+      options:
+        - '@node-ts/bus-core'
+        - '@node-ts/bus-messages'
+        - '@node-ts/bus-sqs'
+        - '@node-ts/bus-sqs-lambda'
+        - '@node-ts/bus-rabbitmq'
+        - '@node-ts/bus-postgres'
+        - '@node-ts/bus-mongodb'
+        - '@node-ts/bus-cli'
+        - '@node-ts/bus-test'
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to implement it?
+      options:
+        - 'Yes'
+        - Maybe, with some guidance
+        - 'No'
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked the roadmap and existing issues, and this hasn't been proposed.
+          required: true
+        - label: I agree to follow this project's [code of conduct](https://github.com/node-ts/bus/blob/master/CODE_OF_CONDUCT.md).
+          required: true

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help
+    url: https://github.com/node-ts/bus/discussions
+    about: Ask questions and share what you've built in GitHub Discussions.
+  - name: Documentation
+    url: https://bus.node-ts.com
+    about: Guides and API reference for @node-ts/bus.
+  - name: Security vulnerability
+    url: https://github.com/node-ts/bus/security/advisories/new
+    about: Report vulnerabilities privately. Don't open a public issue.
