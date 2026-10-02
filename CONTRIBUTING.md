@@ -1,6 +1,43 @@
 # Contributing
 
-Setup, scripts and local infrastructure are covered in the [README](./README.md#development) and [CLAUDE.md](./CLAUDE.md). This file covers the design principles, changesets and releases.
+`@node-ts/bus` is maintained in spare time. Issues and PRs may not get a response, and there's no support. For a large change, open an issue before you write the PR.
+
+Report security vulnerabilities privately, as described in [SECURITY.md](./SECURITY.md).
+
+## Setup
+
+You need Node.js 24.11.1 (`.nvmrc`), pnpm 12.4.1 (`packageManager`; `corepack enable` installs it) and Docker with Compose.
+
+```sh
+pnpm i
+pnpm build
+pnpm test:unit
+```
+
+Packages import each other's built `dist/`, so run `pnpm build` again after changing one that others use, or keep `pnpm build:watch` running. Run `pnpm lint` and `pnpm format:check` before you push. Code conventions are in [CLAUDE.md](./CLAUDE.md).
+
+## Tests and local infrastructure
+
+`*.spec.ts` files are unit tests, and `*.integration.ts` files use a real bus or real infrastructure. The integration tests need the brokers and databases in `docker-compose.yml`:
+
+```sh
+docker compose up -d
+pnpm test:integration
+```
+
+To run one file, go through `dotenv` so `test.env` is loaded: `pnpm exec dotenv -e test.env -- jest <path>`. Each test defaults to the compose ports. Override them with the variables listed in `test.env`.
+
+## Pull requests
+
+Fill in the [PR template](./.github/pull_request_template.md). The `Dependency gate` check needs `Closes #N` and the Summary, Background, Problem and Approach sections. A PR with no linked issue needs the `no-issue` label. Add a [changeset](#changesets) if a published package changes in a way users can see.
+
+## Clean-room contributions
+
+Contributions must be your original work.
+
+- Don't port, translate or copy code, documentation or samples from other messaging frameworks.
+- In particular, NServiceBus is licensed under RPL 1.5 plus a commercial licence. Don't consult its source while implementing features here.
+- Implement from public pattern literature (Enterprise Integration Patterns, the original saga paper, outbox/inbox write-ups) and observed behaviour only.
 
 ## Design principles
 

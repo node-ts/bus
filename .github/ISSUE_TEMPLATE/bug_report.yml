@@ -1,0 +1,29 @@
+name: Bug report
+description: Something in a @node-ts/bus package doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is maintained in spare time, so issues may not get a response. Report security vulnerabilities privately, as described in [SECURITY.md](https://github.com/node-ts/bus/blob/master/SECURITY.md).
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The versions of the `@node-ts/bus-*` packages and Node.js you're using.
+      placeholder: '@node-ts/bus-core@2.0.0, @node-ts/bus-sqs@2.0.0, Node.js 24.11.1'
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The smallest code, repository or failing test that shows the bug.
+    validations:
+      required: true

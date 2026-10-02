@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://bus.node-ts.com
+    about: Questions on how to use @node-ts/bus are answered in the docs. There's no support channel.
+  - name: Security vulnerability
+    url: https://github.com/node-ts/bus/security/advisories/new
+    about: Report vulnerabilities privately. Don't open a public issue.
