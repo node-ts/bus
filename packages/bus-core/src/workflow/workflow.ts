@@ -113,7 +113,12 @@ type CheckedClassWorkflowHandler<
 
 /**
  * The handler name that `startedBy` and `when` take: a method of the workflow that handles `TMessage`. When the
- * mapper's workflow type is `any`, names can't be checked, so none is accepted.
+ * mapper's workflow type is `any`, names can't be checked, so none is accepted. `THandlerName` is `never` when the
+ * workflow has no public methods, such as when its handlers are protected. The checks are written in terms of
+ * `THandlerName` so they don't affect the variance of `WorkflowMapper`.
+ *
+ * While the workflow state is a type parameter, as in a generic workflow, TypeScript defers the checks and no name
+ * is accepted, so a generic workflow types its mapper with a concrete state.
  */
 type WorkflowHandlerArgument<
   WorkflowType,
@@ -124,13 +129,17 @@ type WorkflowHandlerArgument<
   ? {
       'Type the mapper with the workflow class, such as WorkflowMapper<OrderState, OrderWorkflow>, not any': never
     }
-  : THandlerName &
-      CheckedClassWorkflowHandler<
-        WorkflowType,
-        THandlerName,
-        TMessage,
-        WorkflowStateType
-      >
+  : [THandlerName] extends [never]
+    ? {
+        'The workflow has no public methods. Make handler methods public, since protected and private ones can not be named': never
+      }
+    : THandlerName &
+        CheckedClassWorkflowHandler<
+          WorkflowType,
+          THandlerName,
+          TMessage,
+          WorkflowStateType
+        >
 
 /**
  * A `when` handler of a class workflow, as the mapper stores it
@@ -145,7 +154,7 @@ export type OnWhenHandler = {
  * A workflow configuration that describes how to map incoming messages to handlers within the workflow.
  */
 export class WorkflowMapper<
-  WorkflowStateType extends WorkflowState,
+  out WorkflowStateType extends WorkflowState,
   out WorkflowType extends Workflow<WorkflowStateType>
 > {
   readonly onStartedBy = new Map<

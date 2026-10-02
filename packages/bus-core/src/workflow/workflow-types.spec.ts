@@ -21,6 +21,9 @@ class OrderState extends WorkflowState {
   total: number
   charged: boolean
   customer: { name: string }
+  meta: unknown
+  settings: Record<string, unknown>
+  payload: object
 }
 
 class OtherState extends WorkflowState {
@@ -60,6 +63,10 @@ const OrderCancelled = defineCommand(
   '@node-ts/bus-core/workflow-types-spec-order-cancelled'
 )<{ orderId: string }>()
 type OrderCancelled = MessageOf<typeof OrderCancelled>
+
+const OrderShipped = defineCommand(
+  '@node-ts/bus-core/workflow-types-spec-order-shipped'
+)<{ orderId: string }>()
 
 class OrderWorkflow extends Workflow<OrderState> {
   readonly label = 'not a handler'
@@ -218,6 +225,133 @@ class ShippingWorkflow extends Workflow<OrderState> {
   }
 }
 
+class LooseFieldsWorkflow extends Workflow<OrderState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderState, LooseFieldsWorkflow>
+  ): void {
+    mapper
+      .withState(OrderState)
+      .startedBy(OrderPlaced, 'start')
+      .when(CardCharged, 'parsed')
+      .when(OrderCancelled, 'typedAny')
+  }
+
+  // Fields typed unknown, object or Record<string, unknown> take any nested object
+  start() {
+    return {
+      meta: { anything: 1 },
+      settings: { a: { b: 1 } },
+      payload: { x: { y: 1 } }
+    }
+  }
+
+  // Nothing is known about what an any returns, so it isn't checked
+  parsed() {
+    return JSON.parse('{}')
+  }
+
+  async typedAny(): Promise<any> {
+    return JSON.parse('{}')
+  }
+}
+
+class UnrelatedWorkflow extends Workflow<OrderState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderState, UnrelatedWorkflow>
+  ): void {
+    mapper.withState(OrderState).startedBy(OrderPlaced, 'foo')
+  }
+
+  foo(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+}
+
+class CopiedWorkflow extends Workflow<OrderState> {
+  // @ts-expect-error the mapper must be typed with this workflow, not another one
+  configureWorkflow(mapper: WorkflowMapper<OrderState, UnrelatedWorkflow>) {
+    mapper.withState(OrderState).startedBy(OrderPlaced, 'foo')
+  }
+
+  bar(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+}
+
+class ExtendedOrderWorkflow extends OrderWorkflow {
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderState, ExtendedOrderWorkflow>
+  ): void {
+    super.configureWorkflow(mapper)
+    mapper.when(OrderShipped, 'extra')
+  }
+
+  extra() {
+    return { charged: true }
+  }
+}
+
+class GenericOrderWorkflow<TState extends OrderState> extends Workflow<TState> {
+  // A generic state can't be checked, so type the mapper with a concrete state
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderState, GenericOrderWorkflow<OrderState>>
+  ): void {
+    mapper.withState(OrderState).startedBy(OrderPlaced, 'start')
+  }
+
+  start(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+}
+
+class GenericMapperWorkflow<
+  TState extends OrderState
+> extends Workflow<TState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<TState, GenericMapperWorkflow<TState>>
+  ): void {
+    // TypeScript defers the checks of a handler against a generic state, so no handler name compiles. Type the
+    // mapper with a concrete state, as GenericOrderWorkflow does.
+    // @ts-expect-error the state is still a type parameter
+    mapper.startedBy(OrderPlaced, 'start')
+  }
+
+  start(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+}
+
+class ThisMapperWorkflow extends Workflow<OrderState> {
+  configureWorkflow(mapper: WorkflowMapper<OrderState, this>): void {
+    mapper
+      .withState(OrderState)
+      // @ts-expect-error `this` could be any subclass, so its handler names can't be checked
+      .startedBy(OrderPlaced, 'start')
+  }
+
+  start(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+}
+
+class ProtectedHandlerWorkflow extends Workflow<OrderState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderState, ProtectedHandlerWorkflow>
+  ): void {
+    mapper
+      .withState(OrderState)
+      // With no public methods, tsc reports: Argument of type 'string' is not assignable to parameter of type
+      // '{ 'The workflow has no public methods. Make handler methods public, since protected and private ones can not
+      // be named': never; }'. With other public methods, the error lists them as for a misspelt name.
+      // @ts-expect-error handlers must be public methods
+      .startedBy(OrderPlaced, 'start')
+  }
+
+  protected start(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+}
+
 const mapper = () =>
   new WorkflowMapper<OrderState, OrderWorkflow>(OrderWorkflow)
 
@@ -301,6 +435,56 @@ describe('Workflow', () => {
 
       expect(new UntypedWorkflow()).toBeInstanceOf(Workflow)
       expect(new ShippingWorkflow()).toBeInstanceOf(Workflow)
+    })
+  })
+
+  describe('when the mapper is typed with another workflow', () => {
+    it('should not compile it', () => {
+      // @ts-expect-error a mapper of one workflow isn't a mapper of an unrelated one
+      const copied: WorkflowMapper<OrderState, CopiedWorkflow> =
+        new WorkflowMapper<OrderState, UnrelatedWorkflow>(UnrelatedWorkflow)
+
+      expect(copied).toBeInstanceOf(WorkflowMapper)
+      expect(new CopiedWorkflow()).toBeInstanceOf(Workflow)
+    })
+  })
+
+  describe('when a workflow extends another workflow', () => {
+    it('should compile its mapper and super.configureWorkflow', () => {
+      const sut = new WorkflowMapper<OrderState, ExtendedOrderWorkflow>(
+        ExtendedOrderWorkflow
+      )
+      new ExtendedOrderWorkflow().configureWorkflow(sut)
+      expect(sut.onWhen.size).toEqual(3)
+    })
+  })
+
+  describe('when handlers return into loosely typed fields or return any', () => {
+    it('should compile them', () => {
+      const sut = new WorkflowMapper<OrderState, LooseFieldsWorkflow>(
+        LooseFieldsWorkflow
+      )
+      new LooseFieldsWorkflow().configureWorkflow(sut)
+      expect(sut.onWhen.size).toEqual(2)
+    })
+  })
+
+  describe('when a generic workflow types its mapper with a concrete state', () => {
+    it('should compile it', () => {
+      const sut = new WorkflowMapper<
+        OrderState,
+        GenericOrderWorkflow<OrderState>
+      >(GenericOrderWorkflow)
+      new GenericOrderWorkflow().configureWorkflow(sut)
+      expect(sut.onStartedBy.size).toEqual(1)
+      expect(new GenericMapperWorkflow()).toBeInstanceOf(Workflow)
+      expect(new ThisMapperWorkflow()).toBeInstanceOf(Workflow)
+    })
+  })
+
+  describe('when a handler is protected', () => {
+    it('should not compile it', () => {
+      expect(new ProtectedHandlerWorkflow()).toBeInstanceOf(Workflow)
     })
   })
 

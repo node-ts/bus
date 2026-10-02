@@ -35,6 +35,9 @@ type OpaqueValue =
 /**
  * The paths of fields in `TValue` that aren't in `TTarget`, at any depth, such as `'total'` or `'customer.nickname'`.
  * It's `never` when every field is in `TTarget`. Unions are checked member by member.
+ *
+ * Nothing is checked when `TValue` is `any`, or when `TTarget` has no known fields, such as `unknown`, `object` or
+ * `Record<string, unknown>`: any field fits it.
  * @example
  * type Extra = UnknownWorkflowStateFields<{ orderId: string; total: number }, OrderState> // 'total'
  */
@@ -42,6 +45,23 @@ export type UnknownWorkflowStateFields<
   TValue,
   TTarget,
   TPath extends string = ''
+> = 0 extends 1 & TValue
+  ? never
+  : unknown extends TTarget
+    ? never
+    : string extends keyof NonNullable<TTarget>
+      ? never
+      : [keyof NonNullable<TTarget>] extends [never]
+        ? never
+        : UnknownFieldsOfValue<TValue, TTarget, TPath>
+
+/**
+ * `UnknownWorkflowStateFields` once `TTarget` is known to have fields
+ */
+type UnknownFieldsOfValue<
+  TValue,
+  TTarget,
+  TPath extends string
 > = TValue extends OpaqueValue
   ? never
   : TValue extends readonly (infer TElement)[]

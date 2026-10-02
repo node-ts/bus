@@ -132,6 +132,7 @@ The message type in each handler and `mapsTo` (it must be a field of the state) 
 - A returned field of the wrong type doesn't compile.
 - A returned field that isn't in the state doesn't compile, at any depth (`{ customer: { nickname } }` when the customer has no nickname), in every branch, sync or async, for handlers declared inline or as a separate function without a type annotation.
 - What a handler returns is checked against its declared type when it has one. A handler annotated as `WorkflowHandlerFunction<OrderPlaced, OrderState>`, or with a return type such as `WorkflowHandlerResult<OrderState>`, is only checked against that annotation: TypeScript doesn't report extra fields in an object returned from an annotated function, and the annotation hides what it returns. Declare handlers inline, or without an annotation, to have their fields checked.
+- Fields typed `unknown`, `object` or `Record<string, unknown>` take any nested object, and a handler that returns `any`, such as `JSON.parse(...)`, isn't checked.
 - Returning a copy of the state, such as `{ ...state, orderId }`, is fine. `$workflowId`, `$version` and `$name` are managed by the bus, so the values a handler returns for them are ignored.
 
 There's no runtime check for fields that aren't in the state. A state class' fields only exist at runtime when they're initialized, and the generated message types only list the fields that need restoring, so the bus can't reliably tell which fields a state has.
@@ -190,6 +191,10 @@ Type the mapper with the workflow class, as in `WorkflowMapper<OrderState, Order
 - What it returns must be changes to the state or nothing, with no fields that aren't in the state, at any depth. A method with an annotated return type is only checked against the annotation.
 
 The compiler reports the problem at the `startedBy` or `when` call, in the type the name isn't assignable to, such as `"start" & { 'Fields that are not in the workflow state': "ordrId" }`. A misspelt name lists the workflow's methods: `'"handleOrdrPlaced"' is not assignable to '"handleOrderPlaced" | "handleCardCharged"'`. A mapper typed as `WorkflowMapper<OrderState, any>` accepts no handler name, since none can be checked.
+
+Name the class in the mapper's type. `WorkflowMapper<OrderState, this>` doesn't work: `this` is any subclass, so the compiler can't tell which methods it has and accepts no handler name. A mapper typed with a different workflow class doesn't compile either.
+
+A generic workflow, such as `class OrderWorkflow<TState extends OrderState> extends Workflow<TState>`, types its mapper with a concrete state: `WorkflowMapper<OrderState, OrderWorkflow<OrderState>>`. While the state is still a type parameter, TypeScript can't check a handler against it, so no handler name compiles.
 
 ### Sending messages from a workflow
 
