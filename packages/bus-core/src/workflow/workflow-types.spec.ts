@@ -193,6 +193,31 @@ class UntypedWorkflow extends Workflow<OrderState> {
   }
 }
 
+class ShippingWorkflow extends Workflow<OrderState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderState, ShippingWorkflow>
+  ): void {
+    mapper
+      .withState(OrderState)
+      // A misspelt name lists the workflow's methods. tsc reports:
+      //   Argument of type '"handleOrdrPlaced"' is not assignable to parameter of type
+      //   '"handleOrderPlaced" | "handleCardCharged"'.
+      // When some methods can't handle the message, the list ends with `& { ...; }`, and past ten names it's cut
+      // short as `... N more ...`.
+      // @ts-expect-error handleOrdrPlaced is misspelt
+      .startedBy(OrderPlaced, 'handleOrdrPlaced')
+      .when(CardCharged, 'handleCardCharged')
+  }
+
+  handleOrderPlaced(message: OrderPlaced) {
+    return { orderId: message.orderId }
+  }
+
+  handleCardCharged() {
+    return this.completeWorkflow({ charged: true })
+  }
+}
+
 const mapper = () =>
   new WorkflowMapper<OrderState, OrderWorkflow>(OrderWorkflow)
 
@@ -275,6 +300,7 @@ describe('Workflow', () => {
       })
 
       expect(new UntypedWorkflow()).toBeInstanceOf(Workflow)
+      expect(new ShippingWorkflow()).toBeInstanceOf(Workflow)
     })
   })
 

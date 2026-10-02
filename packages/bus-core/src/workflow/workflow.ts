@@ -54,7 +54,10 @@ export type WhenHandler<
 ) => WorkflowHandler<Message, MessageAttributes, WorkflowStateType>
 
 /**
- * The names of the public methods of a workflow, which `startedBy` and `when` take
+ * The names of the public methods of a workflow, which `startedBy` and `when` take. Constrain to it as
+ * `WorkflowHandlerName<WorkflowType> & string`: the intersection written at the use site makes the compiler print a
+ * misspelt name's error with the method names, such as `'"strat"' is not assignable to '"start" | "charged"'`,
+ * rather than with this alias' name.
  */
 type WorkflowHandlerName<WorkflowType> = Exclude<
   {
@@ -65,8 +68,7 @@ type WorkflowHandlerName<WorkflowType> = Exclude<
       : never
   }[keyof WorkflowType],
   keyof Workflow<WorkflowState>
-> &
-  string
+>
 
 /**
  * Checks the method `THandlerName` of `WorkflowType` handles `TMessage`: it can be called with the message, the
@@ -186,7 +188,7 @@ export class WorkflowMapper<
    */
   startedBy<
     MessageType extends Message,
-    THandlerName extends WorkflowHandlerName<WorkflowType>
+    THandlerName extends WorkflowHandlerName<WorkflowType> & string
   >(
     message: MessageDeclaration<MessageType>,
     workflowHandler: WorkflowHandlerArgument<
@@ -219,7 +221,7 @@ export class WorkflowMapper<
    */
   when<
     MessageType extends Message,
-    THandlerName extends WorkflowHandlerName<WorkflowType>
+    THandlerName extends WorkflowHandlerName<WorkflowType> & string
   >(
     message: MessageDeclaration<MessageType>,
     workflowHandler: WorkflowHandlerArgument<

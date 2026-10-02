@@ -189,7 +189,7 @@ Type the mapper with the workflow class, as in `WorkflowMapper<OrderState, Order
 - The method must accept the message it's mapped to, and the workflow state, message attributes and `HandlerContext` it's called with. It can declare fewer parameters, and typed attributes such as `MessageAttributes<{ tenantId: string }>`.
 - What it returns must be changes to the state or nothing, with no fields that aren't in the state, at any depth. A method with an annotated return type is only checked against the annotation.
 
-The compiler reports the problem at the `startedBy` or `when` call, in the type the name isn't assignable to, such as `"start" & { 'Fields that are not in the workflow state': "ordrId" }`. A mapper typed as `WorkflowMapper<OrderState, any>` accepts no handler name, since none can be checked.
+The compiler reports the problem at the `startedBy` or `when` call, in the type the name isn't assignable to, such as `"start" & { 'Fields that are not in the workflow state': "ordrId" }`. A misspelt name lists the workflow's methods: `'"handleOrdrPlaced"' is not assignable to '"handleOrderPlaced" | "handleCardCharged"'`. A mapper typed as `WorkflowMapper<OrderState, any>` accepts no handler name, since none can be checked.
 
 ### Sending messages from a workflow
 
