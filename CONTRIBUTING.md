@@ -56,10 +56,11 @@ Write the summary for someone upgrading: what changed, what they need to do, and
 
 2. Review the diff, then open a PR titled `version packages` with the `no-issue` label (the description still needs the template's sections), and merge it.
 3. On `master`, the CircleCI `deploy` job then:
+   - checks `NPM_TOKEN` with `npm whoami`, on every deploy, so an expired token fails the job even when there's nothing to publish,
    - runs `pnpm changeset publish`, which publishes every package whose version isn't on npm yet (`workspace:^` ranges are replaced with the real versions at publish time), and
    - runs `.circleci/create-github-releases.mjs`, which creates a GitHub Release and a `<package>@<version>` tag for each published version, with that version's CHANGELOG section as the notes.
 
-Pushes to `master` that don't bump a version publish nothing. If the releases step fails after publishing, re-run the job: it only creates releases that don't exist yet.
+**Publishing is gated on pending changesets.** While `.changeset/` holds any changeset (a `.md` file other than `README.md`), `.circleci/pending-changesets.mjs` lists them and the job stops successfully before publishing or creating releases. So only the `version packages` merge, which consumes them all, publishes anything, and versions that aren't ready (such as a new package's `0.0.0`) never reach npm. Pushes to `master` that don't bump a version publish nothing either. If the publish or releases step fails, re-run the deploy job for the `version packages` commit (a later merge that adds a changeset won't publish): publishing skips versions already on npm, and the releases step only creates releases that don't exist yet.
 
 Packages are released only when they (or something they depend on) change, and their versions are **linked** (`linked` in `.changeset/config.json`). Packages released together get the same version: the highest bump in the release, applied to the highest current version. For example, if bus-core is bumped minor and bus-sqs patch in the same release, both become 2.1.0, while untouched packages stay where they are. That keeps the family's versions readable without republishing unchanged packages.
 
@@ -67,7 +68,7 @@ Packages are released only when they (or something they depend on) change, and t
 
 Set these in the CircleCI project settings (Project Settings → Environment Variables):
 
-- `NPM_TOKEN`: an npm automation token that can publish the `@node-ts` packages.
+- `NPM_TOKEN`: an npm **granular access token** with **Read and write** permission on the `@node-ts` scope (select the scope, not individual packages, so it covers every package in it and can create new ones such as `@node-ts/bus-cli`). Enable **Bypass two-factor authentication** so CI can publish without an interactive 2FA prompt. Write tokens have an expiry date (npm caps it, 90 days at the time of writing): note it and replace the token before it lapses. The deploy job's `npm whoami` check fails once it has.
 - `GITHUB_TOKEN`: a fine-grained GitHub personal access token with access to `node-ts/bus` only and the **Contents: Read and write** permission. It's used to create the releases and tags.
 
 ## Versioning and support
