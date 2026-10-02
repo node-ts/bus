@@ -81,7 +81,7 @@ const placeOrderHandler = handlerFor(
 )
 ```
 
-The context also has `failMessage()`, `returnMessage()` and `correlationId`. Class handlers get it as the third argument of `handle`, and class workflow handlers as the fourth, after the message, the workflow state and the attributes.
+The context also has `failMessage()`, `returnMessage()` and `correlationId`. Class handlers get it as the third argument of `handle`, and class workflow handlers as the fourth, after the message, the workflow state and the attributes. Workflows declared with `defineWorkflow` get a `WorkflowContext`, which adds the message attributes, `complete()` and `discard()` (see the [workflows guide](https://github.com/node-ts/bus/tree/master/packages/bus-core/src/workflow#with-functions)).
 
 `HandlerContext` and `BusSender` (`send` and `publish`, which `BusInstance` also implements) are interfaces, so a handler can be unit tested by calling it with a plain object. `messageAttributes()` from `@node-ts/bus-messages` fills in empty `attributes` and `stickyAttributes`:
 

@@ -22,7 +22,12 @@ import {
   Middleware,
   MiddlewareDispatcher
 } from '../util'
-import { Persistence, Workflow, WorkflowState } from '../workflow'
+import {
+  FunctionWorkflow,
+  Persistence,
+  Workflow,
+  WorkflowState
+} from '../workflow'
 import { InMemoryPersistence } from '../workflow/persistence'
 import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { BusInstance } from './bus-instance'
@@ -233,10 +238,18 @@ export class BusConfiguration {
   /**
    * Register a workflow definition so that all of the messages it depends on will be subscribed to
    * and forwarded to the handlers inside the workflow
+   * @param workflow Classes that extend `Workflow`, or workflows declared with `defineWorkflow`
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @throws WorkflowNotRecognized if a workflow is neither a class that extends `Workflow` nor declared with
+   * `defineWorkflow`
+   * @example
+   * Bus.configure().withWorkflow(OrderWorkflow, defineWorkflow(ShippingState).startedBy(OrderPaid, ...))
    */
-  withWorkflow<TWorkflowState extends WorkflowState>(
-    ...workflow: ClassConstructor<Workflow<TWorkflowState>>[]
+  withWorkflow(
+    ...workflow: (
+      | ClassConstructor<Workflow<WorkflowState>>
+      | FunctionWorkflow<WorkflowState>
+    )[]
   ): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()

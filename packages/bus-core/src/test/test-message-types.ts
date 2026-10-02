@@ -2,6 +2,13 @@ import { FinalTask } from '../workflow/test/final-task'
 import { RunTask } from '../workflow/test/run-task'
 import { TaskRan } from '../workflow/test/task-ran'
 import { TestDiscardedWorkflowState } from '../workflow/test/test-discarded-workflow'
+import { TestFunctionWorkflowState } from '../workflow/test/test-function-workflow'
+import {
+  TestFunctionStartedByCompletesState,
+  TestFunctionStartedByCopyState,
+  TestFunctionStartedByDiscardState,
+  TestFunctionStartedByVoidState
+} from '../workflow/test/test-function-workflow-started-by'
 import { TestVoidStartedByWorkflowState } from '../workflow/test/test-void-startedby-workflow'
 import { TestWorkflowStartedByCompletesData } from '../workflow/test/test-workflow-startedby-completes'
 import { TestWorkflowStartedByDiscardData } from '../workflow/test/test-workflow-startedby-discard'
@@ -35,5 +42,10 @@ export const testMessageTypes = messageTypesFor(
   TestVoidStartedByWorkflowState,
   new TestWorkflowStartedByCompletesData().$name,
   new TestWorkflowStartedByDiscardData().$name,
-  TestWorkflowState
+  TestWorkflowState,
+  TestFunctionWorkflowState,
+  TestFunctionStartedByCompletesState,
+  TestFunctionStartedByCopyState,
+  TestFunctionStartedByDiscardState,
+  TestFunctionStartedByVoidState
 )
