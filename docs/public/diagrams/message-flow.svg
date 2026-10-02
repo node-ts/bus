@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="320" viewBox="0 0 860 320" role="img" aria-labelledby="message-flow-title">
+  <title id="message-flow-title">How a message flows through the bus: it's sent to the transport's queue, read by the bus and dispatched to its handlers. A handled message is deleted. A failed one is returned to the queue after the retry strategy's delay, and goes to the dead letter queue once it's out of attempts.</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569" />
+    </marker>
+    <style>
+      .box { fill: #f0fdfa; stroke: #0d9488; stroke-width: 2; }
+      .box-done { fill: #ecfdf5; stroke: #059669; stroke-width: 2; }
+      .box-retry { fill: #fffbeb; stroke: #d97706; stroke-width: 2; }
+      .box-dead { fill: #fff1f2; stroke: #e11d48; stroke-width: 2; }
+      .title { font: 600 16px Inter, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #0f172a; }
+      .sub { font: 13px 'JetBrains Mono', Menlo, Consolas, monospace; fill: #475569; }
+      .label { font: italic 13px Inter, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #475569; }
+      .line { fill: none; stroke: #475569; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect width="860" height="320" rx="16" fill="#ffffff" />
+
+  <rect class="box" x="24" y="56" width="170" height="72" rx="10" />
+  <text class="title" x="109" y="86" text-anchor="middle">Your code</text>
+  <text class="sub" x="109" y="108" text-anchor="middle">send() / publish()</text>
+
+  <rect class="box" x="244" y="56" width="170" height="72" rx="10" />
+  <text class="title" x="329" y="86" text-anchor="middle">Transport</text>
+  <text class="sub" x="329" y="108" text-anchor="middle">service queue</text>
+
+  <rect class="box" x="464" y="56" width="170" height="72" rx="10" />
+  <text class="title" x="549" y="86" text-anchor="middle">Bus</text>
+  <text class="sub" x="549" y="108" text-anchor="middle">middleware, handlers</text>
+
+  <rect class="box-done" x="684" y="56" width="152" height="72" rx="10" />
+  <text class="title" x="760" y="86" text-anchor="middle">Deleted</text>
+  <text class="sub" x="760" y="108" text-anchor="middle">handled</text>
+
+  <rect class="box-retry" x="464" y="216" width="170" height="72" rx="10" />
+  <text class="title" x="549" y="246" text-anchor="middle">Returned</text>
+  <text class="sub" x="549" y="268" text-anchor="middle">after a delay</text>
+
+  <rect class="box-dead" x="684" y="216" width="152" height="72" rx="10" />
+  <text class="title" x="760" y="246" text-anchor="middle">Dead letter</text>
+  <text class="sub" x="760" y="268" text-anchor="middle">queue</text>
+
+  <path class="line" d="M194 92H240" marker-end="url(#arrow)" />
+  <path class="line" d="M414 92H460" marker-end="url(#arrow)" />
+  <path class="line" d="M634 92H680" marker-end="url(#arrow)" />
+  <text class="label" x="657" y="80" text-anchor="middle">ok</text>
+
+  <path class="line" d="M549 128V212" marker-end="url(#arrow)" />
+  <text class="label" x="560" y="176">throws</text>
+
+  <path class="line" d="M464 252H329V132" marker-end="url(#arrow)" />
+  <text class="label" x="396" y="242" text-anchor="middle">retried</text>
+
+  <path class="line" d="M634 252H680" marker-end="url(#arrow)" />
+  <text class="label" x="657" y="306" text-anchor="middle">out of attempts</text>
+  <path d="M657 292V264" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" />
+</svg>

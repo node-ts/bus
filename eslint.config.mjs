@@ -6,7 +6,13 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**']
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      'docs/api/**',
+      'docs/.vitepress/cache/**'
+    ]
   },
   eslint.configs.recommended,
   tseslint.configs.recommended,
@@ -31,7 +37,8 @@ export default tseslint.config(
     files: ['**/*.ts', '**/*.mts'],
     languageOptions: {
       parserOptions: {
-        project: './tsconfig.eslint.json',
+        // The docs have their own tsconfig, with the snippets and the VitePress config
+        project: ['./tsconfig.eslint.json', './docs/tsconfig.json'],
         tsconfigRootDir: import.meta.dirname
       }
     },

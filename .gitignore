@@ -2,7 +2,11 @@
 npm-shrinkwrap.json
 package-lock.json
 yarn.lock
-docs
+
+# Docs build output, and the API reference typedoc generates at build time
+docs/api/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 
 #### joe made this: http://goel.io/joe
 

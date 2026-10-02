@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="@node-ts/bus">
+  <!-- Placeholder mark: a message route with three stops. Replace with the maintainer's logo. -->
+  <defs>
+    <linearGradient id="bus-logo-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14b8a6" />
+      <stop offset="1" stop-color="#0369a1" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#bus-logo-gradient)" />
+  <path
+    d="M14 18H40a7 7 0 0 1 0 14H24a7 7 0 0 0 0 14H50"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="14" cy="18" r="5.5" fill="#ffffff" />
+  <circle cx="32" cy="32" r="4.5" fill="#0f766e" stroke="#ffffff" stroke-width="3" />
+  <circle cx="50" cy="46" r="5.5" fill="#ffffff" />
+</svg>
