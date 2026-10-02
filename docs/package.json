@@ -1,0 +1,39 @@
+{
+  "name": "bus-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The @node-ts/bus documentation site, published at https://node-ts.github.io/bus",
+  "type": "module",
+  "scripts": {
+    "docs:api": "typedoc",
+    "docs:dev": "pnpm run docs:api && vitepress dev",
+    "docs:build": "pnpm run docs:api && vitepress build",
+    "docs:preview": "vitepress preview",
+    "docs:typecheck": "tsc --noEmit",
+    "docs:check-redirects": "node scripts/check-redirects.mjs",
+    "generate:message-types": "bus generate-message-types --entry 'snippets/**/*.ts' --out snippets/message-types.generated.ts",
+    "check:message-types": "bus generate-message-types --entry 'snippets/**/*.ts' --out snippets/message-types.generated.ts --check"
+  },
+  "devDependencies": {
+    "@node-ts/bus-cli": "workspace:^",
+    "@node-ts/bus-core": "workspace:^",
+    "@node-ts/bus-messages": "workspace:^",
+    "@node-ts/bus-mongodb": "workspace:^",
+    "@node-ts/bus-postgres": "workspace:^",
+    "@node-ts/bus-rabbitmq": "workspace:^",
+    "@node-ts/bus-sqs": "workspace:^",
+    "@node-ts/bus-sqs-lambda": "workspace:^",
+    "@node-ts/bus-test": "workspace:^",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.19.0",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.13.1",
+    "typedoc-vitepress-theme": "^1.1.4",
+    "typescript": "^6.0.3",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-llms": "^1.14.0",
+    "vue": "^3.5.43",
+    "winston": "^3.19.0"
+  }
+}

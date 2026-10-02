@@ -1,0 +1,62 @@
+name: Docs
+
+# Builds the docs site and deploys it to GitHub Pages, at
+# https://node-ts.github.io/bus.
+#
+# - On a release, so the site matches what's on npm. CircleCI's deploy job
+#   creates the releases with a personal access token (.circleci/
+#   create-github-releases.mjs), so they trigger this workflow. Releases made
+#   with the Actions GITHUB_TOKEN wouldn't. A release of several packages
+#   creates a release each, so runs queue up and the last one wins.
+# - By hand (Actions > Docs > Run workflow on master), for a docs-only fix.
+#
+# Pull requests are checked by CircleCI's docs job instead.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pages' last updated dates come from the git history
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pnpm
+        run: npm install --global pnpm@12.4.1
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build the packages
+        run: pnpm run build
+      - name: Build the docs
+        run: pnpm run docs:build
+      - name: Check the redirects from the old docs
+        run: pnpm run docs:check-redirects
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

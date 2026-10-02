@@ -1,0 +1,36 @@
+{
+  "$comment": "Old paths and the page each one moved to. The build writes a stub at each old path that redirects to its page, and a markdown stub at its .md, since GitHub Pages can't send redirects. Never list a path that's a page of the site. scripts/check-redirects.mjs checks them.",
+  "gitbook": {
+    "/master": "/",
+    "/getting-help": "/",
+    "/installing": "/getting-started/installation",
+    "/installing/installation": "/getting-started/installation",
+    "/installing/handling-messages": "/getting-started/handling-messages",
+    "/installing/shutting-down-cleanly": "/getting-started/shutting-down",
+    "/guide/message-attributes/attributes-1": "/guide/message-attributes/attributes",
+    "/guide/transports": "/transports",
+    "/guide/transports/rabbitmq": "/transports/rabbitmq",
+    "/guide/transports/amazon-sqs": "/transports/amazon-sqs",
+    "/guide/transports/creating-a-transport": "/transports/custom",
+    "/guide/transports/redis": "/transports",
+    "/guide/persistence": "/persistence",
+    "/guide/persistence/postgres": "/persistence/postgres",
+    "/guide/persistence/mongodb": "/persistence/mongodb",
+    "/guide/persistence/creating-a-persistence": "/persistence/custom",
+    "/reference": "/api/",
+    "/reference/bus": "/api/bus-core/classes/Bus",
+    "/reference/busconfiguration": "/api/bus-core/classes/BusConfiguration",
+    "/reference/businstance": "/api/bus-core/classes/BusInstance"
+  },
+  "legacy": {
+    "/packages/bus-core/": "/getting-started/installation",
+    "/packages/bus-core/src/handler/": "/getting-started/handling-messages",
+    "/packages/bus-core/src/transport/": "/transports",
+    "/packages/bus-messages/": "/guide/messages",
+    "/packages/bus-postgres/": "/persistence/postgres",
+    "/packages/bus-rabbitmq/": "/transports/rabbitmq",
+    "/packages/bus-sqs/": "/transports/amazon-sqs",
+    "/packages/bus-workflow/": "/guide/workflows",
+    "/packages/bus-workflow/src/workflow/persistence/": "/persistence"
+  }
+}

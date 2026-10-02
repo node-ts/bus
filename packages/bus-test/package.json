@@ -2,7 +2,7 @@
   "name": "@node-ts/bus-test",
   "version": "0.0.24",
   "description": "The shared conformance test suite for @node-ts/bus transport adapters.",
-  "homepage": "https://github.com/node-ts/bus#readme",
+  "homepage": "https://node-ts.github.io/bus/",
   "license": "MIT",
   "engines": {
     "node": ">=24"

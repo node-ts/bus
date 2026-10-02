@@ -1,0 +1,20 @@
+{
+  // Type checks the docs snippets against the built @node-ts/bus-* packages,
+  // and the VitePress config and theme. Run with `pnpm docs:typecheck`.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // Snippets are written the way an app imports the packages: extensionless
+    // relative imports and top-level await
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    // esbuild, which Vite compiles the theme with, doesn't know es2024 yet
+    "target": "es2022",
+    "declaration": false,
+    "importHelpers": false,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["snippets/**/*.ts", ".vitepress/**/*.ts", ".vitepress/**/*.mts"],
+  "exclude": [".vitepress/cache", ".vitepress/dist"]
+}

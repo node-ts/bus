@@ -1,0 +1,53 @@
+{
+  "$schema": "https://typedoc-plugin-markdown.org/schema.json",
+  "name": "API reference",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "../packages/bus-messages",
+    "../packages/bus-core",
+    "../packages/bus-cli",
+    "../packages/bus-sqs",
+    "../packages/bus-sqs-lambda",
+    "../packages/bus-rabbitmq",
+    "../packages/bus-postgres",
+    "../packages/bus-mongodb",
+    "../packages/bus-test"
+  ],
+  "packageOptions": {
+    "entryPoints": ["src/index.ts"],
+    "readme": "none",
+    "excludePrivate": true,
+    "excludeProtected": true,
+    "excludeInternal": true
+  },
+  "out": "./api",
+  "docsRoot": "./",
+  "plugin": [
+    "typedoc-plugin-markdown",
+    "typedoc-vitepress-theme",
+    "./typedoc/strict-links.mjs"
+  ],
+  "readme": "none",
+  "excludeScopesInPaths": true,
+  "entryFileName": "index",
+  "hidePageHeader": true,
+  "hideBreadcrumbs": false,
+  "useCodeBlocks": true,
+  "parametersFormat": "table",
+  "interfacePropertiesFormat": "table",
+  "classPropertiesFormat": "table",
+  "typeDeclarationFormat": "table",
+  "sidebar": {
+    "autoConfiguration": true,
+    "format": "vitepress",
+    "collapsed": true,
+    "pretty": true
+  },
+  "validation": {
+    "notExported": false,
+    "invalidLink": false,
+    "notDocumented": true
+  },
+  "treatWarningsAsErrors": false,
+  "logLevel": "Info"
+}

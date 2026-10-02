@@ -1,5 +1,6 @@
 packages:
   - packages/**
+  - docs
 # Dependency install scripts that pnpm may run. None are needed:
 # aws-sdk only prints a maintenance warning, typemoq ships a prebuilt dist,
 # and esbuild, @parcel/watcher and unrs-resolver (both pulled in by jest 30)

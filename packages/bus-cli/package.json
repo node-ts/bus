@@ -2,7 +2,7 @@
   "name": "@node-ts/bus-cli",
   "version": "0.0.0",
   "description": "Command line tools for @node-ts/bus, including the message type generator.",
-  "homepage": "https://github.com/node-ts/bus#readme",
+  "homepage": "https://node-ts.github.io/bus/",
   "license": "MIT",
   "engines": {
     "node": ">=24"

@@ -10,13 +10,14 @@ const config: Config = {
     '!**/vendor/**',
     '!**/dist/**',
     '!**/bus-messages/**',
-    '!**/error/*'
+    '!**/error/*',
+    '!docs/**'
   ],
   testRegex: '(src\\/.+\\.|/)(integration|spec)\\.ts$',
   testEnvironment: 'node',
   // Generated files import with a .js extension, which resolves to the .ts source
   moduleNameMapper: { '^(\\.{1,2}/.*)\\.js$': '$1' },
-  testPathIgnorePatterns: ['node_modules/', 'dist/'],
+  testPathIgnorePatterns: ['node_modules/', 'dist/', '<rootDir>/docs/'],
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="440" viewBox="0 0 860 440" role="img" aria-labelledby="workflow-title">
+  <title id="workflow-title">A fulfilment workflow: ItemPurchased starts it and it sends ShipItem. When ItemShipped arrives it sends EmailReceipt, and when ReceiptEmailed arrives it completes. Its state is saved after each step.</title>
+  <defs>
+    <marker id="wf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569" />
+    </marker>
+    <style>
+      .lane { fill: #f0fdfa; stroke: #0d9488; stroke-width: 2; }
+      .lane-workflow { fill: #0f766e; stroke: #0f766e; stroke-width: 2; }
+      .lane-title { font: 600 15px Inter, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #0f172a; }
+      .lane-title-inverse { font: 600 15px Inter, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #ffffff; }
+      .lifeline { stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 5 5; }
+      .activation { fill: #ccfbf1; stroke: #0d9488; stroke-width: 1.5; }
+      .msg { fill: none; stroke: #475569; stroke-width: 2; }
+      .event { font: 600 13px 'JetBrains Mono', Menlo, Consolas, monospace; fill: #0f766e; }
+      .command { font: 600 13px 'JetBrains Mono', Menlo, Consolas, monospace; fill: #0369a1; }
+      .note { font: italic 13px Inter, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #475569; }
+      .done { fill: #ecfdf5; stroke: #059669; stroke-width: 2; }
+      .done-text { font: 600 13px Inter, 'Segoe UI', Helvetica, Arial, sans-serif; fill: #065f46; }
+    </style>
+  </defs>
+  <rect width="860" height="440" rx="16" fill="#ffffff" />
+
+  <rect class="lane" x="50" y="24" width="180" height="48" rx="10" />
+  <text class="lane-title" x="140" y="54" text-anchor="middle">Store</text>
+  <rect class="lane-workflow" x="340" y="24" width="180" height="48" rx="10" />
+  <text class="lane-title-inverse" x="430" y="54" text-anchor="middle">Fulfilment workflow</text>
+  <rect class="lane" x="630" y="24" width="180" height="48" rx="10" />
+  <text class="lane-title" x="720" y="54" text-anchor="middle">Shipping and email</text>
+
+  <line class="lifeline" x1="140" y1="72" x2="140" y2="420" />
+  <line class="lifeline" x1="430" y1="72" x2="430" y2="420" />
+  <line class="lifeline" x1="720" y1="72" x2="720" y2="420" />
+
+  <rect class="activation" x="422" y="104" width="16" height="290" rx="4" />
+
+  <path class="msg" d="M140 112H418" marker-end="url(#wf-arrow)" />
+  <text class="event" x="279" y="102" text-anchor="middle">ItemPurchased</text>
+  <text class="note" x="279" y="132" text-anchor="middle">startedBy: a new workflow</text>
+
+  <path class="msg" d="M442 162H716" marker-end="url(#wf-arrow)" />
+  <text class="command" x="579" y="152" text-anchor="middle">ShipItem</text>
+
+  <path class="msg" d="M720 212H442" marker-end="url(#wf-arrow)" />
+  <text class="event" x="579" y="202" text-anchor="middle">ItemShipped</text>
+  <text class="note" x="579" y="232" text-anchor="middle">when: routed by $workflowId</text>
+
+  <path class="msg" d="M442 276H716" marker-end="url(#wf-arrow)" />
+  <text class="command" x="579" y="266" text-anchor="middle">EmailReceipt</text>
+
+  <path class="msg" d="M720 326H442" marker-end="url(#wf-arrow)" />
+  <text class="event" x="579" y="316" text-anchor="middle">ReceiptEmailed</text>
+
+  <rect class="done" x="350" y="358" width="160" height="32" rx="8" />
+  <text class="done-text" x="430" y="379" text-anchor="middle">completeWorkflow()</text>
+
+  <text class="note" x="414" y="220" text-anchor="end">state saved</text>
+  <text class="note" x="414" y="238" text-anchor="end">after each step</text>
+</svg>

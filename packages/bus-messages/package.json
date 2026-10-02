@@ -1,6 +1,7 @@
 {
   "name": "@node-ts/bus-messages",
   "description": "A core set of message definitions for distributed applications.",
+  "homepage": "https://node-ts.github.io/bus/",
   "version": "1.1.2",
   "license": "MIT",
   "engines": {

@@ -1,0 +1,34 @@
+name: Link check
+
+# Checks the external links in the docs once a week. Internal links are checked
+# by `pnpm docs:build` in CircleCI, which fails on a dead one. External links
+# are flaky, so this doesn't block anything: a failure shows up as a failed run
+# in the Actions tab.
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check external links
+        run: >-
+          docker run --rm -v "$PWD:/input:ro" -w /input lycheeverse/lychee:0.24.2
+          --no-progress
+          --scheme https --scheme http
+          --root-dir /input/docs
+          --exclude-loopback
+          --exclude-path 'node_modules'
+          --exclude-path 'docs/api'
+          --exclude-path 'docs/.vitepress'
+          --exclude '^https://bus\.node-ts\.com'
+          --exclude '^https://node-ts\.github\.io/bus'
+          --max-retries 3
+          --accept '200..=299,429'
+          'docs/**/*.md' MIGRATING.md

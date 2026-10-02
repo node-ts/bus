@@ -1,6 +1,6 @@
 # @node-ts/bus-test
 
-The shared conformance test suite for [@node-ts/bus](https://bus.node-ts.com) [transport](https://bus.node-ts.com/guide/transports) adapters. Run it against your transport to check it sends, publishes, retries and dead-letters messages the way `@node-ts/bus-core` expects.
+The shared conformance test suite for [@node-ts/bus](https://node-ts.github.io/bus) [transport](https://node-ts.github.io/bus/transports) adapters. Run it against your transport to check it sends, publishes, retries and dead-letters messages the way `@node-ts/bus-core` expects.
 
 ## Installation
 
