@@ -83,6 +83,28 @@ jobs:
           paths:
             - .
 
+  docs:
+    <<: *defaults
+    steps:
+      # Reuse the workspace from the build job, with the packages built
+      - attach_workspace:
+          at: .
+      - run:
+          name: Install pnpm package manager
+          command: |
+            npm install --global pnpm@12.4.1
+      - run:
+          name: Type check the docs snippets
+          command: pnpm run docs:typecheck
+      - run:
+          name: Build the docs
+          # Fails on a dead internal link or a {@link} that typedoc can't resolve.
+          # GitHub Actions deploys the site (.github/workflows/docs.yml).
+          command: pnpm run docs:build
+      - run:
+          name: Check the redirects from the old docs
+          command: pnpm run docs:check-redirects
+
   deploy:
     <<: *defaults
     steps:
@@ -137,6 +159,9 @@ workflows:
   build-deploy:
     jobs:
       - build
+      - docs:
+          requires:
+            - build
       - deploy:
           requires:
             - build
