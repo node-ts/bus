@@ -84,6 +84,8 @@ Two things behave differently:
 
 - **Index names longer than 63 bytes are shortened with a hash**, so they no longer truncate to the same name. Nothing is dropped or renamed: names that fit are unchanged, and an index 1.x created under its truncated name is reused. If 1.x skipped an index because its truncated name collided with another, `initializeWorkflow` now creates it on the next start. That `CREATE INDEX` blocks writes to the table while it builds, so on a large table you may want to create it yourself first with `CREATE INDEX CONCURRENTLY`, using the name and SQL that `initializeWorkflow` logs at debug level.
 
+- **Workflow state lookups also match the state's `$name`.** Workflow states whose table names collide (the same first 63 bytes once invalid characters are stripped, or names that differ only in stripped characters) shared a table and could read each other's state. Table names don't change. If you changed a state's `$name` in a way that kept its table, for example only its case, rows saved under the old `$name` are no longer found: update them with `update "<schema>"."<table>" set data = jsonb_set(data, '{$name}', '"<new name>"') where data->>'$name' = '<old name>'`.
+
 ## @node-ts/bus-sqs
 
 - **A message that can't be parsed goes straight to the dead letter queue.** It used to be made visible again until the queue's redrive policy moved it, which re-read it on every poll.

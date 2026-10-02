@@ -495,6 +495,96 @@ describe('PostgresPersistence', () => {
     })
   })
 
+  describe.each([
+    [
+      'longer than the identifier limit share their first 63 bytes',
+      '@my-company/orders/fulfilment-workflow-state-for-the-region-of-the-continent-of-europe',
+      '@my-company/orders/fulfilment-workflow-state-for-the-region-of-the-continent-of-america'
+    ],
+    [
+      'differ only in characters that are stripped',
+      '@acme/orders',
+      'acme/orders'
+    ]
+  ])(
+    'when the table names of two workflow states %s',
+    (_, firstName, secondName) => {
+      class FirstWorkflowState extends TestWorkflowState {
+        $name = firstName
+      }
+      class SecondWorkflowState extends TestWorkflowState {
+        $name = secondName
+      }
+
+      const schemaName = 'workflows_shared_table'
+      const lookupValue = randomUUID()
+      const mapping = {
+        lookup: () => lookupValue,
+        mapsTo: 'property1'
+      } as unknown as MessageWorkflowMapping<TestCommand, TestWorkflowState>
+      const messageAttributes: MessageAttributes = {
+        attributes: {},
+        stickyAttributes: {}
+      }
+
+      const firstState = new FirstWorkflowState()
+      firstState.$workflowId = randomUUID()
+      firstState.$status = WorkflowStatus.Running
+      firstState.property1 = lookupValue
+
+      let sharedPool: Pool
+      let sharedSut: PostgresPersistence
+      let firstResults: TestWorkflowState[]
+      let secondResults: TestWorkflowState[]
+
+      beforeAll(async () => {
+        sharedPool = new Pool(configuration.connection)
+        await sharedPool.query(`drop schema if exists "${schemaName}" cascade`)
+        sharedSut = new PostgresPersistence(
+          { ...configuration, schemaName },
+          sharedPool
+        )
+        sharedSut.prepare({
+          loggerFactory: () => Mock.ofType<Logger>().object
+        } as unknown as CoreDependencies)
+        await sharedSut.initialize()
+        const mappings = [mapping] as unknown as MessageWorkflowMapping[]
+        await sharedSut.initializeWorkflow(FirstWorkflowState, mappings)
+        await sharedSut.initializeWorkflow(SecondWorkflowState, mappings)
+
+        await sharedSut.saveWorkflowState({ ...firstState })
+        const lookup = async (
+          workflowState: typeof FirstWorkflowState | typeof SecondWorkflowState
+        ) =>
+          sharedSut.getWorkflowState(
+            workflowState,
+            mapping,
+            new TestCommand(lookupValue),
+            messageAttributes
+          )
+        firstResults = await lookup(FirstWorkflowState)
+        secondResults = await lookup(SecondWorkflowState)
+      })
+
+      afterAll(async () => {
+        await sharedPool.query(`drop schema if exists "${schemaName}" cascade`)
+        await sharedPool.end()
+      })
+
+      it('should find the state of the workflow that saved it', () => {
+        expect(firstResults).toHaveLength(1)
+        expect(firstResults[0]).toMatchObject({
+          $name: firstName,
+          $workflowId: firstState.$workflowId
+        })
+      })
+
+      it('should not find the state of the other workflow', () => {
+        expect(secondResults).toEqual([])
+      })
+    }
+  )
+
   workflowStateRoundTripTests(
     new PostgresPersistence({
       ...configuration,

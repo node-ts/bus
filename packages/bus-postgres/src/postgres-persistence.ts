@@ -148,6 +148,7 @@ export class PostgresPersistence implements Persistence {
     const statusFilter = includeCompleted
       ? ''
       : `and ${WORKFLOW_DATA_FIELD_NAME}->>'$status' = 'running'`
+    // Different workflow states can resolve to the same table, so only rows of this state match
     const query = `
       select
         ${WORKFLOW_DATA_FIELD_NAME}
@@ -156,11 +157,15 @@ export class PostgresPersistence implements Persistence {
       where
         (${workflowStateField}) is not null
         and (${workflowStateField}::text) = $1
+        and ${WORKFLOW_DATA_FIELD_NAME}->>'$name' = $2
         ${statusFilter}
     `
     this.logger.debug('Querying workflow state', { query })
 
-    const results = await this.postgres.query(query, [matcherValue])
+    const results = await this.postgres.query(query, [
+      matcherValue,
+      workflowStateName
+    ])
 
     this.logger.debug('Got workflow state', {
       resultsCount: results.rows.length
