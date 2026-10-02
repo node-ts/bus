@@ -1,6 +1,7 @@
 import {
   Bus,
   BusInstance,
+  CoreDependencies,
   Logger,
   MessageWorkflowMapping,
   WorkflowStatus
@@ -180,6 +181,60 @@ describe('MongodbPersistence', () => {
           name: WORKFLOW_ID_INDEX_NAME,
           key: { 'data.%24workflowId': 1 }
         })
+      )
+    })
+  })
+
+  describe('when several processes initialize the same workflow at once', () => {
+    const databaseName = 'workflows_concurrent'
+    // Longer than the 63 byte identifier limit that truncates postgres index names
+    const longField = 'a'.repeat(100)
+    let indexes: Document[]
+
+    beforeAll(async () => {
+      await client.db(databaseName).dropDatabase()
+      const persistences = Array.from({ length: 5 }, () => {
+        const persistence = new MongodbPersistence({
+          ...configuration,
+          databaseName
+        })
+        persistence.prepare({
+          loggerFactory: () => Mock.ofType<Logger>().object
+        } as unknown as CoreDependencies)
+        return persistence
+      })
+      const mappings = [
+        { lookup: () => undefined, mapsTo: 'property1' },
+        { lookup: () => undefined, mapsTo: longField }
+      ] as unknown as MessageWorkflowMapping[]
+      try {
+        await Promise.all(
+          persistences.map(async p =>
+            p.initializeWorkflow(TestWorkflowState, mappings)
+          )
+        )
+      } finally {
+        await Promise.all(persistences.map(async p => p.dispose()))
+      }
+      indexes = await client
+        .db(databaseName)
+        .collection('testworkflowstate')
+        .listIndexes()
+        .toArray()
+    })
+
+    afterAll(async () => {
+      await client.db(databaseName).dropDatabase()
+    })
+
+    it('should create every index once', () => {
+      expect(indexes.map(index => index.name as string).sort()).toEqual(
+        [
+          '_id_',
+          PRIMARY_INDEX_NAME,
+          PROPERTY1_INDEX_NAME,
+          `"testworkflowstate_${longField}_idx"`
+        ].sort()
       )
     })
   })

@@ -1,6 +1,7 @@
 import {
   Bus,
   BusInstance,
+  CoreDependencies,
   Logger,
   MessageWorkflowMapping,
   WorkflowStatus
@@ -29,6 +30,39 @@ const configuration: PostgresConfiguration = {
 }
 
 const roundTripSchemaName = 'workflows_round_trip'
+
+interface WorkflowIndex {
+  name: string
+  /**
+   * The index definition from the table name on, so it doesn't depend on the index name
+   */
+  definition: string
+}
+
+/**
+ * The definitions of the indexes on the test workflow table, other than its primary key,
+ * when it's mapped by `property1` and `eventValue`
+ */
+const expectedIndexDefinitions = [
+  `testworkflowstate USING btree (((data ->> 'eventValue'::text))) WHERE ((data ->> 'eventValue'::text) IS NOT NULL)`,
+  `testworkflowstate USING btree (((data ->> 'property1'::text))) WHERE ((data ->> 'property1'::text) IS NOT NULL)`,
+  'testworkflowstate USING btree (id, version)'
+]
+
+const getWorkflowIndexes = async (
+  pool: Pool,
+  schemaName: string
+): Promise<WorkflowIndex[]> => {
+  const result = await pool.query(
+    `select indexname, indexdef from pg_indexes
+      where schemaname = $1 and tablename = 'testworkflowstate' and indexname <> 'testworkflowstate_pkey'`,
+    [schemaName]
+  )
+  return result.rows.map((row: { indexname: string; indexdef: string }) => ({
+    name: row.indexname,
+    definition: row.indexdef.replace(/^.* ON .*\./, '')
+  }))
+}
 
 describe('PostgresPersistence', () => {
   let sut: PostgresPersistence
@@ -287,6 +321,177 @@ describe('PostgresPersistence', () => {
     it('should retrieve workflow state by the property', () => {
       expect(results).toHaveLength(1)
       expect(results[0].$workflowId).toEqual(workflowState.$workflowId)
+    })
+  })
+
+  describe('with index names longer than the postgres identifier limit', () => {
+    // Long enough that every index name shares its first 63 bytes, where postgres truncates
+    const schemaName = 'workflows_with_a_schema_name_long_enough_to_truncate'
+    const legacyPrimaryIndexName = `${schemaName}_testworkflowstate_id_version_idx`
+    const legacySecondaryIndexName = `${schemaName}_testworkflowstate_property1_idx`
+    const mappings = [
+      { lookup: () => undefined, mapsTo: 'property1' },
+      { lookup: () => undefined, mapsTo: 'eventValue' }
+    ] as unknown as MessageWorkflowMapping[]
+    let longPool: Pool
+    let longSut: PostgresPersistence
+
+    const createLongSut = () => {
+      const persistence = new PostgresPersistence(
+        { ...configuration, schemaName },
+        longPool
+      )
+      persistence.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      return persistence
+    }
+
+    beforeAll(() => {
+      longPool = new Pool(configuration.connection)
+      longSut = createLongSut()
+    })
+
+    afterAll(async () => {
+      await longPool.query(`drop schema if exists "${schemaName}" cascade`)
+      await longPool.end()
+    })
+
+    describe('when initializing a workflow', () => {
+      let indexes: WorkflowIndex[]
+
+      beforeAll(async () => {
+        await longPool.query(`drop schema if exists "${schemaName}" cascade`)
+        await longSut.initialize()
+        await longSut.initializeWorkflow(TestWorkflowState, mappings)
+        await longSut.initializeWorkflow(TestWorkflowState, mappings)
+        indexes = await getWorkflowIndexes(longPool, schemaName)
+      })
+
+      it('should create every index once', () => {
+        expect(indexes.map(index => index.definition).sort()).toEqual(
+          expectedIndexDefinitions
+        )
+      })
+
+      it('should give every index a name that fits the identifier limit', () => {
+        for (const { name } of indexes) {
+          expect(Buffer.byteLength(name)).toBeLessThanOrEqual(63)
+        }
+      })
+    })
+
+    describe('when several processes initialize the same workflow at once', () => {
+      let indexes: WorkflowIndex[]
+
+      beforeAll(async () => {
+        await longPool.query(`drop schema if exists "${schemaName}" cascade`)
+        const persistences = Array.from({ length: 5 }, createLongSut)
+        await longSut.initialize()
+        await Promise.all(
+          persistences.map(async p =>
+            p.initializeWorkflow(TestWorkflowState, mappings)
+          )
+        )
+        indexes = await getWorkflowIndexes(longPool, schemaName)
+      })
+
+      it('should create every index once', () => {
+        expect(indexes.map(index => index.definition).sort()).toEqual(
+          expectedIndexDefinitions
+        )
+      })
+    })
+
+    describe.each([
+      ['primary', legacyPrimaryIndexName, '(id, version)'],
+      [
+        'secondary',
+        legacySecondaryIndexName,
+        `((data ->> 'property1')) where (data ->> 'property1') is not null`
+      ]
+    ])(
+      'when a %s index exists under its truncated legacy name',
+      (_, legacyIndexName, legacyIndexColumns) => {
+        let indexes: WorkflowIndex[]
+
+        beforeAll(async () => {
+          await longPool.query(`drop schema if exists "${schemaName}" cascade`)
+          await longSut.initialize()
+          // The table and the one index earlier versions created before the truncated names collided
+          await longPool.query(`
+            create table "${schemaName}"."testworkflowstate" (
+              id uuid not null primary key,
+              version integer not null,
+              data jsonb not null
+            );
+            create index "${legacyIndexName}"
+              on "${schemaName}"."testworkflowstate" ${legacyIndexColumns};
+          `)
+          await longSut.initializeWorkflow(TestWorkflowState, mappings)
+          indexes = await getWorkflowIndexes(longPool, schemaName)
+        })
+
+        it('should keep the legacy index instead of creating a duplicate', () => {
+          expect(indexes.map(index => index.definition).sort()).toEqual(
+            expectedIndexDefinitions
+          )
+          expect(indexes.map(index => index.name)).toContain(
+            legacyIndexName.substring(0, 63)
+          )
+        })
+      }
+    )
+  })
+
+  describe('when several processes initialize the same workflow at once', () => {
+    const schemaName = 'workflows_concurrent'
+    let concurrentPool: Pool
+    let indexes: WorkflowIndex[]
+
+    beforeAll(async () => {
+      concurrentPool = new Pool(configuration.connection)
+      await concurrentPool.query(
+        `drop schema if exists "${schemaName}" cascade`
+      )
+      const persistences = Array.from({ length: 5 }, () => {
+        const persistence = new PostgresPersistence(
+          { ...configuration, schemaName },
+          new Pool(configuration.connection)
+        )
+        persistence.prepare({
+          loggerFactory: () => Mock.ofType<Logger>().object
+        } as unknown as CoreDependencies)
+        return persistence
+      })
+      const mappings = [
+        { lookup: () => undefined, mapsTo: 'property1' },
+        { lookup: () => undefined, mapsTo: 'eventValue' }
+      ] as unknown as MessageWorkflowMapping[]
+      try {
+        await Promise.all(persistences.map(async p => p.initialize()))
+        await Promise.all(
+          persistences.map(async p =>
+            p.initializeWorkflow(TestWorkflowState, mappings)
+          )
+        )
+      } finally {
+        await Promise.all(persistences.map(async p => p.dispose()))
+      }
+      indexes = await getWorkflowIndexes(concurrentPool, schemaName)
+    })
+
+    afterAll(async () => {
+      await concurrentPool.query(
+        `drop schema if exists "${schemaName}" cascade`
+      )
+      await concurrentPool.end()
+    })
+
+    it('should create every index once', () => {
+      expect(indexes.map(index => index.definition).sort()).toEqual(
+        expectedIndexDefinitions
+      )
     })
   })
 

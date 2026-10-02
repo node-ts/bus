@@ -18,13 +18,7 @@ import {
   TestSystemMessage,
   transportTests
 } from '@node-ts/bus-test'
-import {
-  Channel,
-  ChannelModel,
-  connect,
-  ConsumeMessage,
-  GetMessage
-} from 'amqplib'
+import { Channel, ChannelModel, connect, ConsumeMessage } from 'amqplib'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
@@ -319,8 +313,28 @@ describe('RabbitMqTransport', () => {
     const sut = new RabbitMqTransport(poisonConfiguration)
     const handlerEvents = new EventEmitter()
     const poisonPayload = '{not json'
-    let deadLetter: GetMessage | false
+    let handledAfterPoison: TestCommand
+    let deadLetter: ConsumeMessage
     let bus: BusInstance
+
+    /**
+     * Resolves with the next message on the dead letter queue once it arrives. The transport
+     * dead-letters on its own connection, so a single read of the queue can come before it's routed.
+     */
+    const nextDeadLetter = () =>
+      new Promise<ConsumeMessage>((resolve, reject) => {
+        const consumerTag = randomUUID()
+        channel
+          .consume(
+            poisonConfiguration.deadLetterQueueName!,
+            message => {
+              channel.ack(message!)
+              channel.cancel(consumerTag).then(() => resolve(message!), reject)
+            },
+            { consumerTag }
+          )
+          .catch(reject)
+      })
 
     beforeAll(async () => {
       for (const queueName of [
@@ -351,15 +365,16 @@ describe('RabbitMqTransport', () => {
         Buffer.from(poisonPayload),
         { messageId: randomUUID() }
       )
-      const handled = new Promise(resolve =>
+      const handled = new Promise<TestCommand>(resolve =>
         handlerEvents.once('received', resolve)
       )
+      // The follow-up is sent on the bus' connection, so the broker may deliver it before the
+      // poison message, and handling it says nothing about whether the poison was dead-lettered
       await bus.send(new TestCommand('after-poison'))
-      await handled
-
-      deadLetter = await channel.get(poisonConfiguration.deadLetterQueueName!, {
-        noAck: true
-      })
+      ;[handledAfterPoison, deadLetter] = await Promise.all([
+        handled,
+        nextDeadLetter()
+      ])
     })
 
     afterAll(async () => {
@@ -367,15 +382,11 @@ describe('RabbitMqTransport', () => {
     })
 
     it('should keep handling the messages after it', () => {
-      // Handling the next message is what the beforeAll waits for
-      expect(deadLetter).not.toBeUndefined()
+      expect(handledAfterPoison.value).toEqual('after-poison')
     })
 
     it('should send it to the dead letter queue unchanged', () => {
-      expect(deadLetter).not.toBe(false)
-      expect((deadLetter as GetMessage).content.toString()).toEqual(
-        poisonPayload
-      )
+      expect(deadLetter.content.toString()).toEqual(poisonPayload)
     })
 
     it('should remove it from the service queue', async () => {
