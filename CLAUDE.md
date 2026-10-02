@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`@node-ts/bus` is a pnpm monorepo for a TypeScript service bus: message handlers, workflows (sagas), retries, and pluggable transports/persistence. Consumer docs live at https://bus.node-ts.com.
+`@node-ts/bus` is a pnpm monorepo for a TypeScript service bus: message handlers, workflows (sagas), retries, and pluggable transports/persistence. Consumer docs live at https://bus.node-ts.com and are built from `docs/` (see Docs under Conventions).
 
 Requires Node.js 24 or later: every published package declares `engines.node >=24`, and the tsconfig base is `@tsconfig/node24`.
 
@@ -36,6 +36,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 - Formatting is automatic: a `.claude/settings.json` hook runs prettier on every file Claude edits, and husky + lint-staged format on commit.
 - Linting: `eslint.config.mjs` is `recommended` from ESLint and typescript-eslint, plus the type-aware `no-floating-promises`, `no-misused-promises` and `await-thenable`, with `eslint-config-prettier` so it never fights prettier. Type information comes from `tsconfig.eslint.json` (specs and `test/` fixtures included), and cross-package types come from each package's `dist`, so build first. lint-staged also runs ESLint on staged TS/JS files. Await or `.catch` every promise; use `void` only for deliberate fire-and-forget, with a comment saying why. Unused parameters are allowed when prefixed with `_`.
 - Dependency updates are grouped by Renovate (`renovate.json`); the maintainer installs the Renovate GitHub app.
+- Docs: `pnpm docs:dev`, `pnpm docs:typecheck`, `pnpm docs:build` and `pnpm docs:check-redirects` (see the Docs convention below). CircleCI's `docs` job runs the last three; master deploys the site to Cloudflare Pages' `next` alias, and releases (or the `deploy-docs` pipeline parameter) deploy production.
 - Releases use [changesets](https://changesets.dev) with linked package versions (`.changeset/config.json`, workflow in `CONTRIBUTING.md`, 1.x → 2.0 upgrade notes in `MIGRATING.md`). On master, CircleCI's deploy job runs `pnpm changeset publish` (publishes any package whose version isn't on npm yet) and then `.circleci/create-github-releases.mjs` (a GitHub Release and `<pkg>@<version>` tag per new version, with its CHANGELOG section as notes).
 - Package-specific notes (design, config defaults, local infra, gotchas) live in `packages/<pkg>/CLAUDE.md`. Scaffolding new adapters is covered by the `add-transport` and `add-persistence` skills in `.claude/skills/`.
 
@@ -114,6 +115,10 @@ Apply these to every API and change; the full text, with what each rules out, is
 - Call the object under test `sut`. Mock with typemoq (`Mock.ofType<T>()`, `It.isObjectWith`, `Times.once()`), not `jest.fn`. Assert handler calls through a checker mock (`bus-test/src/helpers/handle-checker.ts`). Silence the bus with `.withLogger(() => Mock.ofType<Logger>().object)`.
 - Lifecycle: `beforeAll` builds the bus (`Bus.configure().withMessageTypes(…)…build()`; every bus that receives needs message types), then `await bus.initialize()` and `await bus.start()`. `afterAll` runs `await bus.dispose()`. To wait for async handling, have the handler emit `'received'` on an `EventEmitter` and await it, rather than `sleep`. Raise slow timeouts with `jest.setTimeout` at the top of the file.
 - A new transport must pass the shared `transportTests` suite. A new persistence adapter mirrors `bus-postgres/src/postgres-persistence.integration.ts`.
+
+### Docs
+
+- The consumer docs site is `docs/` (VitePress, private workspace package `bus-docs`; layout, page template and allowed components in `docs/README.md`, workflow in the Docs section of `CONTRIBUTING.md`). A PR that changes user-visible behaviour adds or updates its page there, following the template (`docs/guide/messages/events.md`), with a sidebar entry in `docs/.vitepress/config.mts` for a new page. TypeScript snippets live in `docs/snippets` (`docs/snippets/events.ts`) and are embedded with `<<< @/snippets/x.ts#region`; never inline TS in a page. Run `pnpm docs:typecheck` and `pnpm docs:build` (fails on dead links and unresolved `{@link}`s) after `pnpm build`. A moved or removed page gets a 301 in `docs/public/_redirects`.
 
 ### Commits and releases
 
