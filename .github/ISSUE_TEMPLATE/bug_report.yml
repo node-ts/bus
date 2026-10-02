@@ -5,82 +5,25 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. Before you start:
-
-        - Search the [existing issues](https://github.com/node-ts/bus/issues?q=is%3Aissue) in case it's already reported.
-        - Questions and help with setup go in [Discussions](https://github.com/node-ts/bus/discussions).
-        - Report security vulnerabilities privately, as described in [SECURITY.md](https://github.com/node-ts/bus/blob/master/SECURITY.md), and never in a public issue.
-  - type: dropdown
-    id: packages
-    attributes:
-      label: Packages
-      description: Which packages are involved?
-      multiple: true
-      options:
-        - '@node-ts/bus-core'
-        - '@node-ts/bus-messages'
-        - '@node-ts/bus-sqs'
-        - '@node-ts/bus-sqs-lambda'
-        - '@node-ts/bus-rabbitmq'
-        - '@node-ts/bus-postgres'
-        - '@node-ts/bus-mongodb'
-        - '@node-ts/bus-cli'
-        - '@node-ts/bus-test'
-        - Not sure
-    validations:
-      required: true
+        This project is maintained in spare time, so issues may not get a response. Report security vulnerabilities privately, as described in [SECURITY.md](https://github.com/node-ts/bus/blob/master/SECURITY.md).
   - type: input
     id: versions
     attributes:
-      label: Package versions
-      description: The version of each package involved, from your lockfile or `npm ls`.
-      placeholder: '@node-ts/bus-core@2.0.0, @node-ts/bus-sqs@2.0.0'
-    validations:
-      required: true
-  - type: input
-    id: environment
-    attributes:
-      label: Environment
-      description: Node.js version, operating system, and the broker or database version if one is involved.
-      placeholder: Node.js 24.11.1, Linux, RabbitMQ 3.13
+      label: Versions
+      description: The versions of the `@node-ts/bus-*` packages and Node.js you're using.
+      placeholder: '@node-ts/bus-core@2.0.0, @node-ts/bus-sqs@2.0.0, Node.js 24.11.1'
     validations:
       required: true
   - type: textarea
-    id: actual
+    id: description
     attributes:
-      label: What happened
-      description: Describe the bug. Include the full error and stack trace if there is one.
-    validations:
-      required: true
-  - type: textarea
-    id: expected
-    attributes:
-      label: What you expected to happen
+      label: What happened, and what you expected
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Steps to reproduce
-      description: The smallest code or repository that shows the bug. A failing test is ideal.
-      placeholder: |
-        1. Configure the bus with ...
-        2. Send ...
-        3. See ...
+      label: Minimal reproduction
+      description: The smallest code, repository or failing test that shows the bug.
     validations:
       required: true
-  - type: textarea
-    id: logs
-    attributes:
-      label: Logs
-      description: Run with `DEBUG=@node-ts/bus-*` set to get the bus' debug output. Remove any secrets first.
-      render: shell
-  - type: checkboxes
-    id: checks
-    attributes:
-      label: Checks
-      options:
-        - label: I searched the existing issues and this hasn't been reported.
-          required: true
-        - label: I agree to follow this project's [code of conduct](https://github.com/node-ts/bus/blob/master/CODE_OF_CONDUCT.md).
-          required: true
