@@ -350,3 +350,6 @@ $RECYCLE.BIN/
 *.lnk
 
 tsconfig.tsbuildinfo
+
+# The docs scripts, which the [Ss]cripts pattern above ignores
+!docs/scripts/

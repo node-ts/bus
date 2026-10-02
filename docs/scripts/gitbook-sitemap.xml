@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+			<url>
+				<loc>https://bus.node-ts.com</loc>
+				<priority>1</priority>
+				<lastmod>2021-10-31T22:05:23.161Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/installing</loc>
+				<priority>1</priority>
+				<lastmod>2021-10-29T00:46:04.185Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/installing/installation</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-06T10:15:36.506Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/installing/handling-messages</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-17T05:43:18.954Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/installing/shutting-down-cleanly</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-02T01:27:12.689Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/reference</loc>
+				<priority>1</priority>
+				<lastmod>2021-10-16T22:52:59.555Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/reference/bus</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-16T23:09:10.056Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/reference/busconfiguration</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-11-20T06:29:23.868Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/reference/businstance</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-17T05:16:01.885Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/getting-help</loc>
+				<priority>1</priority>
+				<lastmod>2021-10-29T00:46:02.754Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/messages</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-02T01:33:27.381Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/messages/events</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-16T05:45:57.354Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/messages/commands</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-16T05:45:47.709Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/messages/system-messages</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-16T05:46:11.421Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/message-attributes</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-06T23:58:21.357Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/message-attributes/attributes</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-06T23:58:21.862Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/message-attributes/attributes-1</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-06T23:58:23.584Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/message-attributes/sticky-attributes</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-06T23:58:19.666Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-06T23:25:01.492Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows/creating-a-workflow</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-06T23:58:23.137Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows/starting</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-06T23:58:23.007Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows/handling</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-11-22T21:43:01.640Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows/state</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:27:03.357Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows/completing</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:27:03.305Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/workflows/example</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:33:46.190Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/transports</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-07T02:48:46.595Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/transports/rabbitmq</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:48:46.601Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/transports/amazon-sqs</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:48:46.584Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/transports/redis</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:48:50.747Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/transports/creating-a-transport</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T02:52:26.623Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/persistence</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-07T04:26:21.600Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/persistence/postgres</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T04:26:23.264Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/persistence/mongodb</loc>
+				<priority>0.7</priority>
+				<lastmod>2023-04-29T05:45:48.191Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/persistence/creating-a-persistence</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T04:26:24.018Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/serializers</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-07T04:26:22.129Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/serializers/class-serializer</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T04:26:23.375Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/loggers</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-11-24T19:14:37.263Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/loggers/custom-loggers</loc>
+				<priority>0.7</priority>
+				<lastmod>2021-10-07T04:26:24.961Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/middleware</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-11-11T21:28:03.058Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/lifecycle-hooks</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-16T05:59:54.450Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/retry-strategies</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-11-20T06:25:03.194Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/dependency-injection</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-10-17T05:43:21.607Z</lastmod>
+</url>
+
+			<url>
+				<loc>https://bus.node-ts.com/guide/long-running-processes</loc>
+				<priority>0.84</priority>
+				<lastmod>2021-11-18T20:56:07.840Z</lastmod>
+</url>
+
+
+</urlset>
