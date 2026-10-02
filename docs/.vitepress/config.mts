@@ -1,9 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { defineConfig, type DefaultTheme, type HeadConfig } from 'vitepress'
+import { defineConfig, type DefaultTheme } from 'vitepress'
 import llmstxt from 'vitepress-plugin-llms'
+import { writeRedirectStubs } from './redirect-stubs'
 
-const SITE_URL = 'https://bus.node-ts.com'
+// Served by GitHub Pages as the node-ts/bus project site
+const ORIGIN = 'https://node-ts.github.io'
+const BASE = '/bus/'
+const SITE_URL = `${ORIGIN}/bus`
 const REPOSITORY_URL = 'https://github.com/node-ts/bus'
 const TITLE = '@node-ts/bus'
 const DESCRIPTION =
@@ -18,26 +22,6 @@ const apiSidebar = (): DefaultTheme.SidebarItem[] => {
     new URL('../api/typedoc-sidebar.json', import.meta.url)
   )
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : []
-}
-
-/**
- * Cloudflare Web Analytics is cookieless. Its token is set by the deploy job (see CONTRIBUTING.md), so local and pull
- * request builds don't report page views.
- */
-const analytics = (): HeadConfig[] => {
-  const token = process.env.CLOUDFLARE_WEB_ANALYTICS_TOKEN
-  return token
-    ? [
-        [
-          'script',
-          {
-            defer: '',
-            src: 'https://static.cloudflareinsights.com/beacon.min.js',
-            'data-cf-beacon': JSON.stringify({ token })
-          }
-        ]
-      ]
-    : []
 }
 
 const gettingStarted: DefaultTheme.SidebarItem[] = [
@@ -189,21 +173,28 @@ export default defineConfig({
   lang: 'en-AU',
   title: TITLE,
   description: DESCRIPTION,
+  base: BASE,
   cleanUrls: true,
   lastUpdated: true,
   // Dead internal links fail the build
   ignoreDeadLinks: false,
   srcExclude: ['README.md', 'snippets/**', 'scripts/**', 'typedoc/**'],
-  sitemap: { hostname: SITE_URL },
+  sitemap: { hostname: `${SITE_URL}/` },
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    [
+      'link',
+      { rel: 'icon', type: 'image/svg+xml', href: `${BASE}favicon.svg` }
+    ],
     ['meta', { name: 'theme-color', content: '#0d9488' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: TITLE }],
     ['meta', { property: 'og:image', content: `${SITE_URL}/og.png` }],
-    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ...analytics()
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }]
   ],
+  buildEnd(siteConfig) {
+    const count = writeRedirectStubs(siteConfig.outDir, SITE_URL)
+    console.log(`Wrote redirect stubs for ${count} old paths`)
+  },
   transformPageData(pageData) {
     // Generated pages have no source to edit
     if (pageData.relativePath.startsWith('api/')) {
@@ -263,6 +254,14 @@ export default defineConfig({
     },
     search: { provider: 'local' },
     outline: { level: [2, 3] },
+    // GitHub Pages serves this for any path without a page, including the old
+    // site's pages that docs/redirects.json doesn't map
+    notFound: {
+      title: 'PAGE NOT FOUND',
+      quote:
+        "This page isn't here. The docs have moved and been reorganised, so it may have a new address: start from the home page, or search.",
+      linkText: 'Go to the home page'
+    },
     footer: {
       message: 'Released under the MIT License.',
       copyright: 'Copyright © node-ts contributors'
@@ -273,7 +272,8 @@ export default defineConfig({
       llmstxt({
         title: TITLE,
         description: DESCRIPTION,
-        domain: SITE_URL,
+        // The plugin adds the base
+        domain: ORIGIN,
         ignoreFiles: ['README.md', 'snippets/**', 'scripts/**', 'typedoc/**'],
         ignoreFilesPerOutput: { llmsTxt: ['api/**'] },
         sidebar: llmsSidebar(),

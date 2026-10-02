@@ -44,5 +44,5 @@
   </g>
   <text x="96" y="372" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="96" font-weight="700" fill="url(#og-title)" letter-spacing="-2">@node-ts/bus</text>
   <text x="96" y="446" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="36" fill="#ccfbf1">Message-driven Node.js applications in TypeScript</text>
-  <text x="96" y="520" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="26" fill="#5eead4">bus.node-ts.com</text>
+  <text x="96" y="520" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="26" fill="#5eead4">node-ts.github.io/bus</text>
 </svg>
