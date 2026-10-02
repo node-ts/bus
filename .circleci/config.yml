@@ -101,10 +101,32 @@ jobs:
           name: Authenticate with registry
           command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
       - run:
+          name: Check npm token
+          # Runs on every deploy, so an expired or revoked NPM_TOKEN fails here
+          # even when there's nothing to publish. Prints only the npm username.
+          command: |
+            if [ -z "$NPM_TOKEN" ]; then
+              echo "NPM_TOKEN is not set. Add it to the CircleCI project (see CONTRIBUTING.md)." >&2
+              exit 1
+            fi
+            npm whoami --registry=https://registry.npmjs.org/ || {
+              echo "npm rejected NPM_TOKEN; it may have expired or been revoked. Replace it in the CircleCI project (see CONTRIBUTING.md)." >&2
+              exit 1
+            }
+      - run:
+          name: Skip publish while changesets are pending
+          # Packages are published only from the "version packages" merge,
+          # which consumes every changeset. While any are pending, halt the job
+          # (successfully) so nothing below runs. Exit code 3 means pending;
+          # anything else non-zero is a script error and fails the job.
+          command: |
+            node .circleci/pending-changesets.mjs || {
+              [ $? -eq 3 ] && circleci-agent step halt
+            }
+      - run:
           name: Publish
-          # Publishes every package whose version isn't on npm yet, so it's a
-          # no-op until a "version packages" commit lands. Tags are created by
-          # the GitHub Releases step, not locally.
+          # Publishes every package whose version isn't on npm yet. Tags are
+          # created by the GitHub Releases step, not locally.
           command: pnpm changeset publish --no-git-tag
       - run:
           name: Create GitHub Releases
