@@ -9,7 +9,10 @@ export class TestVoidStartedByWorkflowState extends WorkflowState {
 
 export class TestVoidStartedByWorkflow extends Workflow<TestVoidStartedByWorkflowState> {
   configureWorkflow(
-    mapper: WorkflowMapper<TestVoidStartedByWorkflowState, any>
+    mapper: WorkflowMapper<
+      TestVoidStartedByWorkflowState,
+      TestVoidStartedByWorkflow
+    >
   ): void {
     mapper
       .withState(TestVoidStartedByWorkflowState)

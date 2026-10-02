@@ -9,7 +9,7 @@ export class TestDiscardedWorkflowState extends WorkflowState {
 
 export class TestDiscardedWorkflow extends Workflow<TestDiscardedWorkflowState> {
   configureWorkflow(
-    mapper: WorkflowMapper<TestDiscardedWorkflowState, any>
+    mapper: WorkflowMapper<TestDiscardedWorkflowState, TestDiscardedWorkflow>
   ): void {
     mapper.withState(TestDiscardedWorkflowState).startedBy(TestCommand, 'step1')
   }
