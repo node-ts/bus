@@ -5,18 +5,25 @@ import {
 } from '@node-ts/bus-messages'
 import {
   WorkflowAlreadyHandlesMessage,
-  WorkflowAlreadyStartedByMessage
+  WorkflowAlreadyStartedByMessage,
+  WorkflowDoesNotHandleMessage
 } from './error'
+import {
+  FunctionWorkflowDefinition,
+  FunctionWorkflowHandler
+} from './function-workflow-definition'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { WorkflowContext } from './workflow-context'
 import { WorkflowState, WorkflowStateConstructor } from './workflow-state'
 import {
-  ExactWorkflowHandlerResult,
+  CheckedWorkflowHandler,
   WorkflowHandlerResult
 } from './workflow-state-change'
 
 /**
- * A handler of a workflow declared with `defineWorkflow`
+ * A handler of a workflow declared with `defineWorkflow`. Its parameters are checked bivariantly, like a method's,
+ * so a handler that annotates its context with narrower attributes, such as
+ * `WorkflowContext<OrderState, MessageAttributes<{ tenantId: string }>>`, is still a handler.
  * @param message The message that was received
  * @param workflowState The current, read-only state of the workflow instance. In a `startedBy` handler it's the new
  * state, with only `$workflowId`, `$status` and `$version` set.
@@ -30,48 +37,42 @@ import {
 export type WorkflowHandlerFunction<
   TMessage extends Message,
   TWorkflowState extends WorkflowState,
-  TMessageAttributes extends MessageAttributes = MessageAttributes,
-  TResult = WorkflowHandlerResult<TWorkflowState>
-> = (
-  message: TMessage,
-  workflowState: Readonly<TWorkflowState>,
-  context: WorkflowContext<TWorkflowState, TMessageAttributes>
-) => TResult | Promise<TResult>
-
-/**
- * A message handler of a workflow declared with `defineWorkflow`, as it's registered with the bus
- */
-export interface FunctionWorkflowHandler<TWorkflowState extends WorkflowState> {
-  /**
-   * The type of message the handler handles
-   */
-  readonly messageType: MessageDeclaration<Message>
-
-  /**
-   * How a `when` handler finds the workflow instances for a message. When it's `undefined` they're found by the
-   * `workflowId` sticky attribute.
-   */
-  readonly customLookup: MessageWorkflowMapping | undefined
-
-  /**
-   * Calls the handler
-   * @param message The message that was received
-   * @param workflowState The current, read-only state of the workflow instance
-   * @param context The workflow context of the message
-   * @returns Changes to the workflow state to save, or nothing to leave it unchanged
-   */
-  handle(
-    message: Message,
+  TMessageAttributes extends MessageAttributes = MessageAttributes
+> = {
+  bivarianceHack(
+    message: TMessage,
     workflowState: Readonly<TWorkflowState>,
-    context: WorkflowContext<TWorkflowState>
+    context: WorkflowContext<TWorkflowState, TMessageAttributes>
   ):
     | WorkflowHandlerResult<TWorkflowState>
     | Promise<WorkflowHandlerResult<TWorkflowState>>
-}
+}['bivarianceHack']
+
+/**
+ * A handler of a workflow declared with `defineWorkflow`, as returned by `startedByHandler` and `whenHandler` to
+ * call it directly, such as in a test
+ * @param message The message to handle
+ * @param workflowState The current workflow state
+ * @param context The workflow context, such as one from `workflowContext()` in a test
+ * @returns Changes to the workflow state to save, or nothing to leave it unchanged
+ */
+export type WorkflowHandlerCall<
+  TMessage extends Message,
+  TWorkflowState extends WorkflowState
+> = {
+  bivarianceHack(
+    message: TMessage,
+    workflowState: Readonly<TWorkflowState>,
+    context: WorkflowContext<TWorkflowState>
+  ): Promise<WorkflowHandlerResult<TWorkflowState>>
+}['bivarianceHack']
 
 /**
  * A workflow declared with `defineWorkflow`. Each `startedBy` and `when` returns a new workflow with the handler
  * added, so a workflow can be built up step by step and registered with `withWorkflow()`.
+ *
+ * What a handler returns is checked against the workflow state: fields of the wrong type, and fields at any depth
+ * that aren't in the state, don't compile. See `CheckedWorkflowHandler` for what can't be checked.
  */
 export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
   /**
@@ -85,18 +86,6 @@ export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
   readonly workflowStateType: WorkflowStateConstructor<TWorkflowState>
 
   /**
-   * The handlers of messages that start the workflow
-   */
-  readonly startedByHandlers: ReadonlyArray<
-    FunctionWorkflowHandler<TWorkflowState>
-  >
-
-  /**
-   * The handlers of messages that are dispatched to running instances of the workflow
-   */
-  readonly whenHandlers: ReadonlyArray<FunctionWorkflowHandler<TWorkflowState>>
-
-  /**
    * Starts a new instance of the workflow each time `message` is handled.
    *
    * Messages are delivered at least once and starts aren't deduplicated, so a `message` that's retried after the
@@ -104,8 +93,7 @@ export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
    * returning `ctx.discard()` when a workflow already exists for the message, if that matters.
    * @param message The message that starts the workflow: a message class, or a definition from `defineCommand` or
    * `defineEvent`
-   * @param handler Handles `message`, and returns the initial workflow state. Fields it returns that aren't in the
-   * workflow state don't compile.
+   * @param handler Handles `message`, and returns the initial workflow state
    * @returns A new workflow with the handler added
    * @throws WorkflowAlreadyStartedByMessage if the workflow is already started by `message`
    * @example
@@ -116,23 +104,17 @@ export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
    */
   startedBy<
     TMessage extends Message,
-    TMessageAttributes extends MessageAttributes = MessageAttributes,
-    TResult = WorkflowHandlerResult<TWorkflowState>
+    THandler extends WorkflowHandlerFunction<TMessage, TWorkflowState>
   >(
     message: MessageDeclaration<TMessage>,
-    handler: WorkflowHandlerFunction<
-      TMessage,
-      TWorkflowState,
-      TMessageAttributes,
-      ExactWorkflowHandlerResult<TWorkflowState, TResult>
-    >
+    handler: THandler & CheckedWorkflowHandler<THandler, TWorkflowState>
   ): FunctionWorkflow<TWorkflowState>
 
   /**
    * Dispatches `message` to the running instances of the workflow that have the `workflowId` sticky attribute of
    * the message. Messages sent from the workflow, and replies to them, carry it.
    * @param message The message to handle: a message class, or a definition from `defineCommand` or `defineEvent`
-   * @param handler Handles `message`. Fields it returns that aren't in the workflow state don't compile.
+   * @param handler Handles `message`
    * @returns A new workflow with the handler added
    * @throws WorkflowAlreadyHandlesMessage if the workflow already handles `message`
    * @example
@@ -142,16 +124,10 @@ export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
    */
   when<
     TMessage extends Message,
-    TMessageAttributes extends MessageAttributes = MessageAttributes,
-    TResult = WorkflowHandlerResult<TWorkflowState>
+    THandler extends WorkflowHandlerFunction<TMessage, TWorkflowState>
   >(
     message: MessageDeclaration<TMessage>,
-    handler: WorkflowHandlerFunction<
-      TMessage,
-      TWorkflowState,
-      TMessageAttributes,
-      ExactWorkflowHandlerResult<TWorkflowState, TResult>
-    >
+    handler: THandler & CheckedWorkflowHandler<THandler, TWorkflowState>
   ): FunctionWorkflow<TWorkflowState>
 
   /**
@@ -159,7 +135,7 @@ export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
    * @param message The message to handle: a message class, or a definition from `defineCommand` or `defineEvent`
    * @param mapping Finds the workflow instances whose `mapsTo` field matches the value `lookup` returns for
    * `message`. `mapsTo` must be a field of the workflow state.
-   * @param handler Handles `message`. Fields it returns that aren't in the workflow state don't compile.
+   * @param handler Handles `message`
    * @returns A new workflow with the handler added
    * @throws WorkflowAlreadyHandlesMessage if the workflow already handles `message`
    * @example
@@ -171,37 +147,75 @@ export interface FunctionWorkflow<TWorkflowState extends WorkflowState> {
    */
   when<
     TMessage extends Message,
-    TMessageAttributes extends MessageAttributes = MessageAttributes,
-    TResult = WorkflowHandlerResult<TWorkflowState>
+    THandler extends WorkflowHandlerFunction<TMessage, TWorkflowState>
   >(
     message: MessageDeclaration<TMessage>,
     mapping: MessageWorkflowMapping<TMessage, TWorkflowState>,
-    handler: WorkflowHandlerFunction<
-      TMessage,
-      TWorkflowState,
-      TMessageAttributes,
-      ExactWorkflowHandlerResult<TWorkflowState, TResult>
-    >
+    handler: THandler & CheckedWorkflowHandler<THandler, TWorkflowState>
   ): FunctionWorkflow<TWorkflowState>
+
+  /**
+   * Gets the `startedBy` handler of `message`, typed by the message, to call it directly in a test
+   * @param message The message the workflow is started by
+   * @returns The handler
+   * @throws WorkflowDoesNotHandleMessage if the workflow isn't started by `message`
+   * @example
+   * const result = await orderWorkflow.startedByHandler(OrderPlaced)(OrderPlaced({ orderId: '1' }), state, workflowContext())
+   */
+  startedByHandler<TMessage extends Message>(
+    message: MessageDeclaration<TMessage>
+  ): WorkflowHandlerCall<TMessage, TWorkflowState>
+
+  /**
+   * Gets the `when` handler of `message`, typed by the message, to call it directly in a test
+   * @param message The message the workflow handles
+   * @returns The handler
+   * @throws WorkflowDoesNotHandleMessage if the workflow has no `when` handler for `message`
+   * @example
+   * const result = await orderWorkflow.whenHandler(CardCharged)(new CardCharged('1'), state, workflowContext())
+   */
+  whenHandler<TMessage extends Message>(
+    message: MessageDeclaration<TMessage>
+  ): WorkflowHandlerCall<TMessage, TWorkflowState>
 }
+
+/**
+ * Any handler passed to `startedBy` or `when`. They're typed by message on the way in, and called with the message
+ * they're registered for.
+ */
+type AnyWorkflowHandler<TWorkflowState extends WorkflowState> =
+  WorkflowHandlerFunction<Message, TWorkflowState>
 
 const toHandler = <TWorkflowState extends WorkflowState>(
   messageType: MessageDeclaration<Message>,
-  customLookup: MessageWorkflowMapping<any, TWorkflowState> | undefined,
-  handler: WorkflowHandlerFunction<any, TWorkflowState, any, any>
+  customLookup: MessageWorkflowMapping<Message, TWorkflowState> | undefined,
+  handler: AnyWorkflowHandler<TWorkflowState>
 ): FunctionWorkflowHandler<TWorkflowState> => ({
   messageType,
   customLookup: customLookup as MessageWorkflowMapping | undefined,
-  handle: (message, workflowState, context) =>
+  handle: async (message, workflowState, context) =>
     handler(message, workflowState, context)
 })
+
+const findHandler = <TWorkflowState extends WorkflowState>(
+  name: string,
+  handlers: ReadonlyArray<FunctionWorkflowHandler<TWorkflowState>>,
+  message: MessageDeclaration<Message>,
+  handlerKind: 'startedBy' | 'when'
+): FunctionWorkflowHandler<TWorkflowState> => {
+  const handler = handlers.find(h => h.messageType === message)
+  if (!handler) {
+    throw new WorkflowDoesNotHandleMessage(name, message, handlerKind)
+  }
+  return handler
+}
 
 const createFunctionWorkflow = <TWorkflowState extends WorkflowState>(
   name: string,
   workflowStateType: WorkflowStateConstructor<TWorkflowState>,
-  startedByHandlers: FunctionWorkflowHandler<TWorkflowState>[],
-  whenHandlers: FunctionWorkflowHandler<TWorkflowState>[]
-): FunctionWorkflow<TWorkflowState> =>
+  startedByHandlers: ReadonlyArray<FunctionWorkflowHandler<TWorkflowState>>,
+  whenHandlers: ReadonlyArray<FunctionWorkflowHandler<TWorkflowState>>
+): FunctionWorkflowDefinition<TWorkflowState> =>
   Object.freeze({
     name,
     workflowStateType,
@@ -209,7 +223,7 @@ const createFunctionWorkflow = <TWorkflowState extends WorkflowState>(
     whenHandlers: Object.freeze([...whenHandlers]),
     startedBy: (
       message: MessageDeclaration<Message>,
-      handler: WorkflowHandlerFunction<any, TWorkflowState, any, any>
+      handler: AnyWorkflowHandler<TWorkflowState>
     ) => {
       if (startedByHandlers.some(h => h.messageType === message)) {
         throw new WorkflowAlreadyStartedByMessage(name, message)
@@ -224,9 +238,9 @@ const createFunctionWorkflow = <TWorkflowState extends WorkflowState>(
     when: (
       message: MessageDeclaration<Message>,
       mappingOrHandler:
-        | MessageWorkflowMapping<any, TWorkflowState>
-        | WorkflowHandlerFunction<any, TWorkflowState, any, any>,
-      handler?: WorkflowHandlerFunction<any, TWorkflowState, any, any>
+        | MessageWorkflowMapping<Message, TWorkflowState>
+        | AnyWorkflowHandler<TWorkflowState>,
+      handler?: AnyWorkflowHandler<TWorkflowState>
     ) => {
       if (whenHandlers.some(h => h.messageType === message)) {
         throw new WorkflowAlreadyHandlesMessage(name, message)
@@ -241,7 +255,11 @@ const createFunctionWorkflow = <TWorkflowState extends WorkflowState>(
         startedByHandlers,
         [...whenHandlers, whenHandler]
       )
-    }
+    },
+    startedByHandler: (message: MessageDeclaration<Message>) =>
+      findHandler(name, startedByHandlers, message, 'startedBy').handle,
+    whenHandler: (message: MessageDeclaration<Message>) =>
+      findHandler(name, whenHandlers, message, 'when').handle
   })
 
 /**

@@ -6,8 +6,7 @@ import { TestCustomer } from './test-customer'
  * a round trip through a persistence
  */
 export class TestFunctionRoundTripWorkflowState extends WorkflowState {
-  // Short enough that bus-postgres' index names, which Postgres truncates at 63 characters, stay distinct
-  static NAME = '@node-ts/bus-test/function-round-trip-state'
+  static NAME = '@node-ts/bus-test/test-function-round-trip-workflow-state'
   $name = TestFunctionRoundTripWorkflowState.NAME
 
   orderId: string

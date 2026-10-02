@@ -13,6 +13,8 @@ import {
   TestCommand,
   TestFunctionStartedByCompletesState,
   testFunctionStartedByCompletesWorkflow,
+  TestFunctionStartedByCopyState,
+  testFunctionStartedByCopyWorkflow,
   TestFunctionStartedByDiscardState,
   testFunctionStartedByDiscardWorkflow,
   TestFunctionStartedByVoidState,
@@ -20,6 +22,10 @@ import {
   testFunctionWorkflow,
   TestFunctionWorkflowState
 } from './test'
+import {
+  TestWorkflowStartedByCompletes,
+  TestWorkflowStartedByCompletesData
+} from './test/test-workflow-startedby-completes'
 import { WorkflowStatus } from './workflow-state'
 
 /**
@@ -54,9 +60,12 @@ describe('defineWorkflow', () => {
         .withLogger(() => Mock.ofType<Logger>().object)
         .withMessageTypes(testMessageTypes)
         .withPersistence(persistence)
+        // A class workflow and function workflows in one call
         .withWorkflow(
+          TestWorkflowStartedByCompletes,
           testFunctionWorkflow,
           testFunctionStartedByCompletesWorkflow,
+          testFunctionStartedByCopyWorkflow,
           testFunctionStartedByDiscardWorkflow,
           testFunctionStartedByVoidWorkflow
         )
@@ -114,6 +123,38 @@ describe('defineWorkflow', () => {
           $status: WorkflowStatus.Complete,
           property1: command.property1
         })
+      })
+    })
+
+    describe('and a class workflow is registered in the same call', () => {
+      it('should start the class workflow too', () => {
+        expect(persistence.length(TestWorkflowStartedByCompletesData)).toEqual(
+          1
+        )
+      })
+    })
+
+    describe('and its startedBy handler returns a copy of the state with other bus-managed fields', () => {
+      let state: TestFunctionStartedByCopyState[]
+
+      beforeAll(async () => {
+        state = await persistence.getWorkflowState(
+          TestFunctionStartedByCopyState,
+          { lookup: () => command.property1, mapsTo: 'property1' },
+          command,
+          noAttributes
+        )
+      })
+
+      it('should save the state with the fields it returned', () => {
+        expect(state).toHaveLength(1)
+        expect(state[0].property1).toEqual(command.property1)
+      })
+
+      it('should keep the $workflowId, $version and $name the bus manages', () => {
+        expect(state[0].$workflowId).not.toEqual('not-the-workflow-id')
+        expect(state[0].$version).toEqual(1)
+        expect(state[0].$name).toEqual(TestFunctionStartedByCopyState.NAME)
       })
     })
 

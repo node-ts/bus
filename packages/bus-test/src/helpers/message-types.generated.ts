@@ -25,12 +25,12 @@ export const messageTypes: MessageTypes = {
       '@node-ts/bus-test/src/helpers/test-event#TestEvent',
     '@node-ts/bus-sqs/test-fail-message':
       '@node-ts/bus-test/src/helpers/test-fail-message#TestFailMessage',
-    '@node-ts/bus-test/function-round-trip-state':
-      '@node-ts/bus-test/src/helpers/test-function-round-trip-workflow-state#TestFunctionRoundTripWorkflowState',
     '@node-ts/bus-test/test-big-int-command':
       '@node-ts/bus-test/src/helpers/test-big-int-command#TestBigIntCommand',
     '@node-ts/bus-test/test-continue-round-trip-workflow':
       '@node-ts/bus-test/src/helpers/test-continue-round-trip-workflow#TestContinueRoundTripWorkflow',
+    '@node-ts/bus-test/test-function-round-trip-workflow-state':
+      '@node-ts/bus-test/src/helpers/test-function-round-trip-workflow-state#TestFunctionRoundTripWorkflowState',
     '@node-ts/bus-test/test-poisoned-message':
       '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage',
     '@node-ts/bus-test/test-round-trip-command':

@@ -5,6 +5,7 @@ import { TestDiscardedWorkflowState } from '../workflow/test/test-discarded-work
 import { TestFunctionWorkflowState } from '../workflow/test/test-function-workflow'
 import {
   TestFunctionStartedByCompletesState,
+  TestFunctionStartedByCopyState,
   TestFunctionStartedByDiscardState,
   TestFunctionStartedByVoidState
 } from '../workflow/test/test-function-workflow-started-by'
@@ -44,6 +45,7 @@ export const testMessageTypes = messageTypesFor(
   TestWorkflowState,
   TestFunctionWorkflowState,
   TestFunctionStartedByCompletesState,
+  TestFunctionStartedByCopyState,
   TestFunctionStartedByDiscardState,
   TestFunctionStartedByVoidState
 )

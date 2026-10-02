@@ -1,17 +1,15 @@
-import {
-  defineCommand,
-  messageAttributes,
-  MessageOf
-} from '@node-ts/bus-messages'
+import { Command, defineCommand } from '@node-ts/bus-messages'
 import { defineWorkflow, FunctionWorkflow } from './define-workflow'
 import {
   WorkflowAlreadyHandlesMessage,
-  WorkflowAlreadyStartedByMessage
+  WorkflowAlreadyStartedByMessage,
+  WorkflowDoesNotHandleMessage
 } from './error'
+import { FunctionWorkflowDefinition } from './function-workflow-definition'
 import { FinalTask, TaskRan, TestCommand } from './test'
-import { WorkflowContext } from './workflow-context'
+import { workflowContext } from './workflow-context'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
-import { WorkflowStateChange } from './workflow-state-change'
+import { WorkflowHandlerResult } from './workflow-state-change'
 
 class OrderState extends WorkflowState {
   static NAME = '@node-ts/bus-core/define-workflow-spec-order-state'
@@ -24,24 +22,18 @@ class OrderState extends WorkflowState {
 const OrderPlaced = defineCommand(
   '@node-ts/bus-core/define-workflow-spec-order-placed'
 )<{ orderId: string }>()
-type OrderPlaced = MessageOf<typeof OrderPlaced>
-
-const fakeContext = (): WorkflowContext<OrderState> => ({
-  correlationId: 'test',
-  attributes: messageAttributes(),
-  send: async () => {},
-  publish: async () => {},
-  failMessage: async () => {},
-  returnMessage: async () => {},
-  complete: state => ({ ...state, $status: WorkflowStatus.Complete }),
-  discard: () => ({ $status: WorkflowStatus.Discard })
-})
 
 const orderState = (): OrderState =>
   Object.assign(new OrderState(), {
     $workflowId: 'workflow-id',
     $status: WorkflowStatus.Running
   })
+
+/**
+ * Reads the handlers the registry reads, which aren't part of the public type
+ */
+const definitionOf = (workflow: FunctionWorkflow<OrderState>) =>
+  workflow as FunctionWorkflowDefinition<OrderState>
 
 describe('defineWorkflow', () => {
   describe('when a workflow is declared', () => {
@@ -57,8 +49,8 @@ describe('defineWorkflow', () => {
     })
 
     it('should have no handlers', () => {
-      expect(sut.startedByHandlers).toHaveLength(0)
-      expect(sut.whenHandlers).toHaveLength(0)
+      expect(definitionOf(sut).startedByHandlers).toHaveLength(0)
+      expect(definitionOf(sut).whenHandlers).toHaveLength(0)
     })
 
     describe('and a handler is added', () => {
@@ -79,25 +71,23 @@ describe('defineWorkflow', () => {
       })
 
       it('should return a new workflow with the handler', () => {
-        expect(withHandlers.startedByHandlers.map(h => h.messageType)).toEqual([
-          OrderPlaced
-        ])
-        expect(withHandlers.whenHandlers.map(h => h.messageType)).toEqual([
-          TaskRan,
-          FinalTask
-        ])
+        expect(
+          definitionOf(withHandlers).startedByHandlers.map(h => h.messageType)
+        ).toEqual([OrderPlaced])
+        expect(
+          definitionOf(withHandlers).whenHandlers.map(h => h.messageType)
+        ).toEqual([TaskRan, FinalTask])
       })
 
       it('should leave the workflow it was added to unchanged', () => {
-        expect(sut.startedByHandlers).toHaveLength(0)
-        expect(sut.whenHandlers).toHaveLength(0)
+        expect(definitionOf(sut).startedByHandlers).toHaveLength(0)
+        expect(definitionOf(sut).whenHandlers).toHaveLength(0)
       })
 
       it('should keep the custom lookup of a when handler', () => {
-        expect(withHandlers.whenHandlers[0].customLookup).toBeUndefined()
-        expect(withHandlers.whenHandlers[1].customLookup).toMatchObject({
-          mapsTo: 'orderId'
-        })
+        const [byWorkflowId, byLookup] = definitionOf(withHandlers).whenHandlers
+        expect(byWorkflowId.customLookup).toBeUndefined()
+        expect(byLookup.customLookup).toMatchObject({ mapsTo: 'orderId' })
       })
     })
 
@@ -122,94 +112,86 @@ describe('defineWorkflow', () => {
         ).toThrow(WorkflowAlreadyHandlesMessage)
       })
     })
+
+    describe('and the handler of a message it does not handle is asked for', () => {
+      let error: unknown
+
+      beforeEach(() => {
+        try {
+          sut.whenHandler(TaskRan)
+        } catch (e) {
+          error = e
+        }
+      })
+
+      it('should throw WorkflowDoesNotHandleMessage naming the message', () => {
+        expect(error).toBeInstanceOf(WorkflowDoesNotHandleMessage)
+        expect((error as WorkflowDoesNotHandleMessage).message).toEqual(
+          `Workflow ${OrderState.NAME} has no when handler for ${TaskRan.NAME}`
+        )
+      })
+    })
   })
 
-  describe('when a handler is called directly with a fake context', () => {
-    const sent: unknown[] = []
-    let result: WorkflowStateChange<OrderState> | void
+  describe('when an inline handler is called directly with workflowContext()', () => {
+    const sent: Command[] = []
+    let startResult: WorkflowHandlerResult<OrderState>
+    let whenResult: WorkflowHandlerResult<OrderState>
 
     beforeAll(async () => {
-      const startOrder = async (
-        message: OrderPlaced,
-        _state: Readonly<OrderState>,
-        ctx: WorkflowContext<OrderState>
-      ) => {
-        await ctx.send(new TestCommand(message.orderId))
-        return ctx.complete({ orderId: message.orderId })
-      }
-      // The handler is registered as it's declared, so testing it tests what the bus calls
-      const workflow = defineWorkflow(OrderState).startedBy(
-        OrderPlaced,
-        startOrder
-      )
-      const ctx = {
-        ...fakeContext(),
-        send: async (c: unknown) => {
-          sent.push(c)
+      const workflow = defineWorkflow(OrderState)
+        .startedBy(OrderPlaced, async (message, _state, ctx) => {
+          await ctx.send(new TestCommand(message.orderId))
+          return { orderId: message.orderId }
+        })
+        .when(TaskRan, (message, _state, ctx) =>
+          message.value === 'charged'
+            ? ctx.complete({ charged: true })
+            : undefined
+        )
+      const ctx = workflowContext<OrderState>({
+        send: async command => {
+          sent.push(command)
         }
-      }
-      result = await workflow.startedByHandlers[0].handle(
+      })
+
+      startResult = await workflow.startedByHandler(OrderPlaced)(
         OrderPlaced({ orderId: '1' }),
+        orderState(),
+        ctx
+      )
+      whenResult = await workflow.whenHandler(TaskRan)(
+        new TaskRan('charged'),
         orderState(),
         ctx
       )
     })
 
     it('should return the state changes', () => {
-      expect(result).toEqual({ orderId: '1', $status: WorkflowStatus.Complete })
+      expect(startResult).toEqual({ orderId: '1' })
     })
 
     it('should send through the context', () => {
       expect(sent).toEqual([new TestCommand('1')])
     })
+
+    it('should complete the workflow with the complete of workflowContext()', () => {
+      expect(whenResult).toEqual({
+        charged: true,
+        $status: WorkflowStatus.Complete
+      })
+    })
   })
 
-  describe('when handlers are type checked', () => {
-    it('should reject code that would fail at runtime', () => {
-      const workflow = defineWorkflow(OrderState)
+  describe('when workflowContext() is created without overrides', () => {
+    const sut = workflowContext<OrderState>()
 
-      workflow.startedBy(OrderPlaced, message => ({
-        // @ts-expect-error orderId is a string
-        orderId: message.orderId.length
-      }))
+    it('should have empty attributes', () => {
+      expect(sut.attributes).toEqual({ attributes: {}, stickyAttributes: {} })
+    })
 
-      workflow.startedBy(OrderPlaced, message => ({
-        orderId: message.orderId,
-        // @ts-expect-error total isn't a field of the workflow state
-        total: 1
-      }))
-
-      // @ts-expect-error $version is managed by the bus
-      workflow.startedBy(OrderPlaced, () => ({ $version: 2 }))
-
-      // @ts-expect-error a handler returns state changes or nothing
-      workflow.when(TaskRan, async () => 'done')
-
-      workflow.startedBy(OrderPlaced, message =>
-        // @ts-expect-error OrderPlaced has no total
-        ({ orderId: message.total })
-      )
-
-      workflow.when(
-        TaskRan,
-        // @ts-expect-error mapsTo must be a field of the workflow state
-        { lookup: message => message.value, mapsTo: 'orderNumber' },
-        () => undefined
-      )
-
-      workflow.when(
-        TaskRan,
-        // @ts-expect-error TaskRan has no orderId
-        { lookup: message => message.orderId, mapsTo: 'orderId' },
-        () => undefined
-      )
-
-      workflow.when(TaskRan, (_message, _state, ctx) =>
-        // @ts-expect-error complete only takes fields of the workflow state
-        ctx.complete({ shipped: true })
-      )
-
-      expect(workflow.startedByHandlers).toHaveLength(0)
+    it('should discard with the discard status', () => {
+      expect(sut.discard()).toEqual({ $status: WorkflowStatus.Discard })
     })
   })
 })

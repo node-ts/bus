@@ -81,7 +81,7 @@ If only one workflow instance may exist per message, make the `startedBy` handle
 
 ## Creating a new Workflow
 
-A workflow can be declared with plain functions using `defineWorkflow`, or as a class that extends `Workflow`. Both are handled, persisted and retried the same way, and can be mixed in one bus. Either way:
+A workflow can be declared with plain functions using `defineWorkflow`, or as a class that extends `Workflow`. Both are handled, persisted and retried the same way, and can be mixed in one bus, even in one `withWorkflow()` call. Either way:
 
 1. Define the workflow state as a class that extends `WorkflowState` from `@node-ts/bus-core`, with a unique `$name`. It's constructed with no arguments.
 2. Start the workflow with at least one `startedBy` handler.
@@ -127,7 +127,16 @@ The context is the [`HandlerContext`](https://github.com/node-ts/bus/tree/master
 - `complete(state?)`: ends the workflow, saving any final changes
 - `discard()`: drops the handler's changes, so nothing is saved
 
-Everything is type checked: the message type in each handler, `mapsTo` (it must be a field of the state), and the returned state. A returned field that isn't in the state, or has the wrong type, doesn't compile, and `$workflowId`, `$version` and `$name` can't be returned since the bus manages them. To type the message attributes, annotate the context:
+The message type in each handler and `mapsTo` (it must be a field of the state) are type checked, and so is the state a handler returns:
+
+- A returned field of the wrong type doesn't compile.
+- A returned field that isn't in the state doesn't compile, at any depth (`{ customer: { nickname } }` when the customer has no nickname), in every branch, sync or async, for handlers declared inline or as a separate function without a type annotation.
+- What a handler returns is checked against its declared type when it has one. A handler annotated as `WorkflowHandlerFunction<OrderPlaced, OrderState>`, or with a return type such as `WorkflowHandlerResult<OrderState>`, is only checked against that annotation: TypeScript doesn't report extra fields in an object returned from an annotated function, and the annotation hides what it returns. Declare handlers inline, or without an annotation, to have their fields checked.
+- Returning a copy of the state, such as `{ ...state, orderId }`, is fine. `$workflowId`, `$version` and `$name` are managed by the bus, so the values a handler returns for them are ignored.
+
+There's no runtime check for fields that aren't in the state. A state class' fields only exist at runtime when they're initialized, and the generated message types only list the fields that need restoring, so the bus can't reliably tell which fields a state has.
+
+To type the message attributes, annotate the context:
 
 ```typescript
 .when(OrderShipped, (_message, _state, ctx: WorkflowContext<OrderState, MessageAttributes<{ carrier: string }>>) =>
@@ -222,48 +231,36 @@ A `startedBy` handler that returns nothing starts the workflow with its initial 
 
 ### Testing a workflow
 
-Function workflow handlers are plain functions. Declare one as a function and call it with a fake context, with no bus or mocking framework:
+Function workflow handlers are plain functions. Get one from the workflow, typed by its message, with `startedByHandler(Message)` or `whenHandler(Message)`, and call it with a context from `workflowContext()`, with no bus or mocking framework. `workflowContext()` sends and publishes nothing and has empty attributes, unless you override them, and its `complete` and `discard` return what the bus expects:
 
 ```typescript
-import {
-  WorkflowContext,
-  WorkflowHandlerFunction,
-  WorkflowStatus
-} from '@node-ts/bus-core'
-import { messageAttributes } from '@node-ts/bus-messages'
-
-export const startOrder: WorkflowHandlerFunction<
-  OrderPlaced,
-  OrderState
-> = async (message, _state, ctx) => {
-  await ctx.send(new ChargeCard(message.orderId))
-  return { orderId: message.orderId }
-}
+import { defineWorkflow, workflowContext } from '@node-ts/bus-core'
 
 export const orderWorkflow = defineWorkflow(OrderState).startedBy(
   OrderPlaced,
-  startOrder
+  async (message, _state, ctx) => {
+    await ctx.send(new ChargeCard(message.orderId))
+    return { orderId: message.orderId }
+  }
 )
 
 // In a test
 const sent: Command[] = []
-const ctx: WorkflowContext<OrderState> = {
-  correlationId: 'test',
-  attributes: messageAttributes(),
+const ctx = workflowContext<OrderState>({
   send: async command => {
     sent.push(command)
-  },
-  publish: async () => {},
-  failMessage: async () => {},
-  returnMessage: async () => {},
-  complete: state => ({ ...state, $status: WorkflowStatus.Complete }),
-  discard: () => ({ $status: WorkflowStatus.Discard })
-}
-expect(await startOrder(new OrderPlaced('1'), new OrderState(), ctx)).toEqual({
-  orderId: '1'
+  }
 })
+const result = await orderWorkflow.startedByHandler(OrderPlaced)(
+  new OrderPlaced('1'),
+  new OrderState(),
+  ctx
+)
+expect(result).toEqual({ orderId: '1' })
 expect(sent).toEqual([new ChargeCard('1')])
 ```
+
+Pass `attributes` to `workflowContext()` when the handler reads typed message attributes, such as `workflowContext<OrderState, MessageAttributes<{ carrier: string }>>({ attributes: messageAttributes({ attributes: { carrier: 'post' } }) })`.
 
 ### Example
 

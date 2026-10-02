@@ -1,6 +1,6 @@
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { MessageAttributes, messageAttributes } from '@node-ts/bus-messages'
 import { HandlerContext } from '../handler'
-import { WorkflowState } from './workflow-state'
+import { WorkflowState, WorkflowStatus } from './workflow-state'
 import { WorkflowStateChange } from './workflow-state-change'
 
 /**
@@ -10,18 +10,10 @@ import { WorkflowStateChange } from './workflow-state-change'
  * Messages sent or published from it carry the workflow id in their sticky attributes, so replies are routed back
  * to the same workflow instance.
  *
- * It's an interface so a workflow handler can be unit tested by calling it with a plain object.
+ * It's an interface so a workflow handler can be unit tested by calling it with a plain object, such as one from
+ * `workflowContext()`.
  * @example
- * const ctx: WorkflowContext<OrderState> = {
- *   correlationId: 'test',
- *   attributes: messageAttributes(),
- *   send: async () => {},
- *   publish: async () => {},
- *   failMessage: async () => {},
- *   returnMessage: async () => {},
- *   complete: state => ({ ...state, $status: WorkflowStatus.Complete }),
- *   discard: () => ({ $status: WorkflowStatus.Discard })
- * }
+ * const ctx = workflowContext<OrderState>({ send: async command => { sent.push(command) } })
  */
 export interface WorkflowContext<
   TWorkflowState extends WorkflowState,
@@ -55,3 +47,41 @@ export interface WorkflowContext<
    */
   discard(): WorkflowStateChange<TWorkflowState>
 }
+
+/**
+ * Creates a `WorkflowContext` to call a workflow handler with in a test. `send`, `publish`, `failMessage` and
+ * `returnMessage` do nothing, the attributes are empty, and `complete` and `discard` return what the bus expects, unless
+ * they're overridden.
+ * @param context the members to override, such as a `send` that records what's sent, or the message `attributes`
+ * when the handler reads typed attributes
+ * @returns a workflow context
+ * @example
+ * const sent: Command[] = []
+ * const ctx = workflowContext<OrderState>({ send: async command => { sent.push(command) } })
+ * const result = await orderWorkflow.startedByHandler(OrderPlaced)(OrderPlaced({ orderId: '1' }), new OrderState(), ctx)
+ */
+export const workflowContext = <
+  TWorkflowState extends WorkflowState,
+  TMessageAttributes extends MessageAttributes = MessageAttributes
+>(
+  context: Partial<WorkflowContext<TWorkflowState, TMessageAttributes>> = {}
+): WorkflowContext<TWorkflowState, TMessageAttributes> => ({
+  correlationId: undefined,
+  // Typed attributes are only right when the test passes them, which the JSDoc asks for
+  attributes: messageAttributes() as TMessageAttributes,
+  send: async () => {},
+  publish: async () => {},
+  failMessage: async () => {},
+  returnMessage: async () => {},
+  // TypeScript can't tell `$status` is a field of a generic state, though every WorkflowState has it
+  complete: workflowState =>
+    ({
+      ...workflowState,
+      $status: WorkflowStatus.Complete
+    }) as WorkflowStateChange<TWorkflowState>,
+  discard: () =>
+    ({
+      $status: WorkflowStatus.Discard
+    }) as WorkflowStateChange<TWorkflowState>,
+  ...context
+})

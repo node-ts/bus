@@ -240,13 +240,15 @@ export class BusConfiguration {
    * and forwarded to the handlers inside the workflow
    * @param workflow Classes that extend `Workflow`, or workflows declared with `defineWorkflow`
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @throws WorkflowNotRecognized if a workflow is neither a class that extends `Workflow` nor declared with
+   * `defineWorkflow`
    * @example
    * Bus.configure().withWorkflow(OrderWorkflow, defineWorkflow(ShippingState).startedBy(OrderPaid, ...))
    */
-  withWorkflow<TWorkflowState extends WorkflowState>(
+  withWorkflow(
     ...workflow: (
-      | ClassConstructor<Workflow<TWorkflowState>>
-      | FunctionWorkflow<TWorkflowState>
+      | ClassConstructor<Workflow<WorkflowState>>
+      | FunctionWorkflow<WorkflowState>
     )[]
   ): this {
     if (!!this.busInstance) {

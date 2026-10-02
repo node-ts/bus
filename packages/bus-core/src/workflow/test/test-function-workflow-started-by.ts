@@ -16,6 +16,13 @@ export class TestFunctionStartedByDiscardState extends WorkflowState {
   property1: string
 }
 
+export class TestFunctionStartedByCopyState extends WorkflowState {
+  static NAME = '@node-ts/bus-core/test-function-started-by-copy-state'
+  $name = TestFunctionStartedByCopyState.NAME
+
+  property1: string
+}
+
 export class TestFunctionStartedByVoidState extends WorkflowState {
   static NAME = '@node-ts/bus-core/test-function-started-by-void-state'
   $name = TestFunctionStartedByVoidState.NAME
@@ -43,3 +50,16 @@ export const testFunctionStartedByDiscardWorkflow = defineWorkflow(
 export const testFunctionStartedByVoidWorkflow = defineWorkflow(
   TestFunctionStartedByVoidState
 ).startedBy(TestCommand, () => undefined)
+
+/**
+ * Returns a copy of the state with other values for the fields the bus manages, which the bus must ignore
+ */
+export const testFunctionStartedByCopyWorkflow = defineWorkflow(
+  TestFunctionStartedByCopyState
+).startedBy(TestCommand, ({ property1 }, state) => ({
+  ...state,
+  $workflowId: 'not-the-workflow-id',
+  $version: 99,
+  $name: 'not-the-state-name',
+  property1: property1!
+}))

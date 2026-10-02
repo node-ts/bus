@@ -8,8 +8,10 @@ import { Bus, BusInstance } from '../../service-bus'
 import { testMessageTypes } from '../../test'
 import { InMemoryQueue } from '../../transport'
 import { CoreDependencies, sleep } from '../../util'
+import { FunctionWorkflow } from '../define-workflow'
 import {
   WorkflowNameAlreadyRegistered,
+  WorkflowNotRecognized,
   WorkflowRegisteredAfterInitialization,
   WorkflowStateNotProvided
 } from '../error'
@@ -242,6 +244,25 @@ describe('WorkflowRegistry', () => {
       expect(sut.getWorkflowStateNames()).toEqual([
         TestFunctionWorkflowState.NAME
       ])
+    })
+  })
+
+  describe('when a workflow object built by hand is registered', () => {
+    let error: unknown
+
+    beforeEach(() => {
+      sut = new WorkflowRegistry()
+      try {
+        sut.register({
+          name: 'hand-built'
+        } as unknown as FunctionWorkflow<TestFunctionWorkflowState>)
+      } catch (e) {
+        error = e
+      }
+    })
+
+    it('should throw WorkflowNotRecognized', () => {
+      expect(error).toBeInstanceOf(WorkflowNotRecognized)
     })
   })
 

@@ -14,13 +14,19 @@ import { Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
-import { FunctionWorkflow, FunctionWorkflowHandler } from '../define-workflow'
+import { FunctionWorkflow } from '../define-workflow'
 import {
   WorkflowAlreadyInitialized,
   WorkflowNameAlreadyRegistered,
+  WorkflowNotRecognized,
   WorkflowRegisteredAfterInitialization,
   WorkflowStateNotProvided
 } from '../error'
+import {
+  FunctionWorkflowDefinition,
+  FunctionWorkflowHandler,
+  isFunctionWorkflow
+} from '../function-workflow-definition'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
 import { PersistenceNotConfigured } from '../persistence/error'
@@ -49,10 +55,17 @@ const workflowLookup: MessageWorkflowMapping = {
 const PERSISTENCE_USERS = new WeakMap<Persistence, number>()
 
 /**
- * A class workflow, or a workflow declared with `defineWorkflow`
+ * A class workflow, or a workflow declared with `defineWorkflow`, as `withWorkflow()` takes it
+ */
+type WorkflowToRegister =
+  ClassConstructor<Workflow<WorkflowState>> | FunctionWorkflow<WorkflowState>
+
+/**
+ * A class workflow, or a workflow declared with `defineWorkflow` with the handlers it holds
  */
 type RegisteredWorkflow =
-  ClassConstructor<Workflow<WorkflowState>> | FunctionWorkflow<WorkflowState>
+  | ClassConstructor<Workflow<WorkflowState>>
+  | FunctionWorkflowDefinition<WorkflowState>
 
 /**
  * Calls one workflow handler for a message, whichever way the workflow was declared
@@ -79,10 +92,6 @@ interface WorkflowHandlers {
     }
   >
 }
-
-const isFunctionWorkflow = (
-  workflow: RegisteredWorkflow
-): workflow is FunctionWorkflow<WorkflowState> => typeof workflow !== 'function'
 
 const workflowNameOf = (workflow: RegisteredWorkflow): string =>
   isFunctionWorkflow(workflow)
@@ -130,9 +139,19 @@ export class WorkflowRegistry {
 
   /**
    * Registers a workflow to be initialized with the bus
-   * @param workflow a class that extends `Workflow`, or a workflow declared with `defineWorkflow`
+   * @param workflowToRegister a class that extends `Workflow`, or a workflow declared with `defineWorkflow`
+   * @throws WorkflowNotRecognized if it's neither
+   * @throws WorkflowRegisteredAfterInitialization if workflows have already been initialized
+   * @throws WorkflowNameAlreadyRegistered if a workflow with the same name is already registered
    */
-  register(workflow: RegisteredWorkflow): void {
+  register(workflowToRegister: WorkflowToRegister): void {
+    if (
+      typeof workflowToRegister !== 'function' &&
+      !isFunctionWorkflow(workflowToRegister)
+    ) {
+      throw new WorkflowNotRecognized(workflowToRegister)
+    }
+    const workflow: RegisteredWorkflow = workflowToRegister
     const workflowName = workflowNameOf(workflow)
     if (this.isInitialized) {
       throw new WorkflowRegisteredAfterInitialization(workflowName)
@@ -340,7 +359,7 @@ export class WorkflowRegistry {
    * Reads the handlers of a workflow declared with `defineWorkflow`, and passes each a `WorkflowContext`
    */
   private getFunctionWorkflowHandlers(
-    workflow: FunctionWorkflow<WorkflowState>
+    workflow: FunctionWorkflowDefinition<WorkflowState>
   ): WorkflowHandlers {
     const invokerFor =
       (
@@ -587,7 +606,13 @@ export class WorkflowRegistry {
       const updatedWorkflowState = Object.assign(
         new workflowStateConstructor(),
         immutableWorkflowState,
-        workflowStateToChange
+        workflowStateToChange,
+        // Managed by the bus, so a handler that returns a copy of the state, or other values, can't change them
+        {
+          $workflowId: immutableWorkflowState.$workflowId,
+          $version: immutableWorkflowState.$version,
+          $name: immutableWorkflowState.$name
+        }
       )
 
       try {
