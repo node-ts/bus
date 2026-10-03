@@ -40,11 +40,13 @@ A scheduled message is stored in the bus' [persistence](/persistence) until it's
 
 ## When sending fails
 
-Nothing scheduled is ever dropped. When a send fails or takes longer than 10 seconds, or the persistence can't be read, the bus pauses its scheduled sends and logs one warning with the error. While it's paused, it tries one due message after a second, then waits twice as long after each try that fails, up to a minute. Once one is sent, it logs that it resumed and sends the rest.
+Nothing scheduled is ever dropped: a message is only deleted from the persistence once it's sent.
 
-So a broker that's down, or that refuses the bus' credentials, pauses scheduled sends until it's fixed, and they're all sent once it is.
+When one message fails to send, or takes longer than 10 seconds, the bus logs a warning and carries on. The next message it sends shows whether the broker rejected only that one, such as a message that's too large or sent to a topic that doesn't exist. If the next message is sent, the rest carry on as normal, and the rejected message is tried again each time its lease ends, waiting 30 seconds longer each time, up to 5 minutes. It's sent once the cause is fixed, or you can delete it from the persistence.
 
-A message the broker always rejects, such as one that's too large or sent to a topic that doesn't exist, doesn't hold up the others: the next try uses a different message, and sending resumes. The rejected message is tried again each time its lease ends, waiting 30 seconds longer each time, up to 5 minutes, and the bus logs a warning each time it fails. It's sent once the cause is fixed, or you can delete it from the persistence.
+When a different message fails too, or the persistence can't be read, the broker is probably down or refusing the bus' credentials, so the bus pauses its scheduled sends and logs a warning with the error. Messages it had claimed but not tried are released for the next try. While it's paused, it tries one due message after a second, then waits twice as long after each try that fails, up to a minute, and logs a warning at most once a minute. Once a message is sent, it logs that it resumed and sends the rest.
+
+So a broker outage pauses scheduled sends until the broker is back, and they're all sent once it is.
 
 ## Why transports don't delay messages
 
@@ -60,17 +62,33 @@ Scheduled messages are only as durable as the persistence they're stored in. The
 | [MongoDB](/persistence/mongodb)   | an `outgoingmessages` collection in the configured database                   |
 | `InMemoryPersistence`             | memory, until the process stops                                               |
 
-A [custom persistence](/persistence/custom) stores them if it implements `storeOutgoingMessages`, `claimDueOutgoingMessages` and `deleteOutgoingMessages`. Scheduling a message on a persistence without them throws `DelayedDeliveryNotSupported`.
+A [custom persistence](/persistence/custom) stores them if it implements `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and `releaseOutgoingMessages`. Scheduling a message on a persistence without them throws `DelayedDeliveryNotSupported`.
 
 ## Sharing a persistence
 
 Any started bus that uses a persistence sends the due messages in it through its own transport, whichever bus scheduled them. Every bus that shares a persistence, in any service, must therefore use the same broker, such as the same RabbitMQ server or the same AWS account and region for SQS. Give buses on different brokers persistences of their own, such as a schema each on Postgres.
 
+## Running a dedicated scheduler
+
+By default every started bus whose persistence stores scheduled messages sends them. To leave that to one service, turn dispatching off on the others with `withDelayedDelivery({ dispatch: false })`. They still schedule messages:
+
+<<< @/snippets/delayed-delivery.ts#dispatch-off
+
+The scheduler is a bus configured with `asScheduler()`, the same persistence and a transport on the same broker. It can't have handlers or workflows. Started, it doesn't set up or read a queue of its own, and only sends scheduled messages:
+
+<<< @/snippets/delayed-delivery.ts#scheduler
+
+It doesn't need the message types of the messages it sends, since it sends each one as it was stored.
+
+This suits AWS Lambda: a function is frozen between invocations, so it can't check for due messages. Turn dispatching off in the functions, and run the scheduler somewhere that's always on.
+
+The outgoing messages table or collection is shared by every bus on the same database and schema, so the scheduler sends the messages of every service that uses it. Services on different brokers need schemas or databases of their own, each with its own scheduler or dispatching buses.
+
 ## Send-only buses and Lambda
 
-Send-only buses, built with `asSendOnly()`, and buses that a [receiver](/transports/sqs-lambda) such as AWS Lambda passes messages to are never started, so they only store the messages they schedule. A started bus that uses the same persistence, meaning the same database and schema, sends them once they're due. If no bus is running, they wait in the persistence until one starts.
+Send-only buses, built with `asSendOnly()`, and buses that a [receiver](/transports/sqs-lambda) such as AWS Lambda passes messages to are never started, so they only store the messages they schedule, like a bus with dispatching turned off. A started bus that uses the same persistence, meaning the same database and schema, sends them once they're due. If no bus is running, they wait in the persistence until one starts.
 
-With a persistence that only lives in the process, such as the default `InMemoryPersistence`, no other process could send them, so a send-only or receiver bus throws `DelayedDeliveryNotSupported` when it schedules a message, unless another bus in the same process uses the same persistence instance.
+With a persistence that only lives in the process, such as the default `InMemoryPersistence`, no other process could send them, so a send-only or receiver bus, or one with dispatching turned off, throws `DelayedDeliveryNotSupported` when it schedules a message, unless another bus in the same process uses the same persistence instance.
 
 <<< @/snippets/delayed-delivery.ts#send-only
 

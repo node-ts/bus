@@ -35,6 +35,7 @@ import {
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import {
   DelayedDeliveryNotSupported,
+  DelayedDeliveryOptions,
   DelayedDeliveryUnsupportedReason,
   InvalidDeliveryOptions,
   OutgoingMessage,
@@ -183,7 +184,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly messageHandlingContext: MessageHandlingContext,
     private readonly messageLifecycleContext: MessageLifecycleContext,
     private readonly recoverability: RecoverabilityPolicy,
-    private readonly persistence: Persistence
+    private readonly persistence: Persistence,
+    private readonly delayedDelivery: Required<DelayedDeliveryOptions>,
+    private readonly scheduler: boolean
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
@@ -192,7 +195,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       persistence,
       (PERSISTENCE_USERS.get(persistence) ?? 0) + 1
     )
-    if (isOutgoingMessageStore(persistence)) {
+    if (isOutgoingMessageStore(persistence) && delayedDelivery.dispatch) {
       this.outgoingMessageDispatcher = new OutgoingMessageDispatcher(
         persistence,
         async outgoingMessage => this.sendStoredMessage(outgoingMessage),
@@ -302,6 +305,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       )
       this.assertMessageTypesConfigured()
     }
+    if (this.scheduler && !this.outgoingMessageDispatcher) {
+      throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
+    }
 
     if (this.transport.connect) {
       await this.transport.connect({
@@ -309,9 +315,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       })
     }
     if (this.transport.initialize) {
+      // A scheduler only sends, so its transport doesn't set up a queue to receive from
       await this.transport.initialize({
         handlerRegistry: this.handlerRegistry,
-        sendOnly: this.sendOnly
+        sendOnly: this.sendOnly || this.scheduler
       })
     }
 
@@ -485,6 +492,14 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     this.internalState = BusState.Starting
     this.logger.info('Bus starting...')
 
+    if (this.scheduler) {
+      // A scheduler doesn't read from a queue, and only sends scheduled messages
+      this.internalState = BusState.Started
+      this.outgoingMessageDispatcher?.start()
+      this.logger.info('Scheduler started, sending scheduled messages')
+      return
+    }
+
     if (this.transport.start) {
       await this.transport.start()
     }
@@ -605,7 +620,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
   private async stopTransportAndWorkers(): Promise<void> {
     await this.outgoingMessageDispatcher?.stop()
-    if (this.transport.stop) {
+    if (!this.scheduler && this.transport.stop) {
       await this.transport.stop()
     }
 
@@ -1080,11 +1095,12 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     if (!isOutgoingMessageStore(this.persistence)) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }
-    const isNeverStarted = this.sendOnly || !!this.receiver
+    const neverDispatches =
+      this.sendOnly || !!this.receiver || !this.delayedDelivery.dispatch
     const isSharedWithAnotherBus =
       (PERSISTENCE_USERS.get(this.persistence) ?? 0) > 1
     if (
-      isNeverStarted &&
+      neverDispatches &&
       this.persistence.durable === false &&
       !isSharedWithAnotherBus
     ) {

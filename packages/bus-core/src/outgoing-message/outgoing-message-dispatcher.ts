@@ -72,6 +72,7 @@ export type OutgoingMessageStore = Required<
     | 'storeOutgoingMessages'
     | 'claimDueOutgoingMessages'
     | 'deleteOutgoingMessages'
+    | 'releaseOutgoingMessages'
   >
 >
 
@@ -90,7 +91,8 @@ export const isOutgoingMessageStore = (
 ): persistence is Persistence & OutgoingMessageStore =>
   typeof persistence.storeOutgoingMessages === 'function' &&
   typeof persistence.claimDueOutgoingMessages === 'function' &&
-  typeof persistence.deleteOutgoingMessages === 'function'
+  typeof persistence.deleteOutgoingMessages === 'function' &&
+  typeof persistence.releaseOutgoingMessages === 'function'
 
 type SendResult = { sent: true } | { sent: false; error: unknown }
 
@@ -101,12 +103,13 @@ type SendResult = { sent: true } | { sent: false; error: unknown }
  * Messages are claimed with a lease, so several processes that share a store send each message once. A message is
  * only ever deleted once it's sent, so delivery is at least once and nothing is dropped.
  *
- * It's a circuit breaker. When a send fails or times out, or the store can't be read, sending pauses: no more sends
- * start and nothing more is claimed. After `pauseMs`, doubling up to `maxPauseMs`, it claims and sends one due
- * message as a probe, and resumes once one is sent. A broker that's down or refusing credentials pauses scheduled
- * sends until it's fixed. A message that failed keeps its lease, so the probe sends a different one, and a message
- * the broker always rejects, such as one that's too large, is retried each time its lease ends without holding up
- * the rest.
+ * When one message fails to send, or times out, the next message sent tells a message the broker rejects, such as
+ * one that's too large, from a broker that's down. If the next one is sent, only the failed message is held back: it
+ * keeps its lease and is retried when the lease ends, and the rest carry on. If two messages fail in a row, or the
+ * store can't be read, it's a circuit breaker and sending pauses: no more sends start, the claimed messages that
+ * weren't tried are released, and nothing more is claimed. After `pauseMs`, doubling up to `maxPauseMs` while the
+ * broker keeps failing, it claims and sends one due message as a probe, and resumes once one is sent. A broker that's
+ * down or refusing credentials pauses scheduled sends until it's fixed.
  */
 export class OutgoingMessageDispatcher {
   private isRunning = false
@@ -120,6 +123,14 @@ export class OutgoingMessageDispatcher {
   private pauseMs: number
   private lastErrorLoggedAt = -Infinity
   private errorsSinceLastLog = 0
+  /**
+   * The message that failed last, until another is sent. A different message failing next pauses sending.
+   */
+  private lastFailedMessageId: string | undefined
+  /**
+   * Sends that timed out but haven't finished, which `stop()` waits a while for
+   */
+  private readonly abandonedSends = new Set<Promise<unknown>>()
 
   /**
    * @param store where the messages are stored
@@ -155,7 +166,8 @@ export class OutgoingMessageDispatcher {
   }
 
   /**
-   * Stops checking the store, and waits for every send that's started to finish
+   * Stops checking the store, and waits for every send that's started to finish. A send that already timed out is
+   * waited for for up to another `sendTimeoutMs`.
    */
   async stop(): Promise<void> {
     if (!this.isRunning) {
@@ -165,6 +177,7 @@ export class OutgoingMessageDispatcher {
     this.wake?.()
     await this.loop
     this.loop = undefined
+    await this.waitForAbandonedSends()
   }
 
   /**
@@ -211,25 +224,31 @@ export class OutgoingMessageDispatcher {
   }
 
   /**
-   * Claims and sends one due message to see whether sending works again, and resumes if it's sent
+   * Claims and sends one due message to see whether sending works again, and resumes if it's sent. If it fails, one
+   * other message is tried straight away, since the first may be one the broker always rejects.
    */
   private async probe(): Promise<void> {
-    const claimed = await this.claim(1)
-    if (!claimed || claimed.length === 0) {
-      // Nothing to probe with yet, or the store is still failing
-      this.pauseLonger()
-      return
+    for (let probes = 0; probes < 2; probes++) {
+      const claimed = await this.claim(1)
+      if (!claimed) {
+        this.pauseLonger()
+        return
+      }
+      if (claimed.length === 0) {
+        // Nothing is claimable to probe with, which says nothing about the broker
+        return
+      }
+      const [outgoingMessage] = claimed
+      const result = await this.send(outgoingMessage)
+      if (result.sent) {
+        this.resume()
+        return
+      }
+      this.logWhilePaused('Sending a scheduled message failed again', {
+        messageId: outgoingMessage.id,
+        error: serializeError(result.error)
+      })
     }
-    const [outgoingMessage] = claimed
-    const result = await this.send(outgoingMessage)
-    if (result.sent) {
-      this.resume()
-      return
-    }
-    this.logWhilePaused('Sending a scheduled message failed again', {
-      messageId: outgoingMessage.id,
-      error: serializeError(result.error)
-    })
     this.pauseLonger()
   }
 
@@ -243,21 +262,66 @@ export class OutgoingMessageDispatcher {
     const { leaseMs, sendTimeoutMs } = this.options
     const sendBefore = claimedAt + leaseMs - sendTimeoutMs
     const throttle = throat(SEND_CONCURRENCY)
+    const notTried: string[] = []
     // Every send handles its own failure, so this waits for all of them, even when sending pauses part way
     await Promise.all(
       claimed.map(async outgoingMessage =>
         throttle(async () => {
           if (this.isPaused || Date.now() > sendBefore) {
-            // Left to be claimed again once its lease ends
+            notTried.push(outgoingMessage.id)
             return
           }
           const result = await this.send(outgoingMessage)
-          if (!result.sent) {
-            this.pause(result.error, outgoingMessage)
+          if (result.sent) {
+            this.lastFailedMessageId = undefined
+          } else {
+            this.failed(result.error, outgoingMessage)
           }
         })
       )
     )
+    await this.release(notTried)
+  }
+
+  /**
+   * Handles a message that failed to send. A failure only holds that message back, and the next message sent shows
+   * whether it was only that message. A different message failing before another is sent pauses sending, while the
+   * same message failing again, such as one the broker always rejects, doesn't.
+   */
+  private failed(error: unknown, outgoingMessage: OutgoingMessage): void {
+    const isAnotherFailure =
+      this.lastFailedMessageId !== undefined &&
+      this.lastFailedMessageId !== outgoingMessage.id
+    if (this.isPaused || isAnotherFailure) {
+      this.pause(error, outgoingMessage)
+      return
+    }
+    this.lastFailedMessageId = outgoingMessage.id
+    this.logger.warn(
+      'Failed to send a scheduled message. It will be retried when its lease ends, and the next message sent shows whether only this one is rejected.',
+      {
+        messageId: outgoingMessage.id,
+        attempts: outgoingMessage.attempts,
+        error: serializeError(error)
+      }
+    )
+  }
+
+  /**
+   * Makes claimed messages that weren't tried claimable again straight away. It never throws.
+   */
+  private async release(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return
+    }
+    try {
+      await this.store.releaseOutgoingMessages(ids)
+    } catch (error) {
+      this.logger.debug(
+        'Failed to release scheduled messages that were not tried. They will be claimable when their lease ends.',
+        { numMessages: ids.length, error: serializeError(error) }
+      )
+    }
   }
 
   /**
@@ -284,28 +348,57 @@ export class OutgoingMessageDispatcher {
   ): Promise<SendResult> {
     const { sendTimeoutMs } = this.options
     let timeout: NodeJS.Timeout | undefined
+    let didTimeOut = false
     const timedOut = new Promise<SendResult>(resolve => {
-      timeout = setTimeout(
-        () =>
-          resolve({
-            sent: false,
-            // Only logged, so it doesn't need an error class
-            error: {
-              message: `Sending the message took longer than ${sendTimeoutMs}ms`
-            }
-          }),
-        sendTimeoutMs
-      )
+      timeout = setTimeout(() => {
+        didTimeOut = true
+        resolve({
+          sent: false,
+          // Only logged, so it doesn't need an error class
+          error: {
+            message: `Sending the message took longer than ${sendTimeoutMs}ms`
+          }
+        })
+      }, sendTimeoutMs)
     })
     const sent = this.sendMessage(outgoingMessage).then(
       (): SendResult => ({ sent: true }),
       (error: unknown): SendResult => ({ sent: false, error })
     )
     try {
-      return await Promise.race([sent, timedOut])
+      const result = await Promise.race([sent, timedOut])
+      if (didTimeOut) {
+        this.trackAbandonedSend(sent)
+      }
+      return result
     } finally {
       clearTimeout(timeout)
     }
+  }
+
+  /**
+   * Keeps a send that timed out until it finishes, so `stop()` can wait for it
+   */
+  private trackAbandonedSend(sent: Promise<SendResult>): void {
+    const tracked = sent.finally(() => this.abandonedSends.delete(tracked))
+    this.abandonedSends.add(tracked)
+  }
+
+  /**
+   * Waits up to `sendTimeoutMs` for sends that timed out to finish, so the transport isn't closed under them
+   */
+  private async waitForAbandonedSends(): Promise<void> {
+    if (this.abandonedSends.size === 0) {
+      return
+    }
+    let timeout: NodeJS.Timeout | undefined
+    await Promise.race([
+      Promise.all(this.abandonedSends),
+      new Promise<void>(resolve => {
+        timeout = setTimeout(resolve, this.options.sendTimeoutMs)
+      })
+    ])
+    clearTimeout(timeout)
   }
 
   /**
@@ -367,6 +460,7 @@ export class OutgoingMessageDispatcher {
 
   private resume(): void {
     this.isPaused = false
+    this.lastFailedMessageId = undefined
     this.logger.info('Resumed sending scheduled messages', {
       pausedForMs: Date.now() - this.pausedAt,
       failuresSinceLastLog: this.errorsSinceLastLog

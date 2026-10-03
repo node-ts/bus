@@ -129,22 +129,64 @@ describe('OutgoingMessageDispatcher', () => {
     })
   })
 
-  describe('when a send fails', () => {
-    const failing = outgoingMessage('failing')
+  describe('when one message fails to send and the next is sent', () => {
+    const rejected = outgoingMessage('rejected')
     const others = Array.from({ length: 14 }, (_, i) =>
+      outgoingMessage(`other-${i}`)
+    )
+
+    beforeAll(async () => {
+      createSut()
+      claims([rejected, ...others])
+      sender
+        .setup(async s => s.send(rejected))
+        .returns(async () => Promise.reject(new Error('message too large')))
+      await sut.dispatchDueMessages()
+    })
+
+    it('should not pause sending', () => {
+      expect(sut.paused).toEqual(false)
+    })
+
+    it('should send every other message', () => {
+      others.forEach(message => expect(wasSent(message)).toEqual(true))
+    })
+
+    it('should keep the message that failed', () => {
+      store.verify(
+        async s => s.deleteOutgoingMessages(It.isValue(['rejected'])),
+        Times.never()
+      )
+    })
+
+    it('should warn about the message that failed', () => {
+      logger.verify(
+        l =>
+          l.warn(
+            It.is<string>(message => message.startsWith('Failed to send')),
+            It.isObjectWith({ messageId: 'rejected' })
+          ),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when two messages fail to send in a row', () => {
+    const failing = [outgoingMessage('failing-1'), outgoingMessage('failing-2')]
+    const others = Array.from({ length: 13 }, (_, i) =>
       outgoingMessage(`other-${i}`)
     )
     let sendCount = 0
 
     beforeAll(async () => {
-      // Ten sends start at once. The failing one fails first, so none of the others start after it.
+      // Ten sends start at once. The failing ones fail first, so none of the others start after them.
       createSut()
-      claims([failing, ...others], [outgoingMessage('next-batch')])
+      claims([...failing, ...others], [outgoingMessage('next-batch')])
       sender
         .setup(async s => s.send(It.isAny()))
         .returns(async message => {
           sendCount++
-          if (message.id === 'failing') {
+          if (message.id.startsWith('failing')) {
             throw new Error('broker is unreachable')
           }
           await sleep(50)
@@ -160,26 +202,37 @@ describe('OutgoingMessageDispatcher', () => {
       expect(sendCount).toEqual(10)
     })
 
+    it('should release the messages it did not try', () => {
+      store.verify(
+        async s =>
+          s.releaseOutgoingMessages(
+            It.isValue(others.slice(8).map(message => message.id))
+          ),
+        Times.once()
+      )
+    })
+
     it('should not claim any more messages', () => {
       expect(claimLimits).toHaveLength(1)
     })
 
-    it('should not delete the message that failed', () => {
+    it('should not delete the messages that failed', () => {
       store.verify(
-        async s => s.deleteOutgoingMessages(It.isValue(['failing'])),
+        async s =>
+          s.deleteOutgoingMessages(
+            It.is<string[]>(ids => ids[0].startsWith('failing'))
+          ),
         Times.never()
       )
     })
 
-    it('should warn once, with the error', () => {
+    it('should warn once that it paused, with the error', () => {
       logger.verify(
         l =>
           l.warn(
             It.is<string>(message => message.startsWith('Paused')),
-            It.is<{ messageId: string; error: { message: string } }>(
-              context =>
-                context.messageId === 'failing' &&
-                context.error.message === 'broker is unreachable'
+            It.is<{ error: { message: string } }>(
+              context => context.error.message === 'broker is unreachable'
             )
           ),
         Times.once()
@@ -187,17 +240,35 @@ describe('OutgoingMessageDispatcher', () => {
     })
   })
 
-  describe('when a send hangs', () => {
-    const hanging = outgoingMessage('hanging')
+  describe('when the same message fails again', () => {
+    const rejected = outgoingMessage('rejected')
 
     beforeAll(async () => {
-      createSut({ sendTimeoutMs: 50 })
-      claims([hanging])
-      sender.setup(async s => s.send(hanging)).returns(async () => never)
+      createSut()
+      claims([rejected], [rejected])
+      sender
+        .setup(async s => s.send(rejected))
+        .returns(async () => Promise.reject(new Error('message too large')))
+      await sut.dispatchDueMessages()
       await sut.dispatchDueMessages()
     })
 
-    it('should give up on it after the send timeout and pause sending', () => {
+    it('should not pause sending', () => {
+      expect(sut.paused).toEqual(false)
+    })
+  })
+
+  describe('when sends hang', () => {
+    const hanging = [outgoingMessage('hanging-1'), outgoingMessage('hanging-2')]
+
+    beforeAll(async () => {
+      createSut({ sendTimeoutMs: 50 })
+      claims(hanging)
+      sender.setup(async s => s.send(It.isAny())).returns(async () => never)
+      await sut.dispatchDueMessages()
+    })
+
+    it('should give up on them after the send timeout and pause sending', () => {
       expect(sut.paused).toEqual(true)
       store.verify(
         async s => s.deleteOutgoingMessages(It.isAny()),
@@ -206,9 +277,41 @@ describe('OutgoingMessageDispatcher', () => {
     })
   })
 
+  describe('when it is stopped after a send timed out', () => {
+    const slow = outgoingMessage('slow')
+    let stopTookMs: number
+
+    beforeAll(async () => {
+      createSut({ sendTimeoutMs: 100 })
+      claims([slow])
+      sender.setup(async s => s.send(slow)).returns(async () => sleep(150))
+      sut.start()
+      await until(() => {
+        try {
+          logger.verify(
+            l =>
+              l.warn(It.isAnyString(), It.isObjectWith({ messageId: 'slow' })),
+            Times.once()
+          )
+          return true
+        } catch {
+          return false
+        }
+      })
+      const stopping = Date.now()
+      await sut.stop()
+      stopTookMs = Date.now() - stopping
+    })
+
+    it('should wait for the send that timed out to finish', () => {
+      expect(stopTookMs).toBeGreaterThanOrEqual(30)
+      expect(stopTookMs).toBeLessThan(100)
+    })
+  })
+
   describe('when sending is paused and the probe succeeds', () => {
     const pauseMs = 50
-    const failing = outgoingMessage('failing')
+    const failing = [outgoingMessage('failing-1'), outgoingMessage('failing-2')]
     const probe = outgoingMessage('probe')
     const resumed = [outgoingMessage('resumed-1'), outgoingMessage('resumed-2')]
     let failedAt: number
@@ -216,17 +319,17 @@ describe('OutgoingMessageDispatcher', () => {
 
     beforeAll(async () => {
       createSut({ pauseMs })
-      claims([failing], [probe], resumed)
+      claims(failing, [probe], resumed)
       sender
-        .setup(async s => s.send(failing))
-        .returns(async () => {
-          failedAt = Date.now()
-          throw new Error('broker is unreachable')
-        })
-      sender
-        .setup(async s => s.send(probe))
-        .returns(async () => {
-          probedAt = Date.now()
+        .setup(async s => s.send(It.isAny()))
+        .returns(async message => {
+          if (message.id.startsWith('failing')) {
+            failedAt = Date.now()
+            throw new Error('broker is unreachable')
+          }
+          if (message.id === 'probe') {
+            probedAt = Date.now()
+          }
         })
       sut.start()
       await until(() => resumed.every(wasSent))
@@ -257,40 +360,104 @@ describe('OutgoingMessageDispatcher', () => {
     })
   })
 
-  describe('when probes keep failing', () => {
-    let probeTimes: number[]
+  describe('when sending is paused and the probe finds a message the broker rejects', () => {
+    const failing = [outgoingMessage('failing-1'), outgoingMessage('failing-2')]
+    const rejected = outgoingMessage('rejected')
+    const good = outgoingMessage('good')
 
     beforeAll(async () => {
-      createSut({ pauseMs: 10, maxPauseMs: 40, errorLogIntervalMs: 60_000 })
-      probeTimes = []
+      createSut({ pauseMs: 20 })
+      claims(failing, [rejected], [good])
+      sender
+        .setup(async s => s.send(It.isAny()))
+        .returns(async message => {
+          if (message.id !== 'good') {
+            throw new Error('rejected')
+          }
+        })
+      sut.start()
+      await until(() => wasSent(good))
+      await sut.stop()
+    })
+
+    it('should try another message straight away, and resume once that is sent', () => {
+      expect(claimLimits.slice(1, 3)).toEqual([1, 1])
+      expect(sut.paused).toEqual(false)
+    })
+  })
+
+  describe('when sending is paused and there is nothing to probe with', () => {
+    let claimTimes: number[]
+
+    beforeAll(async () => {
+      createSut({ pauseMs: 20, maxPauseMs: 1_000 })
+      claimTimes = []
+      let claim = 0
       store
         .setup(async s =>
           s.claimDueOutgoingMessages(It.isAny(), It.isAny(), It.isAny())
         )
         .returns(async () => {
-          probeTimes.push(Date.now())
-          return [outgoingMessage(`message-${probeTimes.length}`)]
+          claimTimes.push(Date.now())
+          return claim++ === 0
+            ? [outgoingMessage('failing-1'), outgoingMessage('failing-2')]
+            : []
+        })
+      sender
+        .setup(async s => s.send(It.isAny()))
+        .returns(async () => Promise.reject(new Error('broker is down')))
+      sut.start()
+      await until(() => claimTimes.length >= 6)
+      await sut.stop()
+    })
+
+    it('should not wait any longer between probes', () => {
+      const gaps = claimTimes
+        .slice(2)
+        .map((time, i) => time - claimTimes[i + 1])
+      expect(Math.max(...gaps)).toBeLessThan(60)
+    })
+  })
+
+  describe('when probes keep failing', () => {
+    let claimTimes: number[]
+
+    beforeAll(async () => {
+      createSut({
+        pollIntervalMs: 10,
+        pauseMs: 10,
+        maxPauseMs: 40,
+        errorLogIntervalMs: 60_000
+      })
+      claimTimes = []
+      store
+        .setup(async s =>
+          s.claimDueOutgoingMessages(It.isAny(), It.isAny(), It.isAny())
+        )
+        .returns(async () => {
+          claimTimes.push(Date.now())
+          return [outgoingMessage(`message-${claimTimes.length}`)]
         })
       sender
         .setup(async s => s.send(It.isAny()))
         .returns(async () => Promise.reject(new Error('bad credentials')))
       sut.start()
-      await until(() => probeTimes.length >= 7)
+      await until(() => claimTimes.length >= 14)
       await sut.stop()
     })
 
     it('should wait longer between probes, up to the longest pause', () => {
-      const gaps = probeTimes.slice(1).map((time, i) => time - probeTimes[i])
-      expect(gaps[1]).toBeGreaterThanOrEqual(10)
-      expect(gaps[3]).toBeGreaterThanOrEqual(35)
+      const gaps = claimTimes.slice(1).map((time, i) => time - claimTimes[i])
+      expect(Math.max(...gaps)).toBeGreaterThanOrEqual(35)
       expect(Math.max(...gaps)).toBeLessThan(100)
     })
 
-    it('should only warn when it pauses, not on every failed probe', () => {
-      logger.verify(l => l.warn(It.isAnyString(), It.isAny()), Times.once())
+    it('should only warn about the first failure and the pause, not every failed probe', () => {
+      logger.verify(l => l.warn(It.isAnyString(), It.isAny()), Times.exactly(2))
     })
 
-    it('should stay paused', () => {
+    it('should stay paused without deleting anything', () => {
+      expect(sut.paused).toEqual(true)
       store.verify(
         async s => s.deleteOutgoingMessages(It.isAny()),
         Times.never()
@@ -442,7 +609,7 @@ describe('OutgoingMessageDispatcher', () => {
 
     beforeAll(async () => {
       createSut({ pauseMs: 10_000 })
-      claims([outgoingMessage('failing')])
+      claims([outgoingMessage('failing-1'), outgoingMessage('failing-2')])
       sender
         .setup(async s => s.send(It.isAny()))
         .returns(async () => Promise.reject(new Error('broker is down')))
@@ -511,6 +678,62 @@ describe('OutgoingMessageDispatcher', () => {
         Times.once()
       )
       expect(sut.paused).toEqual(false)
+    })
+  })
+
+  describe('when the broker always rejects one message among many', () => {
+    const persistence = preparedInMemoryPersistence()
+    const deliveredAt = new Map<string, number>()
+    let laterDueAt: number
+    let pausedAtAnyPoint = false
+
+    beforeAll(async () => {
+      const now = Date.now()
+      laterDueAt = now + 250
+      await persistence.storeOutgoingMessages([
+        outgoingMessage('rejected', new Date(now - 1_000)),
+        ...Array.from({ length: 50 }, (_, i) =>
+          outgoingMessage(`now-${i}`, new Date(now))
+        ),
+        // Due after the rejected message's lease ends, when it's tried again
+        ...Array.from({ length: 20 }, (_, i) =>
+          outgoingMessage(`later-${i}`, new Date(laterDueAt))
+        )
+      ])
+      sut = new OutgoingMessageDispatcher(
+        persistence,
+        async message => {
+          pausedAtAnyPoint ||= sut.paused
+          if (message.id === 'rejected') {
+            throw new Error('message too large')
+          }
+          deliveredAt.set(message.id, Date.now())
+        },
+        Mock.ofType<Logger>().object,
+        {
+          ...DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS,
+          pollIntervalMs: 20,
+          claimLimit: 10,
+          leaseMs: 200,
+          maxLeaseMs: 400,
+          sendTimeoutMs: 50
+        }
+      )
+      sut.start()
+      await until(() => deliveredAt.size === 70)
+      await sut.stop()
+    })
+
+    it('should never pause sending', () => {
+      expect(pausedAtAnyPoint).toEqual(false)
+      expect(sut.paused).toEqual(false)
+    })
+
+    it('should send the other messages on time', () => {
+      const lateness = [...deliveredAt.entries()]
+        .filter(([id]) => id.startsWith('later'))
+        .map(([, at]) => at - laterDueAt)
+      expect(Math.max(...lateness)).toBeLessThan(150)
     })
   })
 

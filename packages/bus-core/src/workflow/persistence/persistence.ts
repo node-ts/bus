@@ -13,8 +13,9 @@ import { WorkflowState } from '../workflow-state'
  * serializer and message types, so one persistence instance can be shared by several buses. A shared persistence
  * is prepared and initialized by each bus, and only disposed by the last bus that uses it.
  *
- * A persistence that implements `storeOutgoingMessages`, `claimDueOutgoingMessages` and `deleteOutgoingMessages`
- * also stores messages sent with `deliverAfter` or `deliverAt`, until a started bus sends them.
+ * A persistence that implements `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and
+ * `releaseOutgoingMessages` also stores messages sent with `deliverAfter` or `deliverAt`, until a started bus sends
+ * them.
  */
 export interface Persistence {
   /**
@@ -87,7 +88,7 @@ export interface Persistence {
   /**
    * If provided, stores messages for the bus to send later, such as those sent with `deliverAfter` or
    * `deliverAt`. Without it, those sends throw `DelayedDeliveryNotSupported`. Implement it together with
-   * `claimDueOutgoingMessages` and `deleteOutgoingMessages`.
+   * `claimDueOutgoingMessages`, `deleteOutgoingMessages` and `releaseOutgoingMessages`.
    *
    * Any started bus that uses the same store sends the messages through its own transport, so every bus that shares
    * a store must use the same broker.
@@ -130,4 +131,12 @@ export interface Persistence {
    * @param ids the `id` of each message to delete
    */
   deleteOutgoingMessages?(ids: string[]): Promise<void>
+
+  /**
+   * If provided, makes claimed messages claimable again straight away, and takes back the attempt their claim
+   * counted, so they're claimed as if that claim hadn't happened. The bus calls it for messages it claimed but didn't
+   * try to send, such as the rest of a batch when sending pauses. An id that isn't stored is ignored.
+   * @param ids the `id` of each message to release
+   */
+  releaseOutgoingMessages?(ids: string[]): Promise<void>
 }

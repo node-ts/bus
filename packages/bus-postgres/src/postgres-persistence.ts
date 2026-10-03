@@ -391,6 +391,23 @@ export class PostgresPersistence implements Persistence {
     )
   }
 
+  async releaseOutgoingMessages(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return
+    }
+    this.logger.debug('Releasing outgoing messages', {
+      numMessages: ids.length
+    })
+    // It was due when it was claimed, so its due time makes it claimable straight away, whatever the clock says
+    await this.postgres.query(
+      `
+      update ${this.outgoingMessagesTable()}
+      set available_at = due_at, attempts = greatest(attempts - 1, 0)
+      where id = any($1::text[]);`,
+      [ids]
+    )
+  }
+
   private outgoingMessagesTable(): string {
     return `${escapeIdentifier(this.configuration.schemaName)}.${escapeIdentifier(OUTGOING_MESSAGES_TABLE_NAME)}`
   }

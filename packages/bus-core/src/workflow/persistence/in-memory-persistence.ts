@@ -184,6 +184,16 @@ export class InMemoryPersistence implements Persistence {
     ids.forEach(id => this.outgoingMessages.delete(id))
   }
 
+  async releaseOutgoingMessages(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      const stored = this.outgoingMessages.get(id)
+      if (stored) {
+        stored.availableAt = stored.outgoingMessage.dueAt.getTime()
+        stored.attempts = Math.max(stored.attempts - 1, 0)
+      }
+    }
+  }
+
   /**
    * Gets the number of workflow states held in memory for a workflow state type
    * @param workflowStateConstructor the type of workflow state to count

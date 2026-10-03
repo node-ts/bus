@@ -270,6 +270,24 @@ export class MongodbPersistence implements Persistence {
     await this.outgoingMessages().deleteMany({ _id: { $in: ids } })
   }
 
+  async releaseOutgoingMessages(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return
+    }
+    this.logger.debug('Releasing outgoing messages', {
+      numMessages: ids.length
+    })
+    // It was due when it was claimed, so its due time makes it claimable straight away, whatever the clock says
+    await this.outgoingMessages().updateMany({ _id: { $in: ids } }, [
+      {
+        $set: {
+          availableAt: '$dueAt',
+          attempts: { $max: [{ $subtract: ['$attempts', 1] }, 0] }
+        }
+      }
+    ])
+  }
+
   /**
    * Reads the database server's clock, so every process claims by the same time
    */

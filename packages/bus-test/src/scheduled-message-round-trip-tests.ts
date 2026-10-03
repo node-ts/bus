@@ -77,7 +77,7 @@ interface ReceivedRoundTrip {
 
 /**
  * A suite that checks a persistence stores messages sent with `deliverAfter` or `deliverAt`: it calls
- * `storeOutgoingMessages`, `claimDueOutgoingMessages` and `deleteOutgoingMessages` directly, then schedules
+ * `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and `releaseOutgoingMessages` directly, then schedules
  * messages through buses that use the persistence, and checks each arrives once, when it's due, with its attributes,
  * headers and nested types.
  *
@@ -97,21 +97,24 @@ export const scheduledMessageRoundTripTests = (
     const {
       storeOutgoingMessages,
       claimDueOutgoingMessages,
-      deleteOutgoingMessages
+      deleteOutgoingMessages,
+      releaseOutgoingMessages
     } = persistence
     if (
       !storeOutgoingMessages ||
       !claimDueOutgoingMessages ||
-      !deleteOutgoingMessages
+      !deleteOutgoingMessages ||
+      !releaseOutgoingMessages
     ) {
       throw new Error(
-        `${persistence.constructor.name} doesn't implement storeOutgoingMessages, claimDueOutgoingMessages and deleteOutgoingMessages`
+        `${persistence.constructor.name} doesn't implement storeOutgoingMessages, claimDueOutgoingMessages, deleteOutgoingMessages and releaseOutgoingMessages`
       )
     }
     return {
       storeOutgoingMessages: storeOutgoingMessages.bind(persistence),
       claimDueOutgoingMessages: claimDueOutgoingMessages.bind(persistence),
-      deleteOutgoingMessages: deleteOutgoingMessages.bind(persistence)
+      deleteOutgoingMessages: deleteOutgoingMessages.bind(persistence),
+      releaseOutgoingMessages: releaseOutgoingMessages.bind(persistence)
     }
   }
 
@@ -318,6 +321,29 @@ export const scheduledMessageRoundTripTests = (
 
       it('should claim it once the lease ends, without the lease', () => {
         expect(claimedAfterLease).toEqual({ ...outgoingMessage, attempts: 1 })
+      })
+    })
+
+    describe('and a claimed message is released', () => {
+      const outgoingMessage = createOutgoingMessage(at(0))
+      let claimedAgain: OutgoingMessage | undefined
+
+      beforeAll(async () => {
+        await store().storeOutgoingMessages([outgoingMessage])
+        await claimAt(at(0))
+        await store().releaseOutgoingMessages([
+          outgoingMessage.id,
+          randomUUID()
+        ])
+        claimedAgain = (await claimAt(at(0))).find(
+          m => m.id === outgoingMessage.id
+        )
+      })
+
+      afterAll(async () => store().deleteOutgoingMessages([outgoingMessage.id]))
+
+      it('should be claimable straight away, as if it had not been claimed', () => {
+        expect(claimedAgain?.attempts).toEqual(1)
       })
     })
 

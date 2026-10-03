@@ -7,6 +7,7 @@ import {
   DelayedDeliveryNotSupported,
   DelayedDeliveryUnsupportedReason,
   InvalidDeliveryOptions,
+  OutgoingMessage,
   SendOptions
 } from '../outgoing-message'
 import { Receiver } from '../receiver'
@@ -14,10 +15,18 @@ import { deadLetter } from '../recoverability'
 import { RecordingInMemoryQueue, testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
-import { InMemoryMessage, InMemoryQueue, TransportMessage } from '../transport'
+import {
+  InMemoryMessage,
+  InMemoryQueue,
+  TransportInitializationOptions,
+  TransportMessage
+} from '../transport'
+import { sleep } from '../util'
 import { InMemoryPersistence, Persistence } from '../workflow'
 import { Bus } from './bus'
+import { BusConfiguration } from './bus-configuration'
 import { BusInstance } from './bus-instance'
+import { InvalidOperation } from './error'
 
 jest.setTimeout(20_000)
 
@@ -41,6 +50,45 @@ class CountingPersistence extends InMemoryPersistence {
 
   async dispose(): Promise<void> {
     this.disposeCount++
+  }
+}
+
+/**
+ * An in-memory persistence that counts its claims
+ */
+class ClaimCountingPersistence extends InMemoryPersistence {
+  claims = 0
+
+  async claimDueOutgoingMessages(
+    limit: number,
+    leaseMs: number,
+    maxLeaseMs: number,
+    now?: Date
+  ): Promise<OutgoingMessage[]> {
+    if (!now) {
+      this.claims++
+    }
+    return super.claimDueOutgoingMessages(limit, leaseMs, maxLeaseMs, now)
+  }
+}
+
+/**
+ * A recording queue that counts its reads and remembers how it was initialized
+ */
+class ReadCountingQueue extends RecordingInMemoryQueue {
+  reads = 0
+  initializedSendOnly: boolean | undefined
+
+  async initialize(options?: TransportInitializationOptions): Promise<void> {
+    this.initializedSendOnly = options?.sendOnly
+    await super.initialize(options)
+  }
+
+  async readNextMessage(): Promise<
+    TransportMessage<InMemoryMessage> | undefined
+  > {
+    this.reads++
+    return super.readNextMessage()
   }
 }
 
@@ -599,6 +647,170 @@ describe('BusInstance delayed delivery', () => {
 
     it('should dispose the persistence once the last bus is disposed', () => {
       expect(persistence.disposeCount).toEqual(1)
+    })
+  })
+  describe('when a bus has dispatching turned off', () => {
+    const persistence = new ClaimCountingPersistence()
+    let bus: BusInstance
+    let stored: unknown[]
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(fastQueue())
+        .withPersistence(persistence)
+        .withDelayedDelivery({ dispatch: false })
+        .withHandler(handlerFor(TestCommand, async () => undefined))
+        .build()
+      // Another bus uses the persistence, as a dedicated scheduler would
+      const scheduler = Bus.configure()
+        .withLogger(silentLogger)
+        .withPersistence(persistence)
+        .withDelayedDelivery({ dispatch: false })
+        .build()
+      await bus.initialize()
+      await bus.start()
+      await bus.send(new TestCommand(), { deliverAfter: 50 })
+      await sleep(1_200)
+      stored = await persistence.claimDueOutgoingMessages(10, 1, 1, END_OF_TIME)
+      await scheduler.dispose()
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should not claim scheduled messages', () => {
+      expect(persistence.claims).toEqual(0)
+    })
+
+    it('should still store the messages it schedules', () => {
+      expect(stored).toHaveLength(1)
+    })
+  })
+
+  describe('when a bus with dispatching turned off and a persistence that is not durable or shared schedules a message', () => {
+    let bus: BusInstance
+    let error: unknown
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withLogger(silentLogger)
+        .withDelayedDelivery({ dispatch: false })
+        .build()
+      await bus.initialize()
+      try {
+        await bus.send(new TestCommand(), { deliverAfter: 1_000 })
+      } catch (e) {
+        error = e
+      }
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should throw DelayedDeliveryNotSupported', () => {
+      expect(error).toBeInstanceOf(DelayedDeliveryNotSupported)
+      expect((error as DelayedDeliveryNotSupported).reason).toEqual(
+        DelayedDeliveryUnsupportedReason.NeverSent
+      )
+    })
+  })
+
+  describe('when a bus is started as a scheduler', () => {
+    const persistence = new InMemoryPersistence()
+    const dispatched = Mock.ofType<(message: Message) => void>()
+    const schedulerQueue = new ReadCountingQueue(message =>
+      dispatched.object(message)
+    )
+    let service: BusInstance
+    let scheduler: BusInstance
+
+    beforeAll(async () => {
+      service = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(fastQueue())
+        .withPersistence(persistence)
+        .withDelayedDelivery({ dispatch: false })
+        .withHandler(handlerFor(TestCommand, async () => undefined))
+        .build()
+      // No message types: it sends stored messages as they were stored
+      scheduler = Bus.configure()
+        .withLogger(silentLogger)
+        .withTransport(schedulerQueue)
+        .withPersistence(persistence)
+        .asScheduler()
+        .build()
+      await service.initialize()
+      await service.start()
+      await scheduler.initialize()
+      await scheduler.start()
+
+      const sent = new Promise<void>(resolve =>
+        dispatched.setup(d => d(It.isAny())).callback(() => resolve())
+      )
+      await service.send(new TestCommand(), { deliverAfter: 100 })
+      await sent
+    })
+
+    afterAll(async () => {
+      await service.dispose()
+      await scheduler.dispose()
+    })
+
+    it('should send the scheduled message through its transport', () => {
+      dispatched.verify(
+        d => d(It.isObjectWith<Message>({ $name: TestCommand.NAME })),
+        Times.once()
+      )
+    })
+
+    it('should not read from a queue', () => {
+      expect(schedulerQueue.reads).toEqual(0)
+    })
+
+    it('should initialize its transport as send-only', () => {
+      expect(schedulerQueue.initializedSendOnly).toEqual(true)
+    })
+  })
+  describe('when a bus is configured as a scheduler and something else', () => {
+    it.each<[string, () => BusConfiguration]>([
+      [
+        'with a handler',
+        () =>
+          Bus.configure()
+            .asScheduler()
+            .withHandler(handlerFor(TestCommand, async () => undefined))
+      ],
+      ['as send-only', () => Bus.configure().asScheduler().asSendOnly()],
+      [
+        'with dispatching turned off',
+        () =>
+          Bus.configure().asScheduler().withDelayedDelivery({ dispatch: false })
+      ]
+    ])('should throw InvalidOperation when built %s', (_, configure) => {
+      expect(() => configure().build()).toThrow(InvalidOperation)
+    })
+  })
+
+  describe('when a scheduler has a persistence that does not store outgoing messages', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      const scheduler = Bus.configure()
+        .withLogger(silentLogger)
+        .withPersistence(new WorkflowOnlyPersistence())
+        .asScheduler()
+        .build()
+      try {
+        await scheduler.initialize()
+      } catch (e) {
+        error = e
+      }
+      await scheduler.dispose()
+    })
+
+    it('should throw DelayedDeliveryNotSupported when initialized', () => {
+      expect(error).toBeInstanceOf(DelayedDeliveryNotSupported)
     })
   })
 })

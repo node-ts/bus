@@ -32,6 +32,11 @@ describe('Bus', () => {
 
     const configurationCalls: [string, (config: BusConfiguration) => void][] = [
       ['asSendOnly', config => config.asSendOnly()],
+      ['asScheduler', config => config.asScheduler()],
+      [
+        'withDelayedDelivery',
+        config => config.withDelayedDelivery({ dispatch: false })
+      ],
       ['withHandler', config => config.withHandler(TestEventClassHandler)],
       [
         'withCustomHandler',

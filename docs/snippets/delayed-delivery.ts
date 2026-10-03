@@ -1,5 +1,6 @@
 import { Bus, handlerFor } from '@node-ts/bus-core'
 import { PostgresPersistence } from '@node-ts/bus-postgres'
+import { RabbitMqTransport } from '@node-ts/bus-rabbitmq'
 import { messageTypes } from './message-types.generated'
 import { ChargeCreditCard, ItemPurchased, ShipItem } from './messages'
 
@@ -65,3 +66,39 @@ await sendOnlyBus.send(new ChargeCreditCard('tok_visa', 1200), {
   deliverAfter: 60_000
 })
 // #endregion send-only
+
+// #region dispatch-off
+// Each service schedules messages, and leaves sending them to the scheduler
+const ordersBus = Bus.configure()
+  .withMessageTypes(messageTypes)
+  .withTransport(
+    new RabbitMqTransport({
+      queueName: 'orders-service',
+      connectionString: 'amqp://guest:guest@localhost'
+    })
+  )
+  .withPersistence(persistence)
+  .withDelayedDelivery({ dispatch: false })
+  .withHandler(itemPurchasedHandler)
+  .build()
+// #endregion dispatch-off
+
+await ordersBus.initialize()
+await ordersBus.start()
+
+// #region scheduler
+// Doesn't read a queue: it only sends the scheduled messages in the shared schema
+const scheduler = Bus.configure()
+  .withTransport(
+    new RabbitMqTransport({
+      queueName: 'scheduler',
+      connectionString: 'amqp://guest:guest@localhost'
+    })
+  )
+  .withPersistence(persistence)
+  .asScheduler()
+  .build()
+
+await scheduler.initialize()
+await scheduler.start()
+// #endregion scheduler
