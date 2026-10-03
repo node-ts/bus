@@ -9,6 +9,13 @@ export const paymentService = {
   charge: async (_creditCardToken: string, _amount: number): Promise<void> => {}
 }
 
+export const creditService = {
+  /**
+   * Resolves with whether the customer has the credit for the amount
+   */
+  check: async (_customerId: string, _amount: number): Promise<boolean> => true
+}
+
 export const receiptService = {
   record: async (_creditCardToken: string, _amount: number): Promise<void> => {}
 }
