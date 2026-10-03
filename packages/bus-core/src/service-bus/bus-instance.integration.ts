@@ -4,15 +4,16 @@ import { IMock, It, Mock, Times } from 'typemoq'
 import { FailMessageOutsideHandlingContext } from '../error'
 import { MessageNameMissing, handlerFor } from '../handler'
 import { Logger } from '../logger'
+import { IncomingContext, Middleware } from '../middleware'
 import { TestCommandContextClassHandler, testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestCommand2 } from '../test/test-command-2'
 import { TestEvent } from '../test/test-event'
 import { TestEvent2 } from '../test/test-event-2'
 import { TestSystemMessage } from '../test/test-system-message'
-import { InMemoryMessage, InMemoryQueue, TransportMessage } from '../transport'
+import { InMemoryQueue } from '../transport'
 import { toTransportMessage } from '../transport/in-memory-queue'
-import { Middleware, sleep } from '../util'
+import { sleep } from '../util'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 import { BusState } from './bus-state'
@@ -29,19 +30,21 @@ describe('BusInstance', () => {
     const handler = handlerFor(TestEvent, async (_: TestEvent) =>
       callback.object()
     )
-    let messageReadMiddleware: IMock<Middleware<TransportMessage<unknown>>>
+    let incomingMiddleware: IMock<Middleware<IncomingContext>>
 
     beforeAll(async () => {
       queue = new InMemoryQueue()
       callback = Mock.ofType<Callback>()
-      messageReadMiddleware =
-        Mock.ofType<Middleware<TransportMessage<unknown>>>()
+      incomingMiddleware = Mock.ofType<Middleware<IncomingContext>>()
 
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withTransport(queue)
         .withHandler(handler)
-        .withMessageReadMiddleware(messageReadMiddleware.object)
+        .withMiddleware({
+          incoming: async (context, next) =>
+            incomingMiddleware.object(context, next)
+        })
         .build()
       await bus.initialize()
     })
@@ -80,11 +83,11 @@ describe('BusInstance', () => {
 
     describe('when a message is successfully handled from the queue', () => {
       beforeAll(async () => {
-        messageReadMiddleware.reset()
+        incomingMiddleware.reset()
 
-        messageReadMiddleware
+        incomingMiddleware
           .setup(x => x(It.isAny(), It.isAny()))
-          .returns((_, next) => next())
+          .returns(async (_, next) => next())
           .verifiable(Times.once())
 
         await bus.start()
@@ -107,8 +110,8 @@ describe('BusInstance', () => {
         callback.verifyAll()
       })
 
-      it('should invoke the message read middlewares', async () => {
-        messageReadMiddleware.verifyAll()
+      it('should invoke the incoming middleware', async () => {
+        incomingMiddleware.verifyAll()
       })
     })
 
@@ -151,26 +154,30 @@ describe('BusInstance', () => {
           .verifiable(Times.exactly(2))
       }
 
-      it('should trigger error hook if registered', async () => {
+      it('should pass the error to incoming middleware', async () => {
         const errorCallback = jest.fn()
         setupErroneousCallback()
 
-        bus.onError.on(errorCallback)
+        incomingMiddleware.reset()
+        incomingMiddleware
+          .setup(x => x(It.isAny(), It.isAny()))
+          .returns(async (context, next) => {
+            try {
+              await next()
+            } catch (error) {
+              errorCallback({
+                message: context.message,
+                error,
+                attributes: context.attributes,
+                rawMessage: context.transportMessage
+              })
+              throw error
+            }
+          })
         await bus.publish(event)
         await sleep(2000)
 
         callback.verifyAll()
-
-        const expectedTransportMessage: TransportMessage<InMemoryMessage> = {
-          id: undefined,
-          attributes: { attributes: {}, stickyAttributes: {} },
-          domainMessage: event,
-          raw: {
-            inFlight: true,
-            seenCount: 1,
-            payload: event
-          }
-        }
 
         expect(errorCallback).toHaveBeenCalledTimes(1)
         expect(errorCallback).toHaveBeenCalledWith({
@@ -185,58 +192,8 @@ describe('BusInstance', () => {
             attributes: expect.anything(),
             stickyAttributes: expect.anything()
           }),
-          rawMessage: expect.objectContaining({
-            ...expectedTransportMessage,
-            attributes: expect.anything()
-          })
+          rawMessage: expect.objectContaining({ domainMessage: event })
         })
-        bus.onError.off(errorCallback)
-      })
-    })
-
-    describe('when registering a send hook', () => {
-      const sendCallback = jest.fn()
-      const command = new TestCommand()
-
-      beforeAll(async () => {
-        bus.beforeSend.on(sendCallback)
-        await bus.send(command, { correlationId: 'a' })
-        bus.beforeSend.off(sendCallback)
-        await bus.send(command, { correlationId: 'a' })
-      })
-
-      it('should trigger the hook once when send() is called', async () => {
-        expect(sendCallback).toHaveBeenCalledWith({
-          command,
-          attributes: expect.objectContaining({ correlationId: 'a' })
-        })
-      })
-
-      it('should only trigger the callback once before its removed', () => {
-        expect(sendCallback).toHaveBeenCalledTimes(1)
-      })
-    })
-
-    describe('when registering a publish hook', () => {
-      const publishCallback = jest.fn()
-      const evt = new TestEvent()
-
-      beforeAll(async () => {
-        bus.beforePublish.on(publishCallback)
-        await bus.publish(evt, { correlationId: 'b' })
-        bus.beforePublish.off(publishCallback)
-        await bus.publish(evt, { correlationId: 'b' })
-      })
-
-      it('should trigger the hook once when publish() is called', async () => {
-        expect(publishCallback).toHaveBeenCalledWith({
-          event: evt,
-          attributes: expect.objectContaining({ correlationId: 'b' })
-        })
-      })
-
-      it('should only trigger the callback once before its removed', () => {
-        expect(publishCallback).toHaveBeenCalledTimes(1)
       })
     })
   })
@@ -424,7 +381,13 @@ describe('BusInstance', () => {
 
       queue
         .setup(q => q.readNextMessage())
-        .returns(async () => ({ domainMessage: new TestCommand() }) as any)
+        .returns(async () =>
+          toTransportMessage(
+            new TestCommand(),
+            { attributes: {}, stickyAttributes: {} },
+            true
+          )
+        )
 
       queue
         .setup(q => q.readNextMessage())

@@ -4,13 +4,23 @@ import {
   Logger,
   Transport,
   TransportConfiguration,
+  TransportHeaderReserved,
   TransportInitializationOptions,
-  TransportMessage
+  TransportMessage,
+  TransportSendOptions
 } from '@node-ts/bus-core'
 import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
 import { BrokerClient, BrokerMessage } from './broker-client'
 
 const MAX_ATTEMPTS = 10
+// The headers the transport writes itself, which middleware can't set
+const RESERVED_HEADERS = [
+  'correlationId',
+  'messageId',
+  'sentAt',
+  'attributes',
+  'stickyAttributes'
+]
 
 export interface MyTransportConfiguration extends TransportConfiguration {
   connectionString: string
@@ -65,18 +75,30 @@ export class MyTransport implements Transport<BrokerMessage> {
     }
   }
 
+  // Called by the bus before it buffers or sends a message, so the send itself rejects
+  assertSendOptions({ headers = {} }: TransportSendOptions): void {
+    const reserved = Object.keys(headers).find(name =>
+      RESERVED_HEADERS.includes(name)
+    )
+    if (reserved) {
+      throw new TransportHeaderReserved(reserved, 'MyTransport')
+    }
+  }
+
   async publish<TEvent extends Event>(
     event: TEvent,
-    attributes?: MessageAttributes
+    attributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.dispatch(event, attributes)
+    await this.dispatch(event, attributes, sendOptions)
   }
 
   async send<TCommand extends Command>(
     command: TCommand,
-    attributes?: MessageAttributes
+    attributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.dispatch(command, attributes)
+    await this.dispatch(command, attributes, sendOptions)
   }
 
   async readNextMessage(): Promise<
@@ -136,12 +158,18 @@ export class MyTransport implements Transport<BrokerMessage> {
 
   private async dispatch(
     message: Command | Event,
-    attributes: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+    attributes: MessageAttributes = { attributes: {}, stickyAttributes: {} },
+    { headers = {} }: TransportSendOptions = {}
   ): Promise<void> {
+    // Native headers set by outgoing middleware
+    this.assertSendOptions({ headers })
     await this.client.publish(
       message.$name,
       this.coreDependencies.messageSerializer.serialize(message),
       {
+        ...Object.fromEntries(
+          Object.entries(headers).map(([name, value]) => [name, String(value)])
+        ),
         ...(attributes.correlationId && {
           correlationId: attributes.correlationId
         }),

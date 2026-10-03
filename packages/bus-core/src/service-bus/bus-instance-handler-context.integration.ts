@@ -1,10 +1,11 @@
-import { Event, MessageAttributes } from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { EventEmitter, once } from 'events'
 import { It, Mock, Times } from 'typemoq'
 import { BusSender, HandlerContext, handlerFor } from '../handler'
 import { Logger } from '../logger'
 import {
   messageTypesFor,
+  RecordingInMemoryQueue,
   TestCommand,
   TestCommand2,
   TestCommandContextClassHandler,
@@ -129,15 +130,29 @@ describe('BusInstance handler context', () => {
 
   describe('when a function handler publishes through its context and then fails', () => {
     let bus: BusInstance
-    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+    const dispatched = Mock.ofType<(message: Message) => void>()
 
     beforeAll(async () => {
+      const failures = new EventEmitter()
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(
-          new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
+          new RecordingInMemoryQueue(message => dispatched.object(message), {
+            maxRetries: 0,
+            receiveTimeoutMs: 100
+          })
         )
+        .withMiddleware({
+          incoming: async (_, next) => {
+            try {
+              await next()
+            } catch (error) {
+              failures.emit('failed')
+              throw error
+            }
+          }
+        })
         .withHandler(
           handlerFor(TestCommand, async (_message, _attributes, ctx) => {
             await ctx.publish(new TestEvent('failing-handler'))
@@ -145,11 +160,10 @@ describe('BusInstance handler context', () => {
           })
         )
         .build()
-      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
 
       await bus.initialize()
       await bus.start()
-      const failed = new Promise(resolve => bus.onError.once(resolve))
+      const failed = once(failures, 'failed')
       await bus.send(new TestCommand())
       await failed
     })
@@ -159,7 +173,10 @@ describe('BusInstance handler context', () => {
     })
 
     it('should drop the event', () => {
-      afterPublishCallback.verify(c => c(It.isAny()), Times.never())
+      dispatched.verify(
+        c => c(It.isObjectWith<Message>({ $name: TestEvent.NAME })),
+        Times.never()
+      )
     })
   })
 

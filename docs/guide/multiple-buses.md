@@ -9,7 +9,7 @@ A process can run more than one bus, such as a service that reads from two queue
 
 ## Each bus is isolated
 
-Each bus behaves as if it ran in its own process. Its message types, handling context, lifecycle hooks and default logger are its own, and nothing is kept in module or global state.
+Each bus behaves as if it ran in its own process. Its message types, handling context, middleware and default logger are its own, and nothing is kept in module or global state.
 
 So a bus used inside another bus' handler doesn't know about the message being handled:
 

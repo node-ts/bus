@@ -6,7 +6,8 @@ import {
   JsonSerializer,
   Logger,
   MessageSerializer,
-  sleep
+  sleep,
+  TransportHeaderReserved
 } from '@node-ts/bus-core'
 import {
   Message,
@@ -577,6 +578,153 @@ describe('RabbitMqTransport', () => {
 
       it('should count each failed attempt', () => {
         expect(retryAttempts).toEqual([0, 1])
+      })
+    })
+  })
+
+  describe('with outgoing middleware that sets headers', () => {
+    const headersConfiguration: RabbitMqTransportConfiguration = {
+      queueName: '@node-ts/bus-rabbitmq-headers-test',
+      deadLetterQueueName: '@node-ts/bus-rabbitmq-headers-test-dead-letter',
+      connectionString: configuration.connectionString,
+      maxRetries: 3
+    }
+    const sut = new RabbitMqTransport(headersConfiguration)
+    const handlerEvents = new EventEmitter()
+    /**
+     * The AMQP headers of each delivery of the command, in the order they were received
+     */
+    const receivedHeaders: Record<string, unknown>[] = []
+    let deadLetterHeaders: Record<string, unknown>
+    let bus: BusInstance
+    let reservedHeaderError: unknown
+
+    const readFromDeadLetterQueue = async () => {
+      const deadLetterChannel = await connection.createChannel()
+      const rabbitMessage = await new Promise<ConsumeMessage>(
+        (resolve, reject) => {
+          deadLetterChannel
+            .consume(headersConfiguration.deadLetterQueueName!, message => {
+              deadLetterChannel.ack(message!)
+              resolve(message!)
+            })
+            .catch(reject)
+        }
+      )
+      await deadLetterChannel.close()
+      return rabbitMessage
+    }
+
+    beforeAll(async () => {
+      for (const queueName of [
+        headersConfiguration.queueName,
+        headersConfiguration.deadLetterQueueName!
+      ]) {
+        const purgeChannel = await connection.createChannel()
+        purgeChannel.on('error', () => undefined)
+        await purgeChannel.purgeQueue(queueName).catch(() => undefined)
+      }
+
+      let attempts = 0
+      bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withRetryStrategy({ calculateRetryDelay: () => 0 })
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            const command = context.message as TestRetryCommand
+            if (command.value === 'reserved') {
+              context.headers.failedAttempts = 5
+            } else {
+              context.headers['x-tenant'] = 'acme'
+              context.headers['x-priority'] = 3
+              context.headers['x-urgent'] = true
+            }
+            await next()
+          },
+          incoming: async (context, next) => {
+            const raw = context.transportMessage.raw as ConsumeMessage
+            if ((context.message as TestRetryCommand).value === 'headers') {
+              receivedHeaders.push({ ...raw.properties.headers })
+            }
+            await next()
+          }
+        })
+        .withHandler(
+          handlerFor(TestRetryCommand, async (command, _attributes, ctx) => {
+            if (command.value === 'dead-letter') {
+              await ctx.failMessage()
+              return
+            }
+            handlerEvents.emit('received')
+            if (++attempts === 1) {
+              throw new Error(
+                'Fail the first attempt so the message is retried'
+              )
+            }
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      reservedHeaderError = await bus
+        .send(new TestRetryCommand('reserved', 0))
+        .catch(error => error)
+
+      const retried = new Promise<void>(resolve => {
+        let received = 0
+        handlerEvents.on('received', () => {
+          if (++received === 2) {
+            resolve()
+          }
+        })
+      })
+      await bus.send(new TestRetryCommand('headers', 1))
+      await retried
+
+      const deadLettered = readFromDeadLetterQueue()
+      await bus.send(new TestRetryCommand('dead-letter', 0))
+      deadLetterHeaders = (await deadLettered).properties.headers ?? {}
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await channel.deleteExchange(TestRetryCommand.NAME)
+    })
+
+    it('should write the headers as AMQP headers', () => {
+      expect(receivedHeaders[0]).toMatchObject({
+        'x-tenant': 'acme',
+        'x-priority': 3,
+        'x-urgent': true
+      })
+    })
+
+    it('should keep the headers when the message is retried', () => {
+      expect(receivedHeaders).toHaveLength(2)
+      expect(receivedHeaders[1]).toMatchObject({
+        'x-tenant': 'acme',
+        'x-priority': 3,
+        'x-urgent': true,
+        failedAttempts: 1
+      })
+    })
+
+    it('should keep the headers when the message is failed to the dead letter queue', () => {
+      expect(deadLetterHeaders).toMatchObject({
+        'x-tenant': 'acme',
+        'x-priority': 3,
+        'x-urgent': true
+      })
+    })
+
+    it('should throw TransportHeaderReserved for a header the transport writes itself', () => {
+      expect(reservedHeaderError).toBeInstanceOf(TransportHeaderReserved)
+      expect(reservedHeaderError).toMatchObject({
+        headerName: 'failedAttempts',
+        transportName: 'RabbitMqTransport'
       })
     })
   })

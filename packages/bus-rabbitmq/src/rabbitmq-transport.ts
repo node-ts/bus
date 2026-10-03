@@ -4,7 +4,10 @@ import {
   Logger,
   Transport,
   TransportConnectionOptions,
-  TransportMessage
+  TransportHeaderReserved,
+  TransportHeaders,
+  TransportMessage,
+  TransportSendOptions
 } from '@node-ts/bus-core'
 import {
   Command,
@@ -41,6 +44,38 @@ const FAILED_ATTEMPTS_HEADER = 'failedAttempts'
  * Carries `sentAt`, because the AMQP `timestamp` property only has second precision
  */
 const SENT_AT_HEADER = 'sentAt'
+
+/**
+ * The AMQP headers the transport or the broker writes, which outgoing middleware can't set. The transport reads
+ * `x-death` to count attempts, so a value set by a client would break retries.
+ */
+const RESERVED_HEADERS = new Set([
+  'attributes',
+  'stickyAttributes',
+  SENT_AT_HEADER,
+  FAILED_ATTEMPTS_HEADER,
+  'x-death'
+])
+
+/**
+ * Prefixes of the dead-lettering headers the broker writes, such as `x-first-death-reason`
+ */
+const RESERVED_HEADER_PREFIXES = ['x-first-death-', 'x-last-death-']
+
+/**
+ * Checks that no header set by outgoing middleware is one the transport writes itself
+ * @throws TransportHeaderReserved if one is
+ */
+const assertHeadersNotReserved = (headers: TransportHeaders): void => {
+  const reservedHeader = Object.keys(headers).find(
+    name =>
+      RESERVED_HEADERS.has(name) ||
+      RESERVED_HEADER_PREFIXES.some(prefix => name.startsWith(prefix))
+  )
+  if (reservedHeader) {
+    throw new TransportHeaderReserved(reservedHeader, 'RabbitMqTransport')
+  }
+}
 
 export const DEFAULT_CONNECTION_RECOVERY: Required<RabbitMqConnectionRecoveryConfiguration> =
   {
@@ -177,18 +212,44 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.connection?.close().catch(ignoreIllegalOperation)
   }
 
-  async publish<TEvent extends Event>(
-    event: TEvent,
-    messageAttributes?: MessageAttributes
-  ): Promise<void> {
-    await this.publishMessage(event, messageAttributes)
+  /**
+   * Checks the headers set by outgoing middleware before the bus buffers or sends the message
+   * @param sendOptions the options the message will be sent with
+   * @throws TransportHeaderReserved if a header is named `attributes`, `stickyAttributes`, `sentAt`,
+   * `failedAttempts` or `x-death`, or starts with `x-first-death-` or `x-last-death-`
+   */
+  assertSendOptions(sendOptions: TransportSendOptions): void {
+    assertHeadersNotReserved(sendOptions.headers ?? {})
   }
 
+  /**
+   * Publishes an event to its fanout exchange
+   * @param event the event to publish
+   * @param messageAttributes the attributes to publish it with, written as JSON headers
+   * @param sendOptions native headers from outgoing middleware, written as AMQP headers as they are
+   * @throws TransportHeaderReserved if a header has a name the transport or broker writes (see `assertSendOptions`)
+   */
+  async publish<TEvent extends Event>(
+    event: TEvent,
+    messageAttributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
+  ): Promise<void> {
+    await this.publishMessage(event, messageAttributes, sendOptions)
+  }
+
+  /**
+   * Sends a command to its fanout exchange
+   * @param command the command to send
+   * @param messageAttributes the attributes to send it with, written as JSON headers
+   * @param sendOptions native headers from outgoing middleware, written as AMQP headers as they are
+   * @throws TransportHeaderReserved if a header has a name the transport or broker writes (see `assertSendOptions`)
+   */
   async send<TCommand extends Command>(
     command: TCommand,
-    messageAttributes?: MessageAttributes
+    messageAttributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.publishMessage(command, messageAttributes)
+    await this.publishMessage(command, messageAttributes, sendOptions)
   }
 
   async fail(transportMessage: TransportMessage<unknown>): Promise<void> {
@@ -828,8 +889,14 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    */
   private async publishMessage(
     message: Message,
-    messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+    messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    },
+    sendOptions: TransportSendOptions = {}
   ): Promise<void> {
+    const nativeHeaders = sendOptions.headers ?? {}
+    assertHeadersNotReserved(nativeHeaders)
     const payload = this.coreDependencies.messageSerializer.serialize(message)
 
     while (true) {
@@ -842,6 +909,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
           messageId: messageOptions.messageId ?? randomUUID(),
           persistent: this.persistentMessages,
           headers: {
+            ...nativeHeaders,
             [SENT_AT_HEADER]: messageOptions.sentAt,
             attributes: messageOptions.attributes
               ? JSON.stringify(messageOptions.attributes)

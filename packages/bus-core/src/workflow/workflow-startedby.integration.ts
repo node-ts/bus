@@ -101,9 +101,14 @@ describe('Workflow Started By', () => {
         .withPersistence(persistence)
         .withWorkflow(TestVoidStartedByWorkflow)
         .withHandler(failOnceHandler)
+        .withMiddleware({
+          incoming: async (_, next) => {
+            await next()
+            events.emit('received')
+          }
+        })
         .build()
 
-      retriedBus.afterDispatch.on(() => events.emit('received'))
       await retriedBus.initialize()
       await retriedBus.start()
 

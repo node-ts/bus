@@ -48,8 +48,8 @@ describe('Bus', () => {
       ['withConcurrency', config => config.withConcurrency(2)],
       ['withContainer', config => config.withContainer({} as ContainerAdapter)],
       [
-        'withMessageReadMiddleware',
-        config => config.withMessageReadMiddleware((_, next) => next())
+        'withMiddleware',
+        config => config.withMiddleware({ incoming: async (_, next) => next() })
       ],
       [
         'withRetryStrategy',

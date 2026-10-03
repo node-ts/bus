@@ -11,17 +11,14 @@ import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
 import { HandlerDefinition, isClassHandler } from '../handler/handler'
 import { LoggerFactory, createDefaultLoggerFactory } from '../logger'
 import { MessageHandlingContext } from '../message-handling-context'
+import { BusMiddleware } from '../middleware'
+import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import { Receiver } from '../receiver'
 import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
 import { JsonSerializer, Serializer } from '../serialization'
 import { MessageSerializer } from '../serialization/message-serializer'
-import { InMemoryQueue, Transport, TransportMessage } from '../transport'
-import {
-  ClassConstructor,
-  CoreDependencies,
-  Middleware,
-  MiddlewareDispatcher
-} from '../util'
+import { InMemoryQueue, Transport } from '../transport'
+import { ClassConstructor, CoreDependencies } from '../util'
 import {
   FunctionWorkflow,
   Persistence,
@@ -69,9 +66,7 @@ export class BusConfiguration {
   private loggerFactory: LoggerFactory = createDefaultLoggerFactory()
   private serializer: Serializer | undefined
   private persistence: Persistence = new InMemoryPersistence()
-  private messageReadMiddlewares = new MiddlewareDispatcher<
-    TransportMessage<any>
-  >()
+  private middleware: BusMiddleware[] = []
   private retryStrategy: RetryStrategy = new DefaultRetryStrategy()
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
@@ -144,7 +139,7 @@ export class BusConfiguration {
       this.concurrency,
       this.workflowRegistry,
       coreDependencies,
-      this.messageReadMiddlewares,
+      new MiddlewarePipeline(this.middleware),
       this.handlerRegistry,
       this.container,
       this.sendOnly,
@@ -384,19 +379,31 @@ export class BusConfiguration {
   }
 
   /**
-   * Register optional middlewares that will run for each message that is polled from the transport
-   * Note these middlewares only run when polling successfully pulls a message off the Transports queue
-   * After all the user defined middlewares have registered.
+   * Adds middleware to the bus' pipeline. Each `BusMiddleware` can wrap any of three stages:
+   * - `incoming`: the handling of each received message, around all of its handlers
+   * - `handler`: each call of a handler or workflow handler, inside its outbox
+   * - `outgoing`: each `send()` and `publish()`, before the message is buffered or sent, where it can change the
+   * attributes or set native transport headers
+   *
+   * Within each stage, middleware runs in the order it's registered, with the first registered outermost. Calling
+   * this again adds to the middleware already registered.
+   * @param middleware the middleware to add
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * Bus.configure().withMiddleware({
+   *   incoming: async (context, next) => {
+   *     const started = Date.now()
+   *     await next()
+   *     console.log(`${context.message.$name} handled in ${Date.now() - started}ms`)
+   *   }
+   * })
    */
-  withMessageReadMiddleware<TransportMessageType = unknown>(
-    messageReadMiddleware: Middleware<TransportMessage<TransportMessageType>>
-  ): this {
+  withMiddleware(...middleware: BusMiddleware[]): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.messageReadMiddlewares.use(messageReadMiddleware)
+    this.middleware.push(...middleware)
     return this
   }
 

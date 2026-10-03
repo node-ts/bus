@@ -1,6 +1,8 @@
 import { messageAttributes } from '@node-ts/bus-messages'
+import { EventEmitter, once } from 'node:events'
 import { Mock } from 'typemoq'
 import { Logger } from '../logger'
+import { BusMiddleware } from '../middleware'
 import { MessageTypesMissing } from '../serialization'
 import { Bus, BusInstance } from '../service-bus'
 import { messageTypesFor, testMessageTypes } from '../test'
@@ -28,18 +30,24 @@ import {
 } from './test/test-workflow-startedby-completes'
 import { WorkflowStatus } from './workflow-state'
 
+const handledMessages = new EventEmitter()
+
 /**
- * Resolves once the bus has handled a message named `name`
+ * Emits the name of each message once the bus has handled it
  */
-const handled = (bus: BusInstance, name: string) =>
-  new Promise<void>(resolve => {
-    const unsubscribe = bus.afterDispatch.on(({ message }) => {
-      if (message.$name === name) {
-        unsubscribe()
-        resolve()
-      }
-    })
-  })
+const reportHandled: BusMiddleware = {
+  incoming: async (context, next) => {
+    await next()
+    handledMessages.emit(context.message.$name)
+  }
+}
+
+/**
+ * Resolves once a bus with `reportHandled` has handled a message named `name`
+ */
+const handled = async (name: string) => {
+  await once(handledMessages, name)
+}
 
 describe('defineWorkflow', () => {
   const noAttributes = messageAttributes()
@@ -57,6 +65,7 @@ describe('defineWorkflow', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMiddleware(reportHandled)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withMessageTypes(testMessageTypes)
         .withPersistence(persistence)
@@ -73,7 +82,7 @@ describe('defineWorkflow', () => {
       await bus.initialize()
       await bus.start()
 
-      const started = handled(bus, TestCommand.NAME)
+      const started = handled(TestCommand.NAME)
       await bus.send(command, {
         correlationId,
         attributes: { source: 'define-workflow-test' }
@@ -175,7 +184,7 @@ describe('defineWorkflow', () => {
 
       beforeAll(async () => {
         // The TaskRan handler sends FinalTask, which carries the workflow id and so is routed back to the workflow
-        const finalTaskHandled = handled(bus, FinalTask.NAME)
+        const finalTaskHandled = handled(FinalTask.NAME)
         await bus.publish(new TaskRan(command.property1!), { correlationId })
         await finalTaskHandled
         finalState = await persistence.getWorkflowState(

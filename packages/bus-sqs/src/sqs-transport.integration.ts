@@ -9,9 +9,16 @@ import {
   PurgeQueueCommand,
   ReceiveMessageCommand,
   SetQueueAttributesCommandInput,
-  SQSClient
+  SQSClient,
+  Message as SQSMessage
 } from '@aws-sdk/client-sqs'
-import { Bus, BusInstance, handlerFor, Logger } from '@node-ts/bus-core'
+import {
+  Bus,
+  BusInstance,
+  handlerFor,
+  Logger,
+  TransportHeaderReserved
+} from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
 import { EventEmitter } from 'node:events'
@@ -241,6 +248,109 @@ describe('SqsTransport', () => {
       expect(receivedAttributes.stickyAttributes).toEqual(
         messageOptions.stickyAttributes
       )
+    })
+  })
+
+  describe('when outgoing middleware sets headers', () => {
+    const configuration: SqsTransportConfiguration = {
+      awsRegion: AWS_REGION,
+      awsAccountId: AWS_ACCOUNT_ID,
+      queueName: `${resourcePrefix}-headers`,
+      deadLetterQueueName: `${resourcePrefix}-headers-dead-letter`
+    }
+    const sut = new SqsTransport(configuration, sqs, sns)
+    let bus: BusInstance
+    let receivedBody: SQSMessageBody
+    let deadLetterBody: SQSMessageBody
+    let reservedHeaderError: unknown
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      let sendReservedHeader = true
+      bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            if (sendReservedHeader) {
+              context.headers.correlationId = 'from-a-header'
+            } else {
+              context.headers['x-tenant'] = 'acme'
+              context.headers['x-priority'] = 3
+            }
+            await next()
+          },
+          incoming: async (context, next) => {
+            const raw = context.transportMessage.raw as SQSMessage
+            receivedBody = JSON.parse(raw.Body!) as SQSMessageBody
+            await next()
+            handled.emit('received')
+          }
+        })
+        .withHandler(
+          // Fails the message, to check its headers survive the dead letter queue
+          handlerFor(AttributeRoundTripCommand, async (_m, _a, ctx) =>
+            ctx.failMessage()
+          )
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      reservedHeaderError = await bus
+        .send(new AttributeRoundTripCommand())
+        .catch(error => error)
+      sendReservedHeader = false
+
+      const received = new Promise(resolve => handled.once('received', resolve))
+      await bus.send(new AttributeRoundTripCommand())
+      await received
+
+      const deadLetters = await sqs.send(
+        new ReceiveMessageCommand({
+          QueueUrl: sut.deadLetterQueueUrl,
+          WaitTimeSeconds: 5,
+          MaxNumberOfMessages: 1
+        })
+      )
+      deadLetterBody = JSON.parse(
+        deadLetters.Messages![0].Body!
+      ) as SQSMessageBody
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: sut.queueUrl }))
+      await sqs.send(
+        new DeleteQueueCommand({ QueueUrl: sut.deadLetterQueueUrl })
+      )
+    })
+
+    it('should send each header as an SNS message attribute under its own name', () => {
+      expect(receivedBody.MessageAttributes['x-tenant']).toEqual({
+        Type: 'String',
+        Value: 'acme'
+      })
+      expect(receivedBody.MessageAttributes['x-priority']).toEqual({
+        Type: 'Number',
+        Value: '3'
+      })
+    })
+
+    it('should keep the headers when the message is failed to the dead letter queue', () => {
+      expect(deadLetterBody.MessageAttributes['x-tenant']).toEqual({
+        Type: 'String',
+        Value: 'acme'
+      })
+    })
+
+    it('should throw TransportHeaderReserved for a name the transport writes itself', () => {
+      expect(reservedHeaderError).toBeInstanceOf(TransportHeaderReserved)
+      expect(reservedHeaderError).toMatchObject({
+        headerName: 'correlationId',
+        transportName: 'SqsTransport'
+      })
     })
   })
 })

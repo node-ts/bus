@@ -8,6 +8,7 @@
     "/installing/handling-messages": "/getting-started/handling-messages",
     "/installing/shutting-down-cleanly": "/getting-started/shutting-down",
     "/guide/message-attributes/attributes-1": "/guide/message-attributes/attributes",
+    "/guide/lifecycle-hooks": "/guide/middleware",
     "/guide/transports": "/transports",
     "/guide/transports/rabbitmq": "/transports/rabbitmq",
     "/guide/transports/amazon-sqs": "/transports/amazon-sqs",

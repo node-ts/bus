@@ -103,6 +103,38 @@ describe('InMemoryQueue', () => {
     })
   })
 
+  describe('when sending a command with headers', () => {
+    let message: TransportMessage<InMemoryMessage> | undefined
+
+    beforeEach(async () => {
+      await sut.send(command, messageOptions, {
+        headers: { 'x-delay': 5, priority: 'high', urgent: true }
+      })
+      message = await sut.readNextMessage()
+    })
+
+    it('should keep the headers on the raw message', () => {
+      expect(message!.raw.headers).toEqual({
+        'x-delay': 5,
+        priority: 'high',
+        urgent: true
+      })
+    })
+  })
+
+  describe('when publishing an event without headers', () => {
+    let message: TransportMessage<InMemoryMessage> | undefined
+
+    beforeEach(async () => {
+      await sut.publish(event, messageOptions)
+      message = await sut.readNextMessage()
+    })
+
+    it('should give the raw message no headers', () => {
+      expect(message!.raw.headers).toEqual({})
+    })
+  })
+
   describe('when sending a command', () => {
     it('should push the command onto the memory queue', async () => {
       await sut.send(command, messageOptions)

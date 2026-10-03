@@ -34,4 +34,4 @@ A handler that knows a message will never succeed can send it straight to the de
 ## See also
 
 - [`RetryStrategy`](/api/bus-core/interfaces/RetryStrategy) and [`DefaultRetryStrategy`](/api/bus-core/classes/DefaultRetryStrategy) in the API reference
-- [Lifecycle hooks](/guide/lifecycle-hooks), to log failures with `onError`
+- [Middleware](/guide/middleware#logging-failures), to log failures
