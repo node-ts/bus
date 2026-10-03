@@ -35,6 +35,8 @@ Telemetry such as AWS X-Ray, New Relic or Datadog can profile message handling w
 
 <<< @/snippets/middleware.ts#timing
 
+For OpenTelemetry, [`@node-ts/bus-opentelemetry`](/guide/opentelemetry) is middleware that traces messages across services and records their metrics.
+
 ### Adding context to logs
 
 Middleware can give every log written while handling a message the context of that message, such as its correlation id. Run `next()` inside an `AsyncLocalStorage`, and have your [logger](/guide/loggers/custom-loggers) read the store:
@@ -113,6 +115,7 @@ See [upgrading](/upgrading/v2) for the details.
 
 ## See also
 
+- [OpenTelemetry](/guide/opentelemetry)
 - [Correlation id](/guide/message-attributes/correlation-id)
 - [Retry strategies](/guide/retry-strategies)
 - [`BusMiddleware`](/api/bus-core/interfaces/BusMiddleware), [`IncomingContext`](/api/bus-core/interfaces/IncomingContext), [`HandlerInvocationContext`](/api/bus-core/interfaces/HandlerInvocationContext) and [`OutgoingContext`](/api/bus-core/type-aliases/OutgoingContext) in the API reference

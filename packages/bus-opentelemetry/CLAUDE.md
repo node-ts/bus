@@ -1,0 +1,19 @@
+# bus-opentelemetry
+
+OpenTelemetry tracing and metrics as bus middleware. Read the root `CLAUDE.md` first. Consumer docs: `docs/guide/opentelemetry.md`.
+
+## Design
+
+- One function, `openTelemetry(options?)` (`src/open-telemetry.ts`), returns a `BusMiddleware` with all three stages. No classes and no global registration. Each call has its own `AsyncLocalStorage` and lazily created instruments, so it must be called once per bus.
+- The only runtime peer is `@opentelemetry/api` (plus `@node-ts/bus-core`). Never import an SDK package from `src/` outside `src/test`; the SDK packages are devDependencies for the tests.
+- **Semantic conventions** are pinned in `src/semantic-conventions.ts`, checked against `@opentelemetry/semantic-conventions@1.43.0`, and reported as the tracer and meter schema url. Don't import `@opentelemetry/semantic-conventions`; copy names into that file. Moving to a newer version means updating that file, the docs page and a changeset that calls out renamed metrics. Names the conventions don't cover use the `node_ts_bus.` prefix.
+- **Spans**: outgoing starts a PRODUCER span `send|publish <$name>` under the active context; incoming extracts the context from the message and starts a CONSUMER span `process <$name>` under it; handler starts an INTERNAL span named `handlerName` under the active (process) span. Each runs `next()` inside `context.with(...)`, so parentage within a service needs a context manager (the Node SDK registers one; tests call `useContextManager()`).
+- **Trace context travels in `attributes.attributes`** (non-sticky), not transport headers: headers are read back from `transportMessage.raw` in a different shape on every transport (AMQP headers, the SNS envelope in an SQS body, the in-memory raw message), while attributes are deserialized the same everywhere. Outgoing replaces the attributes object (it may be the caller's own) and drops any existing propagator fields before injecting.
+- **Metrics**: `messaging.client.sent.messages` for a send made inside a handler is held in the handler's `HandlerSends` store and only counted once the handler middleware's `next()` resolves, since the bus drops a failed handler's outbox. `node_ts_bus.failed.messages` counts each incoming `next()` that throws. `error.type` unwraps a `HandlerDispatchRejected` with one rejection to that handler's error class. Critical time is recorded on success from `attributes.sentAt`, clamped at 0.
+- A retried-messages count is a follow-up for #262 (recoverability policy): only failures are visible to middleware today.
+
+## Tests
+
+- `src/open-telemetry.spec.ts` calls each middleware stage directly with fake contexts. `src/open-telemetry.integration.ts` builds real in-memory buses. `src/transport-propagation.integration.ts` checks the trace continues over the in-memory queue, RabbitMQ and SQS (LocalStack), so it needs the infra from the root `docker-compose.yml`.
+- `src/test/test-telemetry.ts` wires an `InMemorySpanExporter` and a collect-on-demand `MetricReader` into providers passed through the options, rather than registering global providers, so tests don't share telemetry. Test buses come from `buildTracedBus` (`src/test/build-traced-bus.ts`), whose outermost incoming middleware emits `handledEvent($name, runId)` once all of a message's spans have ended.
+- The transport test filters spans by a random `runId` and `messageId`, since queues are shared between runs.
