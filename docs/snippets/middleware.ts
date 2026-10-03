@@ -129,6 +129,20 @@ const stampService: Middleware<OutgoingContext> = async (context, next) => {
 Bus.configure().withMiddleware({ outgoing: stampService })
 // #endregion stamp-attribute
 
+// #region dispatched
+Bus.configure().withMiddleware({
+  outgoing: async (context, next) => {
+    // Settles when the message reaches the transport, which for a send from a handler is after the handler resolves
+    void context.dispatched.then(
+      () => console.log('Sent', context.message.$name),
+      (error: unknown) =>
+        console.log('Not sent', context.message.$name, { error })
+    )
+    await next()
+  }
+})
+// #endregion dispatched
+
 declare const rabbitMqTransport: RabbitMqTransport
 
 // #region headers
@@ -149,7 +163,8 @@ const context: OutgoingContext = {
   kind: 'publish',
   message: new RoomReserved('room-1', 'booking-1'),
   attributes: { attributes: {}, stickyAttributes: {} },
-  headers: {}
+  headers: {},
+  dispatched: Promise.resolve()
 }
 let nextCalls = 0
 await stampService(context, async () => {

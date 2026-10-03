@@ -35,6 +35,8 @@ Telemetry such as AWS X-Ray, New Relic or Datadog can profile message handling w
 
 <<< @/snippets/middleware.ts#timing
 
+For OpenTelemetry, [`@node-ts/bus-opentelemetry`](/guide/opentelemetry) is middleware that traces messages across services and records their metrics.
+
 ### Adding context to logs
 
 Middleware can give every log written while handling a message the context of that message, such as its correlation id. Run `next()` inside an `AsyncLocalStorage`, and have your [logger](/guide/loggers/custom-loggers) read the store:
@@ -70,6 +72,14 @@ Outgoing middleware runs each time `send()` or `publish()` is called, on the bus
 <<< @/snippets/middleware.ts#stamp-attribute
 
 It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport.
+
+### Knowing when a message is sent
+
+`context.dispatched` is a promise that settles once the message has reached the transport, or won't. It resolves when the transport has sent it, and rejects with the transport's error if sending failed, or with `OutgoingMessageDropped` if the message was never sent: a later middleware didn't call `next()`, the handler failed, or another message from the same handler failed to send first. A rejection that nothing handles is ignored.
+
+<<< @/snippets/middleware.ts#dispatched
+
+A buffered message is sent in the async context the middleware called `next()` in, so a tracing span or `AsyncLocalStorage` store set around `next()` is active while the transport sends it.
 
 ### Transport headers
 
@@ -113,6 +123,7 @@ See [upgrading](/upgrading/v2) for the details.
 
 ## See also
 
+- [OpenTelemetry](/guide/opentelemetry)
 - [Correlation id](/guide/message-attributes/correlation-id)
 - [Retry strategies](/guide/retry-strategies)
 - [`BusMiddleware`](/api/bus-core/interfaces/BusMiddleware), [`IncomingContext`](/api/bus-core/interfaces/IncomingContext), [`HandlerInvocationContext`](/api/bus-core/interfaces/HandlerInvocationContext) and [`OutgoingContext`](/api/bus-core/type-aliases/OutgoingContext) in the API reference

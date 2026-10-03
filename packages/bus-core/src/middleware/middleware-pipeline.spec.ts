@@ -40,7 +40,8 @@ const outgoingContext = (): OutgoingContext => ({
   kind: 'publish',
   message: new TestEvent(),
   attributes: { attributes: {}, stickyAttributes: {} },
-  headers: {}
+  headers: {},
+  dispatched: Promise.resolve()
 })
 
 /**

@@ -11,6 +11,7 @@
     "../packages/bus-rabbitmq",
     "../packages/bus-postgres",
     "../packages/bus-mongodb",
+    "../packages/bus-opentelemetry",
     "../packages/bus-test"
   ],
   "packageOptions": {
