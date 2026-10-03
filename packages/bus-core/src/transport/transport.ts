@@ -2,6 +2,7 @@ import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
 import { CoreDependencies } from '../util'
 import { TransportMessage } from './transport-message'
+import { TransportSendOptions } from './transport-send-options'
 
 export interface TransportInitializationOptions {
   /**
@@ -39,10 +40,13 @@ export interface Transport<TransportMessageType = {}> {
    * @param event A domain event to be published
    * @param messageOptions Options that control the behaviour around how the message is sent and
    * additional information that travels with it.
+   * @param sendOptions How to send this message, such as the native headers set by outgoing middleware
+   * @throws TransportHeaderReserved if a header in `sendOptions` has a name the transport uses itself
    */
   publish<TEvent extends Event>(
     event: TEvent,
-    messageOptions?: MessageAttributes
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void>
 
   /**
@@ -51,10 +55,13 @@ export interface Transport<TransportMessageType = {}> {
    * @param command A domain command to be sent
    * @param messageOptions Options that control the behaviour around how the message is sent and
    * additional information that travels with it.
+   * @param sendOptions How to send this message, such as the native headers set by outgoing middleware
+   * @throws TransportHeaderReserved if a header in `sendOptions` has a name the transport uses itself
    */
   send<TCommand extends Command>(
     command: TCommand,
-    messageOptions?: MessageAttributes
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void>
 
   /**

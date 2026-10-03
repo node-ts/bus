@@ -15,6 +15,10 @@ import {
 import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
 import { Transport, TransportInitializationOptions } from './transport'
 import { TransportMessage } from './transport-message'
+import {
+  TransportHeaders,
+  TransportSendOptions
+} from './transport-send-options'
 
 export interface InMemoryMessage {
   /**
@@ -31,6 +35,11 @@ export interface InMemoryMessage {
    * The body of the message that was sent by the consumer
    */
   payload: Message
+
+  /**
+   * The native headers the message was sent with, as set by outgoing middleware
+   */
+  headers: TransportHeaders
 }
 
 /**
@@ -101,16 +110,18 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
 
   async publish<TEvent extends Event>(
     event: TEvent,
-    messageOptions?: MessageAttributes
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    this.addToQueue(event, messageOptions)
+    this.addToQueue(event, messageOptions, sendOptions)
   }
 
   async send<TCommand extends Command>(
     command: TCommand,
-    messageOptions?: MessageAttributes
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    this.addToQueue(command, messageOptions)
+    this.addToQueue(command, messageOptions, sendOptions)
   }
 
   async fail(
@@ -252,7 +263,11 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
 
   private addToQueue(
     message: Message,
-    messageOptions: MessageAttributes = { attributes: {}, stickyAttributes: {} }
+    messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    },
+    sendOptions: TransportSendOptions = {}
   ): void {
     if (!this.messagesWithHandlers.has(message.$name)) {
       this.logger.debug(
@@ -262,7 +277,12 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
       return
     }
 
-    const transportMessage = toTransportMessage(message, messageOptions, false)
+    const transportMessage = toTransportMessage(
+      message,
+      messageOptions,
+      false,
+      sendOptions.headers
+    )
     this.queue.push(transportMessage)
     this.logger.debug('Added message to queue', {
       message,
@@ -275,7 +295,8 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
 export const toTransportMessage = (
   message: Message,
   messageOptions: MessageAttributes,
-  isProcessing: boolean
+  isProcessing: boolean,
+  headers: TransportHeaders = {}
 ): TransportMessage<InMemoryMessage> => ({
   id: undefined,
   domainMessage: message,
@@ -283,6 +304,7 @@ export const toTransportMessage = (
   raw: {
     seenCount: 0,
     payload: message,
-    inFlight: isProcessing
+    inFlight: isProcessing,
+    headers: { ...headers }
   }
 })

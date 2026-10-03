@@ -1,6 +1,8 @@
 export * from './default-in-memory-queue-configuration'
+export * from './error'
 export { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 export * from './in-memory-queue-configuration'
 export * from './transport'
 export * from './transport-configuration'
 export * from './transport-message'
+export * from './transport-send-options'
