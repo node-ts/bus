@@ -140,6 +140,16 @@ export class SqsTransport implements Transport<SQSMessage> {
   }
 
   /**
+   * Checks the headers set by outgoing middleware before the bus buffers or sends the message
+   * @param sendOptions the options the message will be sent with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+   * `attributes.` or `stickyAttributes.`
+   */
+  assertSendOptions(sendOptions: TransportSendOptions): void {
+    assertHeadersNotReserved(sendOptions.headers ?? {})
+  }
+
+  /**
    * Publishes an event to its SNS topic
    * @param event the event to publish
    * @param messageAttributes the attributes to publish it with, as `attributes.<key>`, `stickyAttributes.<key>` and
@@ -813,6 +823,22 @@ export function toMessageAttributeMap(
 const RESERVED_HEADERS = new Set(['correlationId', 'messageId', 'sentAt'])
 
 /**
+ * Checks that no header set by outgoing middleware has a name the transport writes message attributes under
+ * @throws TransportHeaderReserved if one does
+ */
+const assertHeadersNotReserved = (headers: TransportHeaders): void => {
+  const reservedHeader = Object.keys(headers).find(
+    name =>
+      RESERVED_HEADERS.has(name) ||
+      name.startsWith('attributes.') ||
+      name.startsWith('stickyAttributes.')
+  )
+  if (reservedHeader) {
+    throw new TransportHeaderReserved(reservedHeader, 'SqsTransport')
+  }
+}
+
+/**
  * Converts the native headers set by outgoing middleware to SNS message attributes, each under its own name, with
  * types mapped as for message attributes. Empty strings are left out because SNS rejects empty attribute values.
  * @param headers The headers set by outgoing middleware
@@ -823,15 +849,9 @@ const RESERVED_HEADERS = new Set(['correlationId', 'messageId', 'sentAt'])
 export function toHeaderAttributeMap(
   headers: TransportHeaders
 ): SnsMessageAttributeMap {
+  assertHeadersNotReserved(headers)
   const map: SnsMessageAttributeMap = {}
   Object.entries(headers).forEach(([name, value]) => {
-    if (
-      RESERVED_HEADERS.has(name) ||
-      name.startsWith('attributes.') ||
-      name.startsWith('stickyAttributes.')
-    ) {
-      throw new TransportHeaderReserved(name, 'SqsTransport')
-    }
     if (value !== '') {
       map[name] = toAttributeValue(value)
     }

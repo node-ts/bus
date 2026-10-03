@@ -261,6 +261,7 @@ describe('SqsTransport', () => {
     const sut = new SqsTransport(configuration, sqs, sns)
     let bus: BusInstance
     let receivedBody: SQSMessageBody
+    let deadLetterBody: SQSMessageBody
     let reservedHeaderError: unknown
 
     beforeAll(async () => {
@@ -287,7 +288,12 @@ describe('SqsTransport', () => {
             handled.emit('received')
           }
         })
-        .withHandler(handlerFor(AttributeRoundTripCommand, () => undefined))
+        .withHandler(
+          // Fails the message, to check its headers survive the dead letter queue
+          handlerFor(AttributeRoundTripCommand, async (_m, _a, ctx) =>
+            ctx.failMessage()
+          )
+        )
         .build()
       await bus.initialize()
       await bus.start()
@@ -300,6 +306,17 @@ describe('SqsTransport', () => {
       const received = new Promise(resolve => handled.once('received', resolve))
       await bus.send(new AttributeRoundTripCommand())
       await received
+
+      const deadLetters = await sqs.send(
+        new ReceiveMessageCommand({
+          QueueUrl: sut.deadLetterQueueUrl,
+          WaitTimeSeconds: 5,
+          MaxNumberOfMessages: 1
+        })
+      )
+      deadLetterBody = JSON.parse(
+        deadLetters.Messages![0].Body!
+      ) as SQSMessageBody
     })
 
     afterAll(async () => {
@@ -318,6 +335,13 @@ describe('SqsTransport', () => {
       expect(receivedBody.MessageAttributes['x-priority']).toEqual({
         Type: 'Number',
         Value: '3'
+      })
+    })
+
+    it('should keep the headers when the message is failed to the dead letter queue', () => {
+      expect(deadLetterBody.MessageAttributes['x-tenant']).toEqual({
+        Type: 'String',
+        Value: 'acme'
       })
     })
 

@@ -271,6 +271,28 @@ describe('sqs-transport', () => {
     })
   })
 
+  describe.each(['correlationId', 'messageId', 'sentAt', 'attributes.tenant'])(
+    'when checking send options with a header named %s',
+    headerName => {
+      let error: unknown
+
+      beforeEach(() => {
+        const sut = new SqsTransport({
+          queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
+        } as SqsTransportConfiguration)
+        try {
+          sut.assertSendOptions({ headers: { [headerName]: 'value' } })
+        } catch (e) {
+          error = e
+        }
+      })
+
+      it('should throw TransportHeaderReserved before the bus buffers or sends the message', () => {
+        expect(error).toBeInstanceOf(TransportHeaderReserved)
+      })
+    }
+  )
+
   describe('when reading a message that cannot be parsed', () => {
     const sqs = Mock.ofType<SQSClient>()
     const poisonMessage: Message = {
