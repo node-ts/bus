@@ -11,9 +11,6 @@
     "build": "pnpm run --recursive build",
     "build:watch": "pnpm run --recursive build:watch",
     "clean": "pnpm run --recursive clean && rm -r node_modules",
-    "docs:dev": "vuepress dev",
-    "docs:build": "vuepress build && cp .vuepress/google* docs",
-    "docs:deploy": "./deploy-docs.sh",
     "lint": "pnpm run --recursive lint",
     "test": "pnpm run test:unit && pnpm run test:integration",
     "test:unit": "dotenv -e test.env -- jest \"(src\\/.+\\.|/)spec\\.ts$\"",
@@ -51,8 +48,6 @@
     "reflect-metadata": "^0.1.13",
     "ts-jest": "^26.1.1",
     "tslib": "^2.0.0",
-    "typescript": "^4.9.4",
-    "vuepress": "^1.1.0",
-    "vuepress-plugin-sitemap": "^2.1.2"
+    "typescript": "^4.9.4"
   }
 }
