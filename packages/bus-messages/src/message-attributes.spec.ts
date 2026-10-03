@@ -40,6 +40,26 @@ describe('messageAttributes', () => {
     })
   })
 
+  describe('when called with a message id and sent time', () => {
+    let sut: MessageAttributes
+
+    beforeAll(() => {
+      sut = messageAttributes({
+        messageId: 'message-id',
+        sentAt: '2026-10-03T09:30:00.000Z'
+      })
+    })
+
+    it('should keep them', () => {
+      expect(sut).toEqual({
+        messageId: 'message-id',
+        sentAt: '2026-10-03T09:30:00.000Z',
+        attributes: {},
+        stickyAttributes: {}
+      })
+    })
+  })
+
   describe('when an attribute type has required keys', () => {
     let sut: unknown[]
 

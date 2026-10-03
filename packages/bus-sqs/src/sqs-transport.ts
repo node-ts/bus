@@ -120,6 +120,15 @@ export class SqsTransport implements Transport<SQSMessage> {
     this.autoProvision = sqsConfiguration.autoProvision ?? true
   }
 
+  /**
+   * The name of the service queue: `queueName`, or the queue name from `queueArn`. It's empty for a send-only
+   * transport configured without either.
+   */
+  get endpointName(): string {
+    const { queueName, queueArn } = this.sqsConfiguration
+    return queueName ?? (queueArn ? parse(queueArn).resource : '')
+  }
+
   prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
@@ -729,8 +738,8 @@ const toAttributeValue = (
 })
 
 /**
- * Converts message attributes to SNS message attributes, named `attributes.<key>`, `stickyAttributes.<key>` and
- * `correlationId`. Strings, numbers and booleans keep their type, including `false` and `0`. Empty strings,
+ * Converts message attributes to SNS message attributes, named `attributes.<key>`, `stickyAttributes.<key>`,
+ * `correlationId`, `messageId` and `sentAt`. Strings, numbers and booleans keep their type, including `false` and `0`. Empty strings,
  * `undefined` and `null` are left out because SNS rejects empty attribute values.
  * @param messageOptions The attributes of the message being sent
  * @returns The SNS message attributes to publish with the message
@@ -753,12 +762,16 @@ export function toMessageAttributeMap(
   addAttributes('attributes', messageOptions.attributes)
   addAttributes('stickyAttributes', messageOptions.stickyAttributes)
 
-  if (messageOptions.correlationId) {
-    map.correlationId = {
-      DataType: 'String',
-      StringValue: messageOptions.correlationId
-    }
+  const topLevelAttributes = {
+    correlationId: messageOptions.correlationId,
+    messageId: messageOptions.messageId,
+    sentAt: messageOptions.sentAt
   }
+  Object.entries(topLevelAttributes).forEach(([name, value]) => {
+    if (value) {
+      map[name] = { DataType: 'String', StringValue: value }
+    }
+  })
   return map
 }
 
@@ -771,9 +784,13 @@ export function fromMessageAttributeMap(
   }
 
   if (sqsAttributes) {
-    messageOptions.correlationId = sqsAttributes.correlationId
-      ? sqsAttributes.correlationId.Value
-      : undefined
+    messageOptions.correlationId = sqsAttributes.correlationId?.Value
+    if (sqsAttributes.messageId) {
+      messageOptions.messageId = sqsAttributes.messageId.Value
+    }
+    if (sqsAttributes.sentAt) {
+      messageOptions.sentAt = sqsAttributes.sentAt.Value
+    }
 
     const attributes: MessageAttributeMap = {}
     const stickyAttributes: MessageAttributeMap = {}

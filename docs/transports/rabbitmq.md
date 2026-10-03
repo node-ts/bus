@@ -59,6 +59,10 @@ For a service queue called `<queue>`, the transport declares:
 
 The number of failed attempts is kept in the `failedAttempts` message header.
 
+## Message attributes
+
+The message's [`messageId`](/guide/message-attributes/message-id) is sent as the AMQP `messageId` property, which is also the `TransportMessage.id`, since RabbitMQ doesn't assign ids of its own. AMQP limits it to 255 bytes, and longer ids are rejected when the message is sent. `sentAt` is sent in a `sentAt` header, because the AMQP `timestamp` property only has second precision. The correlation id is the `correlationId` property, and `attributes` and `stickyAttributes` are JSON in headers of the same names. Retried and dead-lettered messages keep all of them.
+
 ## Running RabbitMQ locally
 
 ```sh

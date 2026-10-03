@@ -63,6 +63,8 @@ describe('MyTransport', () => {
       message: JSON.parse(raw.body),
       attributes: {
         correlationId: raw.headers.correlationId,
+        messageId: raw.headers.messageId,
+        sentAt: raw.headers.sentAt,
         attributes: JSON.parse(raw.headers.attributes ?? '{}'),
         stickyAttributes: JSON.parse(raw.headers.stickyAttributes ?? '{}')
       }

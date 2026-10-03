@@ -25,11 +25,31 @@ export interface MessageAttributes<
   correlationId?: Uuid
 
   /**
+   * A unique id for this message. The bus generates one for every message it sends, unless the caller passes
+   * its own (e.g. derived from an idempotency key). It isn't inherited: a message sent from a handler gets a new
+   * id, not the id of the message being handled. It stays the same across retries and in the dead letter queue.
+   *
+   * This is optional because messages from outside the bus, such as system messages, may not have one.
+   * @example 7d2c3f4e-8a9b-4c1d-9e2f-0a1b2c3d4e5f
+   */
+  messageId?: string
+
+  /**
+   * When the message was sent, as an ISO 8601 timestamp. The bus sets it on every message it sends, unless the
+   * caller passes its own. Like `messageId`, it isn't inherited from the message being handled, and stays the same
+   * across retries and in the dead letter queue.
+   *
+   * This is optional because messages from outside the bus, such as system messages, may not have one.
+   * @example 2026-10-03T09:30:00.000Z
+   */
+  sentAt?: string
+
+  /**
    * Additional metadata that will be sent alongside the message payload.
    * This is useful for sending information like:
    * - the id of a user where the message originated from
    * - the originating system hostname or IP for auditing information
-   * - when the message was first sent
+   * - the tenant the message belongs to
    *
    * These attributes will be attached to the outgoing message, but will not
    * propagate beyond the first receipt
@@ -54,7 +74,11 @@ export interface MessageAttributes<
 export type MessageAttributesInput<
   AttributesType extends MessageAttributeMap = MessageAttributeMap,
   StickyAttributesType extends MessageAttributeMap = MessageAttributeMap
-> = { correlationId?: Uuid } & ({} extends AttributesType
+> = {
+  correlationId?: Uuid
+  messageId?: string
+  sentAt?: string
+} & ({} extends AttributesType
   ? { attributes?: AttributesType }
   : { attributes: AttributesType }) &
   ({} extends StickyAttributesType
@@ -65,7 +89,7 @@ export type MessageAttributesInput<
  * Creates `MessageAttributes` with `attributes` and `stickyAttributes` defaulted to `{}`, so a test can call a
  * handler directly without spelling out empty attributes. Handlers still receive both fields, so they read them
  * without `?.`.
- * @param input the correlation id and the attributes to set
+ * @param input the correlation id, message id, sent time and attributes to set
  * @returns message attributes with any missing `attributes` or `stickyAttributes` set to `{}`
  * @example
  * await placeOrderHandler.messageHandler(PlaceOrder({ orderId: '1' }), messageAttributes(), fakeContext)

@@ -25,6 +25,15 @@ export interface TransportConnectionOptions {
  */
 export interface Transport<TransportMessageType = {}> {
   /**
+   * The name of the endpoint the bus runs as, which is the name of the queue it receives from. It identifies the
+   * service, for example in failure metadata or when deduplicating messages, so it should be stable across restarts
+   * and the same on every instance of the service. A send-only transport that isn't configured with a queue may
+   * return `''`.
+   * @example order-booking-service
+   */
+  readonly endpointName: string
+
+  /**
    * Publishes an event to the underlying transport. This is generally done to a topic or some other
    * mechanism that consumers can subscribe themselves to
    * @param event A domain event to be published

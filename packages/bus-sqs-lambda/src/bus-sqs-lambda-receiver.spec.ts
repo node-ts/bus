@@ -29,6 +29,8 @@ const attributePayload = {
         '  "UnsubscribeURL" : "https://sns.us-west-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=...",\n' +
         '  "MessageAttributes" : {\n' +
         '    "correlationId" : {"Type":"String","Value":"e3808fce-9b66-4596-b528-479b72e598fe"},\n' +
+        '    "messageId" : {"Type":"String","Value":"0c9a3a5e-6f43-4b8e-9d0c-2b1f6f4e8a17"},\n' +
+        '    "sentAt" : {"Type":"String","Value":"2024-08-18T22:03:30.123Z"},\n' +
         '    "stickyAttributes.x-sticky-attribute" : {"Type":"String","Value":"baz"},\n' +
         '    "attributes.x-foo-attribute" : {"Type":"String","Value":"bar"}\n' +
         '  }\n' +
@@ -97,6 +99,17 @@ describe('BusSqsLambdaReceiver', () => {
       expect(attributes.correlationId).toEqual(
         'e3808fce-9b66-4596-b528-479b72e598fe'
       )
+    })
+
+    it('should parse out the messageId and sentAt', () => {
+      expect(attributes).toMatchObject({
+        messageId: '0c9a3a5e-6f43-4b8e-9d0c-2b1f6f4e8a17',
+        sentAt: '2024-08-18T22:03:30.123Z'
+      })
+    })
+
+    it('should keep the SQS message id as the transport message id', () => {
+      expect(messages[0].id).toEqual('4b9a650d-00fa-4f86-a4f2-d57661155b94')
     })
 
     it('should parse out attributes', () => {

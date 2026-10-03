@@ -76,6 +76,8 @@ Two things behave differently:
 
   `WorkflowHandler`'s parameters are now required, `completeWorkflow()` and `discardWorkflow()` return `WorkflowStateChange<TState>`, and `WorkflowMapper`'s `onStartedBy` and `onWhen` store handler names as `string` (`OnWhenHandler` no longer takes type arguments).
 
+- **`Transport` has a required `endpointName`**, the name of the queue the bus receives from. A custom transport must add it, such as `get endpointName() { return this.configuration.queueName }`. `InMemoryQueue` takes an optional `endpointName`, `in-memory` by default.
+- **Every message the bus sends has a `messageId` and a `sentAt`** in its `MessageAttributes`: a new UUID and an ISO 8601 timestamp, unless you pass your own to `send` or `publish`. Unlike `correlationId`, they aren't copied from the message being handled. A custom transport must carry them with the message and keep them across retries and in the dead letter queue (see [Custom transports](https://node-ts.github.io/bus/transports/custom)). Tests that compare a handler's attributes with `toEqual` may need `toMatchObject` or `expect.objectContaining`.
 - Warnings and errors from the default logger now go to stderr even without `DEBUG` set. Pass your own logger with `withLogger` to change that.
 
 ## @node-ts/bus-cli
@@ -97,12 +99,14 @@ Two things behave differently:
 
 - **A message that can't be parsed goes straight to the dead letter queue.** It used to be made visible again until the queue's redrive policy moved it, which re-read it on every poll.
 - **`messageRetentionPeriod` must be at least 60.** An explicit `0` used to be silently replaced with 14 days. Now it's passed to SQS, which rejects it (the minimum is 60 seconds). The same applies to `waitTimeSeconds: 0` and `visibilityTimeout: 0`, which now take effect.
+- Messages carry `messageId` and `sentAt` as two more top-level SNS message attributes, next to `correlationId`.
 - `SqsTransport` takes `SQSClient`/`SNSClient` from `@aws-sdk/client-sqs`/`client-sns` 3.1142.0 or a later 3.x release. Upgrade your own copies if you pass clients in.
 
 ## @node-ts/bus-rabbitmq
 
 - **A message that can't be parsed goes straight to the dead letter queue** and is acked. It used to be left unacked, which held a prefetch slot until the connection closed.
 - **Retries now wait for the `RetryStrategy` delay**, using new durable `<queue>-retry-<n>ms` queues that are declared the first time they're needed. **Existing queues are unchanged:** the service queue keeps its arguments, and the legacy `<queue>-retry` queue is still declared so messages already in it drain. Messages returned by 1.x keep their attempt count.
+- **The AMQP `messageId` property is now the bus' `messageId`**, so it's the same for every message sent with the same id, rather than a new UUID per publish. `sentAt` is carried in a `sentAt` header.
 - `amqplib` is now version 2.2. It ships its own types, so remove `@types/amqplib`. `heartbeat=0` in a connection string now disables heartbeats.
 
 ## @node-ts/bus-sqs-lambda
@@ -115,4 +119,5 @@ Two things behave differently:
 - **The package ships compiled JavaScript from `dist`** instead of its TypeScript source. If you added `@node-ts/bus-test` to jest's `transformIgnorePatterns` exceptions so ts-jest would compile it, you can remove that. Import `transportTests` and the test messages from the package root, since paths such as `@node-ts/bus-test/src/...` no longer exist.
 - **`@node-ts/bus-core` is a peer dependency.** Install it next to `@node-ts/bus-test` (your transport already needs it). `typescript` is no longer installed with the suite, so add it to your own dev dependencies if you relied on getting it through the suite.
 - **The suites pass `@node-ts/bus-test`'s own generated message types (exported as `messageTypes`) to their buses.** Other buses your tests build that receive messages need `withMessageTypes()` with their own fixtures' types, and each needs its own transport instance.
+- **`transportTests` checks `messageId` and `sentAt`**: a message arrives with both, a `messageId` the caller passes is kept, and both are the same on every retry and in the dead letter queue. `readAllFromDeadLetterQueue` must return them in each message's attributes.
 - **The suite checks that messages survive a round trip with their types restored**: class instances several levels deep, Dates, Maps, Sets, bigints, optional and null fields, and attributes. It uses generated message types, so serialize and deserialize message bodies with `coreDependencies.messageSerializer` in your transport rather than calling `JSON.stringify`/`JSON.parse` on them yourself.

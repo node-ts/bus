@@ -64,7 +64,7 @@ Set `autoProvision: false` when the queues and topics are created elsewhere, suc
 
 ## Message attributes
 
-Attributes are sent as SNS message attributes named `attributes.<key>`, `stickyAttributes.<key>` and `correlationId`. Strings use the `String` type and numbers `Number`. SNS has no boolean type, so booleans are sent as `String.boolean`, with the value `true` or `false`, and read back as booleans. Keep this in mind when writing SNS subscription filter policies. Empty strings are left out, because SNS rejects them.
+Attributes are sent as SNS message attributes named `attributes.<key>`, `stickyAttributes.<key>`, `correlationId`, `messageId` and `sentAt`. Strings use the `String` type and numbers `Number`. SNS has no boolean type, so booleans are sent as `String.boolean`, with the value `true` or `false`, and read back as booleans. Keep this in mind when writing SNS subscription filter policies. Empty strings are left out, because SNS rejects them.
 
 ## Running SQS locally
 

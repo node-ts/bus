@@ -37,6 +37,10 @@ export const DEFAULT_MAX_RETRIES = 10
  * The message header that counts how many times handling the message has failed
  */
 const FAILED_ATTEMPTS_HEADER = 'failedAttempts'
+/**
+ * Carries `sentAt`, because the AMQP `timestamp` property only has second precision
+ */
+const SENT_AT_HEADER = 'sentAt'
 
 export const DEFAULT_CONNECTION_RECOVERY: Required<RabbitMqConnectionRecoveryConfiguration> =
   {
@@ -114,7 +118,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    */
   private readonly messageChannels = new WeakMap<RabbitMqMessage, Channel>()
 
+  /**
+   * The name of the service queue, from `queueName`
+   */
+  readonly endpointName: string
+
   constructor(private readonly configuration: RabbitMqTransportConfiguration) {
+    this.endpointName = configuration.queueName
     this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
     this.deadLetterQueue =
       configuration.deadLetterQueueName || DEFAULT_DEAD_LETTER_QUEUE_NAME
@@ -306,9 +316,12 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const payload =
       this.coreDependencies.messageSerializer.deserialize(payloadStr)
 
+    const sentAt: unknown = rabbitMessage.properties.headers?.[SENT_AT_HEADER]
     const attributes = {
       correlationId: rabbitMessage.properties.correlationId as
         string | undefined,
+      messageId: rabbitMessage.properties.messageId as string | undefined,
+      sentAt: typeof sentAt === 'string' ? sentAt : undefined,
       attributes:
         rabbitMessage.properties.headers &&
         rabbitMessage.properties.headers.attributes
@@ -825,9 +838,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         await this.assertExchange(channel, message.$name)
         channel.publish(message.$name, '', Buffer.from(payload), {
           correlationId: messageOptions.correlationId,
-          messageId: randomUUID(),
+          // The bus always sets a messageId. This only covers the transport being called directly
+          messageId: messageOptions.messageId ?? randomUUID(),
           persistent: this.persistentMessages,
           headers: {
+            [SENT_AT_HEADER]: messageOptions.sentAt,
             attributes: messageOptions.attributes
               ? JSON.stringify(messageOptions.attributes)
               : undefined,
