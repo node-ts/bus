@@ -60,6 +60,12 @@ export const DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS: OutgoingMessageDispatc
   })
 
 /**
+ * The most messages a probe sends while sending is paused, so it can't flood a broker that's down, or hold up
+ * `stop()`
+ */
+const PROBE_SENDS = 3
+
+/**
  * How many claimed messages are sent at once
  */
 const SEND_CONCURRENCY = 10
@@ -120,6 +126,10 @@ type SendResult = { sent: true } | { sent: false; error: unknown }
  */
 export class OutgoingMessageDispatcher {
   private isRunning = false
+  /**
+   * Set by `stop()`, so a probe or batch in progress starts no more sends
+   */
+  private isStopping = false
   private loop: Promise<void> | undefined
   private wakeTimer: NodeJS.Timeout | undefined
   private wakeAt = Infinity
@@ -169,6 +179,7 @@ export class OutgoingMessageDispatcher {
       return
     }
     this.isRunning = true
+    this.isStopping = false
     this.loop = this.run()
   }
 
@@ -181,6 +192,7 @@ export class OutgoingMessageDispatcher {
       return
     }
     this.isRunning = false
+    this.isStopping = true
     this.wake?.()
     await this.loop
     this.loop = undefined
@@ -231,20 +243,28 @@ export class OutgoingMessageDispatcher {
   }
 
   /**
-   * Claims and sends one due message to see whether sending works again, and resumes if it's sent. If it fails, one
-   * other message is tried straight away, since the first may be one the broker always rejects.
+   * Claims and sends one due message at a time to see whether sending works again, and resumes once one is sent.
+   * It tries up to `PROBE_SENDS` messages, since one may be a message the broker always rejects, and stops at two
+   * that hadn't failed before. If they all fail, the pause gets longer.
    */
   private async probe(): Promise<void> {
-    let failures = 0
-    // Messages that failed before are skipped past without counting, up to a batch of them
-    for (let claims = 0; claims < this.options.claimLimit; claims++) {
+    let sawFailure = false
+    let freshFailures = 0
+    for (let sends = 0; sends < PROBE_SENDS; sends++) {
+      if (this.isStopping) {
+        return
+      }
       const claimed = await this.claim(1)
       if (!claimed) {
         this.pauseLonger()
         return
       }
       if (claimed.length === 0) {
-        // Nothing is claimable to probe with, which says nothing about the broker
+        // Nothing more to try. Messages that failed before say nothing about the broker, so only fresh failures
+        // make the pause longer.
+        if (freshFailures > 0) {
+          this.pauseLonger()
+        }
         return
       }
       const [outgoingMessage] = claimed
@@ -253,15 +273,18 @@ export class OutgoingMessageDispatcher {
         this.resume()
         return
       }
+      sawFailure = true
       this.logWhilePaused('Sending a scheduled message failed again', {
         messageId: outgoingMessage.id,
         attempts: outgoingMessage.attempts,
         error: serializeError(result.error)
       })
-      if (!hasFailedBefore(outgoingMessage) && ++failures === 2) {
-        this.pauseLonger()
-        return
+      if (!hasFailedBefore(outgoingMessage) && ++freshFailures === 2) {
+        break
       }
+    }
+    if (sawFailure) {
+      this.pauseLonger()
     }
   }
 
@@ -280,7 +303,7 @@ export class OutgoingMessageDispatcher {
     await Promise.all(
       claimed.map(async outgoingMessage =>
         throttle(async () => {
-          if (this.isPaused || Date.now() > sendBefore) {
+          if (this.isPaused || this.isStopping || Date.now() > sendBefore) {
             notTried.push({
               id: outgoingMessage.id,
               attempts: outgoingMessage.attempts ?? 1

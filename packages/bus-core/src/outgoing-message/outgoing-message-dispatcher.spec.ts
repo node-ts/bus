@@ -467,6 +467,103 @@ describe('OutgoingMessageDispatcher', () => {
     })
   })
 
+  describe('when it is stopped while probing a hanging broker with a backlog of messages that failed before', () => {
+    const sendTimeoutMs = 100
+    let sends = 0
+    let sendsAfterStop: number
+    let stopTookMs: number
+
+    beforeAll(async () => {
+      createSut({ sendTimeoutMs, pauseMs: 10 })
+      let claim = 0
+      store
+        .setup(async s =>
+          s.claimDueOutgoingMessages(It.isAny(), It.isAny(), It.isAny())
+        )
+        .returns(async () => {
+          claim++
+          return claim === 1
+            ? [outgoingMessage('fresh-1'), outgoingMessage('fresh-2')]
+            : [{ ...outgoingMessage(`backlog-${claim}`), attempts: 2 }]
+        })
+      sender
+        .setup(async s => s.send(It.isAny()))
+        .returns(async () => {
+          sends++
+          return never
+        })
+      sut.start()
+      // Paused, and probing the backlog
+      await until(() => sut.paused && sends >= 4)
+      const sendsAtStop = sends
+      const stopping = Date.now()
+      await sut.stop()
+      stopTookMs = Date.now() - stopping
+      sendsAfterStop = sends - sendsAtStop
+    })
+
+    it('should stop within a send timeout or two', () => {
+      expect(stopTookMs).toBeLessThan(3 * sendTimeoutMs + 100)
+    })
+
+    it('should start no more sends', () => {
+      expect(sendsAfterStop).toEqual(0)
+    })
+  })
+
+  describe('when the broker stays down with a backlog of messages that failed before', () => {
+    const sendTimes: number[] = []
+
+    beforeAll(async () => {
+      createSut({ pollIntervalMs: 10, pauseMs: 10, maxPauseMs: 80 })
+      let claim = 0
+      store
+        .setup(async s =>
+          s.claimDueOutgoingMessages(It.isAny(), It.isAny(), It.isAny())
+        )
+        .returns(async limit => {
+          claim++
+          if (claim === 1) {
+            return [outgoingMessage('fresh-1'), outgoingMessage('fresh-2')]
+          }
+          return Array.from({ length: limit }, (_, i) => ({
+            ...outgoingMessage(`backlog-${claim}-${i}`),
+            attempts: 2
+          }))
+        })
+      sender
+        .setup(async s => s.send(It.isAny()))
+        .returns(async () => {
+          sendTimes.push(Date.now())
+          throw new Error('broker is down')
+        })
+      sut.start()
+      await until(() => sendTimes.length >= 20)
+      await sut.stop()
+    })
+
+    it('should send no more than a few messages each time it probes', () => {
+      // Sends in the same probe are back to back, and probes are a pause apart
+      const probes: number[] = [1]
+      sendTimes.slice(1).forEach((time, i) => {
+        if (time - sendTimes[i] > 5) {
+          probes.push(1)
+        } else {
+          probes[probes.length - 1]++
+        }
+      })
+      expect(Math.max(...probes.slice(1))).toBeLessThanOrEqual(3)
+    })
+
+    it('should wait longer between probes', () => {
+      const gaps = sendTimes
+        .slice(1)
+        .map((time, i) => time - sendTimes[i])
+        .filter(gap => gap > 5)
+      expect(Math.max(...gaps)).toBeGreaterThanOrEqual(70)
+    })
+  })
+
   describe('when the store keeps failing', () => {
     let failures = 0
 
