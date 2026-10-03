@@ -76,7 +76,8 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'Handling', link: '/guide/workflows/handling' },
       { text: 'State', link: '/guide/workflows/state' },
       { text: 'Completing', link: '/guide/workflows/completing' },
-      { text: 'Example', link: '/guide/workflows/example' }
+      { text: 'Example', link: '/guide/workflows/example' },
+      { text: 'Request and reply', link: '/guide/request-reply' }
     ]
   },
   {
