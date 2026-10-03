@@ -487,6 +487,7 @@ describe('BusInstance middleware', () => {
     let sentAttributes: MessageAttributes | undefined
     let sentHeaders: unknown
     let receivedContext: IncomingContext
+    let outgoingAttributes: MessageAttributes
 
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(
@@ -504,6 +505,7 @@ describe('BusInstance middleware', () => {
         .withTransport(queue)
         .withMiddleware({
           outgoing: async (context, next) => {
+            outgoingAttributes = structuredClone(context.attributes)
             context.attributes.attributes.tenant = 'acme'
             context.headers['x-delay'] = 5
             await next()
@@ -526,6 +528,15 @@ describe('BusInstance middleware', () => {
 
     afterAll(async () => {
       await bus.dispose()
+    })
+
+    it('should give outgoing middleware the messageId and sentAt the bus stamped', () => {
+      expect(outgoingAttributes.messageId).toEqual(expect.any(String))
+      expect(outgoingAttributes.sentAt).toEqual(expect.any(String))
+      expect(sentAttributes).toMatchObject({
+        messageId: outgoingAttributes.messageId,
+        sentAt: outgoingAttributes.sentAt
+      })
     })
 
     it('should send the changed attributes', () => {
