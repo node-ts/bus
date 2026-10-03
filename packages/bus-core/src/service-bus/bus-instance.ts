@@ -30,7 +30,11 @@ import { MessageLifecycleContext } from '../message-lifecycle-context'
 import {
   HandlerInvocationContext,
   IncomingContext,
-  OutgoingContext
+  OutgoingContext,
+  OutgoingMessageDropped,
+  OutgoingMessageDropReason,
+  OutgoingPublishContext,
+  OutgoingSendContext
 } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import {
@@ -68,9 +72,20 @@ enum OutboxState {
 }
 
 /**
- * A message buffered in a handler's outbox, as the outgoing middleware left it
+ * A message buffered in a handler's outbox, as the outgoing middleware left it, with what settles its `dispatched`
+ * promise and the async context it was sent in
  */
-type OutboxedMessage = OutgoingContext
+type OutboxedMessage = OutgoingContext & {
+  settle: PromiseWithResolvers<void>
+  runInSendContext: <T>(fn: () => T) => T
+}
+
+/**
+ * An outgoing context before the bus adds its `dispatched` promise
+ */
+type OutgoingDraft =
+  | Omit<OutgoingSendContext, 'dispatched'>
+  | Omit<OutgoingPublishContext, 'dispatched'>
 
 interface Outbox {
   state: OutboxState
@@ -88,8 +103,13 @@ const handlerNameOf = (handler: HandlerDefinition): string =>
  * Copies an outgoing message as the outgoing middleware left it when it called `next()`, so changes a middleware
  * makes after `next()` never reach the transport, whether the message is sent straight away or buffered
  */
-const snapshotOutgoing = (context: OutgoingContext): OutboxedMessage => ({
+const snapshotOutgoing = (
+  context: OutgoingContext,
+  settle: OutboxedMessage['settle']
+): OutboxedMessage => ({
   ...context,
+  settle,
+  runInSendContext: AsyncLocalStorage.snapshot(),
   attributes: {
     ...context.attributes,
     attributes: { ...context.attributes.attributes },
@@ -97,6 +117,17 @@ const snapshotOutgoing = (context: OutgoingContext): OutboxedMessage => ({
   },
   headers: { ...context.headers }
 })
+
+/**
+ * Rejects the `dispatched` promise of a message that won't be sent
+ */
+const dropOutgoing = (
+  outgoingMessage: Pick<OutboxedMessage, 'message' | 'settle'>,
+  reason: OutgoingMessageDropReason
+): void =>
+  outgoingMessage.settle.reject(
+    new OutgoingMessageDropped(outgoingMessage.message.$name, reason)
+  )
 
 /**
  * A bus built by `Bus.configure().build()`. It sends and publishes messages, and unless it's send-only, receives
@@ -639,6 +670,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           'Message was sent after its handler failed and will be dropped',
           { message }
         )
+        dropOutgoing(outgoingMessage, OutgoingMessageDropReason.HandlerFailed)
         return true
     }
   }
@@ -682,13 +714,17 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Runs the outgoing middleware for a message being sent or published. Its last step buffers the message in the
    * current handler's outbox, or sends it to the transport when there's no handler running.
    */
-  private async dispatchOutgoing(context: OutgoingContext): Promise<void> {
+  private async dispatchOutgoing(draft: OutgoingDraft): Promise<void> {
+    const settle = Promise.withResolvers<void>()
+    // Middleware may never look at it, so a rejection mustn't be reported as unhandled
+    void settle.promise.catch(() => undefined)
+    const context = { ...draft, dispatched: settle.promise } as OutgoingContext
     let dispatched = false
     let outboxed: OutboxedMessage | undefined
     try {
       await this.middlewarePipeline.runOutgoing(context, async () => {
         dispatched = true
-        const outgoingMessage = snapshotOutgoing(context)
+        const outgoingMessage = snapshotOutgoing(context, settle)
         // Checked before buffering, so the caller's send rejects rather than the outbox failing when it's flushed
         this.transport.assertSendOptions?.({ headers: outgoingMessage.headers })
         if (this.addToOutbox(outgoingMessage)) {
@@ -702,11 +738,19 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       const outbox = this.outbox.getStore()
       if (outbox && outboxed) {
         outbox.messages = outbox.messages.filter(m => m !== outboxed)
+        dropOutgoing(outboxed, OutgoingMessageDropReason.MiddlewareThrew)
+      } else {
+        // Already settled if it reached the transport
+        settle.reject(error)
       }
       throw error
     }
 
     if (!dispatched) {
+      dropOutgoing(
+        { message: context.message, settle },
+        OutgoingMessageDropReason.MiddlewareSkipped
+      )
       this.logger.debug('Outgoing message was dropped by middleware', {
         kind: context.kind,
         message: context.message
@@ -720,16 +764,22 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private async dispatchToTransport(
     outgoingMessage: OutboxedMessage
   ): Promise<void> {
-    const { attributes, headers } = outgoingMessage
-    if (outgoingMessage.kind === 'send') {
-      await this.transport.send(outgoingMessage.message, attributes, {
-        headers
-      })
-    } else {
-      await this.transport.publish(outgoingMessage.message, attributes, {
-        headers
-      })
+    const { attributes, headers, settle } = outgoingMessage
+    try {
+      if (outgoingMessage.kind === 'send') {
+        await this.transport.send(outgoingMessage.message, attributes, {
+          headers
+        })
+      } else {
+        await this.transport.publish(outgoingMessage.message, attributes, {
+          headers
+        })
+      }
+    } catch (error) {
+      settle.reject(error)
+      throw error
     }
+    settle.resolve()
   }
 
   private prepareTransportOptions(
@@ -786,6 +836,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         )
       } catch (error) {
         outbox.state = OutboxState.Discarded
+        outbox.messages.forEach(m =>
+          dropOutgoing(m, OutgoingMessageDropReason.HandlerFailed)
+        )
         outbox.messages = []
         throw error
       }
@@ -805,12 +858,23 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
               if (messageToSend === undefined) {
                 break
               }
-              // The outgoing middleware already ran when the message was sent, so it isn't run again
-              await this.dispatchToTransport(messageToSend)
+              // The outgoing middleware already ran when the message was sent, so it isn't run again. It's sent in
+              // the async context it was sent in, so tracing spans started around next() are active.
+              await messageToSend.runInSendContext(async () =>
+                this.dispatchToTransport(messageToSend)
+              )
             }
           })
 
-        await Promise.all(workers)
+        const results = await Promise.allSettled(workers)
+        // Each worker stops at its first failed send, so messages are only left over when every worker failed
+        outboxedMessages.forEach(m =>
+          dropOutgoing(m, OutgoingMessageDropReason.OutboxFlushFailed)
+        )
+        const failure = results.find(result => result.status === 'rejected')
+        if (failure) {
+          throw failure.reason
+        }
       }
     })
   }

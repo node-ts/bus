@@ -73,6 +73,14 @@ Outgoing middleware runs each time `send()` or `publish()` is called, on the bus
 
 It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport.
 
+### Knowing when a message is sent
+
+`context.dispatched` is a promise that settles once the message has reached the transport, or won't. It resolves when the transport has sent it, and rejects with the transport's error if sending failed, or with `OutgoingMessageDropped` if the message was never sent: a later middleware didn't call `next()`, the handler failed, or another message from the same handler failed to send first. A rejection that nothing handles is ignored.
+
+<<< @/snippets/middleware.ts#dispatched
+
+A buffered message is sent in the async context the middleware called `next()` in, so a tracing span or `AsyncLocalStorage` store set around `next()` is active while the transport sends it.
+
 ### Transport headers
 
 Outgoing middleware can also set native headers for the transport in `context.headers`, for consumers and broker plugins outside the bus. Messages the bus receives keep them on `context.transportMessage.raw`.
