@@ -103,15 +103,17 @@ export interface Persistence {
   /**
    * If provided, claims stored messages that are due, so that only the caller sends them. A message can be claimed
    * when its `dueAt` has passed and it isn't held by a lease. Each claim adds one to the message's `attempts`, and
-   * leases it for `leaseMs` times its `attempts`, so a message that keeps failing is tried less and less often. It
-   * isn't returned by another claim while the lease holds, and is returned again after that if it hasn't been
-   * deleted, such as when the process that claimed it stopped or failed to send it.
+   * leases it for `leaseMs` times its `attempts`, up to `maxLeaseMs`, so a message that keeps failing, such as one
+   * the broker rejects, is tried less often. It isn't returned by another claim while the lease holds, and is
+   * returned again after that if it hasn't been deleted, such as when the process that claimed it stopped or failed
+   * to send it. A message is never deleted by a claim, however many times it's been claimed.
    *
    * Times are compared with the store's own clock, such as the database's, so processes whose clocks differ agree on
    * when a message is due and when its lease ends. Claims from several processes at once must never return the same
    * message while its lease holds.
    * @param limit the most messages to return
    * @param leaseMs how long the caller has to send and delete a message claimed for the first time
+   * @param maxLeaseMs the longest a message is leased for, however many times it's been claimed
    * @param now the time to claim at instead of the store's clock, such as in a test
    * @returns up to `limit` claimed messages, choosing those that have been claimable longest, ordered by `dueAt`.
    * Each is as it was stored, with its `attempts`.
@@ -119,6 +121,7 @@ export interface Persistence {
   claimDueOutgoingMessages?(
     limit: number,
     leaseMs: number,
+    maxLeaseMs: number,
     now?: Date
   ): Promise<OutgoingMessage[]>
 

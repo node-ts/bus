@@ -209,6 +209,7 @@ export class MongodbPersistence implements Persistence {
   async claimDueOutgoingMessages(
     limit: number,
     leaseMs: number,
+    maxLeaseMs: number,
     now?: Date
   ): Promise<OutgoingMessage[]> {
     const claimAt = now ?? (await this.databaseTime())
@@ -223,7 +224,10 @@ export class MongodbPersistence implements Persistence {
           {
             $set: {
               availableAt: {
-                $add: [claimAt, { $multiply: ['$attempts', leaseMs] }]
+                $add: [
+                  claimAt,
+                  { $min: [{ $multiply: ['$attempts', leaseMs] }, maxLeaseMs] }
+                ]
               }
             }
           }

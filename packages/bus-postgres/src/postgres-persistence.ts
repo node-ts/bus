@@ -115,13 +115,15 @@ const insertOutgoingMessages = async (
 
 /**
  * Claims the messages that are claimable at `now`, or at the database's clock when it isn't given, in one
- * statement. Each claim adds one to a message's attempts and leases it for `leaseMs` times its attempts.
+ * statement. Each claim adds one to a message's attempts and leases it for `leaseMs` times its attempts, up to
+ * `maxLeaseMs`.
  */
 const claimOutgoingMessages = async (
   postgres: Queryable,
   table: string,
   limit: number,
   leaseMs: number,
+  maxLeaseMs: number,
   now: Date | undefined
 ): Promise<OutgoingMessage[]> => {
   // skip locked lets several processes claim at once without waiting on, or returning, each other's rows. Leased
@@ -140,12 +142,14 @@ const claimOutgoingMessages = async (
     set
       attempts = outgoing.attempts + 1,
       available_at = coalesce($1::timestamptz, now())
-        + make_interval(secs => $3::double precision * (outgoing.attempts + 1) / 1000)
+        + make_interval(
+          secs => least($3::double precision * (outgoing.attempts + 1), $4::double precision) / 1000
+        )
     from claimable
     where outgoing.id = claimable.id
     returning outgoing.id, outgoing.kind, outgoing.message, outgoing.attributes, outgoing.headers, outgoing.due_at,
       outgoing.attempts;`,
-    [now ?? null, limit, leaseMs]
+    [now ?? null, limit, leaseMs, maxLeaseMs]
   )
   return (result.rows as OutgoingMessageRow[]).map((row): OutgoingMessage => ({
     id: row.id,
@@ -356,6 +360,7 @@ export class PostgresPersistence implements Persistence {
   async claimDueOutgoingMessages(
     limit: number,
     leaseMs: number,
+    maxLeaseMs: number,
     now?: Date
   ): Promise<OutgoingMessage[]> {
     const claimed = await claimOutgoingMessages(
@@ -363,6 +368,7 @@ export class PostgresPersistence implements Persistence {
       this.outgoingMessagesTable(),
       limit,
       leaseMs,
+      maxLeaseMs,
       now
     )
     if (claimed.length > 0) {

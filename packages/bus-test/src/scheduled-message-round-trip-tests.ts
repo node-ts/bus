@@ -32,6 +32,8 @@ const STORE_TEST_EPOCH = Date.parse('2900-01-01T00:00:00.000Z')
 
 const LEASE_MS = 10_000
 
+const MAX_LEASE_MS = 3 * LEASE_MS
+
 /**
  * How long a test waits for scheduled messages to be sent
  */
@@ -114,7 +116,7 @@ export const scheduledMessageRoundTripTests = (
   }
 
   const claimAt = async (now: Date) =>
-    store().claimDueOutgoingMessages(100, LEASE_MS, now)
+    store().claimDueOutgoingMessages(100, LEASE_MS, MAX_LEASE_MS, now)
 
   const configureBus = () =>
     Bus.configure()
@@ -261,6 +263,36 @@ export const scheduledMessageRoundTripTests = (
       })
     })
 
+    describe('and a message keeps being claimed', () => {
+      // Its fourth claim, at 6 leases, would lease it for 4 leases, but the lease is capped at MAX_LEASE_MS
+      const outgoingMessage = createOutgoingMessage(at(0))
+      let claimedBeforeCappedLeaseEnds: OutgoingMessage[]
+      let claimedAfterCappedLeaseEnds: OutgoingMessage | undefined
+
+      beforeAll(async () => {
+        await store().storeOutgoingMessages([outgoingMessage])
+        await claimAt(at(0))
+        await claimAt(at(LEASE_MS))
+        await claimAt(at(3 * LEASE_MS))
+        await claimAt(at(6 * LEASE_MS))
+        claimedBeforeCappedLeaseEnds = await claimAt(
+          at(6 * LEASE_MS + MAX_LEASE_MS - 1)
+        )
+        claimedAfterCappedLeaseEnds = (
+          await claimAt(at(6 * LEASE_MS + MAX_LEASE_MS))
+        ).find(m => m.id === outgoingMessage.id)
+      })
+
+      afterAll(async () => store().deleteOutgoingMessages([outgoingMessage.id]))
+
+      it('should lease it for no longer than the longest lease', () => {
+        expect(claimedBeforeCappedLeaseEnds.map(m => m.id)).not.toContain(
+          outgoingMessage.id
+        )
+        expect(claimedAfterCappedLeaseEnds?.attempts).toEqual(5)
+      })
+    })
+
     describe('and a message is stored with a lease', () => {
       const outgoingMessage = createOutgoingMessage(at(0))
       let claimedWhileLeased: OutgoingMessage[]
@@ -345,7 +377,12 @@ export const scheduledMessageRoundTripTests = (
 
       beforeAll(async () => {
         await store().storeOutgoingMessages(outgoingMessages)
-        claimed = await store().claimDueOutgoingMessages(2, LEASE_MS, at(10))
+        claimed = await store().claimDueOutgoingMessages(
+          2,
+          LEASE_MS,
+          MAX_LEASE_MS,
+          at(10)
+        )
       })
 
       afterAll(async () =>
@@ -370,7 +407,12 @@ export const scheduledMessageRoundTripTests = (
         await store().storeOutgoingMessages(outgoingMessages)
         const claims = await Promise.all(
           [1, 2, 3, 4].map(async () =>
-            store().claimDueOutgoingMessages(10, LEASE_MS, at(100))
+            store().claimDueOutgoingMessages(
+              10,
+              LEASE_MS,
+              MAX_LEASE_MS,
+              at(100)
+            )
           )
         )
         const storedIds = new Set(outgoingMessages.map(m => m.id))

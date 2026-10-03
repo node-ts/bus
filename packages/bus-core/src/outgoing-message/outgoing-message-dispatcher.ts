@@ -13,10 +13,15 @@ export interface OutgoingMessageDispatcherOptions {
    */
   pollIntervalMs: number
   /**
-   * How long a message claimed for the first time is held for this dispatcher. A message that's claimed again is
-   * held for this times its attempts, so one that keeps failing is tried less often.
+   * How long a message claimed for the first time is held for this dispatcher. Each later claim holds it for this
+   * times the number of times it's been claimed, up to `maxLeaseMs`, so a message the broker keeps rejecting is
+   * retried less often without holding up the others.
    */
   leaseMs: number
+  /**
+   * The longest a claimed message is held, which is the longest a message the broker rejects waits between tries
+   */
+  maxLeaseMs: number
   /**
    * The most messages claimed at a time
    */
@@ -27,11 +32,16 @@ export interface OutgoingMessageDispatcherOptions {
    */
   sendTimeoutMs: number
   /**
-   * How many times a message is claimed and fails to send before it's deleted, with an error logged
+   * How long sending is paused after a send or a read of the store fails, before one due message is sent to see if
+   * the broker and store are working again. It doubles after each probe that fails, up to `maxPauseMs`.
    */
-  maxAttempts: number
+  pauseMs: number
   /**
-   * How often a failure to read the store, such as the database being down, is logged while it keeps failing
+   * The longest sending is paused between probes
+   */
+  maxPauseMs: number
+  /**
+   * How often a probe that fails is logged while sending stays paused
    */
   errorLogIntervalMs: number
 }
@@ -40,9 +50,11 @@ export const DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS: OutgoingMessageDispatc
   Object.freeze({
     pollIntervalMs: 1_000,
     leaseMs: 30_000,
+    maxLeaseMs: 5 * 60_000,
     claimLimit: 100,
     sendTimeoutMs: 10_000,
-    maxAttempts: 10,
+    pauseMs: 1_000,
+    maxPauseMs: 60_000,
     errorLogIntervalMs: 60_000
   })
 
@@ -80,20 +92,21 @@ export const isOutgoingMessageStore = (
   typeof persistence.claimDueOutgoingMessages === 'function' &&
   typeof persistence.deleteOutgoingMessages === 'function'
 
-enum SendResult {
-  Sent = 'sent',
-  Failed = 'failed',
-  TimedOut = 'timed-out'
-}
+type SendResult = { sent: true } | { sent: false; error: unknown }
 
 /**
  * Sends the messages in a store once they're due. Each started bus runs one. It checks the store every
  * `pollIntervalMs`, and sooner when this process stores a message that's due before then.
  *
- * Messages are claimed with a lease, so several processes that share a store send each message once. Each message
- * is deleted as soon as it's sent. If its send fails or times out, or the process stops first, it's sent again
- * when its lease ends, so delivery is at least once. After `maxAttempts` failed attempts it's deleted and logged as
- * an error, with the whole message so it can be recovered.
+ * Messages are claimed with a lease, so several processes that share a store send each message once. A message is
+ * only ever deleted once it's sent, so delivery is at least once and nothing is dropped.
+ *
+ * It's a circuit breaker. When a send fails or times out, or the store can't be read, sending pauses: no more sends
+ * start and nothing more is claimed. After `pauseMs`, doubling up to `maxPauseMs`, it claims and sends one due
+ * message as a probe, and resumes once one is sent. A broker that's down or refusing credentials pauses scheduled
+ * sends until it's fixed. A message that failed keeps its lease, so the probe sends a different one, and a message
+ * the broker always rejects, such as one that's too large, is retried each time its lease ends without holding up
+ * the rest.
  */
 export class OutgoingMessageDispatcher {
   private isRunning = false
@@ -102,6 +115,9 @@ export class OutgoingMessageDispatcher {
   private wakeAt = Infinity
   private wake: (() => void) | undefined
   private earliestScheduledAt = Infinity
+  private isPaused = false
+  private pausedAt = 0
+  private pauseMs: number
   private lastErrorLoggedAt = -Infinity
   private errorsSinceLastLog = 0
 
@@ -116,7 +132,16 @@ export class OutgoingMessageDispatcher {
     private readonly sendMessage: OutgoingMessageSender,
     private readonly logger: Logger,
     private readonly options: OutgoingMessageDispatcherOptions = DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS
-  ) {}
+  ) {
+    this.pauseMs = options.pauseMs
+  }
+
+  /**
+   * Whether sending is paused because a send or a read of the store failed
+   */
+  get paused(): boolean {
+    return this.isPaused
+  }
 
   /**
    * Starts checking the store for due messages. Does nothing if it's already running.
@@ -130,7 +155,7 @@ export class OutgoingMessageDispatcher {
   }
 
   /**
-   * Stops checking the store, and waits for the messages being sent to finish
+   * Stops checking the store, and waits for every send that's started to finish
    */
   async stop(): Promise<void> {
     if (!this.isRunning) {
@@ -144,11 +169,11 @@ export class OutgoingMessageDispatcher {
 
   /**
    * Tells the dispatcher this process stored a message, so that it's sent when it's due rather than on the next
-   * check of the store
+   * check of the store. Does nothing while sending is paused.
    * @param dueAt when the stored message is due
    */
   scheduled(dueAt: Date): void {
-    if (!this.isRunning) {
+    if (!this.isRunning || this.isPaused) {
       return
     }
     const dueAtMs = dueAt.getTime()
@@ -163,103 +188,118 @@ export class OutgoingMessageDispatcher {
   }
 
   /**
-   * Claims and sends the messages that are due, a batch at a time, until none are left or the dispatcher is stopped
-   * @throws the error of the store when it fails to claim or delete messages
+   * Sends the messages that are due, a batch at a time, until none are left, sending pauses or the dispatcher is
+   * stopped. While sending is paused, it sends one due message as a probe instead, and carries on if that's sent.
+   * It never throws, and returns once every send it started has finished.
    */
   async dispatchDueMessages(): Promise<void> {
-    const { claimLimit, leaseMs, sendTimeoutMs } = this.options
-    const throttle = throat(SEND_CONCURRENCY)
+    if (this.isPaused) {
+      await this.probe()
+    }
     // Runs at least once, so it can be called without starting the dispatcher
-    while (true) {
-      // Taken before claiming, so it's never later than the lease the store starts
+    while (!this.isPaused) {
       const claimedAt = Date.now()
-      const claimed = await this.store.claimDueOutgoingMessages(
-        claimLimit,
-        leaseMs
-      )
-      if (claimed.length === 0) {
+      const claimed = await this.claim(this.options.claimLimit)
+      if (!claimed || claimed.length === 0) {
         return
       }
-      this.logger.debug('Sending due outgoing messages', {
-        numMessages: claimed.length
-      })
-
-      const sendBefore = claimedAt + leaseMs - sendTimeoutMs
-      await Promise.all(
-        claimed.map(async outgoingMessage =>
-          throttle(async () => {
-            if (Date.now() > sendBefore) {
-              // Too little of the lease is left to send it safely. It's claimed again once the lease ends.
-              return
-            }
-            await this.sendAndDelete(outgoingMessage)
-          })
-        )
-      )
-
-      if (claimed.length < claimLimit || !this.isRunning) {
+      await this.sendBatch(claimed, claimedAt)
+      if (claimed.length < this.options.claimLimit || !this.isRunning) {
         return
       }
     }
   }
 
   /**
-   * Sends a claimed message and deletes it once it's sent, or deletes it if it has failed too many times
+   * Claims and sends one due message to see whether sending works again, and resumes if it's sent
    */
-  private async sendAndDelete(outgoingMessage: OutgoingMessage): Promise<void> {
-    const { maxAttempts, sendTimeoutMs } = this.options
-    const attempts = outgoingMessage.attempts ?? 1
-    const result = await this.sendWithTimeout(outgoingMessage)
-    if (result === SendResult.Sent) {
-      await this.store.deleteOutgoingMessages([outgoingMessage.id])
+  private async probe(): Promise<void> {
+    const claimed = await this.claim(1)
+    if (!claimed || claimed.length === 0) {
+      // Nothing to probe with yet, or the store is still failing
+      this.pauseLonger()
       return
     }
+    const [outgoingMessage] = claimed
+    const result = await this.send(outgoingMessage)
+    if (result.sent) {
+      this.resume()
+      return
+    }
+    this.logWhilePaused('Sending a scheduled message failed again', {
+      messageId: outgoingMessage.id,
+      error: serializeError(result.error)
+    })
+    this.pauseLonger()
+  }
 
-    if (attempts >= maxAttempts) {
-      this.logger.error(
-        'Gave up sending a scheduled outgoing message after too many attempts, and deleted it. It can be sent again from this log.',
-        {
-          messageId: outgoingMessage.id,
-          attempts,
-          outgoingMessage
-        }
+  /**
+   * Sends claimed messages, a few at a time, until they're all sent or sending pauses
+   */
+  private async sendBatch(
+    claimed: OutgoingMessage[],
+    claimedAt: number
+  ): Promise<void> {
+    const { leaseMs, sendTimeoutMs } = this.options
+    const sendBefore = claimedAt + leaseMs - sendTimeoutMs
+    const throttle = throat(SEND_CONCURRENCY)
+    // Every send handles its own failure, so this waits for all of them, even when sending pauses part way
+    await Promise.all(
+      claimed.map(async outgoingMessage =>
+        throttle(async () => {
+          if (this.isPaused || Date.now() > sendBefore) {
+            // Left to be claimed again once its lease ends
+            return
+          }
+          const result = await this.send(outgoingMessage)
+          if (!result.sent) {
+            this.pause(result.error, outgoingMessage)
+          }
+        })
       )
-      await this.store.deleteOutgoingMessages([outgoingMessage.id])
-      return
-    }
-
-    this.logger.warn(
-      result === SendResult.TimedOut
-        ? 'Sending a scheduled outgoing message timed out. It will be sent again when its lease ends.'
-        : 'Failed to send a scheduled outgoing message. It will be sent again when its lease ends.',
-      {
-        messageId: outgoingMessage.id,
-        attempts,
-        sendTimeoutMs,
-        retryAfterMs: this.options.leaseMs * attempts
-      }
     )
+  }
+
+  /**
+   * Sends one message and deletes it once it's sent. It never throws.
+   */
+  private async send(outgoingMessage: OutgoingMessage): Promise<SendResult> {
+    const result = await this.sendWithTimeout(outgoingMessage)
+    if (!result.sent) {
+      return result
+    }
+    try {
+      await this.store.deleteOutgoingMessages([outgoingMessage.id])
+    } catch (error) {
+      this.logger.error(
+        'Failed to delete a scheduled message that was sent. It will be sent again when its lease ends.',
+        { messageId: outgoingMessage.id, error: serializeError(error) }
+      )
+    }
+    return result
   }
 
   private async sendWithTimeout(
     outgoingMessage: OutgoingMessage
   ): Promise<SendResult> {
+    const { sendTimeoutMs } = this.options
     let timeout: NodeJS.Timeout | undefined
     const timedOut = new Promise<SendResult>(resolve => {
       timeout = setTimeout(
-        () => resolve(SendResult.TimedOut),
-        this.options.sendTimeoutMs
+        () =>
+          resolve({
+            sent: false,
+            // Only logged, so it doesn't need an error class
+            error: {
+              message: `Sending the message took longer than ${sendTimeoutMs}ms`
+            }
+          }),
+        sendTimeoutMs
       )
     })
     const sent = this.sendMessage(outgoingMessage).then(
-      () => SendResult.Sent,
-      (error: unknown) => {
-        this.logger.debug('Scheduled outgoing message failed to send', {
-          messageId: outgoingMessage.id,
-          error: serializeError(error)
-        })
-        return SendResult.Failed
-      }
+      (): SendResult => ({ sent: true }),
+      (error: unknown): SendResult => ({ sent: false, error })
     )
     try {
       return await Promise.race([sent, timedOut])
@@ -268,13 +308,94 @@ export class OutgoingMessageDispatcher {
     }
   }
 
+  /**
+   * Claims due messages, pausing sending if the store can't be read
+   * @returns the claimed messages, or `undefined` if the store failed
+   */
+  private async claim(limit: number): Promise<OutgoingMessage[] | undefined> {
+    try {
+      return await this.store.claimDueOutgoingMessages(
+        limit,
+        this.options.leaseMs,
+        this.options.maxLeaseMs
+      )
+    } catch (error) {
+      if (this.isPaused) {
+        this.logWhilePaused('Failed to claim scheduled messages again', {
+          error: serializeError(error)
+        })
+      } else {
+        this.pause(error)
+      }
+      return undefined
+    }
+  }
+
+  /**
+   * Pauses sending after a failure. Only the first failure is logged; failures while it's paused are throttled.
+   */
+  private pause(error: unknown, outgoingMessage?: OutgoingMessage): void {
+    if (this.isPaused) {
+      this.logWhilePaused('Sending a scheduled message failed while paused', {
+        messageId: outgoingMessage?.id,
+        error: serializeError(error)
+      })
+      return
+    }
+    this.isPaused = true
+    this.pausedAt = Date.now()
+    this.pauseMs = this.options.pauseMs
+    // Probe failures are throttled from here, so the warning below isn't followed straight away by another log
+    this.lastErrorLoggedAt = Date.now()
+    this.errorsSinceLastLog = 0
+    this.logger.warn(
+      outgoingMessage
+        ? 'Paused sending scheduled messages, because one failed to send. Nothing is dropped: sending resumes once a probe succeeds, and this message is retried when its lease ends.'
+        : 'Paused sending scheduled messages, because the store of scheduled messages could not be read. Nothing is dropped: sending resumes once a probe succeeds.',
+      {
+        messageId: outgoingMessage?.id,
+        attempts: outgoingMessage?.attempts,
+        probeInMs: this.pauseMs,
+        error: serializeError(error)
+      }
+    )
+  }
+
+  private pauseLonger(): void {
+    this.pauseMs = Math.min(this.pauseMs * 2, this.options.maxPauseMs)
+  }
+
+  private resume(): void {
+    this.isPaused = false
+    this.logger.info('Resumed sending scheduled messages', {
+      pausedForMs: Date.now() - this.pausedAt,
+      failuresSinceLastLog: this.errorsSinceLastLog
+    })
+    this.pauseMs = this.options.pauseMs
+    this.errorsSinceLastLog = 0
+  }
+
+  /**
+   * Logs a failure while sending is paused, at most once per `errorLogIntervalMs`
+   */
+  private logWhilePaused(message: string, context: object): void {
+    this.errorsSinceLastLog++
+    const now = Date.now()
+    if (now - this.lastErrorLoggedAt < this.options.errorLogIntervalMs) {
+      return
+    }
+    this.logger.warn(`${message}, so sending scheduled messages stays paused`, {
+      ...context,
+      failuresSinceLastLog: this.errorsSinceLastLog,
+      probeInMs: this.pauseMs
+    })
+    this.lastErrorLoggedAt = now
+    this.errorsSinceLastLog = 0
+  }
+
   private async run(): Promise<void> {
     while (this.isRunning) {
-      try {
-        await this.dispatchDueMessages()
-      } catch (error) {
-        this.logDispatchError(error)
-      }
+      await this.dispatchDueMessages()
       if (!this.isRunning) {
         return
       }
@@ -283,30 +404,16 @@ export class OutgoingMessageDispatcher {
   }
 
   /**
-   * Logs a failure to read or update the store, at most once per `errorLogIntervalMs` while it keeps failing
-   */
-  private logDispatchError(error: unknown): void {
-    this.errorsSinceLastLog++
-    const now = Date.now()
-    if (now - this.lastErrorLoggedAt < this.options.errorLogIntervalMs) {
-      return
-    }
-    this.logger.error('Failed to dispatch due outgoing messages', {
-      error: serializeError(error),
-      failuresSinceLastLog: this.errorsSinceLastLog
-    })
-    this.lastErrorLoggedAt = now
-    this.errorsSinceLastLog = 0
-  }
-
-  /**
-   * Waits until the next poll, or until the earliest message this process stored since the last wait is due
+   * Waits until the next poll, or until the earliest message this process stored since the last wait is due. While
+   * sending is paused, waits until the next probe instead.
    */
   private async waitForNextCheck(): Promise<void> {
-    const nextCheckAt = Math.min(
-      Date.now() + this.options.pollIntervalMs,
-      this.earliestScheduledAt
-    )
+    const nextCheckAt = this.isPaused
+      ? Date.now() + this.pauseMs
+      : Math.min(
+          Date.now() + this.options.pollIntervalMs,
+          this.earliestScheduledAt
+        )
     this.earliestScheduledAt = Infinity
     await new Promise<void>(resolve => {
       this.wake = () => {

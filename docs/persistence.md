@@ -17,7 +17,7 @@ By default the bus keeps workflow state and scheduled messages in memory, with `
 
 Every persistence uses optimistic concurrency: saving fails if another handler saved the same workflow instance since it was read, and the message is retried with the latest state.
 
-Every bus that shares a persistence's scheduled messages, in any process, must use the same broker, since any started bus sends them through its own transport (see [delayed delivery](/guide/delayed-delivery#sharing-a-persistence)).
+A scheduled message is only deleted from the persistence once it's sent, so a broker outage pauses scheduled sends rather than dropping them. Every bus that shares a persistence's scheduled messages, in any process, must use the same broker, since any started bus sends them through its own transport (see [delayed delivery](/guide/delayed-delivery#sharing-a-persistence)).
 
 A persistence instance can be shared by several buses in one process. Each bus converts the state with its own serializer and message types, and the persistence is disposed when the last bus that uses it is disposed.
 

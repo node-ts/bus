@@ -35,9 +35,18 @@ A scheduled message is stored in the bus' [persistence](/persistence) until it's
 
 - [Outgoing middleware](/guide/middleware#outgoing-middleware) runs once, when the message is scheduled. The message is stored with the attributes, headers and `messageId` the middleware left it with, and sent to the transport as it is. Its `sentAt` is when it was scheduled.
 - The bus checks its persistence every second, and when it stored a message itself, it also checks when that message is due. Postgres and MongoDB compare due times with the database's clock, so instances whose clocks differ agree on when a message is due. A message is never delivered before its due time by that clock, and usually arrives within a second of it.
-- Each bus claims due messages with a lease of 30 seconds, so several instances of a service that share a persistence send each message once. A message is deleted as soon as it's sent. If sending it fails or takes longer than 10 seconds, or the process stops first, it's sent again when the lease ends, so make handlers of delayed messages idempotent, such as by checking the [message id](/guide/message-attributes/message-id).
-- Each failed attempt makes the next lease longer: 30 seconds times the number of attempts. After 10 failed attempts the message is deleted, and the bus logs an error with the whole message so it can be sent again by hand.
+- Each bus claims due messages with a lease of 30 seconds, so several instances of a service that share a persistence send each message once. A message is deleted as soon as it's sent, and never otherwise. If the process stops before it's sent, it's sent when the lease ends, so make handlers of delayed messages idempotent, such as by checking the [message id](/guide/message-attributes/message-id).
 - A delayed message is stored under its `messageId`, so give each one its own. A message whose `messageId` is already scheduled isn't stored, and the bus logs a warning.
+
+## When sending fails
+
+Nothing scheduled is ever dropped. When a send fails or takes longer than 10 seconds, or the persistence can't be read, the bus pauses its scheduled sends and logs one warning with the error. While it's paused, it tries one due message after a second, then waits twice as long after each try that fails, up to a minute. Once one is sent, it logs that it resumed and sends the rest.
+
+So a broker that's down, or that refuses the bus' credentials, pauses scheduled sends until it's fixed, and they're all sent once it is.
+
+A message the broker always rejects, such as one that's too large or sent to a topic that doesn't exist, doesn't hold up the others: the next try uses a different message, and sending resumes. The rejected message is tried again each time its lease ends, waiting 30 seconds longer each time, up to 5 minutes, and the bus logs a warning each time it fails. It's sent once the cause is fixed, or you can delete it from the persistence.
+
+## Why transports don't delay messages
 
 It works the same way on every transport. Transports don't delay messages themselves: SNS, which the SQS transport sends through, has no per-message delay, RabbitMQ only expires a message's TTL at the head of its queue, so a long delay can arrive late, and its delayed message plugin needs an exchange type the transport doesn't declare.
 

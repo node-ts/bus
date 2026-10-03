@@ -159,6 +159,7 @@ export class InMemoryPersistence implements Persistence {
   async claimDueOutgoingMessages(
     limit: number,
     leaseMs: number,
+    maxLeaseMs: number,
     now = new Date()
   ): Promise<OutgoingMessage[]> {
     const nowMs = now.getTime()
@@ -169,7 +170,8 @@ export class InMemoryPersistence implements Persistence {
     return claimed
       .map(stored => {
         stored.attempts++
-        stored.availableAt = nowMs + leaseMs * stored.attempts
+        stored.availableAt =
+          nowMs + Math.min(leaseMs * stored.attempts, maxLeaseMs)
         return {
           ...copyOutgoingMessage(stored.outgoingMessage),
           attempts: stored.attempts

@@ -232,7 +232,7 @@ describe('BusInstance delayed delivery', () => {
       const deadLettered = once(queue.settled, 'failed')
       await bus.send(new TestCommand())
       await deadLettered
-      stored = await persistence.claimDueOutgoingMessages(10, 1, END_OF_TIME)
+      stored = await persistence.claimDueOutgoingMessages(10, 1, 1, END_OF_TIME)
     })
 
     afterAll(async () => bus.dispose())
@@ -533,7 +533,7 @@ describe('BusInstance delayed delivery', () => {
         deliverAfter: 60_000,
         messageId: 'same-id'
       })
-      stored = await persistence.claimDueOutgoingMessages(10, 1, END_OF_TIME)
+      stored = await persistence.claimDueOutgoingMessages(10, 1, 1, END_OF_TIME)
     })
 
     afterAll(async () => bus.dispose())
