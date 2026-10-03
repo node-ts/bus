@@ -18,6 +18,7 @@ An SQS/SNS transport. Read the root `CLAUDE.md` first.
 - `fail` copies the message to the DLQ and then deletes it, so it gets a new MessageId and its receive count resets.
 - Receiving takes one message at a time. If more than one arrives, they're all made visible again and nothing is returned.
 - Message attributes are carried as SNS attributes named `attributes.<k>`, `stickyAttributes.<k>`, `correlationId`, `messageId` and `sentAt`. `fail` and the redrive policy copy the SNS envelope, so they survive dead-lettering; `TransportMessage.id` stays the SQS `MessageId`, which changes on `fail`. `endpointName` is `queueName`, or the name from `queueArn`. Booleans use DataType `String.boolean` (SNS has no boolean type and rejects `Boolean`). `false` and `0` are kept; empty strings, `undefined` and `null` are dropped because SNS rejects empty values. `fromMessageAttributeMap` is exported because `bus-sqs-lambda` uses it.
+- Headers set by outgoing middleware (`TransportSendOptions.headers`) become SNS message attributes under their exact names (`toHeaderAttributeMap`), typed like attributes. `correlationId`, `messageId`, `sentAt` and names starting `attributes.`/`stickyAttributes.` are reserved and throw `TransportHeaderReserved`. AWS's limit of 10 message attributes only applies with SNS raw message delivery, which bus-sqs doesn't use.
 
 ## Tests
 

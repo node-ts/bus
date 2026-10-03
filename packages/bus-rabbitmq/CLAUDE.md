@@ -22,6 +22,7 @@ A RabbitMQ transport (amqplib). Read the root `CLAUDE.md` first.
   - `<queue>-retry` is a direct exchange plus a queue with a 1 ms TTL that dead-letters back to the service exchange. It's legacy: nothing sends to it now, but the service queue's `x-dead-letter-*` arguments point at it, and changing a queue's arguments makes declaring an existing queue fail with `PRECONDITION_FAILED`. Keep it.
   - The DLQ is bound to the retry exchange with routing key `error`.
 - Attributes and sticky attributes are stored in message headers as JSON strings. The AMQP `messageId` property is the bus' `messageId` attribute (a new uuid only if the transport is called without one), and `sentAt` is a `sentAt` header because the AMQP `timestamp` only has second precision. Retry and DLQ copies keep the properties and headers. `endpointName` is `queueName`.
+- Headers set by outgoing middleware (`TransportSendOptions.headers`) are spread into the AMQP `headers` as they are. `x-delay` alone doesn't delay anything, since the delayed-message plugin needs an `x-delayed-message` exchange and the transport declares fanout ones. `attributes`, `stickyAttributes`, `sentAt` and `failedAttempts` are reserved and throw `TransportHeaderReserved`. Retries and `fail` copy `properties`, so headers survive both.
 
 ## Retry and failure
 

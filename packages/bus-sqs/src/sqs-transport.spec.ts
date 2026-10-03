@@ -25,6 +25,7 @@ import {
   Logger,
   MessageSerializer,
   RetryStrategy,
+  TransportHeaderReserved,
   TransportMessage
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -36,6 +37,7 @@ import {
   SnsMessageAttributeMap,
   SqsMessageAttributes,
   SqsTransport,
+  toHeaderAttributeMap,
   toMessageAttributeMap
 } from './sqs-transport'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
@@ -222,6 +224,48 @@ describe('sqs-transport', () => {
       const attribute2 = messageAttributes['stickyAttributes.attribute2']
       expect(attribute2.DataType).toEqual('Number')
       expect(attribute2.StringValue).toEqual('2')
+    })
+  })
+
+  describe('when converting headers to SNS attribute values', () => {
+    let headerAttributes: SnsMessageAttributeMap
+
+    beforeEach(() => {
+      headerAttributes = toHeaderAttributeMap({
+        'x-tenant': 'acme',
+        priority: 3,
+        urgent: false,
+        empty: ''
+      })
+    })
+
+    it('should write each header under its own name with its type', () => {
+      expect(headerAttributes).toEqual({
+        'x-tenant': { DataType: 'String', StringValue: 'acme' },
+        priority: { DataType: 'Number', StringValue: '3' },
+        urgent: { DataType: 'String.boolean', StringValue: 'false' }
+      })
+    })
+  })
+
+  describe.each([
+    'correlationId',
+    'attributes.tenant',
+    'stickyAttributes.tenant'
+  ])('when converting a header named %s', headerName => {
+    let error: unknown
+
+    beforeEach(() => {
+      try {
+        toHeaderAttributeMap({ [headerName]: 'value' })
+      } catch (e) {
+        error = e
+      }
+    })
+
+    it('should throw TransportHeaderReserved', () => {
+      expect(error).toBeInstanceOf(TransportHeaderReserved)
+      expect(error).toMatchObject({ headerName, transportName: 'SqsTransport' })
     })
   })
 

@@ -28,8 +28,11 @@ import {
   CoreDependencies,
   Logger,
   Transport,
+  TransportHeaderReserved,
+  TransportHeaders,
   TransportInitializationOptions,
-  TransportMessage
+  TransportMessage,
+  TransportSendOptions
 } from '@node-ts/bus-core'
 import {
   Command,
@@ -136,18 +139,40 @@ export class SqsTransport implements Transport<SQSMessage> {
     )
   }
 
+  /**
+   * Publishes an event to its SNS topic
+   * @param event the event to publish
+   * @param messageAttributes the attributes to publish it with, as `attributes.<key>`, `stickyAttributes.<key>` and
+   * `correlationId` SNS message attributes
+   * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
+   * own name. AWS limits how many message attributes a message can have (10 on SQS), counting the ones above.
+   * @throws TransportHeaderReserved if a header is named `correlationId` or starts with `attributes.` or
+   * `stickyAttributes.`
+   */
   async publish<EventType extends Event>(
     event: EventType,
-    messageAttributes?: MessageAttributes
+    messageAttributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.publishMessage(event, messageAttributes)
+    await this.publishMessage(event, messageAttributes, sendOptions)
   }
 
+  /**
+   * Sends a command to its SNS topic
+   * @param command the command to send
+   * @param messageAttributes the attributes to send it with, as `attributes.<key>`, `stickyAttributes.<key>` and
+   * `correlationId` SNS message attributes
+   * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
+   * own name. AWS limits how many message attributes a message can have (10 on SQS), counting the ones above.
+   * @throws TransportHeaderReserved if a header is named `correlationId` or starts with `attributes.` or
+   * `stickyAttributes.`
+   */
   async send<CommandType extends Command>(
     command: CommandType,
-    messageAttributes?: MessageAttributes
+    messageAttributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.publishMessage(command, messageAttributes)
+    await this.publishMessage(command, messageAttributes, sendOptions)
   }
 
   async fail(transportMessage: TransportMessage<SQSMessage>): Promise<void> {
@@ -431,8 +456,10 @@ export class SqsTransport implements Transport<SQSMessage> {
     messageAttributes: MessageAttributes = {
       attributes: {},
       stickyAttributes: {}
-    }
+    },
+    sendOptions: TransportSendOptions = {}
   ): Promise<void> {
+    const headerMap = toHeaderAttributeMap(sendOptions.headers ?? {})
     await this.assertSnsTopic(message)
 
     const topicName = this.resolveTopicName(message.$name)
@@ -443,7 +470,10 @@ export class SqsTransport implements Transport<SQSMessage> {
     )
     this.logger.trace('Publishing message to sns', { message, topicArn })
 
-    const attributeMap = toMessageAttributeMap(messageAttributes)
+    const attributeMap = {
+      ...headerMap,
+      ...toMessageAttributeMap(messageAttributes)
+    }
     this.logger.debug('Resolved message attributes', { attributeMap })
 
     const command = new PublishCommand({
@@ -770,6 +800,33 @@ export function toMessageAttributeMap(
   Object.entries(topLevelAttributes).forEach(([name, value]) => {
     if (value) {
       map[name] = { DataType: 'String', StringValue: value }
+    }
+  })
+  return map
+}
+
+/**
+ * Converts the native headers set by outgoing middleware to SNS message attributes, each under its own name, with
+ * types mapped as for message attributes. Empty strings are left out because SNS rejects empty attribute values.
+ * @param headers The headers set by outgoing middleware
+ * @returns The SNS message attributes to publish with the message
+ * @throws TransportHeaderReserved if a header is named `correlationId`, or starts with `attributes.` or
+ * `stickyAttributes.`, which are the names message attributes are written under
+ */
+export function toHeaderAttributeMap(
+  headers: TransportHeaders
+): SnsMessageAttributeMap {
+  const map: SnsMessageAttributeMap = {}
+  Object.entries(headers).forEach(([name, value]) => {
+    if (
+      name === 'correlationId' ||
+      name.startsWith('attributes.') ||
+      name.startsWith('stickyAttributes.')
+    ) {
+      throw new TransportHeaderReserved(name, 'SqsTransport')
+    }
+    if (value !== '') {
+      map[name] = toAttributeValue(value)
     }
   })
   return map
