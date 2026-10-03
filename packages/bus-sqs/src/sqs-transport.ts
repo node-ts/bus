@@ -145,9 +145,10 @@ export class SqsTransport implements Transport<SQSMessage> {
    * @param messageAttributes the attributes to publish it with, as `attributes.<key>`, `stickyAttributes.<key>` and
    * `correlationId` SNS message attributes
    * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
-   * own name. AWS limits how many message attributes a message can have (10 on SQS), counting the ones above.
-   * @throws TransportHeaderReserved if a header is named `correlationId` or starts with `attributes.` or
-   * `stickyAttributes.`
+   * own name. They're carried in the SNS envelope, so SQS's limit of 10 message attributes, which only applies with
+   * SNS raw message delivery, doesn't apply.
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+   * `attributes.` or `stickyAttributes.`
    */
   async publish<EventType extends Event>(
     event: EventType,
@@ -163,9 +164,10 @@ export class SqsTransport implements Transport<SQSMessage> {
    * @param messageAttributes the attributes to send it with, as `attributes.<key>`, `stickyAttributes.<key>` and
    * `correlationId` SNS message attributes
    * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
-   * own name. AWS limits how many message attributes a message can have (10 on SQS), counting the ones above.
-   * @throws TransportHeaderReserved if a header is named `correlationId` or starts with `attributes.` or
-   * `stickyAttributes.`
+   * own name. They're carried in the SNS envelope, so SQS's limit of 10 message attributes, which only applies with
+   * SNS raw message delivery, doesn't apply.
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+   * `attributes.` or `stickyAttributes.`
    */
   async send<CommandType extends Command>(
     command: CommandType,
@@ -806,12 +808,17 @@ export function toMessageAttributeMap(
 }
 
 /**
+ * The SNS message attribute names the transport writes itself, which outgoing middleware can't set as headers
+ */
+const RESERVED_HEADERS = new Set(['correlationId', 'messageId', 'sentAt'])
+
+/**
  * Converts the native headers set by outgoing middleware to SNS message attributes, each under its own name, with
  * types mapped as for message attributes. Empty strings are left out because SNS rejects empty attribute values.
  * @param headers The headers set by outgoing middleware
  * @returns The SNS message attributes to publish with the message
- * @throws TransportHeaderReserved if a header is named `correlationId`, or starts with `attributes.` or
- * `stickyAttributes.`, which are the names message attributes are written under
+ * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+ * `attributes.` or `stickyAttributes.`, which are the names message attributes are written under
  */
 export function toHeaderAttributeMap(
   headers: TransportHeaders
@@ -819,7 +826,7 @@ export function toHeaderAttributeMap(
   const map: SnsMessageAttributeMap = {}
   Object.entries(headers).forEach(([name, value]) => {
     if (
-      name === 'correlationId' ||
+      RESERVED_HEADERS.has(name) ||
       name.startsWith('attributes.') ||
       name.startsWith('stickyAttributes.')
     ) {

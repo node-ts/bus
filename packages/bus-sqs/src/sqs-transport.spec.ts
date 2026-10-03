@@ -250,6 +250,8 @@ describe('sqs-transport', () => {
 
   describe.each([
     'correlationId',
+    'messageId',
+    'sentAt',
     'attributes.tenant',
     'stickyAttributes.tenant'
   ])('when converting a header named %s', headerName => {

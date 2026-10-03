@@ -51,6 +51,7 @@ const SENT_AT_HEADER = 'sentAt'
 const RESERVED_HEADERS = new Set([
   'attributes',
   'stickyAttributes',
+  SENT_AT_HEADER,
   FAILED_ATTEMPTS_HEADER
 ])
 
@@ -207,7 +208,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    * @param event the event to publish
    * @param messageAttributes the attributes to publish it with, written as JSON headers
    * @param sendOptions native headers from outgoing middleware, written as AMQP headers as they are
-   * @throws TransportHeaderReserved if a header is named `attributes`, `stickyAttributes` or `failedAttempts`
+   * @throws TransportHeaderReserved if a header is named `attributes`, `stickyAttributes`, `sentAt` or `failedAttempts`
    */
   async publish<TEvent extends Event>(
     event: TEvent,
@@ -222,7 +223,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    * @param command the command to send
    * @param messageAttributes the attributes to send it with, written as JSON headers
    * @param sendOptions native headers from outgoing middleware, written as AMQP headers as they are
-   * @throws TransportHeaderReserved if a header is named `attributes`, `stickyAttributes` or `failedAttempts`
+   * @throws TransportHeaderReserved if a header is named `attributes`, `stickyAttributes`, `sentAt` or `failedAttempts`
    */
   async send<TCommand extends Command>(
     command: TCommand,

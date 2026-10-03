@@ -75,13 +75,13 @@ Outgoing middleware can also set native headers for the transport in `context.he
 
 <<< @/snippets/middleware.ts#headers
 
-| Transport                            | Writes each header as                         | Reserved names                                                           |
-| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------ |
-| [RabbitMQ](/transports/rabbitmq)     | an AMQP header, kept when the message retries | `attributes`, `stickyAttributes`, `failedAttempts`                       |
-| [Amazon SQS](/transports/amazon-sqs) | an SNS message attribute under its own name   | `correlationId`, and names starting `attributes.` or `stickyAttributes.` |
-| In-memory queue                      | an entry in the raw message's `headers`       | none                                                                     |
+| Transport                            | Writes each header as                         | Reserved names                                                                                  |
+| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [RabbitMQ](/transports/rabbitmq)     | an AMQP header, kept when the message retries | `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`                                    |
+| [Amazon SQS](/transports/amazon-sqs) | an SNS message attribute under its own name   | `correlationId`, `messageId`, `sentAt`, and names starting `attributes.` or `stickyAttributes.` |
+| In-memory queue                      | an entry in the raw message's `headers`       | none                                                                                            |
 
-Setting a reserved name throws `TransportHeaderReserved`. AWS limits how many message attributes a message can have (10 on SQS), and the bus' own attributes count towards it.
+Setting a reserved name throws `TransportHeaderReserved`. AWS's limit of 10 message attributes on SQS only applies with SNS raw message delivery, which the SQS transport doesn't use.
 
 ::: warning RabbitMQ delayed messages
 The delayed message plugin only delays a message with an `x-delay` header when its exchange has the plugin's `x-delayed-message` type. The RabbitMQ transport declares a fanout exchange for each message, so an `x-delay` header alone doesn't delay it.
