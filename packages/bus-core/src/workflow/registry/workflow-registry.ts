@@ -17,6 +17,7 @@ import { ClassConstructor, CoreDependencies } from '../../util'
 import { FunctionWorkflow } from '../define-workflow'
 import {
   WorkflowAlreadyInitialized,
+  WorkflowHandlerFailed,
   WorkflowNameAlreadyRegistered,
   WorkflowNotRecognized,
   WorkflowRegisteredAfterInitialization,
@@ -421,26 +422,14 @@ export class WorkflowRegistry {
             workflowName,
             msg: message
           })
-          const workflowState = this.createWorkflowState(workflowStateType)
-          const immutableWorkflowState = Object.freeze({ ...workflowState })
-          const workflowContext = this.buildWorkflowHandlingContext(
-            immutableWorkflowState
-          )
-          // Extend the current message handling context, and augment with workflow-specific context data
-          await this.messageHandlingContext.run(
-            workflowContext,
-            async () => {
-              await this.dispatchMessageToWorkflow(
-                message,
-                messageAttributes,
-                workflowName,
-                immutableWorkflowState,
-                workflowStateType,
-                invoke,
-                context
-              )
-            },
-            true
+          await this.dispatchMessageToWorkflowInstance(
+            message,
+            messageAttributes,
+            workflowName,
+            this.createWorkflowState(workflowStateType),
+            workflowStateType,
+            invoke,
+            context
           )
         }
       )
@@ -483,37 +472,27 @@ export class WorkflowRegistry {
             return
           }
 
-          const workflowHandlers = workflowState.map(async state => {
-            // Extend the current message handling context, and augment with workflow-specific context data
-            const immutableWorkflowState = Object.freeze({ ...state })
-            const workflowContext = this.buildWorkflowHandlingContext(
-              immutableWorkflowState
+          const workflowHandlers = workflowState.map(state =>
+            this.dispatchMessageToWorkflowInstance(
+              message,
+              attributes,
+              workflowName,
+              state,
+              workflowStateType,
+              handler.invoke,
+              context
             )
-            await this.messageHandlingContext.run(
-              workflowContext,
-              async () => {
-                await this.dispatchMessageToWorkflow(
-                  message,
-                  attributes,
-                  workflowName,
-                  immutableWorkflowState,
-                  workflowStateType,
-                  handler.invoke,
-                  context
-                )
-              },
-              true
-            )
-          })
+          )
 
           const handlerResults = await Promise.allSettled(workflowHandlers)
-          const failedHandlers = handlerResults.filter(
-            r => r.status === 'rejected'
-          )
-          if (failedHandlers.length) {
-            const reasons = (failedHandlers as PromiseRejectedResult[]).map(
-              h => h.reason
-            )
+          const reasons = handlerResults
+            .filter(r => r.status === 'rejected')
+            .map(r => (r as PromiseRejectedResult).reason as Error)
+          if (reasons.length === 1) {
+            // Already names the workflow, and the bus lists it with the message's other handler failures
+            throw reasons[0]
+          }
+          if (reasons.length) {
             throw new HandlerDispatchRejected(reasons)
           }
         }
@@ -558,6 +537,50 @@ export class WorkflowRegistry {
           workflowId: workflowState.$workflowId
         }
       }
+    }
+  }
+
+  /**
+   * Runs a workflow handler for one workflow instance in a handling context of its own
+   * @throws WorkflowHandlerFailed if the handler throws or the state it returns can't be saved
+   */
+  private async dispatchMessageToWorkflowInstance(
+    message: Message,
+    attributes: MessageAttributes,
+    workflowName: string,
+    workflowState: WorkflowState,
+    workflowStateConstructor: ClassConstructor<WorkflowState>,
+    invoke: WorkflowHandlerInvoker,
+    context: HandlerContext
+  ): Promise<void> {
+    const immutableWorkflowState = Object.freeze({ ...workflowState })
+    // Extend the current message handling context, and augment with workflow-specific context data
+    const workflowContext = this.buildWorkflowHandlingContext(
+      immutableWorkflowState
+    )
+    try {
+      await this.messageHandlingContext.run(
+        workflowContext,
+        async () => {
+          await this.dispatchMessageToWorkflow(
+            message,
+            attributes,
+            workflowName,
+            immutableWorkflowState,
+            workflowStateConstructor,
+            invoke,
+            context
+          )
+        },
+        true
+      )
+    } catch (error) {
+      throw new WorkflowHandlerFailed(
+        workflowName,
+        immutableWorkflowState.$workflowId,
+        message.$name,
+        error
+      )
     }
   }
 

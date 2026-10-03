@@ -9,6 +9,7 @@ describe('index', () => {
         InvalidBusState: expect.any(Function),
         InvalidOperation: expect.any(Function),
         PersistenceNotConfigured: expect.any(Function),
+        WorkflowHandlerFailed: expect.any(Function),
         WorkflowStateNotInitialized: expect.any(Function)
       })
     })

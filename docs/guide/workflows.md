@@ -26,6 +26,8 @@ A workflow can be declared with functions, using `defineWorkflow`, or as a class
 
 Workflows have the same guarantees as other [handlers](/getting-started/handling-messages). If a step fails, its state isn't saved and the messages it sent are dropped, and the message goes back on the queue to be retried.
 
+The failure is logged at error level as a [`WorkflowHandlerFailed`](/api/bus-core/classes/WorkflowHandlerFailed), which names the workflow, the instance's `$workflowId` and the message, and keeps the error the handler threw in `cause`. A failure to save the state the step returned is reported the same way.
+
 The persistence uses optimistic concurrency: the state has a `$version`, and saving fails if another handler saved the same instance since it was read. The message is then retried with the latest state, so there's no need for locks.
 
 ::: warning Retried startedBy messages
