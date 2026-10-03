@@ -77,7 +77,7 @@ Outgoing middleware runs each time `send()` or `publish()` is called, on the bus
 
 <<< @/snippets/middleware.ts#stamp-attribute
 
-It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport.
+It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport. A message sent with [`deliverAfter` or `deliverAt`](/guide/delayed-delivery) is stored in the persistence instead, and sent as the middleware left it once it's due, without running the middleware again.
 
 ### Transport headers
 
@@ -94,7 +94,7 @@ Outgoing middleware can also set native headers for the transport in `context.he
 Setting a reserved name makes the `send()` or `publish()` throw `TransportHeaderReserved`, before the message is buffered or sent. AWS's limit of 10 message attributes on SQS only applies with SNS raw message delivery, which the SQS transport doesn't use.
 
 ::: warning RabbitMQ delayed messages
-The delayed message plugin only delays a message with an `x-delay` header when its exchange has the plugin's `x-delayed-message` type. The RabbitMQ transport declares a fanout exchange for each message, so an `x-delay` header alone doesn't delay it.
+The delayed message plugin only delays a message with an `x-delay` header when its exchange has the plugin's `x-delayed-message` type. The RabbitMQ transport declares a fanout exchange for each message, so an `x-delay` header alone doesn't delay it. To send a message later on any transport, use [delayed delivery](/guide/delayed-delivery) instead.
 :::
 
 ## Testing middleware

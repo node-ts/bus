@@ -44,6 +44,8 @@ To share a client with the rest of your application, pass your `MongoClient` as 
 
 Each workflow state has a collection, named after its `$name` with invalid characters removed. `initialize()` creates the collections, and an index for each field that messages are looked up by. It never drops indexes, so ones you add are safe.
 
+`initialize()` also creates an `outgoingmessages` collection, indexed on `dueAt`, which holds messages sent with [delayed delivery](/guide/delayed-delivery) until they're due.
+
 Keys in the state are percent-encoded when stored (`$` as `%24`, `.` as `%2E` and `%` as `%25`), since MongoDB doesn't allow them in field names, and decoded when read.
 
 ::: warning Upgrading from 1.x

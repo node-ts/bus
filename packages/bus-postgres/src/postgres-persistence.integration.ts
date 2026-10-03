@@ -7,7 +7,10 @@ import {
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { workflowStateRoundTripTests } from '@node-ts/bus-test'
+import {
+  scheduledMessageRoundTripTests,
+  workflowStateRoundTripTests
+} from '@node-ts/bus-test'
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { Mock } from 'typemoq'
@@ -30,6 +33,8 @@ const configuration: PostgresConfiguration = {
 }
 
 const roundTripSchemaName = 'workflows_round_trip'
+
+const scheduledRoundTripSchemaName = 'outgoing_round_trip'
 
 interface WorkflowIndex {
   name: string
@@ -88,8 +93,12 @@ describe('PostgresPersistence', () => {
 
   afterAll(async () => {
     await postgres.query('drop table if exists "workflows"."testworkflowstate"')
+    await postgres.query('drop table if exists "workflows"."outgoing_messages"')
     await postgres.query('drop schema if exists ' + configuration.schemaName)
     await postgres.query(`drop schema if exists ${roundTripSchemaName} cascade`)
+    await postgres.query(
+      `drop schema if exists ${scheduledRoundTripSchemaName} cascade`
+    )
     await bus.dispose()
   })
 
@@ -589,6 +598,13 @@ describe('PostgresPersistence', () => {
     new PostgresPersistence({
       ...configuration,
       schemaName: roundTripSchemaName
+    })
+  )
+
+  scheduledMessageRoundTripTests(
+    new PostgresPersistence({
+      ...configuration,
+      schemaName: scheduledRoundTripSchemaName
     })
   )
 })
