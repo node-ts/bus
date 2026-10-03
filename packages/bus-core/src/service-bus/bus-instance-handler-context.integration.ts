@@ -3,6 +3,7 @@ import { EventEmitter, once } from 'events'
 import { It, Mock, Times } from 'typemoq'
 import { BusSender, HandlerContext, handlerFor } from '../handler'
 import { Logger } from '../logger'
+import { deadLetter } from '../recoverability'
 import {
   messageTypesFor,
   RecordingInMemoryQueue,
@@ -13,7 +14,6 @@ import {
   TestEvent,
   testMessageTypes
 } from '../test'
-import { InMemoryQueue } from '../transport'
 import { ClassConstructor } from '../util'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { FinalTask, RunTask } from '../workflow/test'
@@ -139,10 +139,10 @@ describe('BusInstance handler context', () => {
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(
           new RecordingInMemoryQueue(message => dispatched.object(message), {
-            maxRetries: 0,
             receiveTimeoutMs: 100
           })
         )
+        .withRecoverability(() => deadLetter())
         .withMiddleware({
           incoming: async (_, next) => {
             try {
@@ -218,10 +218,11 @@ describe('BusInstance handler context', () => {
 
   describe('when a handler fails the message through its context', () => {
     let bus: BusInstance
-    const queue = new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
+    const queue = new RecordingInMemoryQueue(() => undefined, {
+      receiveTimeoutMs: 100
+    })
 
     beforeAll(async () => {
-      const events = new EventEmitter()
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
@@ -229,14 +230,13 @@ describe('BusInstance handler context', () => {
         .withHandler(
           handlerFor(TestCommand, async (_message, _attributes, ctx) => {
             await ctx.failMessage()
-            events.emit('failed')
           })
         )
         .build()
 
       await bus.initialize()
       await bus.start()
-      const failed = once(events, 'failed')
+      const failed = once(queue.settled, 'failed')
       await bus.send(new TestCommand())
       await failed
     })

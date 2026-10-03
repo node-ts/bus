@@ -119,7 +119,8 @@ class JsonReceiver implements Receiver<string, TransportMessage<string>> {
       id: undefined,
       domainMessage: messageSerializer.deserialize(receivedMessage),
       raw: receivedMessage,
-      attributes: { attributes: {}, stickyAttributes: {} }
+      attributes: { attributes: {}, stickyAttributes: {} },
+      failedAttempts: 0
     }
   }
 }

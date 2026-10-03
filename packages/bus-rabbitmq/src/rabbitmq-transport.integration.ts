@@ -1,11 +1,15 @@
 import {
   Bus,
   BusInstance,
+  deadLetter,
   DefaultHandlerRegistry,
+  FAILURE_HEADER,
+  fromFailureHeader,
   handlerFor,
   JsonSerializer,
   Logger,
   MessageSerializer,
+  retry,
   sleep,
   TransportHeaderReserved
 } from '@node-ts/bus-core'
@@ -37,8 +41,7 @@ import {
 const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',
   deadLetterQueueName: '@node-ts/bus-rabbitmq-test-dead-letter',
-  connectionString: process.env.RABBITMQ_URL || 'amqp://guest:guest@0.0.0.0',
-  maxRetries: 10
+  connectionString: process.env.RABBITMQ_URL || 'amqp://guest:guest@0.0.0.0'
 }
 
 describe('RabbitMqTransport', () => {
@@ -114,7 +117,15 @@ describe('RabbitMqTransport', () => {
           : {}
     }
 
-    return [{ message, attributes }]
+    return [
+      {
+        message,
+        attributes,
+        failure: fromFailureHeader(
+          rabbitMessage.properties.headers?.[FAILURE_HEADER]
+        )
+      }
+    ]
   }
 
   beforeAll(async () => {
@@ -398,6 +409,16 @@ describe('RabbitMqTransport', () => {
       expect(deadLetter.content.toString()).toEqual(poisonPayload)
     })
 
+    it('should add the parse error to the failure metadata', () => {
+      expect(
+        fromFailureHeader(deadLetter.properties.headers?.[FAILURE_HEADER])
+      ).toMatchObject({
+        error: { name: 'SyntaxError' },
+        failedAttempts: 1,
+        endpoint: poisonConfiguration.queueName
+      })
+    })
+
     it('should remove it from the service queue', async () => {
       const { messageCount } = await channel.checkQueue(
         poisonConfiguration.queueName
@@ -406,12 +427,12 @@ describe('RabbitMqTransport', () => {
     })
   })
 
-  describe('with a retry strategy', () => {
+  describe('with a recoverability policy', () => {
+    const MAX_ATTEMPTS = 3
     const retryConfiguration: RabbitMqTransportConfiguration = {
       queueName: '@node-ts/bus-rabbitmq-retry-test',
       deadLetterQueueName: '@node-ts/bus-rabbitmq-retry-test-dead-letter',
-      connectionString: configuration.connectionString,
-      maxRetries: 3
+      connectionString: configuration.connectionString
     }
     const sut = new RabbitMqTransport(retryConfiguration)
     const handlerEvents = new EventEmitter()
@@ -420,11 +441,15 @@ describe('RabbitMqTransport', () => {
      */
     const handlings = new Map<string, number[]>()
     /**
-     * The attempts the retry strategy was called with
+     * The AMQP headers of each delivery, by command value
+     */
+    const deliveryHeaders = new Map<string, Record<string, unknown>[]>()
+    /**
+     * The failed attempts the policy was called with
      */
     let retryAttempts: number[] = []
     /**
-     * The delays the retry strategy returns, in the order it's called
+     * The delays the policy retries with, in the order it's called
      */
     let retryDelays: number[] = []
     let bus: BusInstance
@@ -459,7 +484,12 @@ describe('RabbitMqTransport', () => {
         }
       )
       await deadLetterChannel.close()
-      return JSON.parse(rabbitMessage.content.toString()) as TestRetryCommand
+      return {
+        command: JSON.parse(
+          rabbitMessage.content.toString()
+        ) as TestRetryCommand,
+        headers: rabbitMessage.properties.headers ?? {}
+      }
     }
 
     beforeAll(async () => {
@@ -477,18 +507,31 @@ describe('RabbitMqTransport', () => {
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withConcurrency(2)
-        .withRetryStrategy({
-          calculateRetryDelay(attempt: number): number {
-            retryAttempts.push(attempt)
-            return retryDelays.shift() ?? 0
-          }
+        .withRecoverability(({ failedAttempts }) => {
+          retryAttempts.push(failedAttempts)
+          return failedAttempts >= MAX_ATTEMPTS
+            ? deadLetter()
+            : retry(retryDelays.shift() ?? 0)
         })
         .withHandler(
-          handlerFor(TestRetryCommand, async command => {
+          handlerFor(TestRetryCommand, async (command, _attributes, ctx) => {
             const times = handlings.get(command.value) ?? []
             times.push(Date.now())
             handlings.set(command.value, times)
+            const raw = bus.getHandlingContext()!.raw as ConsumeMessage
+            deliveryHeaders.set(command.value, [
+              ...(deliveryHeaders.get(command.value) ?? []),
+              { ...raw.properties.headers }
+            ])
             handlerEvents.emit('received', command)
+            if (command.value === 'fail-then-throw') {
+              await ctx.failMessage()
+              throw new Error('Thrown after failMessage')
+            }
+            if (command.value === 'return-then-throw' && times.length === 1) {
+              await ctx.returnMessage()
+              throw new Error('Thrown after returnMessage')
+            }
             if (times.length <= command.failures) {
               throw new Error('Test handler failure')
             }
@@ -520,8 +563,8 @@ describe('RabbitMqTransport', () => {
         expect(secondHandled - firstHandled).toBeGreaterThanOrEqual(retryDelay)
       })
 
-      it('should pass the number of failed attempts to the retry strategy', () => {
-        expect(retryAttempts).toEqual([0])
+      it('should pass the number of failed attempts to the policy', () => {
+        expect(retryAttempts).toEqual([1])
       })
 
       it('should declare the retry queues as durable', async () => {
@@ -561,23 +604,91 @@ describe('RabbitMqTransport', () => {
 
     describe('when a message keeps failing', () => {
       let deadLetter: TestRetryCommand
+      let deadLetterHeaders: Record<string, unknown>
 
       beforeAll(async () => {
         retryAttempts = []
         retryDelays = [10, 10, 10]
         await bus.send(new TestRetryCommand('poisoned', 100))
-        deadLetter = await readFromDeadLetterQueue()
+        ;({ command: deadLetter, headers: deadLetterHeaders } =
+          await readFromDeadLetterQueue())
       })
 
-      it('should retry until maxRetries then send it to the dead letter queue', () => {
+      it('should leave the attempt count off the dead-lettered message, so it can be replayed', () => {
+        expect(deadLetterHeaders).not.toHaveProperty('failedAttempts')
+        expect(
+          fromFailureHeader(deadLetterHeaders[FAILURE_HEADER])
+        ).toMatchObject({ failedAttempts: MAX_ATTEMPTS })
+      })
+
+      it('should retry until the policy dead-letters it', () => {
         expect(deadLetter.value).toEqual('poisoned')
-        expect(handlings.get('poisoned')).toHaveLength(
-          retryConfiguration.maxRetries!
-        )
+        expect(handlings.get('poisoned')).toHaveLength(MAX_ATTEMPTS)
       })
 
       it('should count each failed attempt', () => {
-        expect(retryAttempts).toEqual([0, 1])
+        expect(retryAttempts).toEqual([1, 2, 3])
+      })
+    })
+
+    describe('when a handler fails a message and then throws', () => {
+      let deadLetter: TestRetryCommand
+      let deadLetterQueueDepth: number
+
+      beforeAll(async () => {
+        await bus.send(new TestRetryCommand('fail-then-throw', 0))
+        ;({ command: deadLetter } = await readFromDeadLetterQueue())
+        // Long enough for a retry to come back if it had been returned as well
+        await sleep(500)
+        ;({ messageCount: deadLetterQueueDepth } = await channel.checkQueue(
+          retryConfiguration.deadLetterQueueName!
+        ))
+      })
+
+      it('should dead-letter it once', () => {
+        expect(deadLetter.value).toEqual('fail-then-throw')
+        expect(deadLetterQueueDepth).toEqual(0)
+      })
+
+      it('should not retry it', () => {
+        expect(handlings.get('fail-then-throw')).toHaveLength(1)
+      })
+    })
+
+    describe('when a handler returns a message and then throws', () => {
+      beforeAll(async () => {
+        const retried = handled('return-then-throw', 2)
+        await bus.send(new TestRetryCommand('return-then-throw', 0))
+        await retried
+        // Long enough for a second copy to arrive if it had been returned twice
+        await sleep(500)
+      })
+
+      it('should return it once', () => {
+        expect(handlings.get('return-then-throw')).toHaveLength(2)
+      })
+    })
+
+    describe('when a replayed dead letter fails again', () => {
+      beforeAll(async () => {
+        const retried = handled('replayed', 2)
+        // As a shovel would move it back from the dead letter queue, with the failure metadata of its last failure
+        channel.publish(
+          TestRetryCommand.NAME,
+          '',
+          Buffer.from(JSON.stringify(new TestRetryCommand('replayed', 1))),
+          {
+            messageId: randomUUID(),
+            headers: { [FAILURE_HEADER]: '{"failedAttempts":10}' }
+          }
+        )
+        await retried
+      })
+
+      it('should not carry the stale failure metadata on the retry', () => {
+        const [firstDelivery, retry] = deliveryHeaders.get('replayed')!
+        expect(firstDelivery).toHaveProperty(FAILURE_HEADER)
+        expect(retry).not.toHaveProperty(FAILURE_HEADER)
       })
     })
   })
@@ -586,8 +697,7 @@ describe('RabbitMqTransport', () => {
     const headersConfiguration: RabbitMqTransportConfiguration = {
       queueName: '@node-ts/bus-rabbitmq-headers-test',
       deadLetterQueueName: '@node-ts/bus-rabbitmq-headers-test-dead-letter',
-      connectionString: configuration.connectionString,
-      maxRetries: 3
+      connectionString: configuration.connectionString
     }
     const sut = new RabbitMqTransport(headersConfiguration)
     const handlerEvents = new EventEmitter()
@@ -630,7 +740,7 @@ describe('RabbitMqTransport', () => {
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
-        .withRetryStrategy({ calculateRetryDelay: () => 0 })
+        .withRecoverability(() => retry(0))
         .withMiddleware({
           outgoing: async (context, next) => {
             const command = context.message as TestRetryCommand
@@ -717,6 +827,16 @@ describe('RabbitMqTransport', () => {
         'x-tenant': 'acme',
         'x-priority': 3,
         'x-urgent': true
+      })
+    })
+
+    it('should add the failure metadata to the dead-lettered message', () => {
+      expect(
+        fromFailureHeader(deadLetterHeaders[FAILURE_HEADER])
+      ).toMatchObject({
+        error: { name: 'FailMessageRequested' },
+        failedAttempts: 1,
+        endpoint: headersConfiguration.queueName
       })
     })
 

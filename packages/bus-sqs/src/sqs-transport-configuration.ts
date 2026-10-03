@@ -84,8 +84,11 @@ export interface SqsTransportConfiguration extends Omit<
   visibilityTimeout?: number
 
   /**
-   * The number of times a message is delivered to the source queue before being moved to the dead-letter queue
-   * @default 10
+   * The number of times a message is received from the service queue before SQS moves it to the dead letter queue
+   * itself. The bus' recoverability policy decides when a failed message is dead-lettered, so this is only a backstop
+   * for messages that crash the process before the bus can settle them, which reach the dead letter queue without
+   * failure metadata. Keep it above the policy's `maxAttempts`, or SQS dead-letters messages before the bus does.
+   * @default 15
    */
   maxReceiveCount?: number
 

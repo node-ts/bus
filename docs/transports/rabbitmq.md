@@ -5,7 +5,7 @@ description: Run @node-ts/bus on RabbitMQ with @node-ts/bus-rabbitmq.
 
 # RabbitMQ
 
-[RabbitMQ](https://www.rabbitmq.com/) is an AMQP message broker. `@node-ts/bus-rabbitmq` creates the exchanges and queues your handlers need, and retries failed messages after your retry strategy's delay, with no broker plugins. This page covers installing and configuring it.
+[RabbitMQ](https://www.rabbitmq.com/) is an AMQP message broker. `@node-ts/bus-rabbitmq` creates the exchanges and queues your handlers need, and retries failed messages after the delay your [recoverability policy](/guide/recoverability) chooses, with no broker plugins. This page covers installing and configuring it.
 
 <PackageBadge pkg="bus-rabbitmq" />
 
@@ -38,7 +38,6 @@ Configure a `RabbitMqTransport` and pass it to the bus configuration:
 | `queueName`           |               | The service queue to create and read messages from.                                                                 |
 | `connectionString`    |               | An AMQP connection string, such as `amqp://guest:guest@localhost`.                                                  |
 | `deadLetterQueueName` | `dead-letter` | Where messages go once they're out of attempts. Every service shares the default, so give each its own.             |
-| `maxRetries`          | `10`          | How many times a message is attempted before it goes to the dead letter queue.                                      |
 | `persistentMessages`  | `false`       | Whether messages survive a broker restart.                                                                          |
 | `connectionRecovery`  | enabled       | How to reconnect when the connection or channel is lost: exponential backoff from 100 ms to 30 s, retrying forever. |
 
@@ -57,7 +56,7 @@ For a service queue called `<queue>`, the transport declares:
 - `<queue>-retry`, a legacy retry exchange and queue that 1.x used. They're still declared, so messages already in them drain.
 - the dead letter queue.
 
-The number of failed attempts is kept in the `failedAttempts` message header.
+The number of failed attempts is kept in the `failedAttempts` message header. Dead-lettered messages have their [failure metadata](/guide/recoverability#failure-metadata) in a `bus-failure` header instead, so a message moved back with a shovel gets all its attempts again.
 
 ## Message attributes
 
@@ -71,5 +70,5 @@ docker run -d -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 
 ## See also
 
-- [Retry strategies](/guide/retry-strategies)
+- [Recoverability](/guide/recoverability)
 - [`RabbitMqTransportConfiguration`](/api/bus-rabbitmq/interfaces/RabbitMqTransportConfiguration) in the API reference

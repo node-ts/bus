@@ -35,14 +35,19 @@ export interface HandlerContext extends BusSender {
   readonly correlationId: string | undefined
 
   /**
-   * Routes the message being handled straight to the dead letter queue, without further retries. The handler
-   * should return after calling this.
+   * Moves the message being handled to the dead letter queue once handling finishes, without retrying it, even if a
+   * handler then throws. The recoverability policy isn't consulted. The handler keeps running, so it should usually
+   * return after calling this. The messages it sends are dropped, and a workflow handler's state changes aren't
+   * saved, as when it throws.
    */
   failMessage(): Promise<void>
 
   /**
-   * Returns the message being handled to the queue so that it's retried, without failing the handler. When the
-   * message came from a `Receiver`, it's reported to the receiver host as failed so the host doesn't delete it.
+   * Returns the message being handled to the queue once handling finishes, so that it's retried, without failing
+   * the handler. The recoverability policy decides the delay, and counts it as a failed attempt, so the message is
+   * dead-lettered once it runs out of attempts. The messages the handler sends are dropped, and a workflow handler's
+   * state changes aren't saved, since the message will be handled again. When the message came from a `Receiver`,
+   * it's reported to the receiver host as failed so the host doesn't delete it.
    */
   returnMessage(): Promise<void>
 }

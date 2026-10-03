@@ -9,13 +9,6 @@ export interface RabbitMqTransportConfiguration extends TransportConfiguration {
   connectionString: string
 
   /**
-   * The maximum number of attempts to retry a failed message before routing it to the dead letter queue.
-   * The delay between attempts comes from the bus's retry strategy (`withRetryStrategy`).
-   * @default 10
-   */
-  maxRetries?: number
-
-  /**
    * Whether messages are sent as persistent, so they survive a broker restart. Transient messages are
    * lost when the broker restarts, so set this to `true` in production.
    * @default false

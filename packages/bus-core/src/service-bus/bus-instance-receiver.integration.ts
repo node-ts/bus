@@ -7,6 +7,12 @@ import {
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
+import {
+  deadLetter,
+  MessageFailure,
+  RecoverabilityPolicy,
+  retry
+} from '../recoverability'
 import { MessageSerializer } from '../serialization'
 import {
   HandleChecker,
@@ -41,7 +47,8 @@ class PassthroughReceiver implements Receiver<
       id: index.toString(),
       attributes: emptyAttributes,
       domainMessage,
-      raw: domainMessage
+      raw: domainMessage,
+      failedAttempts: 0
     }))
   }
 }
@@ -73,14 +80,18 @@ class ThrowingResultReceiver
   }
 }
 
+const RETRY_DELAY = 1_000
+
 const buildBus = async (
   receiver: Receiver,
   checker: HandleChecker,
-  queue: InMemoryQueue
+  queue: InMemoryQueue,
+  recoverability: RecoverabilityPolicy = () => retry(RETRY_DELAY)
 ): Promise<BusInstance> => {
   const bus: BusInstance = Bus.configure()
     .withMessageTypes(testMessageTypes)
     .withReceiver(receiver)
+    .withRecoverability(recoverability)
     .withHandler(
       handlerFor(TestCommand, (command: TestCommand, attributes) =>
         checker.check(command, attributes)
@@ -165,8 +176,11 @@ describe('BusInstance Receiver', () => {
         await expect(result).rejects.toThrow()
       })
 
-      it('should leave returning the message to the receiver host', () => {
-        queue.verify(q => q.returnMessage(It.isAny()), Times.never())
+      it('should return the message to the transport with the delay from the policy', () => {
+        queue.verify(
+          q => q.returnMessage(It.isAny(), RETRY_DELAY),
+          Times.once()
+        )
       })
     })
 
@@ -186,7 +200,10 @@ describe('BusInstance Receiver', () => {
       })
 
       it('should return the message to the transport', () => {
-        queue.verify(q => q.returnMessage(It.isAny()), Times.once())
+        queue.verify(
+          q => q.returnMessage(It.isAny(), RETRY_DELAY),
+          Times.once()
+        )
       })
     })
 
@@ -271,8 +288,11 @@ describe('BusInstance Receiver', () => {
         queue.verify(q => q.deleteMessage(It.isAny()), Times.never())
       })
 
-      it('should only return the message that a handler returned', () => {
-        queue.verify(q => q.returnMessage(It.isAny()), Times.once())
+      it('should return the failed and the returned messages to the transport', () => {
+        queue.verify(
+          q => q.returnMessage(It.isAny(), RETRY_DELAY),
+          Times.exactly(2)
+        )
       })
     })
 
@@ -289,6 +309,104 @@ describe('BusInstance Receiver', () => {
       it('should return the receiver result with no failures', () => {
         expect(result).toEqual({ failures: [] })
       })
+    })
+  })
+
+  describe('when configuring Bus with a Receiver and a policy that dead-letters', () => {
+    let bus: BusInstance
+    const queue = Mock.ofType<InMemoryQueue>()
+
+    beforeAll(async () => {
+      bus = await buildBus(
+        new BatchResultReceiver(),
+        Mock.ofType<HandleChecker>().object,
+        queue.object,
+        () => deadLetter()
+      )
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    describe('and a message fails', () => {
+      let result: BatchResult
+
+      beforeAll(async () => {
+        queue.reset()
+        result = await bus.receive<BatchResult>([new TestEvent()])
+      })
+
+      it('should move it to the dead letter queue with its failure metadata', () => {
+        queue.verify(
+          q =>
+            q.fail(
+              It.isAny(),
+              It.is<MessageFailure>(
+                failure =>
+                  failure.failedAttempts === 1 && failure.error.name === 'Error'
+              )
+            ),
+          Times.once()
+        )
+      })
+
+      it('should not return it to the transport', () => {
+        queue.verify(
+          q => q.returnMessage(It.isAny(), It.isAny()),
+          Times.never()
+        )
+      })
+
+      it('should report it to the receiver host as handled, so the host deletes it', () => {
+        expect(result).toEqual({ failures: [] })
+      })
+    })
+  })
+
+  describe('when configuring Bus with a Receiver and a handler fails the message and then throws', () => {
+    let bus: BusInstance
+    const queue = Mock.ofType<InMemoryQueue>()
+    let result: BatchResult
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withReceiver(new BatchResultReceiver())
+        .withHandler(
+          handlerFor(TestCommand, async (_message, _attributes, ctx) => {
+            await ctx.failMessage()
+            throw new Error('Thrown after failing the message')
+          })
+        )
+        .withTransport(queue.object)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .build()
+      await bus.initialize()
+      result = await bus.receive<BatchResult>([new TestCommand()])
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should move it to the dead letter queue without consulting the policy', () => {
+      queue.verify(
+        q =>
+          q.fail(
+            It.isAny(),
+            It.is<MessageFailure>(
+              failure =>
+                failure.error.message === 'Thrown after failing the message'
+            )
+          ),
+        Times.once()
+      )
+      queue.verify(q => q.returnMessage(It.isAny(), It.isAny()), Times.never())
+    })
+
+    it('should report it to the receiver host as handled', () => {
+      expect(result).toEqual({ failures: [] })
     })
   })
 

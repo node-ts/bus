@@ -28,7 +28,8 @@ export interface BusMiddleware {
    * Wraps the handling of each received message, around all of its handlers.
    *
    * Not calling `next()` skips the handlers, and the message is deleted. A throw, or an error let through from
-   * `next()`, returns the message for retry; catching it without rethrowing marks the message handled.
+   * `next()`, hands the message to the recoverability policy to retry or dead-letter; catching it without rethrowing
+   * marks the message handled.
    */
   incoming?: Middleware<IncomingContext>
 
@@ -37,7 +38,7 @@ export interface BusMiddleware {
    * calling the handler and saving the state.
    *
    * Not calling `next()` skips that handler, which counts as succeeded. A throw fails that handler only: its sends
-   * are dropped and the message is returned for retry, as when a handler throws.
+   * are dropped and the recoverability policy retries or dead-letters the message, as when a handler throws.
    */
   handler?: Middleware<HandlerInvocationContext>
 

@@ -1,11 +1,15 @@
 import {
+  FAILURE_HEADER,
+  fromFailureHeader,
   InMemoryMessage,
+  MessageFailure,
   TransportInitializationOptions,
   TransportMessage
 } from '@node-ts/bus-core'
-import { Event, Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Event, Message } from '@node-ts/bus-messages'
 import { EventEmitter, once } from 'node:events'
 import { TestSystemMessage } from '../helpers/test-system-message'
+import { DeadLetteredMessage } from '../transport-tests'
 import { SerializingInMemoryQueue } from './serializing-in-memory-queue'
 
 /**
@@ -33,16 +37,10 @@ export class TransportTestInMemoryQueue extends SerializingInMemoryQueue {
   }
 
   async fail(
-    transportMessage: TransportMessage<InMemoryMessage>
+    transportMessage: TransportMessage<InMemoryMessage>,
+    failure: MessageFailure
   ): Promise<void> {
-    await super.fail(transportMessage)
-    this.deadLetterEvents.emit('changed')
-  }
-
-  async returnMessage(
-    message: TransportMessage<InMemoryMessage>
-  ): Promise<void> {
-    await super.returnMessage(message)
+    await super.fail(transportMessage, failure)
     this.deadLetterEvents.emit('changed')
   }
 
@@ -59,9 +57,7 @@ export class TransportTestInMemoryQueue extends SerializingInMemoryQueue {
   /**
    * Waits for a message to be dead-lettered, then returns every message dead-lettered since the last call
    */
-  readAllFromDeadLetterQueue = async (): Promise<
-    { message: Message; attributes: MessageAttributes }[]
-  > => {
+  readAllFromDeadLetterQueue = async (): Promise<DeadLetteredMessage[]> => {
     while (this.deadLetterQueueDepth <= this.deadLettersRead) {
       await once(this.deadLetterEvents, 'changed')
     }
@@ -69,7 +65,8 @@ export class TransportTestInMemoryQueue extends SerializingInMemoryQueue {
     this.deadLettersRead = this.deadLetterQueueDepth
     return deadLetters.map(deadLetter => ({
       message: deadLetter.domainMessage as Message,
-      attributes: deadLetter.attributes
+      attributes: deadLetter.attributes,
+      failure: fromFailureHeader(deadLetter.raw.headers[FAILURE_HEADER])
     }))
   }
 }

@@ -21,10 +21,12 @@ import {
   CoreDependencies,
   DebugLogger,
   DefaultHandlerRegistry,
+  FAILURE_HEADER,
+  fromFailureHeader,
   JsonSerializer,
   Logger,
+  MessageFailure,
   MessageSerializer,
-  RetryStrategy,
   TransportHeaderReserved,
   TransportMessage
 } from '@node-ts/bus-core'
@@ -37,6 +39,7 @@ import {
   SnsMessageAttributeMap,
   SqsMessageAttributes,
   SqsTransport,
+  toFailedAttempts,
   toHeaderAttributeMap,
   toMessageAttributeMap
 } from './sqs-transport'
@@ -346,7 +349,7 @@ describe('sqs-transport', () => {
       expect(result).toBeUndefined()
     })
 
-    it('should copy it to the dead letter queue', () => {
+    it('should copy it to the dead letter queue with the parse error in its failure metadata', () => {
       sqs.verify(
         s =>
           s.send(
@@ -354,7 +357,10 @@ describe('sqs-transport', () => {
               (command: SendMessageCommand) =>
                 command instanceof SendMessageCommand &&
                 command.input.QueueUrl === 'dead-letter-queue-url' &&
-                command.input.MessageBody === poisonMessage.Body
+                command.input.MessageBody === poisonMessage.Body &&
+                fromFailureHeader(
+                  command.input.MessageAttributes?.[FAILURE_HEADER]?.StringValue
+                )?.error.name === 'SyntaxError'
             )
           ),
         Times.once()
@@ -377,7 +383,7 @@ describe('sqs-transport', () => {
   })
 
   describe('when returning a message to the queue', () => {
-    it('should use the retry strategy delay', async () => {
+    it('should set its visibility timeout to the delay in seconds', async () => {
       const sqs = Mock.ofType<SQSClient>()
       const sut = new SqsTransport(
         {
@@ -386,14 +392,7 @@ describe('sqs-transport', () => {
         sqs.object
       )
 
-      const retryStrategy: RetryStrategy = {
-        calculateRetryDelay() {
-          return 3000
-        }
-      }
-
       sut.prepare({
-        retryStrategy,
         loggerFactory: (name: string) => new DebugLogger(name)
       } as any as CoreDependencies)
 
@@ -409,8 +408,88 @@ describe('sqs-transport', () => {
         .returns(() => ({ promise: async () => undefined }) as any)
         .verifiable(Times.once())
 
-      await sut.returnMessage({ raw: {} } as TransportMessage<Message>)
+      await sut.returnMessage({ raw: {} } as TransportMessage<Message>, 3_000)
       sqs.verifyAll()
+    })
+  })
+
+  describe('when failing a message', () => {
+    const sqs = Mock.ofType<SQSClient>()
+    const sqsMessage: Message = {
+      MessageId: randomUUID(),
+      ReceiptHandle: 'receipt-handle',
+      Body: JSON.stringify({ Message: '{}', MessageAttributes: {} })
+    }
+    const failure: MessageFailure = {
+      error: { name: 'Error', message: 'Failed' },
+      failedAttempts: 3,
+      endpoint: 'test',
+      messageId: 'message-id',
+      failedAt: new Date().toISOString()
+    }
+
+    beforeAll(async () => {
+      const sut = new SqsTransport(
+        {
+          queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
+        } as SqsTransportConfiguration,
+        sqs.object
+      )
+      sut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as any as CoreDependencies)
+      sut.deadLetterQueueUrl = 'dead-letter-queue-url'
+      sqs.setup(s => s.send(It.isAny())).returns(async () => ({}) as any)
+
+      await sut.fail({ raw: sqsMessage } as TransportMessage<Message>, failure)
+    })
+
+    it('should copy it to the dead letter queue with the failure metadata in a bus-failure attribute', () => {
+      sqs.verify(
+        s =>
+          s.send(
+            It.is(
+              (command: SendMessageCommand) =>
+                command instanceof SendMessageCommand &&
+                command.input.QueueUrl === 'dead-letter-queue-url' &&
+                command.input.MessageBody === sqsMessage.Body &&
+                command.input.MessageAttributes?.[FAILURE_HEADER]?.DataType ===
+                  'String' &&
+                JSON.stringify(
+                  fromFailureHeader(
+                    command.input.MessageAttributes?.[FAILURE_HEADER]
+                      ?.StringValue
+                  )
+                ) === JSON.stringify(failure)
+            )
+          ),
+        Times.once()
+      )
+    })
+
+    it('should delete it from the service queue', () => {
+      sqs.verify(
+        s =>
+          s.send(
+            It.is(
+              (command: DeleteMessageCommand) =>
+                command instanceof DeleteMessageCommand &&
+                command.input.ReceiptHandle === sqsMessage.ReceiptHandle
+            )
+          ),
+        Times.once()
+      )
+    })
+  })
+
+  describe('when working out failed attempts from the receive count', () => {
+    it.each([
+      ['1', 0],
+      ['4', 3],
+      [undefined, 0],
+      ['not a number', 0]
+    ])('should turn %s into %s', (receiveCount, failedAttempts) => {
+      expect(toFailedAttempts(receiveCount)).toEqual(failedAttempts)
     })
   })
 
@@ -941,7 +1020,7 @@ describe('sqs-transport', () => {
             // SQS doesn't preserve key order or value types in the redrive policy
             RedrivePolicy: JSON.stringify({
               deadLetterTargetArn: deadLetterQueueArn,
-              maxReceiveCount: '10'
+              maxReceiveCount: '15'
             })
           }
         ))
@@ -988,7 +1067,7 @@ describe('sqs-transport', () => {
           {
             VisibilityTimeout: '60',
             RedrivePolicy: JSON.stringify({
-              maxReceiveCount: 10,
+              maxReceiveCount: 15,
               deadLetterTargetArn: deadLetterQueueArn
             })
           }
@@ -1132,14 +1211,13 @@ describe('sqs-transport', () => {
         sqs.object
       )
       sut.prepare({
-        retryStrategy: {
-          calculateRetryDelay: () =>
-            (MAX_SQS_VISIBILITY_TIMEOUT_SECONDS + 1) * 1000
-        },
         loggerFactory: (name: string) => new DebugLogger(name)
       } as any as CoreDependencies)
 
-      await sut.returnMessage({ raw: {} } as TransportMessage<Message>)
+      await sut.returnMessage(
+        { raw: {} } as TransportMessage<Message>,
+        (MAX_SQS_VISIBILITY_TIMEOUT_SECONDS + 1) * 1000
+      )
     })
 
     it('should cap the visibility timeout at the SQS maximum', () => {

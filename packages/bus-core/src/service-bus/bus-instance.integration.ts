@@ -1,11 +1,17 @@
 import { Command, MessageAttributes } from '@node-ts/bus-messages'
+import { once } from 'node:events'
 import { EventEmitter } from 'stream'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { FailMessageOutsideHandlingContext } from '../error'
 import { MessageNameMissing, handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { IncomingContext, Middleware } from '../middleware'
-import { TestCommandContextClassHandler, testMessageTypes } from '../test'
+import { MessageFailure } from '../recoverability'
+import {
+  RecordingInMemoryQueue,
+  TestCommandContextClassHandler,
+  testMessageTypes
+} from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestCommand2 } from '../test/test-command-2'
 import { TestEvent } from '../test/test-event'
@@ -427,31 +433,26 @@ describe('BusInstance', () => {
     })
 
     describe('when there is a message handling context', () => {
-      it('should fail the message on the transport', async () => {
-        const events = new EventEmitter()
-
-        const queue = new InMemoryQueue()
-        const queueMock = jest.spyOn(queue, 'fail')
+      it('should fail the message on the transport once the handler finishes', async () => {
+        const queue = new RecordingInMemoryQueue(() => undefined)
         const bus = Bus.configure()
           .withMessageTypes(testMessageTypes)
           .withTransport(queue)
           .withHandler(
             handlerFor(TestCommand, async () => {
               await bus.failMessage()
-              events.emit('event')
             })
           )
           .build()
 
         await bus.initialize()
         await bus.start()
-        const messageFailed = new Promise<void>(resolve =>
-          events.on('event', resolve)
-        )
+        const messageFailed = once(queue.settled, 'failed')
         await bus.send(new TestCommand())
-        await messageFailed
+        const [, failure] = (await messageFailed) as [unknown, MessageFailure]
 
-        expect(queueMock).toHaveBeenCalled()
+        expect(failure.error.name).toEqual('FailMessageRequested')
+        expect(queue.deadLetterQueueDepth).toEqual(1)
         await bus.dispose()
       })
     })

@@ -1,6 +1,6 @@
 # @node-ts/bus-rabbitmq
 
-A [RabbitMQ](https://www.rabbitmq.com/) transport for [@node-ts/bus](https://node-ts.github.io/bus). It declares the exchanges and queues your handlers need, and retries failed messages after the bus' retry strategy's delay, with no broker plugins.
+A [RabbitMQ](https://www.rabbitmq.com/) transport for [@node-ts/bus](https://node-ts.github.io/bus). It declares the exchanges and queues your handlers need, and retries failed messages after the delay the bus' recoverability policy chooses, with no broker plugins.
 
 [![npm](https://img.shields.io/npm/v/@node-ts/bus-rabbitmq)](https://www.npmjs.com/package/@node-ts/bus-rabbitmq)
 
@@ -33,7 +33,6 @@ const rabbitConfiguration: RabbitMqTransportConfiguration = {
   queueName: 'reservations-service',
   deadLetterQueueName: 'reservations-service-dead-letter',
   connectionString: 'amqp://guest:guest@localhost',
-  maxRetries: 5,
   // Survive a broker restart
   persistentMessages: true
 }
@@ -61,14 +60,13 @@ The example uses top-level `await`, so it runs as an ES module. In CommonJS, wra
 | `queueName`           |               | The service queue to create and read messages from.                                                                                                                                                 |
 | `connectionString`    |               | An AMQP connection string, such as `amqp://guest:guest@localhost`.                                                                                                                                  |
 | `deadLetterQueueName` | `dead-letter` | Where messages go once they're out of attempts, or when a handler fails them. Every service shares the default, so give each its own.                                                               |
-| `maxRetries`          | `10`          | How many times a message is attempted before it goes to the dead letter queue. The delay between attempts comes from the bus' retry strategy.                                                       |
 | `persistentMessages`  | `false`       | Whether messages are sent as persistent, so they survive a broker restart.                                                                                                                          |
 | `connectionRecovery`  | enabled       | How to reconnect when the connection or channel is lost: `{ enabled: true, initialDelay: 100, maxDelay: 30000, factor: 2, jitter: 0.2, maxRetries: Infinity }`. The first connection isn't retried. |
 
-Retried messages wait in durable `<queue>-retry-<n>ms` queues until their delay expires, and then go back to the service queue.
+Retried messages wait in durable `<queue>-retry-<n>ms` queues until their delay expires, and then go back to the service queue. How many attempts a message gets, and how long it waits between them, is up to the bus' recoverability policy. Dead-lettered messages carry why they failed in a `bus-failure` header.
 
 ## Learn more
 
 - [RabbitMQ](https://node-ts.github.io/bus/transports/rabbitmq): the topology the transport declares, persistent messages and connection recovery
-- [Retry strategies](https://node-ts.github.io/bus/guide/retry-strategies)
+- [Recoverability](https://node-ts.github.io/bus/guide/recoverability)
 - [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2#node-ts-bus-rabbitmq)

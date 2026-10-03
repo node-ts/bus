@@ -1,4 +1,12 @@
-import { Bus, BusInstance, handlerFor, Transport } from '@node-ts/bus-core'
+import {
+  Bus,
+  BusInstance,
+  defaultRecoverability,
+  handlerFor,
+  MessageFailure,
+  sleep,
+  Transport
+} from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
@@ -9,7 +17,9 @@ import {
   TestCommand,
   TestEvent,
   TestFailMessage,
-  TestPoisonedMessage
+  TestPoisonedMessage,
+  TestUnrecoverableError,
+  TestUnrecoverableMessage
 } from './helpers'
 import { TestSystemMessage } from './helpers/test-system-message'
 import {
@@ -18,6 +28,32 @@ import {
 } from './message-round-trip-cases'
 
 const RETRY_DELAY = 5
+/**
+ * How long to wait for a message that should have been removed from the queue to come back
+ */
+const SETTLE_WAIT_MS = 1_000
+/**
+ * How many times the suite's recoverability policy attempts a message before dead-lettering it
+ */
+const MAX_ATTEMPTS = 5
+
+/**
+ * A message read from a transport's dead letter queue
+ */
+export interface DeadLetteredMessage {
+  /**
+   * The message that was dead-lettered
+   */
+  message: Message
+  /**
+   * The attributes it was sent with
+   */
+  attributes: MessageAttributes
+  /**
+   * The failure metadata from its `bus-failure` header, read with `fromFailureHeader()`
+   */
+  failure: MessageFailure | undefined
+}
 
 /**
  * A suite of tests that get wrapped by the integration test setup/tear-down of an
@@ -30,16 +66,14 @@ const RETRY_DELAY = 5
  * with a `systemMessage` attribute set to the value of the `testSystemAttributeValue` parameter
  * @param systemMessageTopicIdentifier An optional system message topic identifier that identifies
  * the source topic of the system message
- * @param readAllFromDeadLetterQueue A callback that will read and delete all messages on the dead
- * letter queue
+ * @param readAllFromDeadLetterQueue A callback that waits for a message to be dead-lettered, then reads and deletes
+ * all messages on the dead letter queue, with the failure metadata in each one's `bus-failure` header
  */
 export const transportTests = (
   transport: Transport,
   publishSystemMessage: (testSystemAttributeValue: string) => Promise<void>,
   systemMessageTopicIdentifier: string | undefined,
-  readAllFromDeadLetterQueue: () => Promise<
-    { message: Message; attributes: MessageAttributes }[]
-  >
+  readAllFromDeadLetterQueue: () => Promise<DeadLetteredMessage[]>
 ): void => {
   const testCommandHandlerEmitter = new EventEmitter()
   const testEventHandlerEmitter = new EventEmitter()
@@ -49,6 +83,9 @@ export const transportTests = (
   const roundTripReceiver = new RoundTripReceiver()
   let poisonedMessageReceiptAttempts = 0
   const poisonedMessageAttemptAttributes: MessageAttributes[] = []
+  const poisonedMessageFailedAttempts: number[] = []
+  let unrecoverableMessageReceiptAttempts = 0
+  let failMessageReceiptAttempts = 0
   let bus: BusInstance
 
   describe('when the transport has been initialized', () => {
@@ -74,6 +111,9 @@ export const transportTests = (
         .withHandler(
           handlerFor(TestPoisonedMessage, async (_, attributes) => {
             poisonedMessageAttemptAttributes.push(attributes)
+            poisonedMessageFailedAttempts.push(
+              bus.getHandlingContext()!.failedAttempts
+            )
             poisonedMessageReceiptAttempts++
             testPoisonedMessageHandlerEmitter.emit(
               'received',
@@ -93,12 +133,25 @@ export const transportTests = (
             topicIdentifier: systemMessageTopicIdentifier
           }
         )
-        .withHandler(handlerFor(TestFailMessage, async () => bus.failMessage()))
-        .withRetryStrategy({
-          calculateRetryDelay(_: number): number {
-            return RETRY_DELAY
-          }
-        })
+        .withHandler(
+          handlerFor(TestFailMessage, async () => {
+            failMessageReceiptAttempts++
+            await bus.failMessage()
+          })
+        )
+        .withHandler(
+          handlerFor(TestUnrecoverableMessage, async message => {
+            unrecoverableMessageReceiptAttempts++
+            throw new TestUnrecoverableError(message.id)
+          })
+        )
+        .withRecoverability(
+          defaultRecoverability({
+            maxAttempts: MAX_ATTEMPTS,
+            delay: RETRY_DELAY,
+            unrecoverable: [TestUnrecoverableError]
+          })
+        )
         .build()
 
       await bus.initialize()
@@ -247,12 +300,12 @@ export const transportTests = (
 
     describe('when handing a poisoned message', () => {
       const poisonedMessage = new TestPoisonedMessage(randomUUID())
-      let deadMessages: { message: Message; attributes: MessageAttributes }[]
+      let deadMessages: DeadLetteredMessage[]
 
       beforeAll(async () => {
         const messageHandled = new Promise<void>(resolve => {
           testPoisonedMessageHandlerEmitter.on('received', attempts => {
-            if (attempts >= 10) {
+            if (attempts >= MAX_ATTEMPTS) {
               resolve()
             }
           })
@@ -267,6 +320,30 @@ export const transportTests = (
         expect(deadMessages).toHaveLength(1)
         const [deadMessage] = deadMessages
         expect(deadMessage.message).toMatchObject(poisonedMessage)
+      })
+
+      it('should count the failed attempts up on each delivery', () => {
+        expect(poisonedMessageFailedAttempts).toEqual(
+          Array.from({ length: MAX_ATTEMPTS }, (_, attempt) => attempt)
+        )
+      })
+
+      it('should dead-letter it once it has been attempted maxAttempts times', () => {
+        expect(poisonedMessageReceiptAttempts).toEqual(MAX_ATTEMPTS)
+      })
+
+      it('should add the failure metadata to the dead-lettered message', () => {
+        const [firstAttempt] = poisonedMessageAttemptAttributes
+        const [{ failure }] = deadMessages
+        expect(failure).toMatchObject({
+          error: { name: 'Error' },
+          failedAttempts: MAX_ATTEMPTS,
+          endpoint: transport.endpointName,
+          messageId: firstAttempt.messageId
+        })
+        expect(new Date(failure!.failedAt).toISOString()).toEqual(
+          failure!.failedAt
+        )
       })
 
       it('should keep the messageId and sentAt across retries', () => {
@@ -287,19 +364,58 @@ export const transportTests = (
       })
     })
 
+    describe('when a message fails with an unrecoverable error', () => {
+      const unrecoverableMessage = new TestUnrecoverableMessage(randomUUID())
+      let deadMessages: DeadLetteredMessage[]
+
+      beforeAll(async () => {
+        await bus.publish(unrecoverableMessage)
+        deadMessages = await readAllFromDeadLetterQueue()
+      })
+
+      it('should dead-letter it on its first failure', () => {
+        expect(unrecoverableMessageReceiptAttempts).toEqual(1)
+        expect(deadMessages).toHaveLength(1)
+        expect(deadMessages[0].message).toMatchObject(unrecoverableMessage)
+      })
+
+      it('should add the error to the failure metadata', () => {
+        expect(deadMessages[0].failure).toMatchObject({
+          error: {
+            name: 'TestUnrecoverableError',
+            message: `Message ${unrecoverableMessage.id} can never be handled`
+          },
+          failedAttempts: 1,
+          endpoint: transport.endpointName
+        })
+        expect(deadMessages[0].failure!.error.stack).toContain(
+          'TestUnrecoverableError'
+        )
+      })
+    })
+
     describe('when failing a message', () => {
       const messageToFail = new TestFailMessage(randomUUID())
       const correlationId = randomUUID()
       const messageId = randomUUID()
       const sentAt = new Date().toISOString()
-      let deadLetterQueueMessages: {
-        message: Message
-        attributes: MessageAttributes
-      }[]
+      let deadLetterQueueMessages: DeadLetteredMessage[]
 
       beforeAll(async () => {
         await bus.publish(messageToFail, { correlationId, messageId, sentAt })
         deadLetterQueueMessages = await readAllFromDeadLetterQueue()
+
+        // A message that fail() left unsettled would be redelivered, or hold up the queue behind it
+        const nextMessageHandled = new Promise(resolve =>
+          testCommandHandlerEmitter.once('received', resolve)
+        )
+        await bus.send(new TestCommand(randomUUID(), new Date()))
+        await nextMessageHandled
+        await sleep(SETTLE_WAIT_MS)
+      })
+
+      it('should remove it from the service queue', () => {
+        expect(failMessageReceiptAttempts).toEqual(1)
       })
 
       it('should forward it to the dead letter queue', () => {
@@ -325,6 +441,18 @@ export const transportTests = (
           correlationId,
           messageId,
           sentAt
+        })
+      })
+
+      it('should add the failure metadata to the dead-lettered message', () => {
+        const deadLetterMessage = deadLetterQueueMessages.find(
+          msg => msg.message.$name === messageToFail.$name
+        )
+        expect(deadLetterMessage?.failure).toMatchObject({
+          error: { name: 'FailMessageRequested' },
+          failedAttempts: 1,
+          endpoint: transport.endpointName,
+          messageId
         })
       })
     })

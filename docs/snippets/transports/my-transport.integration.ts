@@ -1,5 +1,6 @@
 /// <reference types="jest" />
 // #region suite
+import { FAILURE_HEADER, fromFailureHeader } from '@node-ts/bus-core'
 import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
 import { brokerClient } from './broker-client'
 import { MyTransport } from './my-transport'
@@ -26,7 +27,7 @@ describe('MyTransport', () => {
       { attributes: JSON.stringify({ systemMessage }) }
     )
 
-  // Reads and removes every message on the dead letter queue
+  // Reads and removes every message on the dead letter queue, with why it failed
   const readAllFromDeadLetterQueue = async () => {
     const messages = await brokerClient.readAll('bus-test-dead-letter')
     return messages.map(raw => ({
@@ -37,7 +38,8 @@ describe('MyTransport', () => {
         sentAt: raw.headers.sentAt,
         attributes: JSON.parse(raw.headers.attributes ?? '{}'),
         stickyAttributes: JSON.parse(raw.headers.stickyAttributes ?? '{}')
-      }
+      },
+      failure: fromFailureHeader(raw.headers[FAILURE_HEADER])
     }))
   }
 

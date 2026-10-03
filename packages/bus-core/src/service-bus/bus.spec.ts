@@ -2,7 +2,7 @@ import { It, Mock, Times } from 'typemoq'
 import { ContainerAdapter } from '../container'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
-import { RetryStrategy } from '../retry-strategy'
+import { deadLetter } from '../recoverability'
 import { Serializer } from '../serialization'
 import { testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
@@ -52,8 +52,8 @@ describe('Bus', () => {
         config => config.withMiddleware({ incoming: async (_, next) => next() })
       ],
       [
-        'withRetryStrategy',
-        config => config.withRetryStrategy({} as RetryStrategy)
+        'withRecoverability',
+        config => config.withRecoverability(() => deadLetter())
       ],
       [
         'withInterruptSignals',

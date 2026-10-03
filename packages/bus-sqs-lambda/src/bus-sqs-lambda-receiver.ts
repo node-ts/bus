@@ -4,7 +4,7 @@ import {
   Receiver,
   TransportMessage
 } from '@node-ts/bus-core'
-import { fromMessageAttributeMap } from '@node-ts/bus-sqs'
+import { fromMessageAttributeMap, toFailedAttempts } from '@node-ts/bus-sqs'
 import type { SQSBatchResponse, SQSEvent } from 'aws-lambda'
 import { BusSqsLambdaReceiverConfiguration } from './bus-sqs-lambda-receiver-configuration'
 import { SqsLambdaRecord } from './sqs-lambda-record'
@@ -48,7 +48,10 @@ export class BusSqsLambdaReceiver implements Receiver<
         id: record.messageId,
         domainMessage,
         raw: toSqsLambdaRecord(record),
-        attributes
+        attributes,
+        failedAttempts: toFailedAttempts(
+          record.attributes.ApproximateReceiveCount
+        )
       }
     })
   }

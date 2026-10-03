@@ -6,7 +6,11 @@ import { TransportMessage } from '.'
 import { sleep } from '../../dist'
 import { DefaultHandlerRegistry, handlerFor, HandlerRegistry } from '../handler'
 import { Logger, LoggerFactory } from '../logger'
-import { RetryStrategy } from '../retry-strategy'
+import {
+  FAILURE_HEADER,
+  fromFailureHeader,
+  MessageFailure
+} from '../recoverability'
 import { JsonSerializer, MessageSerializer } from '../serialization'
 import { Bus } from '../service-bus/bus'
 import {
@@ -16,6 +20,7 @@ import {
   TestEvent2,
   testMessageTypes
 } from '../test'
+import { TransportHeaderReserved } from './error'
 import { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 
 const event = new TestEvent()
@@ -42,8 +47,6 @@ describe('InMemoryQueue', () => {
     messageTypes
   )
 
-  const retryStrategy = Mock.ofType<RetryStrategy>()
-
   const buildCoreDependencies = (registry: HandlerRegistry) => ({
     handlerRegistry: registry,
     container: undefined,
@@ -51,7 +54,6 @@ describe('InMemoryQueue', () => {
     messageSerializer,
     messageTypes,
     serializer,
-    retryStrategy: retryStrategy.object,
     interruptSignals: []
   })
 
@@ -59,10 +61,7 @@ describe('InMemoryQueue', () => {
     logger = Mock.ofType<Logger>()
     loggerFactory = () => logger.object
 
-    sut = new InMemoryQueue({
-      maxRetries: 3,
-      receiveTimeoutMs: 1000
-    })
+    sut = new InMemoryQueue({ receiveTimeoutMs: 1000 })
     sut.prepare(buildCoreDependencies(handlerRegistry))
 
     handlerRegistry.register(TestEvent, () => undefined)
@@ -84,7 +83,6 @@ describe('InMemoryQueue', () => {
 
       beforeEach(() => {
         named = new InMemoryQueue({
-          maxRetries: 3,
           receiveTimeoutMs: 1000,
           endpointName: 'order-service'
         })
@@ -142,6 +140,14 @@ describe('InMemoryQueue', () => {
     })
   })
 
+  describe('when sending a message with a bus-failure header', () => {
+    it('should throw TransportHeaderReserved', () => {
+      expect(() =>
+        sut.assertSendOptions({ headers: { [FAILURE_HEADER]: '{}' } })
+      ).toThrow(TransportHeaderReserved)
+    })
+  })
+
   describe('when sending a message that is not handled', () => {
     beforeEach(async () => {
       await sut.send(command2, messageOptions)
@@ -176,10 +182,10 @@ describe('InMemoryQueue', () => {
       expect(message!.domainMessage).toEqual(event)
     })
 
-    it('should read new messages with seenCount equal to 1', async () => {
+    it('should read new messages with no failed attempts', async () => {
       await sut.publish(event, messageOptions)
       const message = await sut.readNextMessage()
-      expect(message!.raw.seenCount).toEqual(0)
+      expect(message!.failedAttempts).toEqual(0)
     })
 
     it('should return the oldest message when there are many', async () => {
@@ -207,14 +213,8 @@ describe('InMemoryQueue', () => {
 
   describe('when returning a message back onto the queue', () => {
     let message: TransportMessage<InMemoryMessage> | undefined
-    const retryDelay = 5
+    const retryDelay = 50
     beforeEach(async () => {
-      retryStrategy.reset()
-
-      retryStrategy
-        .setup(r => r.calculateRetryDelay(0))
-        .returns(() => retryDelay)
-        .verifiable(Times.once())
       await sut.publish(event, messageOptions)
       message = await sut.readNextMessage()
     })
@@ -224,70 +224,73 @@ describe('InMemoryQueue', () => {
       expect(message!.raw.inFlight).toEqual(true)
     })
 
-    it('should toggle the inFlight flag to false', async () => {
-      await sut.returnMessage(message!)
-      await sleep(retryDelay)
+    it('should keep the message hidden until the delay has passed', async () => {
+      await sut.returnMessage(message!, retryDelay)
+      expect(message!.raw.inFlight).toEqual(true)
+      await sleep(retryDelay * 2)
       expect(message!.raw.inFlight).toEqual(false)
     })
 
-    it('should increment the seenCount', async () => {
-      await sut.returnMessage(message!)
-      expect(message!.raw.seenCount).toEqual(1)
+    it('should count the failed attempt on the next read', async () => {
+      await sut.returnMessage(message!, 0)
+      const retried = await sut.readNextMessage()
+      expect(retried!.failedAttempts).toEqual(1)
     })
 
-    it('should delay retrying the message based on the retry strategy', async () => {
-      await sut.returnMessage(message!)
-      retryStrategy.verifyAll()
-    })
-  })
-
-  describe('when retrying a message has been retried beyond the retry limit', () => {
-    let message: TransportMessage<InMemoryMessage> | undefined
-    beforeEach(async () => {
-      retryStrategy.reset()
-      retryStrategy
-        .setup(r => r.calculateRetryDelay(It.isAny()))
-        .returns(() => 0)
-      await sut.publish(event, messageOptions)
-
-      let attempt = 0
-      while (attempt < 3) {
-        // Retry to the limit
-        message = await sut.readNextMessage()
-        if (!message) {
-          continue
-        }
-        await sut.returnMessage(message!)
-        attempt++
+    it('should never move the message to the dead letter queue itself', async () => {
+      let read = message
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await sut.returnMessage(read!, 0)
+        read = await sut.readNextMessage()
       }
-    })
-
-    it('should send the message to the dead letter queue', () => {
-      expect(sut.deadLetterQueueDepth).toEqual(1)
+      expect(sut.deadLetterQueueDepth).toEqual(0)
+      expect(sut.depth).toEqual(1)
     })
   })
 
   describe('when failing a message', () => {
     const message = new TestEvent2()
+    const failure: MessageFailure = {
+      error: { name: 'Error', message: 'Failed' },
+      failedAttempts: 1,
+      endpoint: 'in-memory',
+      messageId: undefined,
+      failedAt: new Date().toISOString()
+    }
 
     beforeEach(async () => {
-      await sut.publish(message)
+      await sut.publish(message, messageOptions, {
+        headers: { 'x-tenant': 'acme' }
+      })
       const receivedMessage = await sut.readNextMessage()
-      await sut.fail(receivedMessage!)
+      await sut.fail(receivedMessage!, failure)
     })
 
     it('should forward it to the dead letter queue', () => {
       expect(sut.deadLetterQueueDepth).toEqual(1)
     })
 
+    it('should remove it from the queue', () => {
+      expect(sut.depth).toEqual(0)
+    })
+
+    it('should add the failure metadata in the bus-failure header and keep the other headers', () => {
+      const [deadLetter] = sut.deadLetterQueue
+      expect(deadLetter.raw.headers['x-tenant']).toEqual('acme')
+      expect(fromFailureHeader(deadLetter.raw.headers[FAILURE_HEADER])).toEqual(
+        failure
+      )
+    })
+
     it('should only fail the handled message', async () => {
       const emitter = new EventEmitter()
+      const queue = new InMemoryQueue({ receiveTimeoutMs: 100 })
       const bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
+        .withTransport(queue)
         .withConcurrency(1)
         .withHandler(
           handlerFor(TestEvent, async () => {
-            await bus.send(new TestCommand())
             await bus.failMessage()
           })
         )
@@ -305,7 +308,12 @@ describe('InMemoryQueue', () => {
         emitter.once('done', resolve)
       )
       await bus.publish(new TestEvent())
+      await bus.send(new TestCommand())
       await completion
+      await bus.stop()
+      expect(queue.deadLetterQueue.map(m => m.domainMessage.$name)).toEqual([
+        TestEvent.NAME
+      ])
       await bus.dispose()
     })
   })
@@ -347,13 +355,9 @@ describe('InMemoryQueue', () => {
     let elapsedMs: number
 
     beforeEach(async () => {
-      retryStrategy.reset()
-      retryStrategy
-        .setup(r => r.calculateRetryDelay(It.isAny()))
-        .returns(() => 10)
       await sut.publish(event, messageOptions)
       const firstRead = await sut.readNextMessage()
-      await sut.returnMessage(firstRead!)
+      await sut.returnMessage(firstRead!, 10)
 
       const startedAt = Date.now()
       message = await sut.readNextMessage()
@@ -390,13 +394,9 @@ describe('InMemoryQueue', () => {
       const retryDelay = 20
 
       beforeEach(async () => {
-        retryStrategy.reset()
-        retryStrategy
-          .setup(r => r.calculateRetryDelay(It.isAny()))
-          .returns(() => retryDelay)
         await sut.publish(event, messageOptions)
         message = await sut.readNextMessage()
-        await sut.returnMessage(message!)
+        await sut.returnMessage(message!, retryDelay)
         await sut.dispose()
         await sleep(retryDelay * 2)
       })

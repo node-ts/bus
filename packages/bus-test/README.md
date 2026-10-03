@@ -25,11 +25,12 @@ Call `transportTests()` inside a `describe()` block in your transport's integrat
 - **transport**: a fully configured transport, the subject under test
 - **publishSystemMessage**: a callback that publishes a raw `TestSystemMessage` (exported by this package) to `systemMessageTopicIdentifier`, with a `systemMessage` attribute set to the value it's given
 - **systemMessageTopicIdentifier**: an optional identifier of the topic the system message is published to. The suite subscribes to it with `withCustomHandler`
-- **readAllFromDeadLetterQueue**: a callback that reads and deletes every message on the dead letter queue and returns them as `{ message, attributes }[]`
+- **readAllFromDeadLetterQueue**: a callback that waits for a message to be dead-lettered, then reads and deletes every message on the dead letter queue and returns them as `{ message, attributes, failure }[]`, with `failure` read from the `bus-failure` header by `fromFailureHeader()`
 
 <!-- <<< @/snippets/transports/my-transport.integration.ts#suite -->
 
 ```ts
+import { FAILURE_HEADER, fromFailureHeader } from '@node-ts/bus-core'
 import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
 import { brokerClient } from './broker-client'
 import { MyTransport } from './my-transport'
@@ -56,7 +57,7 @@ describe('MyTransport', () => {
       { attributes: JSON.stringify({ systemMessage }) }
     )
 
-  // Reads and removes every message on the dead letter queue
+  // Reads and removes every message on the dead letter queue, with why it failed
   const readAllFromDeadLetterQueue = async () => {
     const messages = await brokerClient.readAll('bus-test-dead-letter')
     return messages.map(raw => ({
@@ -67,7 +68,8 @@ describe('MyTransport', () => {
         sentAt: raw.headers.sentAt,
         attributes: JSON.parse(raw.headers.attributes ?? '{}'),
         stickyAttributes: JSON.parse(raw.headers.stickyAttributes ?? '{}')
-      }
+      },
+      failure: fromFailureHeader(raw.headers[FAILURE_HEADER])
     }))
   }
 

@@ -42,5 +42,5 @@ Register the handler with the bus configuration, then start the bus to begin han
 ## See also
 
 - [Events](/guide/messages/events)
-- [Retry strategies](/guide/retry-strategies), for what happens when a handler throws
+- [Recoverability](/guide/recoverability), for what happens when a handler throws
 - [Dependency injection](/guide/dependency-injection), for class handlers with dependencies

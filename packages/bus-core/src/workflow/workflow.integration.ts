@@ -7,6 +7,7 @@ import debug from 'debug'
 import { EventEmitter, once } from 'node:events'
 import { It, Mock } from 'typemoq'
 import { DebugLogger, Logger } from '../logger'
+import { retry } from '../recoverability'
 import { Bus, BusInstance } from '../service-bus'
 import { messageTypesFor, testMessageTypes } from '../test'
 import { ClassConstructor, sleep } from '../util'
@@ -192,8 +193,7 @@ describe('Workflow', () => {
   })
 
   describe('when a workflow handler throws', () => {
-    const FAILURE_LOG =
-      'Message was unsuccessfully handled. Returning to queue.'
+    const FAILURE_LOG = 'Message was unsuccessfully handled'
     const persistence = new InMemoryPersistence()
     // Emits each failure the bus logs, by the name of the message that failed
     const failureLogs = new EventEmitter()
@@ -225,7 +225,7 @@ describe('Workflow', () => {
         )
         .withPersistence(persistence)
         // Keeps the failed message from being retried before the bus is disposed
-        .withRetryStrategy({ calculateRetryDelay: () => 60_000 })
+        .withRecoverability(() => retry(60_000))
         .withWorkflow(TestFailingWorkflow, testFunctionFailingWorkflow)
         .build()
       await failingBus.initialize()
@@ -410,7 +410,7 @@ describe('Workflow', () => {
             )
           )
           .withPersistence(new InMemoryPersistence())
-          .withRetryStrategy({ calculateRetryDelay: () => 60_000 })
+          .withRecoverability(() => retry(60_000))
           .withWorkflow(testFunctionFailingWorkflow)
           .build()
         await debugLoggerBus.initialize()

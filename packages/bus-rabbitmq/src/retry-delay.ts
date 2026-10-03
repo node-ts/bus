@@ -6,9 +6,9 @@ import { Milliseconds } from '@node-ts/bus-core'
 export const MAX_RETRY_DELAY: Milliseconds = 2 ** 32 - 1
 
 /**
- * Turns a delay from the retry strategy into a message TTL RabbitMQ accepts: a whole number of
+ * Turns a retry delay from the recoverability policy into a message TTL RabbitMQ accepts: a whole number of
  * milliseconds from 0 to `MAX_RETRY_DELAY`.
- * @param delay the delay returned by the retry strategy
+ * @param delay the delay the bus passed to `returnMessage`
  * @returns the delay rounded up and clamped to the TTL range
  */
 export const toRetryDelay = (delay: Milliseconds): Milliseconds => {

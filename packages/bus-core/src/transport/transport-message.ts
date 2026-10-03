@@ -24,4 +24,10 @@ export interface TransportMessage<TransportMessageType> {
    * Additional attributes and metadata that was sent along with the message
    */
   attributes: MessageAttributes
+
+  /**
+   * How many times handling this message has failed before this delivery, so `0` the first time it's received. The
+   * bus passes it, plus one for the current failure, to its recoverability policy.
+   */
+  failedAttempts: number
 }

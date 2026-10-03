@@ -15,6 +15,8 @@ import {
 import {
   Bus,
   BusInstance,
+  FAILURE_HEADER,
+  fromFailureHeader,
   handlerFor,
   Logger,
   TransportHeaderReserved
@@ -110,7 +112,8 @@ describe('SqsTransport', () => {
         QueueUrl: deadLetterQueueUrl,
         WaitTimeSeconds: 5,
         MaxNumberOfMessages: 10,
-        MessageSystemAttributeNames: ['All']
+        MessageSystemAttributeNames: ['All'],
+        MessageAttributeNames: ['All']
       })
     )
 
@@ -131,7 +134,10 @@ describe('SqsTransport', () => {
       const rawMessage = JSON.parse(transportMessage.Body!) as SQSMessageBody
       const message = JSON.parse(rawMessage.Message) as Message
       const attributes = fromMessageAttributeMap(rawMessage.MessageAttributes)
-      return { message, attributes }
+      const failure = fromFailureHeader(
+        transportMessage.MessageAttributes?.[FAILURE_HEADER]?.StringValue
+      )
+      return { message, attributes, failure }
     })
   }
 

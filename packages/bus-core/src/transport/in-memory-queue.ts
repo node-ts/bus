@@ -6,12 +6,17 @@ import {
 } from '@node-ts/bus-messages'
 import { EventEmitter } from 'events'
 import { Logger } from '../logger'
-import { Milliseconds } from '../retry-strategy'
-import { CoreDependencies } from '../util'
+import {
+  FAILURE_HEADER,
+  MessageFailure,
+  toFailureHeader
+} from '../recoverability'
+import { CoreDependencies, Milliseconds } from '../util'
 import {
   DEFAULT_IN_MEMORY_ENDPOINT_NAME,
   DefaultInMemoryQueueConfiguration
 } from './default-in-memory-queue-configuration'
+import { TransportHeaderReserved } from './error'
 import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
 import { Transport, TransportInitializationOptions } from './transport'
 import { TransportMessage } from './transport-message'
@@ -27,9 +32,9 @@ export interface InMemoryMessage {
   inFlight: boolean
 
   /**
-   * The number of times the message has been fetched from the queue
+   * How many times handling the message has failed, which is how many times it has been returned to the queue
    */
-  seenCount: number
+  failedAttempts: number
 
   /**
    * The body of the message that was sent by the consumer
@@ -37,7 +42,8 @@ export interface InMemoryMessage {
   payload: Message
 
   /**
-   * The native headers the message was sent with, as set by outgoing middleware
+   * The native headers the message was sent with, as set by outgoing middleware. A dead-lettered copy also has the
+   * `bus-failure` header.
    */
   headers: TransportHeaders
 }
@@ -124,10 +130,37 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     this.addToQueue(command, messageOptions, sendOptions)
   }
 
+  /**
+   * Rejects a `bus-failure` header, which the queue writes on dead-lettered messages itself
+   * @param sendOptions the options the message will be sent with
+   * @throws TransportHeaderReserved if a header is named `bus-failure`
+   */
+  assertSendOptions(sendOptions: TransportSendOptions): void {
+    if (sendOptions.headers && FAILURE_HEADER in sendOptions.headers) {
+      throw new TransportHeaderReserved(FAILURE_HEADER, 'InMemoryQueue')
+    }
+  }
+
+  /**
+   * Moves a message to the dead letter queue, with its failure metadata in a `bus-failure` header
+   * @param transportMessage the message to dead-letter
+   * @param failure why and where it failed
+   */
   async fail(
-    transportMessage: TransportMessage<InMemoryMessage>
+    transportMessage: TransportMessage<InMemoryMessage>,
+    failure: MessageFailure
   ): Promise<void> {
-    await this.sendToDeadLetterQueue(transportMessage)
+    this._deadLetterQueue.push({
+      ...transportMessage,
+      raw: {
+        ...transportMessage.raw,
+        headers: {
+          ...transportMessage.raw.headers,
+          [FAILURE_HEADER]: toFailureHeader(failure)
+        }
+      }
+    })
+    this.removeFromQueue(transportMessage)
   }
 
   /**
@@ -177,44 +210,25 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   async deleteMessage(
     message: TransportMessage<InMemoryMessage>
   ): Promise<void> {
-    const messageIndex = this.queue.indexOf(message)
-    if (messageIndex < 0) {
-      // actions like .failMessage() will cause the message to already be deleted
-      this.logger.debug('Message already deleted', { message, messageIndex })
-      return
-    }
-    this.logger.debug('Deleting message', {
-      queueDepth: this.depth,
-      messageIndex
-    })
-    this.queue.splice(messageIndex, 1)
-    this.logger.debug('Message Deleted', { queueDepth: this.depth })
+    this.removeFromQueue(message)
   }
 
+  /**
+   * Makes a message visible again after `delay`, counting one more failed attempt
+   * @param message the message to return
+   * @param delay how long until it can be read again, in milliseconds
+   */
   async returnMessage(
-    message: TransportMessage<InMemoryMessage>
+    message: TransportMessage<InMemoryMessage>,
+    delay: Milliseconds
   ): Promise<void> {
-    const delay: Milliseconds =
-      this.coreDependencies.retryStrategy.calculateRetryDelay(
-        message.raw.seenCount
-      )
-    message.raw.seenCount++
-
-    if (message.raw.seenCount >= this.memoryQueueConfiguration.maxRetries) {
-      // Message retries exhausted, send to DLQ
-      this.logger.info(
-        'Message retry limit exceeded, sending to dead letter queue',
-        { message }
-      )
-      await this.sendToDeadLetterQueue(message)
-    } else {
-      const retryTimeout = setTimeout(() => {
-        this.retryTimeouts.delete(retryTimeout)
-        message.raw.inFlight = false
-        this.queueEvents.emit('visible')
-      }, delay)
-      this.retryTimeouts.add(retryTimeout)
-    }
+    message.raw.failedAttempts++
+    const retryTimeout = setTimeout(() => {
+      this.retryTimeouts.delete(retryTimeout)
+      message.raw.inFlight = false
+      this.queueEvents.emit('visible')
+    }, delay)
+    this.retryTimeouts.add(retryTimeout)
   }
 
   /**
@@ -244,21 +258,34 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   }
 
   /**
+   * Removes a message from the queue, whether it was handled or dead-lettered
+   */
+  private removeFromQueue(message: TransportMessage<InMemoryMessage>): void {
+    // Each read hands out a copy with the current failedAttempts, so find the message by its raw message
+    const messageIndex = this.queue.findIndex(m => m.raw === message.raw)
+    if (messageIndex < 0) {
+      this.logger.debug('Message already deleted', { message, messageIndex })
+      return
+    }
+    this.logger.debug('Deleting message', {
+      queueDepth: this.depth,
+      messageIndex
+    })
+    this.queue.splice(messageIndex, 1)
+    this.logger.debug('Message Deleted', { queueDepth: this.depth })
+  }
+
+  /**
    * Marks the oldest visible message as in flight and returns it, or undefined if none are visible
    */
   private takeNextMessage(): TransportMessage<InMemoryMessage> | undefined {
     const message = this.queue.find(m => !m.raw.inFlight)
-    if (message) {
-      message.raw.inFlight = true
+    if (!message) {
+      return undefined
     }
-    return message
-  }
-
-  private async sendToDeadLetterQueue(
-    message: TransportMessage<InMemoryMessage>
-  ): Promise<void> {
-    this._deadLetterQueue.push(message)
-    await this.deleteMessage(message)
+    message.raw.inFlight = true
+    // A copy, because the bus freezes the message it handles and the count changes each time it's returned
+    return { ...message, failedAttempts: message.raw.failedAttempts }
   }
 
   private addToQueue(
@@ -301,8 +328,9 @@ export const toTransportMessage = (
   id: undefined,
   domainMessage: message,
   attributes: messageOptions,
+  failedAttempts: 0,
   raw: {
-    seenCount: 0,
+    failedAttempts: 0,
     payload: message,
     inFlight: isProcessing,
     headers: { ...headers }

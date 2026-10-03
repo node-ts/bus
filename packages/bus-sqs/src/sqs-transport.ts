@@ -26,7 +26,11 @@ import {
 import { parse } from '@aws-sdk/util-arn-parser'
 import {
   CoreDependencies,
+  createMessageFailure,
+  FAILURE_HEADER,
   Logger,
+  MessageFailure,
+  toFailureHeader,
   Transport,
   TransportHeaderReserved,
   TransportHeaders,
@@ -61,7 +65,11 @@ export const MAX_SQS_VISIBILITY_TIMEOUT_SECONDS: Seconds = 43200
 const DEFAULT_MESSAGE_RETENTION: Seconds = 1209600
 
 const DEFAULT_VISIBILITY_TIMEOUT = 30
-const DEFAULT_MAX_RETRY_COUNT = 10
+/**
+ * Higher than the default recoverability policy's 10 attempts, so the redrive policy only moves messages that crash
+ * the process before the bus can settle them
+ */
+const DEFAULT_MAX_RECEIVE_COUNT = 15
 const MILLISECONDS_IN_SECONDS = 1000
 const DEFAULT_WAIT_TIME_SECONDS = 10
 type Seconds = number
@@ -142,7 +150,7 @@ export class SqsTransport implements Transport<SQSMessage> {
   /**
    * Checks the headers set by outgoing middleware before the bus buffers or sends the message
    * @param sendOptions the options the message will be sent with
-   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `bus-failure`, or starts with
    * `attributes.` or `stickyAttributes.`
    */
   assertSendOptions(sendOptions: TransportSendOptions): void {
@@ -157,7 +165,7 @@ export class SqsTransport implements Transport<SQSMessage> {
    * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
    * own name. They're carried in the SNS envelope, so SQS's limit of 10 message attributes, which only applies with
    * SNS raw message delivery, doesn't apply.
-   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `bus-failure`, or starts with
    * `attributes.` or `stickyAttributes.`
    */
   async publish<EventType extends Event>(
@@ -176,7 +184,7 @@ export class SqsTransport implements Transport<SQSMessage> {
    * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
    * own name. They're carried in the SNS envelope, so SQS's limit of 10 message attributes, which only applies with
    * SNS raw message delivery, doesn't apply.
-   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `bus-failure`, or starts with
    * `attributes.` or `stickyAttributes.`
    */
   async send<CommandType extends Command>(
@@ -187,27 +195,46 @@ export class SqsTransport implements Transport<SQSMessage> {
     await this.publishMessage(command, messageAttributes, sendOptions)
   }
 
-  async fail(transportMessage: TransportMessage<SQSMessage>): Promise<void> {
+  /**
+   * Copies a message to the dead letter queue, with its failure metadata in a `bus-failure` SQS message attribute,
+   * then deletes it from the service queue
+   * @param transportMessage the message to dead-letter
+   * @param failure why and where it failed
+   */
+  async fail(
+    transportMessage: TransportMessage<SQSMessage>,
+    failure: MessageFailure
+  ): Promise<void> {
     /*
       SQS doesn't support forwarding a message to another queue. This approach will copy the message to the dead letter
       queue and then delete it from the source queue. This changes its message id and other attributes such as receive
       counts etc.
 
       This isn't ideal, but the alternative is to flag the message as failed and visible and then NOOP handle it until
-      the redrive policy kicks in. This approach was not preferred due to the additional number of handles that would
-      need to happen.
+      the redrive policy kicks in. That would need more receives, and the redrive policy can't attach failure metadata.
     */
-    await this.deadLetterSqsMessage(transportMessage.raw)
+    await this.deadLetterSqsMessage(transportMessage.raw, failure)
   }
 
   /**
-   * Copies a message to the dead letter queue, then deletes it from the service queue
+   * Copies a message to the dead letter queue with its failure metadata, then deletes it from the service queue. The
+   * SNS envelope in the body, with the message's attributes and headers, is copied as it is. The metadata is one SQS
+   * message attribute, which keeps within SQS's limit of 10.
    */
-  private async deadLetterSqsMessage(sqsMessage: SQSMessage): Promise<void> {
+  private async deadLetterSqsMessage(
+    sqsMessage: SQSMessage,
+    failure: MessageFailure
+  ): Promise<void> {
     const command = new SendMessageCommand({
       QueueUrl: this.deadLetterQueueUrl,
       MessageBody: sqsMessage.Body!,
-      MessageAttributes: sqsMessage.MessageAttributes
+      MessageAttributes: {
+        ...sqsMessage.MessageAttributes,
+        [FAILURE_HEADER]: {
+          DataType: 'String',
+          StringValue: toFailureHeader(failure)
+        }
+      }
     })
     await this.sqs.send(command)
 
@@ -237,7 +264,9 @@ export class SqsTransport implements Transport<SQSMessage> {
         received: result.Messages.length
       })
       await Promise.allSettled(
-        result.Messages.map(async message => this.makeMessageVisible(message))
+        result.Messages.map(async message =>
+          this.makeMessageVisible(message, 0)
+        )
       )
       return undefined
     }
@@ -276,7 +305,10 @@ export class SqsTransport implements Transport<SQSMessage> {
         id: sqsMessage.MessageId,
         raw: sqsMessage,
         domainMessage,
-        attributes
+        attributes,
+        failedAttempts: toFailedAttempts(
+          sqsMessage.Attributes?.ApproximateReceiveCount
+        )
       }
     } catch (error) {
       // Parsing fails the same way on every delivery, so retrying can't help
@@ -285,7 +317,16 @@ export class SqsTransport implements Transport<SQSMessage> {
         { sqsMessage, error }
       )
 
-      await this.deadLetterSqsMessage(sqsMessage)
+      await this.deadLetterSqsMessage(
+        sqsMessage,
+        createMessageFailure(error, {
+          failedAttempts:
+            toFailedAttempts(sqsMessage.Attributes?.ApproximateReceiveCount) +
+            1,
+          endpoint: this.endpointName,
+          messageId: undefined
+        })
+      )
       return undefined
     }
   }
@@ -294,8 +335,18 @@ export class SqsTransport implements Transport<SQSMessage> {
     await this.deleteSqsMessage(message.raw)
   }
 
-  async returnMessage(message: TransportMessage<SQSMessage>): Promise<void> {
-    await this.makeMessageVisible(message.raw)
+  /**
+   * Makes a message visible again after `delay`, by changing its visibility timeout. SQS counts each receive, which
+   * is how `failedAttempts` goes up.
+   * @param message the message to return
+   * @param delay how long until it can be received again, in milliseconds. It's rounded to whole seconds and capped
+   * at 12 hours (`MAX_SQS_VISIBILITY_TIMEOUT_SECONDS`).
+   */
+  async returnMessage(
+    message: TransportMessage<SQSMessage>,
+    delay: Milliseconds
+  ): Promise<void> {
+    await this.makeMessageVisible(message.raw, delay)
   }
 
   async initialize({
@@ -389,7 +440,7 @@ export class SqsTransport implements Transport<SQSMessage> {
       }`,
       RedrivePolicy: JSON.stringify({
         maxReceiveCount:
-          this.sqsConfiguration.maxReceiveCount ?? DEFAULT_MAX_RETRY_COUNT,
+          this.sqsConfiguration.maxReceiveCount ?? DEFAULT_MAX_RECEIVE_COUNT,
         deadLetterTargetArn: this.deadLetterQueueArn
       })
     }
@@ -577,12 +628,15 @@ export class SqsTransport implements Transport<SQSMessage> {
     }
   }
 
-  private async makeMessageVisible(sqsMessage: SQSMessage): Promise<void> {
+  private async makeMessageVisible(
+    sqsMessage: SQSMessage,
+    delay: Milliseconds
+  ): Promise<void> {
     const command = new ChangeMessageVisibilityCommand({
       QueueUrl: this.queueUrl,
       ReceiptHandle: sqsMessage.ReceiptHandle!,
       VisibilityTimeout: Math.min(
-        Math.round(this.calculateVisibilityTimeout(sqsMessage)),
+        Math.max(Math.round(delay / MILLISECONDS_IN_SECONDS), 0),
         MAX_SQS_VISIBILITY_TIMEOUT_SECONDS
       )
     })
@@ -677,21 +731,6 @@ export class SqsTransport implements Transport<SQSMessage> {
         Attributes: changedAttributes
       })
     )
-  }
-
-  private calculateVisibilityTimeout(sqsMessage: SQSMessage): Seconds {
-    const currentReceiveCount = parseInt(
-      (sqsMessage.Attributes &&
-        sqsMessage.Attributes.ApproximateReceiveCount) ||
-        '0',
-      10
-    )
-
-    const delay: Milliseconds =
-      this.coreDependencies.retryStrategy.calculateRetryDelay(
-        currentReceiveCount
-      )
-    return delay / MILLISECONDS_IN_SECONDS
   }
 
   private async assertSnsSqsSubscriptionByArn(
@@ -818,9 +857,16 @@ export function toMessageAttributeMap(
 }
 
 /**
- * The SNS message attribute names the transport writes itself, which outgoing middleware can't set as headers
+ * The SNS message attribute names the transport writes itself, which outgoing middleware can't set as headers.
+ * `bus-failure` is written as an SQS message attribute on dead-lettered messages, and is reserved so it can't be
+ * confused with one.
  */
-const RESERVED_HEADERS = new Set(['correlationId', 'messageId', 'sentAt'])
+const RESERVED_HEADERS = new Set([
+  'correlationId',
+  'messageId',
+  'sentAt',
+  FAILURE_HEADER
+])
 
 /**
  * Checks that no header set by outgoing middleware has a name the transport writes message attributes under
@@ -857,6 +903,18 @@ export function toHeaderAttributeMap(
     }
   })
   return map
+}
+
+/**
+ * Works out how many times handling an SQS message has failed from how many times it has been received
+ * @param approximateReceiveCount the message's `ApproximateReceiveCount` system attribute
+ * @returns one less than the receive count, or 0 if it's missing
+ */
+export const toFailedAttempts = (
+  approximateReceiveCount: string | undefined
+): number => {
+  const receiveCount = parseInt(approximateReceiveCount ?? '', 10)
+  return Number.isNaN(receiveCount) ? 0 : Math.max(receiveCount - 1, 0)
 }
 
 export function fromMessageAttributeMap(

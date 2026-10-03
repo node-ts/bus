@@ -13,6 +13,7 @@ import {
 } from '../../handler'
 import { Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
+import { MessageLifecycleContext } from '../../message-lifecycle-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { FunctionWorkflow } from '../define-workflow'
@@ -116,16 +117,20 @@ export class WorkflowRegistry {
   private persistence: Persistence
   private coreDependencies: CoreDependencies
   private messageHandlingContext: MessageHandlingContext
+  private messageLifecycleContext: MessageLifecycleContext
 
   /**
    * @param coreDependencies the dependencies of the bus the registry belongs to
    * @param persistence where workflow state is stored, which may be shared with other buses
    * @param messageHandlingContext the handling context of the bus the registry belongs to
+   * @param messageLifecycleContext the lifecycle context of the bus, which says if a handler failed or returned the
+   * message
    */
   prepare(
     coreDependencies: CoreDependencies,
     persistence: Persistence,
-    messageHandlingContext: MessageHandlingContext
+    messageHandlingContext: MessageHandlingContext,
+    messageLifecycleContext: MessageLifecycleContext
   ): void {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:workflow-registry'
@@ -133,6 +138,7 @@ export class WorkflowRegistry {
     this.coreDependencies = coreDependencies
     this.persistence = persistence
     this.messageHandlingContext = messageHandlingContext
+    this.messageLifecycleContext = messageLifecycleContext
     PERSISTENCE_USERS.set(
       persistence,
       (PERSISTENCE_USERS.get(persistence) ?? 0) + 1
@@ -625,7 +631,13 @@ export class WorkflowRegistry {
       context
     )
 
-    if (
+    if (this.messageLifecycleContext.isFailedOrReturned()) {
+      // The message will be dead-lettered or handled again, so saving the state would get ahead of it
+      this.logger.debug(
+        'Message was failed or returned, so the workflow state changes will not be persisted',
+        { workflowId: immutableWorkflowState.$workflowId, workflowName }
+      )
+    } else if (
       workflowStateOutput &&
       workflowStateOutput.$status === WorkflowStatus.Discard
     ) {

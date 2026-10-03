@@ -12,7 +12,7 @@ describe('HandlerDispatchRejected', () => {
 
     it('should put the handler error in the message', () => {
       expect(sut.message).toEqual(
-        'Message handling failed in 1 handler and the message will be returned to the queue for retry: TypeError: orderId is undefined'
+        'Message handling failed in 1 handler, so the recoverability policy will retry or dead-letter the message: TypeError: orderId is undefined'
       )
     })
 
@@ -45,7 +45,7 @@ describe('HandlerDispatchRejected', () => {
 
     it('should list every handler error in the message', () => {
       expect(sut.message).toEqual(
-        'Message handling failed in 2 handlers and the message will be returned to the queue for retry: Error: first; second'
+        'Message handling failed in 2 handlers, so the recoverability policy will retry or dead-letter the message: Error: first; second'
       )
     })
 

@@ -32,9 +32,9 @@ features:
     link: /guide/workflows
     linkText: Workflows
   - title: Retries and dead letters
-    details: A failed message goes back on the queue after a backoff, and to a dead letter queue once it's out of attempts. Messages sent by a failed handler are dropped.
-    link: /guide/retry-strategies
-    linkText: Retry strategies
+    details: A failed message goes back on the queue after a backoff, and to a dead letter queue with why it failed once it's out of attempts. Messages sent by a failed handler are dropped.
+    link: /guide/recoverability
+    linkText: Recoverability
   - title: If it compiles, it works
     details: Message names, workflow handlers, state fields and attributes are type checked, and Dates and classes in messages are restored from generated message types.
     link: /guide/serializers
@@ -68,7 +68,7 @@ Messages are classes or plain definitions. Handlers get the message, its attribu
 Write messages and handlers once, and pick a transport for the queues and a persistence for workflow state. The in-memory defaults need nothing to run, for development and tests.
 
 <FeatureGrid>
-  <Card title="RabbitMQ" tag="@node-ts/bus-rabbitmq" link="/transports/rabbitmq">Exchanges and queues declared for you, with retry queues that follow your retry strategy.</Card>
+  <Card title="RabbitMQ" tag="@node-ts/bus-rabbitmq" link="/transports/rabbitmq">Exchanges and queues declared for you, with retry queues that follow your recoverability policy.</Card>
   <Card title="Amazon SQS" tag="@node-ts/bus-sqs" link="/transports/amazon-sqs">SNS topics fanned out to SQS queues, created and subscribed for you, or managed by your own infrastructure code.</Card>
   <Card title="SQS and Lambda" tag="@node-ts/bus-sqs-lambda" link="/transports/sqs-lambda">Handle SQS batches in AWS Lambda, with partial batch failures.</Card>
   <Card title="Postgres" tag="@node-ts/bus-postgres" link="/persistence/postgres">Workflow state in a jsonb table per workflow, with indexes for its lookups.</Card>
