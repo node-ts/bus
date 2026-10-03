@@ -28,6 +28,8 @@ Pass a `messageId` to `send` or `publish` to use your own, such as one derived f
 
 <<< @/snippets/message-id.ts#send
 
+The id must be unique per message, not just per request: messages with the same `messageId` are treated as the same message, so when a request sends several, derive one id for each, such as `` `${key}:${message.$name}` ``. On RabbitMQ the id is sent as the AMQP `messageId` property, so keep it to 255 bytes or fewer.
+
 The handler receives it unchanged. `sentAt` can be passed the same way, but is usually left to the bus. A message sent inside a handler gets its `sentAt` when `send` or `publish` is called, although it's only [dispatched once the handler resolves](/getting-started/handling-messages).
 
 ## See also

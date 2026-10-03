@@ -29,7 +29,9 @@ await bus.start()
 
 // #region send
 const idempotencyKey = 'c0a8e0d2-4f1b-4f7e-9d3a-6b2e8f1c5a90'
-await bus.send(new ChargeCreditCard('tok_visa', 1200), {
-  messageId: idempotencyKey
+const command = new ChargeCreditCard('tok_visa', 1200)
+// One id per message, so other messages sent for the same request get ids of their own
+await bus.send(command, {
+  messageId: `${idempotencyKey}:${command.$name}`
 })
 // #endregion send
