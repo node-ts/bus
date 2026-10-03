@@ -1,9 +1,10 @@
 import {
-  BusMiddleware,
   HandlerDispatchRejected,
   HandlerInvocationContext,
   IncomingContext,
-  OutgoingContext
+  OutgoingContext,
+  OutgoingMessageDropped,
+  OutgoingMessageDropReason
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api'
@@ -24,11 +25,28 @@ const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/
  */
 const outgoingContext = (
   attributes: MessageAttributes,
-  message: TracedCommand | TracedEvent = new TracedCommand('unit')
+  message: TracedCommand | TracedEvent = new TracedCommand('unit'),
+  dispatched: Promise<void> = Promise.resolve()
 ): OutgoingContext =>
   message instanceof TracedEvent
-    ? { kind: 'publish', message, attributes, headers: {} }
-    : { kind: 'send', message, attributes, headers: {} }
+    ? { kind: 'publish', message, attributes, headers: {}, dispatched }
+    : { kind: 'send', message, attributes, headers: {}, dispatched }
+
+/**
+ * A `dispatched` promise that has rejected, as the bus gives one when a message isn't sent
+ */
+const rejected = (error: unknown): Promise<void> => {
+  const promise = Promise.reject(error)
+  // The middleware handles it; this stops Node reporting it before then
+  void promise.catch(() => undefined)
+  return promise
+}
+
+/**
+ * Lets the middleware's handlers of `dispatched` run
+ */
+const settle = async (): Promise<void> =>
+  new Promise(resolve => setImmediate(resolve))
 
 const incomingContext = (attributes: MessageAttributes): IncomingContext => {
   const message = new TracedCommand('unit')
@@ -148,6 +166,7 @@ describe('openTelemetry', () => {
 
   describe('when sending fails', () => {
     const telemetry = new TestTelemetry()
+    const transportError = new InventoryUnavailable('broker unavailable')
     let sendError: unknown
 
     beforeAll(async () => {
@@ -156,15 +175,20 @@ describe('openTelemetry', () => {
       )
       sendError = await run(
         sut.outgoing,
-        outgoingContext({ attributes: {}, stickyAttributes: {} }),
+        outgoingContext(
+          { attributes: {}, stickyAttributes: {} },
+          new TracedCommand('unit'),
+          rejected(transportError)
+        ),
         async () => {
-          throw new InventoryUnavailable('broker unavailable')
+          throw transportError
         }
       ).catch((error: unknown) => error)
+      await settle()
     })
 
     it('should rethrow the error', () => {
-      expect(sendError).toBeInstanceOf(InventoryUnavailable)
+      expect(sendError).toBe(transportError)
     })
 
     it('should record the error on the send span', () => {
@@ -186,12 +210,11 @@ describe('openTelemetry', () => {
     })
   })
 
-  describe('when a handler sends a message and then fails', () => {
+  describe('when a handler sends a message that the bus then drops', () => {
     const telemetry = new TestTelemetry()
-    let sut: BusMiddleware
 
     beforeAll(async () => {
-      sut = openTelemetry(telemetry.options())
+      const sut = openTelemetry(telemetry.options())
       const attributes: MessageAttributes = {
         attributes: {},
         stickyAttributes: {}
@@ -199,16 +222,35 @@ describe('openTelemetry', () => {
       await run(sut.handler, handlerContext(attributes), async () => {
         await run(
           sut.outgoing,
-          outgoingContext(attributes, new TracedEvent('unit'))
+          outgoingContext(
+            attributes,
+            new TracedEvent('unit'),
+            rejected(
+              new OutgoingMessageDropped(
+                TracedEvent.NAME,
+                OutgoingMessageDropReason.HandlerFailed
+              )
+            )
+          )
         )
         throw new InventoryUnavailable('no rooms')
       }).catch(() => undefined)
+      await settle()
     })
 
-    it('should not count the message as sent, since the bus drops it', async () => {
+    it('should not count the message as sent', async () => {
       expect(await telemetry.metric('messaging.client.sent.messages')).toEqual(
         []
       )
+    })
+
+    it('should mark the publish span with why it was dropped, without an error status', () => {
+      const span = telemetry.span(`publish ${TracedEvent.NAME}`)
+      expect(span.attributes['node_ts_bus.dropped.reason']).toEqual(
+        'handler-failed'
+      )
+      expect(span.status.code).toEqual(SpanStatusCode.UNSET)
+      expect(span.attributes['error.type']).toBeUndefined()
     })
 
     it('should record the error on the handler span', () => {
@@ -218,32 +260,52 @@ describe('openTelemetry', () => {
       expect(span.attributes['error.type']).toEqual('InventoryUnavailable')
     })
 
-    it('should start the send span inside the handler span', () => {
+    it('should start the publish span inside the handler span', () => {
       const handlerSpan = telemetry.span('reserveRoom')
       const sendSpan = telemetry.span(`publish ${TracedEvent.NAME}`)
       expect(sendSpan.parentSpanContext?.spanId).toEqual(
         handlerSpan.spanContext().spanId
       )
     })
+  })
 
-    describe('and the next handler sends a message and succeeds', () => {
-      beforeAll(async () => {
-        const attributes: MessageAttributes = {
-          attributes: {},
-          stickyAttributes: {}
-        }
-        await run(sut.handler, handlerContext(attributes), async () =>
-          run(
-            sut.outgoing,
-            outgoingContext(attributes, new TracedEvent('unit'))
-          )
+  describe('when a message has been buffered but not sent yet', () => {
+    const telemetry = new TestTelemetry()
+    const dispatched = Promise.withResolvers<void>()
+    let spansBeforeSending: string[]
+    let sentBeforeSending: unknown[]
+
+    beforeAll(async () => {
+      const sut = openTelemetry(telemetry.options())
+      await run(
+        sut.outgoing,
+        outgoingContext(
+          { attributes: {}, stickyAttributes: {} },
+          new TracedEvent('unit'),
+          dispatched.promise
         )
-      })
+      )
+      await settle()
+      spansBeforeSending = telemetry.spans().map(span => span.name)
+      sentBeforeSending = await telemetry.metric(
+        'messaging.client.sent.messages'
+      )
 
-      it('should count only that message as sent', async () => {
-        const points = await telemetry.metric('messaging.client.sent.messages')
-        expect(points.map(point => point.value)).toEqual([1])
-      })
+      dispatched.resolve()
+      await settle()
+    })
+
+    it('should not end the span or count the message until it is sent', () => {
+      expect(spansBeforeSending).toEqual([])
+      expect(sentBeforeSending).toEqual([])
+    })
+
+    it('should end the span and count the message once it is sent', async () => {
+      expect(telemetry.span(`publish ${TracedEvent.NAME}`).status.code).toEqual(
+        SpanStatusCode.UNSET
+      )
+      const points = await telemetry.metric('messaging.client.sent.messages')
+      expect(points.map(point => point.value)).toEqual([1])
     })
   })
 

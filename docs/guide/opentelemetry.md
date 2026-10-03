@@ -51,6 +51,10 @@ Each message gets a span where it's sent, and spans where it's handled:
 
 A handler's sends are children of its span, so a trace follows a message through every service it causes work in. A message that fails and is retried gets a new process span for each attempt, all children of the same send span. A message from outside the bus, with no trace context, starts a new trace.
 
+A send span ends when the message reaches the transport. A message sent from a handler is buffered until the handler resolves, so its span covers that wait as well. The transport is called with the send span active, so spans that an instrumented broker client starts, such as the AWS SDK's or amqplib's, are its children. A message that's never sent, because its handler failed or a middleware dropped it, gets a `node_ts_bus.dropped.reason` attribute and no error status, since the send didn't fail. The handler's span has the error.
+
+The process span is named `process <$name>`, after the message, rather than `process <destination>` as the conventions suggest. Every message on a queue would otherwise share one span name, and the message type is what tells them apart. The queue is still on the span, in `messaging.destination.name`.
+
 An error that fails a handler is recorded on its span, and on the process span, with the span's status set to error and an `error.type` attribute of the error's class name.
 
 The handler span is named after the handler, so give function handlers a name:
@@ -59,17 +63,18 @@ The handler span is named after the handler, so give function handlers a name:
 
 Spans have these attributes:
 
-| Attribute                           | Value                                                                                                         |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `messaging.system`                  | The `messagingSystem` option. `node_ts_bus` by default                                                        |
-| `messaging.operation.name`          | `send`, `publish` or `process`                                                                                |
-| `messaging.operation.type`          | `send` for a send or publish, and `process` for a received message                                            |
-| `messaging.destination.name`        | The message's `$name` where it's sent, and the `endpointName` option where it's received                      |
-| `messaging.message.id`              | The [message id](/guide/message-attributes/message-id)                                                        |
-| `messaging.message.conversation_id` | The [correlation id](/guide/message-attributes/correlation-id)                                                |
-| `node_ts_bus.message.name`          | The message's `$name`                                                                                         |
-| `node_ts_bus.handler.name`          | The handler's name, on handler spans                                                                          |
-| `error.type`                        | The class name of the error, when one was thrown. For several failed handlers, it's `HandlerDispatchRejected` |
+| Attribute                           | Value                                                                                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `messaging.system`                  | The `messagingSystem` option. `node_ts_bus` by default                                                                           |
+| `messaging.operation.name`          | `send`, `publish` or `process`                                                                                                   |
+| `messaging.operation.type`          | `send` for a send or publish, and `process` for a received message                                                               |
+| `messaging.destination.name`        | The message's `$name` where it's sent, and the `endpointName` option where it's received                                         |
+| `messaging.message.id`              | The [message id](/guide/message-attributes/message-id)                                                                           |
+| `messaging.message.conversation_id` | The [correlation id](/guide/message-attributes/correlation-id)                                                                   |
+| `node_ts_bus.message.name`          | The message's `$name`                                                                                                            |
+| `node_ts_bus.handler.name`          | The handler's name, on handler spans                                                                                             |
+| `node_ts_bus.dropped.reason`        | Why a message was never sent, on send spans: `handler-failed`, `middleware-skipped`, `middleware-threw` or `outbox-flush-failed` |
+| `error.type`                        | The class name of the error, when one was thrown. For several failed handlers, it's `HandlerDispatchRejected`                    |
 
 ## Trace context
 
@@ -87,13 +92,17 @@ Handlers see the trace context in `attributes.attributes.traceparent`. When a ha
 | ------------------------------------ | --------- | ----------- | -------------------------------------------------------------------------------------------------------- |
 | `messaging.process.duration`         | Histogram | `s`         | How long each received message took to handle, with every handler. Failed attempts have an `error.type`  |
 | `messaging.client.consumed.messages` | Counter   | `{message}` | Messages received and passed to the handlers                                                             |
-| `messaging.client.sent.messages`     | Counter   | `{message}` | Messages sent or published. A send that throws has an `error.type`                                       |
+| `messaging.client.sent.messages`     | Counter   | `{message}` | Messages that reached the transport. One the transport failed to send has an `error.type`                |
 | `node_ts_bus.failed.messages`        | Counter   | `{message}` | Attempts at handling a message that threw, so it was retried or, once out of retries, dead lettered      |
 | `node_ts_bus.critical_time`          | Histogram | `s`         | The time from when a message was sent until it was handled successfully, including the time in the queue |
 
 Metrics have the span attributes that don't identify a single message: `messaging.system`, `messaging.operation.name`, `messaging.operation.type`, `messaging.destination.name`, `node_ts_bus.message.name` and `error.type`.
 
-A message sent from a handler is counted once the handler succeeds, since a failed handler's messages are never sent. Critical time is measured from the message's [`sentAt`](/guide/message-attributes/message-id), so it's only as accurate as the clocks of the sending and receiving hosts agree. A message without a `sentAt`, such as one from outside the bus, isn't measured.
+A message is counted as sent when it reaches the transport: for one sent from a handler, that's when the handler's outbox is flushed after it resolves. A message that's never sent, such as one from a handler that failed, isn't counted. Critical time is measured from the message's [`sentAt`](/guide/message-attributes/message-id), so it's only as accurate as the clocks of the sending and receiving hosts agree. A message without a `sentAt`, such as one from outside the bus, isn't measured.
+
+::: warning Messages returned or failed by a handler
+A handler that calls `returnMessage()` or `failMessage()` doesn't throw, so its message is recorded as handled: the process span has no error status, it isn't counted in `node_ts_bus.failed.messages`, and its critical time is recorded. A later release will record these as failed once the bus tells middleware how a message was settled.
+:::
 
 ## Options
 

@@ -1,4 +1,8 @@
-import { BusMiddleware, HandlerDispatchRejected } from '@node-ts/bus-core'
+import {
+  BusMiddleware,
+  HandlerDispatchRejected,
+  OutgoingMessageDropped
+} from '@node-ts/bus-core'
 import {
   Attributes,
   context,
@@ -15,9 +19,9 @@ import {
   trace,
   Tracer
 } from '@opentelemetry/api'
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { OpenTelemetryOptions } from './open-telemetry-options'
 import {
+  ATTR_DROPPED_REASON,
   ATTR_ERROR_TYPE,
   ATTR_HANDLER_NAME,
   ATTR_MESSAGE_NAME,
@@ -73,15 +77,6 @@ interface Instruments {
   failedMessages: Counter
   processDuration: Histogram
   criticalTime: Histogram
-}
-
-/**
- * The messages a handler sent, which are counted once the handler resolves. Inside a handler, `send()` and
- * `publish()` only buffer the message, and it's dropped if the handler fails.
- */
-interface HandlerSends {
-  open: boolean
-  sent: Attributes[]
 }
 
 /**
@@ -178,7 +173,8 @@ const createInstruments = (options: OpenTelemetryOptions): Instruments => {
  *
  * - **Spans**: a PRODUCER span `send <$name>` or `publish <$name>` for each message sent, a CONSUMER span
  *   `process <$name>` for each message received, and an INTERNAL span for each handler or workflow that handles
- *   it, named after it. Errors are recorded on the span they fail.
+ *   it, named after it. Errors are recorded on the span they fail. A send span ends when its message reaches the
+ *   transport, which for a send from a handler is after the handler resolves.
  * - **Trace context** is written into the `attributes` of each message sent, with the configured propagator (W3C
  *   `traceparent` and `tracestate` by default), and a process span is a child of the context its message carries.
  *   Attributes are carried by every transport, so the trace continues in the service that handles the message.
@@ -201,7 +197,6 @@ export const openTelemetry = (
 ): BusMiddleware => {
   const messagingSystem = options.messagingSystem ?? DEFAULT_MESSAGING_SYSTEM
   const propagator = options.propagator ?? propagation
-  const handlerSends = new AsyncLocalStorage<HandlerSends>()
 
   // Created when the first message is sent or received rather than now, because the global meter provider is a
   // no-op until the SDK registers one, and its instruments would stay no-ops
@@ -266,24 +261,28 @@ export const openTelemetry = (
         }
       }
 
-      try {
-        await runInSpan(span, parent, next)
-        const sends = handlerSends.getStore()
-        if (sends?.open) {
-          sends.sent.push(metricAttributes)
-        } else {
+      // Inside a handler the message is only sent once the handler resolves, so the span ends, and the message is
+      // counted, when it reaches the transport rather than when next() resolves. The bus sends it with this span
+      // active, so spans of the transport's own client are its children. A dropped message isn't counted.
+      void outgoingContext.dispatched.then(
+        () => {
           sentMessages.add(1, metricAttributes)
+          span.end()
+        },
+        (error: unknown) => {
+          if (error instanceof OutgoingMessageDropped) {
+            span.setAttribute(ATTR_DROPPED_REASON, error.reason)
+          } else {
+            recordError(span, error)
+            sentMessages.add(1, {
+              ...metricAttributes,
+              [ATTR_ERROR_TYPE]: errorType(error)
+            })
+          }
+          span.end()
         }
-      } catch (error) {
-        recordError(span, error)
-        sentMessages.add(1, {
-          ...metricAttributes,
-          [ATTR_ERROR_TYPE]: errorType(error)
-        })
-        throw error
-      } finally {
-        span.end()
-      }
+      )
+      await runInSpan(span, parent, next)
     },
 
     incoming: async (incomingContext, next) => {
@@ -353,7 +352,7 @@ export const openTelemetry = (
     },
 
     handler: async (handlerContext, next) => {
-      const { tracer, sentMessages } = getInstruments()
+      const { tracer } = getInstruments()
       const { message, attributes, handlerName } = handlerContext
       const parent = context.active()
       const span = tracer.startSpan(
@@ -373,17 +372,12 @@ export const openTelemetry = (
         parent
       )
 
-      const sends: HandlerSends = { open: true, sent: [] }
       try {
-        await handlerSends.run(sends, async () => runInSpan(span, parent, next))
-        // The bus sends what the handler buffered once it resolves
-        sends.sent.forEach(sent => sentMessages.add(1, sent))
+        await runInSpan(span, parent, next)
       } catch (error) {
-        // The bus drops what the handler buffered when it fails
         recordError(span, error)
         throw error
       } finally {
-        sends.open = false
         span.end()
       }
     }

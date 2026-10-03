@@ -48,6 +48,13 @@ export const ATTR_MESSAGE_NAME = 'node_ts_bus.message.name'
 export const ATTR_HANDLER_NAME = 'node_ts_bus.handler.name'
 
 /**
+ * Why a message was never sent, on a send or publish span: an `OutgoingMessageDropReason`, such as
+ * `handler-failed`. The conventions have no attribute for it, and the span's status is left unset, since the send
+ * itself didn't fail.
+ */
+export const ATTR_DROPPED_REASON = 'node_ts_bus.dropped.reason'
+
+/**
  * `error.type` when what was thrown isn't an `Error`
  */
 export const ERROR_TYPE_VALUE_OTHER = '_OTHER'
