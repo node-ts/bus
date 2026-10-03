@@ -57,7 +57,11 @@ A handler that knows a message will never succeed can send it straight to the de
 
 `ctx.returnMessage()` asks for the message to be retried without failing the handler. It counts as a failed attempt, so the policy decides the delay, and dead-letters the message once it's out of attempts, with a `ReturnMessageRequested` error.
 
-Both act when handling finishes, not when they're called, and the handler's sends are still dispatched if it resolves. [Incoming middleware](/guide/middleware#validating-messages) can call them too.
+Both act when handling finishes, not when they're called, and the handler keeps running. Like a handler that throws, a handler that calls either has the messages it sent dropped, even if it then resolves, and a workflow handler's state changes aren't saved: the message will be dead-lettered or handled again, so they'd be wrong or sent twice. [Incoming middleware](/guide/middleware#validating-messages) can call them too.
+
+::: warning Other handlers of the same message
+Each handler's sends are dispatched when that handler resolves. If a message has several handlers, one that resolved before another called `failMessage()` or `returnMessage()`, or threw, has already sent its messages and saved its workflow state. Until a message's handlers share a unit of work, make handlers that send messages idempotent, or give a message that can fail only one handler.
+:::
 
 ## Failure metadata
 

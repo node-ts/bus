@@ -284,12 +284,13 @@ describe('InMemoryQueue', () => {
 
     it('should only fail the handled message', async () => {
       const emitter = new EventEmitter()
+      const queue = new InMemoryQueue({ receiveTimeoutMs: 100 })
       const bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
+        .withTransport(queue)
         .withConcurrency(1)
         .withHandler(
           handlerFor(TestEvent, async () => {
-            await bus.send(new TestCommand())
             await bus.failMessage()
           })
         )
@@ -307,7 +308,12 @@ describe('InMemoryQueue', () => {
         emitter.once('done', resolve)
       )
       await bus.publish(new TestEvent())
+      await bus.send(new TestCommand())
       await completion
+      await bus.stop()
+      expect(queue.deadLetterQueue.map(m => m.domainMessage.$name)).toEqual([
+        TestEvent.NAME
+      ])
       await bus.dispose()
     })
   })

@@ -441,6 +441,10 @@ describe('RabbitMqTransport', () => {
      */
     const handlings = new Map<string, number[]>()
     /**
+     * The AMQP headers of each delivery, by command value
+     */
+    const deliveryHeaders = new Map<string, Record<string, unknown>[]>()
+    /**
      * The failed attempts the policy was called with
      */
     let retryAttempts: number[] = []
@@ -514,6 +518,11 @@ describe('RabbitMqTransport', () => {
             const times = handlings.get(command.value) ?? []
             times.push(Date.now())
             handlings.set(command.value, times)
+            const raw = bus.getHandlingContext()!.raw as ConsumeMessage
+            deliveryHeaders.set(command.value, [
+              ...(deliveryHeaders.get(command.value) ?? []),
+              { ...raw.properties.headers }
+            ])
             handlerEvents.emit('received', command)
             if (command.value === 'fail-then-throw') {
               await ctx.failMessage()
@@ -657,6 +666,29 @@ describe('RabbitMqTransport', () => {
 
       it('should return it once', () => {
         expect(handlings.get('return-then-throw')).toHaveLength(2)
+      })
+    })
+
+    describe('when a replayed dead letter fails again', () => {
+      beforeAll(async () => {
+        const retried = handled('replayed', 2)
+        // As a shovel would move it back from the dead letter queue, with the failure metadata of its last failure
+        channel.publish(
+          TestRetryCommand.NAME,
+          '',
+          Buffer.from(JSON.stringify(new TestRetryCommand('replayed', 1))),
+          {
+            messageId: randomUUID(),
+            headers: { [FAILURE_HEADER]: '{"failedAttempts":10}' }
+          }
+        )
+        await retried
+      })
+
+      it('should not carry the stale failure metadata on the retry', () => {
+        const [firstDelivery, retry] = deliveryHeaders.get('replayed')!
+        expect(firstDelivery).toHaveProperty(FAILURE_HEADER)
+        expect(retry).not.toHaveProperty(FAILURE_HEADER)
       })
     })
   })

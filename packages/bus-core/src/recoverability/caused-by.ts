@@ -1,7 +1,7 @@
 /**
  * A class of error, such as `TypeError` or one of your own
  */
-export type ErrorType = abstract new (...args: any[]) => Error
+export type ErrorType = abstract new (...args: never[]) => Error
 
 /**
  * How deep `causedBy` looks through nested errors, which guards against a cycle of causes

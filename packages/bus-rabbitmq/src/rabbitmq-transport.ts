@@ -482,6 +482,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       }
     }
 
+    // A replayed dead letter carries the failure metadata of its last failure, which is stale once it's retried
+    const { [FAILURE_HEADER]: _staleFailure, ...headers } =
+      message.raw.properties.headers ?? {}
     this.settleMessage(message.raw, 'returned', channel => {
       this.logger.debug('Returning message', { ...meta, delay, retryQueue })
       // Copy to the retry queue before ack'ing to avoid dropping messages in case of SIGKILL happening in between
@@ -489,7 +492,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         ...message.raw.properties,
         expiration: String(delay),
         headers: {
-          ...message.raw.properties.headers,
+          ...headers,
           [FAILED_ATTEMPTS_HEADER]: attempt
         }
       })

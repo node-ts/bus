@@ -61,7 +61,7 @@ To keep a record of every message a service handled, write it to an audit store 
 
 <<< @/snippets/middleware.ts#audit
 
-`next()` also resolves when `failMessage()` or `returnMessage()` was called without anything throwing, so check the attributes or the message if those need leaving out. To keep the audit trail in another service, publish an event to it from the middleware instead.
+`next()` also resolves when a handler called `failMessage()` or `returnMessage()` without throwing, and the incoming context doesn't say whether it did, so those messages are recorded too, and a returned message on each attempt. Write the records keyed by `messageId` if they need to be unique. To keep the audit trail in another service, publish an event to it from the middleware instead.
 
 ## Handler middleware
 

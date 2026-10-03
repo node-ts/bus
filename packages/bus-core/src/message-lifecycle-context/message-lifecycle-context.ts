@@ -46,6 +46,18 @@ export class MessageLifecycleContext {
   }
 
   /**
+   * Whether the message being handled in the current async stack has been failed with `failMessage()` or returned
+   * with `returnMessage()`
+   * @returns true if either was called, or false outside of a message lifecycle context
+   */
+  isFailedOrReturned(): boolean {
+    const context = this.storage.getStore()?.message
+    return (
+      !!context && (context.messageFailed || context.messageReturnedToQueue)
+    )
+  }
+
+  /**
    * Start and run a new async context
    * @param context The lifecycle context to make available to the async stack of `fn`
    * @param fn The function to run within the new context

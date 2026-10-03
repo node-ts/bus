@@ -11,6 +11,7 @@ import { CustomResolver, DefaultHandlerRegistry, Handler } from '../handler'
 import { HandlerDefinition, isClassHandler } from '../handler/handler'
 import { LoggerFactory, createDefaultLoggerFactory } from '../logger'
 import { MessageHandlingContext } from '../message-handling-context'
+import { MessageLifecycleContext } from '../message-lifecycle-context'
 import { BusMiddleware } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import { Receiver } from '../receiver'
@@ -106,6 +107,7 @@ export class BusConfiguration {
     const serializer = this.serializer ?? new JsonSerializer()
     const messageTypes = mergeMessageTypes(this.messageTypes)
     const messageHandlingContext = new MessageHandlingContext()
+    const messageLifecycleContext = new MessageLifecycleContext()
 
     const coreDependencies: CoreDependencies = {
       container: this.container,
@@ -126,7 +128,8 @@ export class BusConfiguration {
       this.workflowRegistry.prepare(
         coreDependencies,
         this.persistence,
-        messageHandlingContext
+        messageHandlingContext,
+        messageLifecycleContext
       )
     }
 
@@ -144,6 +147,7 @@ export class BusConfiguration {
       this.sendOnly,
       this.receiver,
       messageHandlingContext,
+      messageLifecycleContext,
       this.recoverability
     )
     return this.busInstance

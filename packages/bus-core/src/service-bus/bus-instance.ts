@@ -42,12 +42,18 @@ import {
   createMessageFailure,
   deadLetter,
   FailMessageRequested,
+  FAILURE_HEADER,
+  isRecoverabilityAction,
   RecoverabilityAction,
   RecoverabilityPolicy,
   ReturnMessageRequested
 } from '../recoverability'
 import { MessageTypesMissing } from '../serialization'
-import { Transport, TransportMessage } from '../transport'
+import {
+  Transport,
+  TransportHeaderReserved,
+  TransportMessage
+} from '../transport'
 import { ClassConstructor, CoreDependencies, sleep } from '../util'
 import { WorkflowRegistry } from '../workflow/registry'
 import { BusState } from './bus-state'
@@ -131,7 +137,6 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
   private readonly outbox = new AsyncLocalStorage<Outbox>()
-  private readonly messageLifecycleContext = new MessageLifecycleContext()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -144,6 +149,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly sendOnly: boolean,
     private readonly receiver: Receiver | undefined,
     private readonly messageHandlingContext: MessageHandlingContext,
+    private readonly messageLifecycleContext: MessageLifecycleContext,
     private readonly recoverability: RecoverabilityPolicy
   ) {
     this.logger = coreDependencies.loggerFactory(
@@ -314,8 +320,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Instructs the bus that the message being handled can never succeed, so once handling finishes it's moved to the
    * dead letter queue with its failure metadata instead of being deleted or retried, even if a handler then throws.
-   * The recoverability policy isn't consulted. Code after the call keeps running, and messages sent by a handler that
-   * resolves are still dispatched.
+   * The recoverability policy isn't consulted. Code after the call keeps running, but the messages the handler sends
+   * are dropped and a workflow handler's state changes aren't saved, as when a handler throws.
    * @throws FailMessageOutsideHandlingContext if called outside a message handling context of this bus, including
    * while another bus is handling a message
    */
@@ -335,8 +341,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Instructs that the message being handled should be returned to the queue for retry once handling finishes,
    * without failing the handler. It counts as a failed attempt: the recoverability policy decides the delay, and
-   * dead-letters the message once it's out of attempts. When the message came from a Receiver, it's also reported to
-   * the receiver host as failed so the host doesn't delete it.
+   * dead-letters the message once it's out of attempts. The messages the handler sends are dropped and a workflow
+   * handler's state changes aren't saved, since the message will be handled again. When the message came from a
+   * Receiver, it's also reported to the receiver host as failed so the host doesn't delete it.
    * @throws ReturnMessageOutsideHandlingContext if called outside a message handling context of this bus,
    * including while another bus is handling a message
    */
@@ -504,10 +511,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     try {
       // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
       while (this.internalState === BusState.Started) {
-        const messageHandled = await this.handleNextMessage()
+        const messageRead = await this.handleNextMessage()
 
         // Avoids locking up CPU when there are no messages to be processed
-        if (!messageHandled) {
+        if (!messageRead) {
           await sleep(EMPTY_QUEUE_SLEEP_MS)
         }
       }
@@ -516,11 +523,16 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     }
   }
 
+  /**
+   * Reads and handles the next message from the transport
+   * @returns true if a message was read, whatever happened to it, so the worker reads the next one straight away
+   */
   private async handleNextMessage(): Promise<boolean> {
     try {
       const message = await this.transport.readNextMessage()
       if (message) {
-        return this.handleReceivedMessage(message)
+        await this.handleReceivedMessage(message)
+        return true
       }
     } catch (error) {
       this.logger.error(
@@ -535,13 +547,12 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Handles a message and settles it on the transport exactly once, after the incoming middleware and handlers
    * finish: deleted when handled, moved to the dead letter queue when failed with `failMessage()`, or retried or
    * dead-lettered as the recoverability policy decides when handling failed or `returnMessage()` was called.
-   * @returns true if the message was handled or dead-lettered, or false if it's being retried
    * @throws (with a Receiver) the handling error of a message that's being retried, so the host doesn't delete it,
    * or the transport's error if it couldn't be dead-lettered
    */
   private async handleReceivedMessage(
     message: TransportMessage<TTransportMessage>
-  ): Promise<boolean> {
+  ): Promise<void> {
     let settlement: Settlement
     try {
       Object.freeze(message)
@@ -580,13 +591,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       if (this.receiver) {
         throw error
       }
-      return false
+      return
     }
 
-    if (settlement.outcome !== 'retried') {
-      return true
-    }
-    if (this.receiver) {
+    if (settlement.outcome === 'retried' && this.receiver) {
       // The receiver host deletes messages that succeed, so a retried message must be reported as failed
       this.logger.debug(
         'Message is being retried and will be reported to the receiver host as failed',
@@ -594,7 +602,6 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       )
       throw settlement.error
     }
-    return false
   }
 
   /**
@@ -680,7 +687,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
-   * Asks the recoverability policy whether to retry or dead-letter a failed message. A policy that throws
+   * Asks the recoverability policy whether to retry or dead-letter a failed message. A policy that throws, or returns
+   * anything but `deadLetter()` or `retry()` with a finite delay of 0 or more (such as `undefined` or a promise),
    * dead-letters it, so the message is kept but isn't retried in a tight loop.
    */
   private decideRecoverability(
@@ -688,12 +696,27 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     error: unknown
   ): RecoverabilityAction {
     try {
-      return this.recoverability({
+      const action: unknown = this.recoverability({
         error,
         message: message.domainMessage,
         attributes: message.attributes,
         failedAttempts: this.failedAttemptsOf(message)
       })
+      if (isRecoverabilityAction(action)) {
+        return action
+      }
+      if (action instanceof Promise) {
+        // Policies are synchronous. Don't leave a rejection of the promise unhandled.
+        action.catch(() => undefined)
+      }
+      this.logger.error(
+        'Recoverability policy returned neither retry(delay) nor deadLetter(), so the message will be moved to the dead letter queue',
+        {
+          messageName: message.domainMessage.$name,
+          action: String(action)
+        }
+      )
+      return deadLetter()
     } catch (policyError) {
       this.logger.error(
         'Recoverability policy threw, so the message will be moved to the dead letter queue',
@@ -839,6 +862,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         dispatched = true
         const outgoingMessage = snapshotOutgoing(context)
         // Checked before buffering, so the caller's send rejects rather than the outbox failing when it's flushed
+        if (Object.hasOwn(outgoingMessage.headers, FAILURE_HEADER)) {
+          // The bus writes it on dead-lettered messages, whatever the transport
+          throw new TransportHeaderReserved(
+            FAILURE_HEADER,
+            this.transport.constructor.name
+          )
+        }
         this.transport.assertSendOptions?.({ headers: outgoingMessage.headers })
         if (this.addToOutbox(outgoingMessage)) {
           outboxed = outgoingMessage
@@ -939,29 +969,51 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         throw error
       }
 
-      // Close the outbox before flushing so that any later sends go straight to the transport instead of being lost
-      outbox.state = OutboxState.Flushed
-      const outboxedMessages = outbox.messages
-      outbox.messages = []
-      if (outboxedMessages.length > 0) {
-        // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
-        const dispatchWorkerCount = Math.min(outboxedMessages.length, 10)
-        const workers = new Array(dispatchWorkerCount)
-          .fill(undefined)
-          .map(async () => {
-            while (true) {
-              const messageToSend = outboxedMessages.shift()
-              if (messageToSend === undefined) {
-                break
-              }
-              // The outgoing middleware already ran when the message was sent, so it isn't run again
-              await this.dispatchToTransport(messageToSend)
-            }
-          })
-
-        await Promise.all(workers)
-      }
+      await this.flushOutbox(outbox, message)
     })
+  }
+
+  /**
+   * Dispatches the messages a handler buffered once it resolves. If the message being handled was failed or
+   * returned by then, with `failMessage()` or `returnMessage()`, the outbox is discarded instead, as when a handler
+   * throws: the message will be dead-lettered or handled again, so its sends would be wrong or duplicated. That's
+   * decided first, before anything is dispatched.
+   */
+  private async flushOutbox(outbox: Outbox, message: Message): Promise<void> {
+    if (this.messageLifecycleContext.isFailedOrReturned()) {
+      outbox.state = OutboxState.Discarded
+      if (outbox.messages.length > 0) {
+        this.logger.debug(
+          'Message was failed or returned, so the messages its handler sent are dropped',
+          { messageName: message.$name, dropped: outbox.messages.length }
+        )
+      }
+      outbox.messages = []
+      return
+    }
+
+    // Close the outbox before flushing so that any later sends go straight to the transport instead of being lost
+    outbox.state = OutboxState.Flushed
+    const outboxedMessages = outbox.messages
+    outbox.messages = []
+    if (outboxedMessages.length > 0) {
+      // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
+      const dispatchWorkerCount = Math.min(outboxedMessages.length, 10)
+      const workers = new Array(dispatchWorkerCount)
+        .fill(undefined)
+        .map(async () => {
+          while (true) {
+            const messageToSend = outboxedMessages.shift()
+            if (messageToSend === undefined) {
+              break
+            }
+            // The outgoing middleware already ran when the message was sent, so it isn't run again
+            await this.dispatchToTransport(messageToSend)
+          }
+        })
+
+      await Promise.all(workers)
+    }
   }
 
   /**

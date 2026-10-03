@@ -258,9 +258,6 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   }
 
   /**
-   * Marks the oldest visible message as in flight and returns it, or undefined if none are visible
-   */
-  /**
    * Removes a message from the queue, whether it was handled or dead-lettered
    */
   private removeFromQueue(message: TransportMessage<InMemoryMessage>): void {
@@ -278,6 +275,9 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     this.logger.debug('Message Deleted', { queueDepth: this.depth })
   }
 
+  /**
+   * Marks the oldest visible message as in flight and returns it, or undefined if none are visible
+   */
   private takeNextMessage(): TransportMessage<InMemoryMessage> | undefined {
     const message = this.queue.find(m => !m.raw.inFlight)
     if (!message) {

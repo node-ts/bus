@@ -4,6 +4,7 @@ import { ContainerAdapter } from '../../container'
 import { DefaultHandlerRegistry, Handler } from '../../handler'
 import { DebugLogger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
+import { MessageLifecycleContext } from '../../message-lifecycle-context'
 import { Bus, BusInstance } from '../../service-bus'
 import { testMessageTypes } from '../../test'
 import { InMemoryQueue } from '../../transport'
@@ -84,7 +85,8 @@ describe('WorkflowRegistry', () => {
       sut.prepare(
         coreDependencies,
         persistence.object,
-        new MessageHandlingContext()
+        new MessageHandlingContext(),
+        new MessageLifecycleContext()
       )
       sut.register(TestWorkflow)
       await sut.initialize(new DefaultHandlerRegistry(), undefined)
@@ -127,7 +129,8 @@ describe('WorkflowRegistry', () => {
       sut.prepare(
         coreDependencies,
         persistence.object,
-        new MessageHandlingContext()
+        new MessageHandlingContext(),
+        new MessageLifecycleContext()
       )
       sut.register(StatelessWorkflow)
       error = await catchError(() =>
@@ -155,7 +158,8 @@ describe('WorkflowRegistry', () => {
           loggerFactory: (name: string) => new DebugLogger(name)
         } as unknown as CoreDependencies,
         persistence.object,
-        new MessageHandlingContext()
+        new MessageHandlingContext(),
+        new MessageLifecycleContext()
       )
     })
 
@@ -215,7 +219,8 @@ describe('WorkflowRegistry', () => {
           loggerFactory: (name: string) => new DebugLogger(name)
         } as unknown as CoreDependencies,
         functionPersistence.object,
-        new MessageHandlingContext()
+        new MessageHandlingContext(),
+        new MessageLifecycleContext()
       )
       await sut.initialize(handlerRegistry, undefined)
     })

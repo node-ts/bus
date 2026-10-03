@@ -4,6 +4,7 @@ import {
   defaultRecoverability,
   handlerFor,
   MessageFailure,
+  sleep,
   Transport
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -27,6 +28,10 @@ import {
 } from './message-round-trip-cases'
 
 const RETRY_DELAY = 5
+/**
+ * How long to wait for a message that should have been removed from the queue to come back
+ */
+const SETTLE_WAIT_MS = 1_000
 /**
  * How many times the suite's recoverability policy attempts a message before dead-lettering it
  */
@@ -80,6 +85,7 @@ export const transportTests = (
   const poisonedMessageAttemptAttributes: MessageAttributes[] = []
   const poisonedMessageFailedAttempts: number[] = []
   let unrecoverableMessageReceiptAttempts = 0
+  let failMessageReceiptAttempts = 0
   let bus: BusInstance
 
   describe('when the transport has been initialized', () => {
@@ -127,7 +133,12 @@ export const transportTests = (
             topicIdentifier: systemMessageTopicIdentifier
           }
         )
-        .withHandler(handlerFor(TestFailMessage, async () => bus.failMessage()))
+        .withHandler(
+          handlerFor(TestFailMessage, async () => {
+            failMessageReceiptAttempts++
+            await bus.failMessage()
+          })
+        )
         .withHandler(
           handlerFor(TestUnrecoverableMessage, async message => {
             unrecoverableMessageReceiptAttempts++
@@ -393,6 +404,18 @@ export const transportTests = (
       beforeAll(async () => {
         await bus.publish(messageToFail, { correlationId, messageId, sentAt })
         deadLetterQueueMessages = await readAllFromDeadLetterQueue()
+
+        // A message that fail() left unsettled would be redelivered, or hold up the queue behind it
+        const nextMessageHandled = new Promise(resolve =>
+          testCommandHandlerEmitter.once('received', resolve)
+        )
+        await bus.send(new TestCommand(randomUUID(), new Date()))
+        await nextMessageHandled
+        await sleep(SETTLE_WAIT_MS)
+      })
+
+      it('should remove it from the service queue', () => {
+        expect(failMessageReceiptAttempts).toEqual(1)
       })
 
       it('should forward it to the dead letter queue', () => {
