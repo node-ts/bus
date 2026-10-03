@@ -206,7 +206,9 @@ describe('OutgoingMessageDispatcher', () => {
       store.verify(
         async s =>
           s.releaseOutgoingMessages(
-            It.isValue(others.slice(8).map(message => message.id))
+            It.isValue(
+              others.slice(8).map(message => ({ id: message.id, attempts: 1 }))
+            )
           ),
         Times.once()
       )
@@ -734,6 +736,56 @@ describe('OutgoingMessageDispatcher', () => {
         .filter(([id]) => id.startsWith('later'))
         .map(([, at]) => at - laterDueAt)
       expect(Math.max(...lateness)).toBeLessThan(150)
+    })
+  })
+
+  describe('when the broker always rejects two messages and another is scheduled', () => {
+    const persistence = preparedInMemoryPersistence()
+    const pauseMs = 100
+    let scheduledDueAt: number
+    let sentAt: number | undefined
+
+    beforeAll(async () => {
+      const earlier = new Date(Date.now() - 1_000)
+      await persistence.storeOutgoingMessages([
+        outgoingMessage('rejected-1', earlier),
+        outgoingMessage('rejected-2', earlier)
+      ])
+      let rejections = 0
+      sut = new OutgoingMessageDispatcher(
+        persistence,
+        async message => {
+          if (message.id.startsWith('rejected')) {
+            rejections++
+            throw new Error('message too large')
+          }
+          sentAt = Date.now()
+        },
+        Mock.ofType<Logger>().object,
+        {
+          ...DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS,
+          pollIntervalMs: 20,
+          pauseMs,
+          maxPauseMs: 3_000,
+          leaseMs: 100,
+          maxLeaseMs: 200,
+          sendTimeoutMs: 50
+        }
+      )
+      sut.start()
+      // Both have been retried a few times by now
+      await until(() => rejections >= 8)
+      scheduledDueAt = Date.now()
+      await persistence.storeOutgoingMessages([
+        outgoingMessage('scheduled', new Date(scheduledDueAt))
+      ])
+      sut.scheduled(new Date(scheduledDueAt))
+      await until(() => sentAt !== undefined)
+      await sut.stop()
+    })
+
+    it('should send the new message without waiting longer than the shortest pause', () => {
+      expect(sentAt! - scheduledDueAt).toBeLessThan(pauseMs + 100)
     })
   })
 

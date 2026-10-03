@@ -1,6 +1,6 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger } from '../../logger'
-import { OutgoingMessage } from '../../outgoing-message'
+import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
@@ -184,10 +184,10 @@ export class InMemoryPersistence implements Persistence {
     ids.forEach(id => this.outgoingMessages.delete(id))
   }
 
-  async releaseOutgoingMessages(ids: string[]): Promise<void> {
-    for (const id of ids) {
+  async releaseOutgoingMessages(claims: OutgoingMessageClaim[]): Promise<void> {
+    for (const { id, attempts } of claims) {
       const stored = this.outgoingMessages.get(id)
-      if (stored) {
+      if (stored && stored.attempts === attempts) {
         stored.availableAt = stored.outgoingMessage.dueAt.getTime()
         stored.attempts = Math.max(stored.attempts - 1, 0)
       }

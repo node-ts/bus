@@ -4,6 +4,7 @@ import {
   Logger,
   MessageWorkflowMapping,
   OutgoingMessage,
+  OutgoingMessageClaim,
   Persistence,
   WorkflowState
 } from '@node-ts/bus-core'
@@ -391,20 +392,23 @@ export class PostgresPersistence implements Persistence {
     )
   }
 
-  async releaseOutgoingMessages(ids: string[]): Promise<void> {
-    if (ids.length === 0) {
+  async releaseOutgoingMessages(claims: OutgoingMessageClaim[]): Promise<void> {
+    if (claims.length === 0) {
       return
     }
     this.logger.debug('Releasing outgoing messages', {
-      numMessages: ids.length
+      numMessages: claims.length
     })
-    // It was due when it was claimed, so its due time makes it claimable straight away, whatever the clock says
+    // It was due when it was claimed, so its due time makes it claimable straight away, whatever the clock says.
+    // Matching the attempts leaves a message alone if another process has claimed it since.
+    const table = this.outgoingMessagesTable()
     await this.postgres.query(
       `
-      update ${this.outgoingMessagesTable()}
-      set available_at = due_at, attempts = greatest(attempts - 1, 0)
-      where id = any($1::text[]);`,
-      [ids]
+      update ${table} as outgoing
+      set available_at = outgoing.due_at, attempts = greatest(outgoing.attempts - 1, 0)
+      from jsonb_to_recordset($1::jsonb) as claimed (id text, attempts integer)
+      where outgoing.id = claimed.id and outgoing.attempts = claimed.attempts;`,
+      [JSON.stringify(claims)]
     )
   }
 

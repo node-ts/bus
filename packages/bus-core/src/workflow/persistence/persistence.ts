@@ -1,5 +1,5 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { OutgoingMessage } from '../../outgoing-message'
+import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState } from '../workflow-state'
@@ -135,8 +135,12 @@ export interface Persistence {
   /**
    * If provided, makes claimed messages claimable again straight away, and takes back the attempt their claim
    * counted, so they're claimed as if that claim hadn't happened. The bus calls it for messages it claimed but didn't
-   * try to send, such as the rest of a batch when sending pauses. An id that isn't stored is ignored.
-   * @param ids the `id` of each message to release
+   * try to send, such as the rest of a batch when sending pauses.
+   *
+   * Only a message whose `attempts` still match its claim is released. If its lease ended and another process
+   * claimed it since, that claim counted another attempt, so the release leaves it alone. A message that isn't
+   * stored is ignored.
+   * @param claims the `id` of each message to release, and its `attempts` as the claim returned it
    */
-  releaseOutgoingMessages?(ids: string[]): Promise<void>
+  releaseOutgoingMessages?(claims: OutgoingMessageClaim[]): Promise<void>
 }

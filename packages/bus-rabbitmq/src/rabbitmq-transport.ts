@@ -200,8 +200,8 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   /**
    * Declares the service queue, its retry and dead letter queues, and binds the exchanges of the messages the bus
-   * handles to it. A send-only bus, or one with nothing to handle, declares nothing, since each send declares its
-   * own exchange.
+   * handles to it. A send-only bus, such as a scheduler, declares nothing, since each send declares its own
+   * exchange.
    * @param options whether the bus only sends
    */
   async initialize(options?: TransportInitializationOptions): Promise<void> {

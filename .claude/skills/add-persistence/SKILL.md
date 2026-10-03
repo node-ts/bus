@@ -49,7 +49,7 @@ An interface with JSDoc on every field. The README repeats these docs.
   - Create the table or collection in `initialize()`, with an index on an "available at" field: the due time (or `leaseUntil` if later) when stored, and the end of the lease once claimed.
   - Storing an `id` that's already stored keeps the stored message (`on conflict do nothing`, `$setOnInsert`), and returns the skipped ids.
   - Claim atomically with the database's clock (or the `now` argument): rows available by then, up to `limit`, adding one to `attempts` and leasing for `leaseMs * attempts`, capped at `maxLeaseMs`; never delete in a claim (Postgres: `for update skip locked`; MongoDB: one `findOneAndUpdate` per message).
-  - Release puts `available_at` back to the due time and takes one off `attempts`.
+  - Release takes `{ id, attempts }` claims, and only where `attempts` still match puts `available_at` back to the due time and takes one off `attempts`.
   - Return every field as it was stored, with `dueAt` as a `Date` and the new `attempts`, ordered by `dueAt`.
 
 ## 4. Errors and exports

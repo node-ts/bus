@@ -3,6 +3,7 @@ import throat from 'throat'
 import { Logger } from '../logger'
 import type { Persistence } from '../workflow/persistence'
 import { OutgoingMessage } from './outgoing-message'
+import { OutgoingMessageClaim } from './outgoing-message-claim'
 
 /**
  * How the dispatcher paces itself. Every bus uses the defaults; tests shorten them.
@@ -93,6 +94,12 @@ export const isOutgoingMessageStore = (
   typeof persistence.claimDueOutgoingMessages === 'function' &&
   typeof persistence.deleteOutgoingMessages === 'function' &&
   typeof persistence.releaseOutgoingMessages === 'function'
+
+/**
+ * Whether a claimed message has been claimed before, so it has failed to send at least once, or its sender stopped
+ */
+const hasFailedBefore = (outgoingMessage: OutgoingMessage): boolean =>
+  (outgoingMessage.attempts ?? 1) > 1
 
 type SendResult = { sent: true } | { sent: false; error: unknown }
 
@@ -228,7 +235,9 @@ export class OutgoingMessageDispatcher {
    * other message is tried straight away, since the first may be one the broker always rejects.
    */
   private async probe(): Promise<void> {
-    for (let probes = 0; probes < 2; probes++) {
+    let failures = 0
+    // Messages that failed before are skipped past without counting, up to a batch of them
+    for (let claims = 0; claims < this.options.claimLimit; claims++) {
       const claimed = await this.claim(1)
       if (!claimed) {
         this.pauseLonger()
@@ -246,10 +255,14 @@ export class OutgoingMessageDispatcher {
       }
       this.logWhilePaused('Sending a scheduled message failed again', {
         messageId: outgoingMessage.id,
+        attempts: outgoingMessage.attempts,
         error: serializeError(result.error)
       })
+      if (!hasFailedBefore(outgoingMessage) && ++failures === 2) {
+        this.pauseLonger()
+        return
+      }
     }
-    this.pauseLonger()
   }
 
   /**
@@ -262,13 +275,16 @@ export class OutgoingMessageDispatcher {
     const { leaseMs, sendTimeoutMs } = this.options
     const sendBefore = claimedAt + leaseMs - sendTimeoutMs
     const throttle = throat(SEND_CONCURRENCY)
-    const notTried: string[] = []
+    const notTried: OutgoingMessageClaim[] = []
     // Every send handles its own failure, so this waits for all of them, even when sending pauses part way
     await Promise.all(
       claimed.map(async outgoingMessage =>
         throttle(async () => {
           if (this.isPaused || Date.now() > sendBefore) {
-            notTried.push(outgoingMessage.id)
+            notTried.push({
+              id: outgoingMessage.id,
+              attempts: outgoingMessage.attempts ?? 1
+            })
             return
           }
           const result = await this.send(outgoingMessage)
@@ -285,10 +301,22 @@ export class OutgoingMessageDispatcher {
 
   /**
    * Handles a message that failed to send. A failure only holds that message back, and the next message sent shows
-   * whether it was only that message. A different message failing before another is sent pauses sending, while the
-   * same message failing again, such as one the broker always rejects, doesn't.
+   * whether it was only that message. A different message failing for the first time before another is sent pauses
+   * sending, while a message that has failed before, such as one the broker always rejects, never does.
    */
   private failed(error: unknown, outgoingMessage: OutgoingMessage): void {
+    if (!this.isPaused && hasFailedBefore(outgoingMessage)) {
+      // A message the broker keeps rejecting says nothing about the broker, so it never pauses sending
+      this.logger.warn(
+        'Failed to send a scheduled message again. It will be retried when its lease ends.',
+        {
+          messageId: outgoingMessage.id,
+          attempts: outgoingMessage.attempts,
+          error: serializeError(error)
+        }
+      )
+      return
+    }
     const isAnotherFailure =
       this.lastFailedMessageId !== undefined &&
       this.lastFailedMessageId !== outgoingMessage.id
@@ -310,16 +338,16 @@ export class OutgoingMessageDispatcher {
   /**
    * Makes claimed messages that weren't tried claimable again straight away. It never throws.
    */
-  private async release(ids: string[]): Promise<void> {
-    if (ids.length === 0) {
+  private async release(claims: OutgoingMessageClaim[]): Promise<void> {
+    if (claims.length === 0) {
       return
     }
     try {
-      await this.store.releaseOutgoingMessages(ids)
+      await this.store.releaseOutgoingMessages(claims)
     } catch (error) {
       this.logger.debug(
         'Failed to release scheduled messages that were not tried. They will be claimable when their lease ends.',
-        { numMessages: ids.length, error: serializeError(error) }
+        { numMessages: claims.length, error: serializeError(error) }
       )
     }
   }

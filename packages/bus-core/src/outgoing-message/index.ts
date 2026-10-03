@@ -1,4 +1,5 @@
 export * from './delayed-delivery-options'
 export * from './error'
 export * from './outgoing-message'
+export * from './outgoing-message-claim'
 export * from './send-options'

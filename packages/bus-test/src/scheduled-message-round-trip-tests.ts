@@ -332,8 +332,8 @@ export const scheduledMessageRoundTripTests = (
         await store().storeOutgoingMessages([outgoingMessage])
         await claimAt(at(0))
         await store().releaseOutgoingMessages([
-          outgoingMessage.id,
-          randomUUID()
+          { id: outgoingMessage.id, attempts: 1 },
+          { id: randomUUID(), attempts: 1 }
         ])
         claimedAgain = (await claimAt(at(0))).find(
           m => m.id === outgoingMessage.id
@@ -344,6 +344,31 @@ export const scheduledMessageRoundTripTests = (
 
       it('should be claimable straight away, as if it had not been claimed', () => {
         expect(claimedAgain?.attempts).toEqual(1)
+      })
+    })
+
+    describe('and a message is released after another process claimed it again', () => {
+      const outgoingMessage = createOutgoingMessage(at(0))
+      let claimedAfterStaleRelease: OutgoingMessage[]
+
+      beforeAll(async () => {
+        await store().storeOutgoingMessages([outgoingMessage])
+        // The first claim's lease ends, and another process claims it
+        await claimAt(at(0))
+        await claimAt(at(LEASE_MS))
+        // The first process releases it late, for its own claim
+        await store().releaseOutgoingMessages([
+          { id: outgoingMessage.id, attempts: 1 }
+        ])
+        claimedAfterStaleRelease = await claimAt(at(LEASE_MS))
+      })
+
+      afterAll(async () => store().deleteOutgoingMessages([outgoingMessage.id]))
+
+      it("should leave the other process' claim alone", () => {
+        expect(claimedAfterStaleRelease.map(m => m.id)).not.toContain(
+          outgoingMessage.id
+        )
       })
     })
 
