@@ -6,6 +6,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { ContainerAdapter } from '../../container'
 import {
+  FunctionHandler,
   HandlerContext,
   HandlerDispatchRejected,
   HandlerRegistry
@@ -415,7 +416,9 @@ export class WorkflowRegistry {
       numHandlers: workflowHandlers.startedBy.size
     })
     workflowHandlers.startedBy.forEach((invoke, messageConstructor) =>
-      handlerRegistry.register(
+      this.registerWorkflowHandler(
+        handlerRegistry,
+        workflowName,
         messageConstructor,
         async (message, messageAttributes, context) => {
           this.logger.debug('Starting new workflow instance', {
@@ -449,7 +452,9 @@ export class WorkflowRegistry {
     workflowHandlers.when.forEach((handler, messageConstructor) => {
       const messageMapping = handler.customLookup || workflowLookup
 
-      handlerRegistry.register(
+      this.registerWorkflowHandler(
+        handlerRegistry,
+        workflowName,
         messageConstructor,
         async (message, attributes, context) => {
           this.logger.debug('Getting workflow state for message handler', {
@@ -498,6 +503,21 @@ export class WorkflowRegistry {
         }
       )
     })
+  }
+
+  /**
+   * Registers a handler for a workflow, named after the workflow so that handler middleware gets it as `handlerName`
+   */
+  private registerWorkflowHandler(
+    handlerRegistry: HandlerRegistry,
+    workflowName: string,
+    messageType: MessageDeclaration<Message>,
+    handler: FunctionHandler<Message>
+  ): void {
+    handlerRegistry.register(
+      messageType,
+      Object.defineProperty(handler, 'name', { value: workflowName })
+    )
   }
 
   private createWorkflowState<TWorkflowState extends WorkflowState>(

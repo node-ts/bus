@@ -1,15 +1,14 @@
-import {
-  Command,
-  Event,
-  Message,
-  MessageAttributes
-} from '@node-ts/bus-messages'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { EventEmitter, once } from 'events'
 import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
-import { messageTypesFor, testMessageTypes } from '../test'
+import {
+  messageTypesFor,
+  RecordingInMemoryQueue,
+  testMessageTypes
+} from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
 import { InMemoryQueue, TransportMessage } from '../transport'
@@ -23,11 +22,15 @@ jest.setTimeout(20_000)
 describe('BusInstance Outboxing', () => {
   describe('when a message is sent from outside of a handler', () => {
     let bus: BusInstance
-    const afterSendCallback = Mock.ofType<(command: Command) => void>()
+    const dispatched = Mock.ofType<(message: Message) => void>()
 
     beforeAll(async () => {
-      bus = Bus.configure().withMessageTypes(testMessageTypes).build()
-      bus.afterSend.on(({ command }) => afterSendCallback.object(command))
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withTransport(
+          new RecordingInMemoryQueue(message => dispatched.object(message))
+        )
+        .build()
 
       await bus.initialize()
       await bus.send(new TestCommand())
@@ -37,28 +40,33 @@ describe('BusInstance Outboxing', () => {
       await bus.dispose()
     })
 
-    it('should send the message and emit afterSend', () => {
-      afterSendCallback.verify(
-        c => c(It.isObjectWith<Command>({ $name: TestCommand.NAME })),
+    it('should send the message to the transport', () => {
+      dispatched.verify(
+        c => c(It.isObjectWith<Message>({ $name: TestCommand.NAME })),
         Times.once()
       )
     })
   })
 
-  describe('when a message is sent from read middleware', () => {
+  describe('when a message is sent from incoming middleware', () => {
     let bus: BusInstance
-    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+    const dispatched = Mock.ofType<(message: Message) => void>()
     const events = new EventEmitter()
 
     beforeAll(async () => {
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
-        .withMessageReadMiddleware(async (message, next) => {
-          if (message.domainMessage.$name === TestCommand.NAME) {
-            await bus.publish(new TestEvent('from-middleware'))
+        .withTransport(
+          new RecordingInMemoryQueue(message => dispatched.object(message))
+        )
+        .withMiddleware({
+          incoming: async (context, next) => {
+            if (context.message.$name === TestCommand.NAME) {
+              await context.publish(new TestEvent('from-middleware'))
+            }
+            await next()
           }
-          return next()
         })
         .withHandler(handlerFor(TestCommand, async () => undefined))
         .withHandler(
@@ -67,7 +75,6 @@ describe('BusInstance Outboxing', () => {
           })
         )
         .build()
-      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
 
       await bus.initialize()
       await bus.start()
@@ -80,15 +87,15 @@ describe('BusInstance Outboxing', () => {
       await bus.dispose()
     })
 
-    it('should publish the message and emit afterPublish', () => {
-      afterPublishCallback.verify(
+    it('should publish the message straight to the transport', () => {
+      dispatched.verify(
         c => c(It.isObjectWith<TestEvent>({ property1: 'from-middleware' })),
         Times.once()
       )
     })
   })
 
-  describe('when a message is sent from an onError listener', () => {
+  describe('when a message is sent from incoming middleware after a handler fails', () => {
     let bus: BusInstance
     let receivedEvent: TestEvent
 
@@ -100,6 +107,16 @@ describe('BusInstance Outboxing', () => {
         .withTransport(
           new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
         )
+        .withMiddleware({
+          incoming: async (context, next) => {
+            try {
+              await next()
+            } catch (error) {
+              await context.publish(new TestEvent('from-incoming-middleware'))
+              throw error
+            }
+          }
+        })
         .withHandler(
           handlerFor(TestCommand, async () => {
             throw new Error('Failing Handler')
@@ -111,7 +128,6 @@ describe('BusInstance Outboxing', () => {
           })
         )
         .build()
-      bus.onError.once(async () => bus.publish(new TestEvent('from-on-error')))
 
       await bus.initialize()
       await bus.start()
@@ -125,14 +141,14 @@ describe('BusInstance Outboxing', () => {
     })
 
     it('should publish the message', () => {
-      expect(receivedEvent.property1).toEqual('from-on-error')
+      expect(receivedEvent.property1).toEqual('from-incoming-middleware')
     })
   })
 
   describe('when a message is sent after its handler resolved', () => {
     let bus: BusInstance
     const logger = Mock.ofType<Logger>()
-    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+    const dispatched = Mock.ofType<(message: Message) => void>()
 
     beforeAll(async () => {
       let lateSendCompleted: () => void
@@ -142,6 +158,9 @@ describe('BusInstance Outboxing', () => {
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => logger.object)
+        .withTransport(
+          new RecordingInMemoryQueue(message => dispatched.object(message))
+        )
         .withHandler(
           handlerFor(TestCommand, async () => {
             // Deliberately not awaited, so the send happens after the handler resolves
@@ -151,7 +170,6 @@ describe('BusInstance Outboxing', () => {
           })
         )
         .build()
-      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
 
       await bus.initialize()
       await bus.start()
@@ -164,7 +182,7 @@ describe('BusInstance Outboxing', () => {
     })
 
     it('should publish the message straight away', () => {
-      afterPublishCallback.verify(
+      dispatched.verify(
         c => c(It.isObjectWith<TestEvent>({ property1: 'late' })),
         Times.once()
       )
@@ -185,7 +203,7 @@ describe('BusInstance Outboxing', () => {
   describe('when a message is sent after its handler failed', () => {
     let bus: BusInstance
     const logger = Mock.ofType<Logger>()
-    const afterPublishCallback = Mock.ofType<(event: Event) => void>()
+    const dispatched = Mock.ofType<(message: Message) => void>()
 
     beforeAll(async () => {
       let lateSendCompleted: () => void
@@ -196,7 +214,10 @@ describe('BusInstance Outboxing', () => {
         .withMessageTypes(testMessageTypes)
         .withLogger(() => logger.object)
         .withTransport(
-          new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
+          new RecordingInMemoryQueue(message => dispatched.object(message), {
+            maxRetries: 0,
+            receiveTimeoutMs: 100
+          })
         )
         .withHandler(
           handlerFor(TestCommand, async () => {
@@ -208,7 +229,6 @@ describe('BusInstance Outboxing', () => {
           })
         )
         .build()
-      bus.afterPublish.on(({ event }) => afterPublishCallback.object(event))
 
       await bus.initialize()
       await bus.start()
@@ -221,7 +241,10 @@ describe('BusInstance Outboxing', () => {
     })
 
     it('should drop the message', () => {
-      afterPublishCallback.verify(c => c(It.isAny()), Times.never())
+      dispatched.verify(
+        c => c(It.isObjectWith<Message>({ $name: TestEvent.NAME })),
+        Times.never()
+      )
     })
 
     it('should log a warning', () => {
@@ -230,41 +253,6 @@ describe('BusInstance Outboxing', () => {
           l.warn(
             It.is<string>(m => m.includes('after its handler failed')),
             It.isAny()
-          ),
-        Times.once()
-      )
-    })
-  })
-
-  describe('when an async lifecycle listener rejects', () => {
-    let bus: BusInstance
-    const logger = Mock.ofType<Logger>()
-
-    beforeAll(async () => {
-      bus = Bus.configure()
-        .withMessageTypes(testMessageTypes)
-        .withLogger(() => logger.object)
-        .build()
-      bus.afterSend.on(async () => {
-        throw new Error('Listener failed')
-      })
-
-      await bus.initialize()
-      await bus.send(new TestCommand())
-      // Let the listener's rejection settle
-      await new Promise(resolve => setImmediate(resolve))
-    })
-
-    afterAll(async () => {
-      await bus.dispose()
-    })
-
-    it('should log the rejection', () => {
-      logger.verify(
-        l =>
-          l.error(
-            'Async lifecycle listener rejected',
-            It.isObjectWith({ emitterName: 'afterSend' })
           ),
         Times.once()
       )
@@ -355,10 +343,26 @@ describe('BusInstance Outboxing', () => {
     beforeAll(async () => {
       const numberOfMessages = 20_000
 
+      let messagesPublishedCount = 0
+      let allMessagesPublished: () => void
+      const messagesPublished = new Promise<void>(resolve => {
+        allMessagesPublished = resolve
+      })
+
       // TestEvent has no handler, so the queue logs a discard for every publish
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(
+          new RecordingInMemoryQueue(message => {
+            if (
+              message.$name === TestEvent.NAME &&
+              ++messagesPublishedCount === numberOfMessages
+            ) {
+              allMessagesPublished()
+            }
+          })
+        )
         .withHandler(
           handlerFor(TestCommand, async () => {
             const publishMessages = new Array(numberOfMessages)
@@ -368,15 +372,6 @@ describe('BusInstance Outboxing', () => {
           })
         )
         .build()
-
-      let messagesPublishedCount = 0
-      const messagesPublished = new Promise<void>(resolve => {
-        bus.afterPublish.on(() => {
-          if (++messagesPublishedCount === numberOfMessages) {
-            resolve()
-          }
-        })
-      })
 
       await bus.initialize()
       await bus.start()

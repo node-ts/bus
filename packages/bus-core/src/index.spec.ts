@@ -8,10 +8,18 @@ describe('index', () => {
         BusAlreadyInitialized: expect.any(Function),
         InvalidBusState: expect.any(Function),
         InvalidOperation: expect.any(Function),
+        MiddlewareNextCalledTwice: expect.any(Function),
         PersistenceNotConfigured: expect.any(Function),
+        TransportHeaderReserved: expect.any(Function),
         WorkflowHandlerFailed: expect.any(Function),
         WorkflowStateNotInitialized: expect.any(Function)
       })
+    })
+
+    it('should not export the removed lifecycle emitters and read middleware', () => {
+      expect(sut).not.toHaveProperty('TypedEmitter')
+      expect(sut).not.toHaveProperty('MiddlewareDispatcher')
+      expect(sut).not.toHaveProperty('MiddlewarePipeline')
     })
 
     it('should export the in-memory queue and its configuration', () => {

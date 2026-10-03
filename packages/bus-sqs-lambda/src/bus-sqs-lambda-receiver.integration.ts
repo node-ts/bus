@@ -10,6 +10,7 @@ import {
 import {
   Bus,
   BusInstance,
+  BusMiddleware,
   HandlerDispatchRejected,
   handlerFor,
   Logger,
@@ -152,7 +153,8 @@ const sendBatch = async (
 
 const buildBus = async (
   queueName: string,
-  configuration?: BusSqsLambdaReceiverConfiguration
+  configuration?: BusSqsLambdaReceiverConfiguration,
+  middleware: BusMiddleware[] = []
 ): Promise<{ bus: BusInstance; transport: SqsTransport }> => {
   const transport = new SqsTransport(
     {
@@ -169,6 +171,7 @@ const buildBus = async (
     .withTransport(transport)
     .withReceiver(new BusSqsLambdaReceiver(configuration))
     .withRetryStrategy(immediateRetryStrategy)
+    .withMiddleware(...middleware)
     .withHandler(
       handlerFor(TestCommand, async (command: TestCommand) => {
         if (command.outcome === TestCommandOutcome.Throw) {
@@ -205,16 +208,24 @@ describe('BusSqsLambdaReceiver', () => {
       const failedMessageIds: string[] = []
 
       beforeAll(async () => {
+        const recordFailures: BusMiddleware = {
+          incoming: async (context, next) => {
+            try {
+              await next()
+            } catch (error) {
+              failedMessageIds.push((context.message as TestCommand).id)
+              throw error
+            }
+          }
+        }
         ;({ bus, transport } = await buildBus(
           'integration-bus-sqs-lambda-report',
-          { reportBatchItemFailures: true }
+          { reportBatchItemFailures: true },
+          [recordFailures]
         ))
         const batch = await sendBatch(bus, transport, prefix)
         messages = batch.messages
 
-        bus.onError.on(({ message }) =>
-          failedMessageIds.push((message as TestCommand).id)
-        )
         response = await bus.receive<SQSBatchResponse>(batch.event)
 
         // Lambda deletes every record that isn't listed as a failure

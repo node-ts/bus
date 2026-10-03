@@ -4,11 +4,12 @@ import { Mock, Times } from 'typemoq'
 import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
 import { Handler, HandlerDispatchRejected } from '../handler'
 import { Logger } from '../logger'
-import { Bus, BusInstance, OnError } from '../service-bus'
+import { BusMiddleware } from '../middleware'
+import { Bus, BusInstance } from '../service-bus'
 import { TestEvent, TestEvent2, testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { MessageLogger } from '../test/test-event-handler'
-import { ClassConstructor, Listener, sleep } from '../util'
+import { ClassConstructor, sleep } from '../util'
 
 // Lets a test see messages handled by UnregisteredClassHandler when the bus constructs it with new
 let handled: ((message: TestEvent2) => void) | undefined
@@ -21,19 +22,32 @@ class UnregisteredClassHandler implements Handler<TestEvent2> {
   }
 }
 
-const waitForError = (bus: BusInstance, onError: (error: Error) => void) =>
+const handlingErrors = new EventEmitter()
+
+/**
+ * Passes each error that fails the handling of a message to `waitForError`, then rethrows it
+ */
+const reportHandlingErrors: BusMiddleware = {
+  incoming: async (_, next) => {
+    try {
+      await next()
+    } catch (error) {
+      handlingErrors.emit('handlingError', error)
+      throw error
+    }
+  }
+}
+
+const waitForError = (onError: (error: Error) => void) =>
   new Promise<void>((resolve, reject) => {
-    const callback: Listener<OnError<unknown>> = ({ error }) => {
+    handlingErrors.once('handlingError', (error: Error) => {
       try {
         onError(error)
         resolve()
       } catch (e) {
         reject(e)
-      } finally {
-        bus.onError.off(callback)
       }
-    }
-    bus.onError.on(callback)
+    })
   })
 
 const constructorError = new Error('Missing configuration')
@@ -73,6 +87,7 @@ describe('ContainerAdapter', () => {
   describe('when an adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
+        .withMiddleware(reportHandlingErrors)
         .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
@@ -101,7 +116,7 @@ describe('ContainerAdapter', () => {
 
     describe('and a handler is not registered', () => {
       it('should throw a ClassHandlerNotResolved error', async () => {
-        const onError = waitForError(bus, error => {
+        const onError = waitForError(error => {
           expect(error).toBeInstanceOf(HandlerDispatchRejected)
           const baseError = error as HandlerDispatchRejected
           expect(baseError.rejections[0]).toBeInstanceOf(
@@ -132,6 +147,7 @@ describe('ContainerAdapter', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMiddleware(reportHandlingErrors)
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withContainer({
@@ -143,7 +159,7 @@ describe('ContainerAdapter', () => {
         .build()
       await bus.initialize()
       await bus.start()
-      const onError = waitForError(bus, e => {
+      const onError = waitForError(e => {
         error = e
       })
       await bus.publish(new TestEvent2())
@@ -166,6 +182,7 @@ describe('ContainerAdapter', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withMiddleware(reportHandlingErrors)
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
         .withContainer({
@@ -177,7 +194,7 @@ describe('ContainerAdapter', () => {
         .build()
       await bus.initialize()
       await bus.start()
-      const onError = waitForError(bus, e => {
+      const onError = waitForError(e => {
         error = e
       })
       await bus.publish(new TestEvent2())
@@ -197,6 +214,7 @@ describe('ContainerAdapter', () => {
   describe('when an async adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
+        .withMiddleware(reportHandlingErrors)
         .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(type: ClassConstructor<T>) {
@@ -224,7 +242,7 @@ describe('ContainerAdapter', () => {
 
     describe('and a handler is not registered', () => {
       it('should throw a ClassHandlerNotResolved error', async () => {
-        const onError = waitForError(bus, error => {
+        const onError = waitForError(error => {
           expect(error).toBeInstanceOf(HandlerDispatchRejected)
           const baseError = error as HandlerDispatchRejected
           expect(baseError.rejections[0]).toBeInstanceOf(
@@ -244,6 +262,7 @@ describe('ContainerAdapter', () => {
   describe('when an async context aware adapter is installed', () => {
     beforeEach(async () => {
       bus = Bus.configure()
+        .withMiddleware(reportHandlingErrors)
         .withMessageTypes(testMessageTypes)
         .withContainer({
           get<T>(
@@ -287,7 +306,7 @@ describe('ContainerAdapter', () => {
 
     describe('and a handler is not registered', () => {
       it('should throw a ClassHandlerNotResolved error', async () => {
-        const onError = waitForError(bus, error => {
+        const onError = waitForError(error => {
           expect(error).toBeInstanceOf(HandlerDispatchRejected)
           const baseError = error as HandlerDispatchRejected
           expect(baseError.rejections[0]).toBeInstanceOf(
@@ -382,13 +401,14 @@ describe('ContainerAdapter', () => {
 
       beforeAll(async () => {
         bus = Bus.configure()
+          .withMiddleware(reportHandlingErrors)
           .withMessageTypes(testMessageTypes)
           .withLogger(() => Mock.ofType<Logger>().object)
           .withHandler(ThrowingClassHandler)
           .build()
         await bus.initialize()
         await bus.start()
-        const onError = waitForError(bus, e => {
+        const onError = waitForError(e => {
           error = e
         })
         await bus.publish(new TestEvent2())

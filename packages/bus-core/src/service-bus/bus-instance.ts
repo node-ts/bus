@@ -28,21 +28,19 @@ import { Logger } from '../logger'
 import { MessageHandlingContext } from '../message-handling-context'
 import { MessageLifecycleContext } from '../message-lifecycle-context'
 import {
+  HandlerInvocationContext,
+  IncomingContext,
+  OutgoingContext
+} from '../middleware'
+import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
+import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
   Receiver
 } from '../receiver'
 import { MessageTypesMissing } from '../serialization'
 import { Transport, TransportMessage } from '../transport'
-import {
-  ClassConstructor,
-  CoreDependencies,
-  Middleware,
-  MiddlewareDispatcher,
-  Next,
-  sleep,
-  TypedEmitter
-} from '../util'
+import { ClassConstructor, CoreDependencies, sleep } from '../util'
 import { WorkflowRegistry } from '../workflow/registry'
 import { BusState } from './bus-state'
 import { InvalidBusState, InvalidOperation } from './error'
@@ -69,113 +67,28 @@ enum OutboxState {
   Discarded = 'discarded'
 }
 
-interface OutboxedMessage {
-  command?: Command
-  event?: Event
-  attributes: MessageAttributes
-}
+/**
+ * A message buffered in a handler's outbox, as the outgoing middleware left it
+ */
+type OutboxedMessage = OutgoingContext
 
 interface Outbox {
   state: OutboxState
   messages: OutboxedMessage[]
 }
 
-export interface BeforeSend {
-  command: Command
-  attributes: MessageAttributes
-}
-
-export interface BeforePublish {
-  event: Event
-  attributes: MessageAttributes
-}
-
-export interface AfterSend {
-  command: Command
-  attributes?: MessageAttributes
-}
-
-export interface AfterPublish {
-  event: Event
-  attributes?: MessageAttributes
-}
-
-export interface OnError<TTransportMessage> {
-  message: Message
-  error: Error
-  attributes?: MessageAttributes
-  rawMessage?: TransportMessage<TTransportMessage>
-}
-
-export interface AfterReceive<TTransportMessage> {
-  message: TransportMessage<TTransportMessage>
-}
-
-export interface BeforeDispatch {
-  message: Message
-  attributes: MessageAttributes
-  handlers: HandlerDefinition[]
-}
-
-export interface AfterDispatch {
-  message: Message
-  attributes: MessageAttributes
-}
+/**
+ * Names a handler for `HandlerInvocationContext.handlerName`. Class handlers and named functions have their own
+ * name, and the workflow registry names the handlers it registers after their workflow.
+ */
+const handlerNameOf = (handler: HandlerDefinition): string =>
+  handler.name || 'anonymous'
 
 /**
  * A bus built by `Bus.configure().build()`. It sends and publishes messages, and unless it's send-only, receives
  * them and dispatches them to handlers.
  */
 export class BusInstance<TTransportMessage = {}> implements BusSender {
-  /**
-   * Emitted before a command is sent to the transport
-   */
-  readonly beforeSend = new TypedEmitter<BeforeSend>(
-    this.logListenerRejected('beforeSend')
-  )
-  /**
-   * Emitted before an event is published to the transport
-   */
-  readonly beforePublish = new TypedEmitter<BeforePublish>(
-    this.logListenerRejected('beforePublish')
-  )
-  /**
-   * Emitted after a command has been sent to the transport
-   */
-  readonly afterSend = new TypedEmitter<AfterSend>(
-    this.logListenerRejected('afterSend')
-  )
-  /**
-   * Emitted after an event has been published to the transport
-   */
-  readonly afterPublish = new TypedEmitter<AfterPublish>(
-    this.logListenerRejected('afterPublish')
-  )
-  /**
-   * Emitted when an error occurs during message handling
-   */
-  readonly onError = new TypedEmitter<OnError<TTransportMessage>>(
-    this.logListenerRejected('onError')
-  )
-  /**
-   * Emitted immediately after a message has been received from the transport
-   */
-  readonly afterReceive = new TypedEmitter<AfterReceive<TTransportMessage>>(
-    this.logListenerRejected('afterReceive')
-  )
-  /**
-   * Emitted before a message is dispatched to handlers
-   */
-  readonly beforeDispatch = new TypedEmitter<BeforeDispatch>(
-    this.logListenerRejected('beforeDispatch')
-  )
-  /**
-   * Emitted after a message has been dispatched and completed all handler invocations
-   */
-  readonly afterDispatch = new TypedEmitter<AfterDispatch>(
-    this.logListenerRejected('afterDispatch')
-  )
-
   private internalState: BusState = BusState.Stopped
   private runningWorkerCount = 0
   private logger: Logger
@@ -190,9 +103,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly concurrency: number,
     private readonly workflowRegistry: WorkflowRegistry,
     private readonly coreDependencies: CoreDependencies,
-    private readonly messageReadMiddleware: MiddlewareDispatcher<
-      TransportMessage<any>
-    >,
+    private readonly middlewarePipeline: MiddlewarePipeline,
     private readonly handlerRegistry: HandlerRegistry,
     private readonly container: ContainerAdapter | undefined,
     private readonly sendOnly: boolean,
@@ -202,7 +113,6 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
     )
-    this.messageReadMiddleware.useFinal(this.handleNextMessagePolled)
   }
 
   /**
@@ -315,53 +225,49 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Publishes an event to the transport.
    *
-   * When called from inside a handler, the event is buffered and only published once the handler resolves, and
-   * is dropped if the handler fails. Anywhere else (outside a handler, in read middleware or lifecycle listeners,
-   * or after the handler has already resolved) it's published straight away. `afterPublish` is emitted once
-   * the transport has published it.
+   * The outgoing middleware runs first. Then, when called from inside a handler, the event is buffered and only
+   * published once the handler resolves, and is dropped if the handler fails. Anywhere else (outside a handler, in
+   * incoming middleware, or after the handler has already resolved) it's published straight away.
    * @param event An event to publish
    * @param messageAttributes A set of attributes to attach to the outgoing message when published. A new
    * `messageId` and `sentAt` are set unless given.
+   * @throws the error of an outgoing middleware that throws, in which case nothing is buffered
    */
   async publish<TEvent extends Event>(
     event: TEvent,
     messageAttributes: Partial<MessageAttributes> = {}
   ): Promise<void> {
     this.logger.debug('Publishing event', { event, messageAttributes })
-    const attributes = this.prepareTransportOptions(messageAttributes)
-    this.beforePublish.emit({ event, attributes })
-
-    if (this.addToOutbox({ event, attributes })) {
-      return
-    }
-    await this.transport.publish(event, attributes)
-    this.afterPublish.emit({ event, attributes })
+    await this.dispatchOutgoing({
+      kind: 'publish',
+      message: event,
+      attributes: this.prepareTransportOptions(messageAttributes),
+      headers: {}
+    })
   }
 
   /**
    * Sends a command to the transport.
    *
-   * When called from inside a handler, the command is buffered and only sent once the handler resolves, and
-   * is dropped if the handler fails. Anywhere else (outside a handler, in read middleware or lifecycle listeners,
-   * or after the handler has already resolved) it's sent straight away. `afterSend` is emitted once the
-   * transport has sent it.
+   * The outgoing middleware runs first. Then, when called from inside a handler, the command is buffered and only
+   * sent once the handler resolves, and is dropped if the handler fails. Anywhere else (outside a handler, in
+   * incoming middleware, or after the handler has already resolved) it's sent straight away.
    * @param command A command to send
    * @param messageAttributes A set of attributes to attach to the outgoing message when sent. A new `messageId`
    * and `sentAt` are set unless given.
+   * @throws the error of an outgoing middleware that throws, in which case nothing is buffered
    */
   async send<TCommand extends Command>(
     command: TCommand,
     messageAttributes: Partial<MessageAttributes> = {}
   ): Promise<void> {
     this.logger.debug('Sending command', { command, messageAttributes })
-    const attributes = this.prepareTransportOptions(messageAttributes)
-    this.beforeSend.emit({ command, attributes })
-
-    if (this.addToOutbox({ command, attributes })) {
-      return
-    }
-    await this.transport.send(command, attributes)
-    this.afterSend.emit({ command, attributes })
+    await this.dispatchOutgoing({
+      kind: 'send',
+      message: command,
+      attributes: this.prepareTransportOptions(messageAttributes),
+      headers: {}
+    })
   }
 
   /**
@@ -400,8 +306,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
-   * Gets the message this bus is handling in the current async stack, such as from read middleware, a lifecycle
-   * listener or code called by a handler. Handlers get the same details from their handler context.
+   * Gets the message this bus is handling in the current async stack, such as from middleware or code called by a
+   * handler. Handlers get the same details from their handler context.
    * @returns the transport message being handled, or `undefined` outside a message handling context of this bus,
    * including while another bus is handling a message
    */
@@ -584,7 +490,6 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       Object.freeze(message)
 
       this.logger.debug('Message read from transport', { message })
-      this.afterReceive.emit({ message })
 
       handled = await this.messageHandlingContext.run(
         message,
@@ -593,15 +498,25 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
             await this.messageLifecycleContext.run(
               { messageReturnedToQueue: false },
               async () => {
-                await this.messageReadMiddleware.dispatch(message)
-                returnedToReceiverHost =
-                  !!this.receiver &&
-                  this.messageLifecycleContext.get().messageReturnedToQueue
+                await this.middlewarePipeline.runIncoming(
+                  this.createIncomingContext(message),
+                  async () => this.dispatchMessageToHandlers(message)
+                )
 
-                this.afterDispatch.emit({
-                  message: message.domainMessage,
-                  attributes: message.attributes
-                })
+                // Settled outside the incoming middleware, so the message is still deleted when a middleware
+                // doesn't call next()
+                const { messageReturnedToQueue } =
+                  this.messageLifecycleContext.get()
+                if (messageReturnedToQueue) {
+                  this.logger.debug(
+                    'Message was returned to queue and will not be deleted',
+                    { message }
+                  )
+                  returnedToReceiverHost = !!this.receiver
+                } else if (!this.receiver) {
+                  // Receivers assume that the host is responsible for deleting successful messages
+                  await this.transport.deleteMessage(message)
+                }
               }
             )
 
@@ -614,12 +529,6 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
                 error: serializeError(error)
               }
             )
-            this.onError.emit({
-              message: message.domainMessage,
-              error: error as Error,
-              attributes: message.attributes,
-              rawMessage: message
-            })
 
             // Receivers expect the host to return the message to the queue for retry
             if (this.receiver) {
@@ -654,9 +563,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   private async dispatchMessageToHandlers(
-    message: Message,
-    messageAttributes: MessageAttributes
+    transportMessage: TransportMessage<TTransportMessage>
   ): Promise<void> {
+    const message = transportMessage.domainMessage
     const handlers = this.coreDependencies.handlerRegistry.get(
       this.coreDependencies.loggerFactory,
       message
@@ -670,14 +579,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     }
 
     const handlersToInvoke = handlers.map(handler =>
-      this.dispatchMessageToHandler(message, messageAttributes, handler)
+      this.dispatchMessageToHandler(transportMessage, handler)
     )
-
-    this.beforeDispatch.emit({
-      message,
-      attributes: messageAttributes,
-      handlers
-    })
 
     const handlerResults = await Promise.allSettled(handlersToInvoke)
     const failedHandlers = handlerResults.filter(r => r.status === 'rejected')
@@ -700,13 +603,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    */
   private addToOutbox(outgoingMessage: OutboxedMessage): boolean {
     // The outbox only exists while a handler is running. Sends from elsewhere in the handling context, such as
-    // read middleware or lifecycle listeners, have no outbox and are dispatched directly.
+    // incoming middleware, have no outbox and are dispatched directly.
     const outbox = this.outbox.getStore()
     if (!outbox) {
       return false
     }
 
-    const message = outgoingMessage.command || outgoingMessage.event
+    const { message } = outgoingMessage
     switch (outbox.state) {
       case OutboxState.Open:
         outbox.messages.push(outgoingMessage)
@@ -733,7 +636,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    */
   private createHandlerContext(attributes: MessageAttributes): HandlerContext {
     return Object.freeze({
-      correlationId: attributes.correlationId,
+      // A custom transport or receiver may pass a message without attributes, which incoming middleware still sees
+      correlationId: attributes?.correlationId,
       send: async <TCommand extends Command>(
         command: TCommand,
         messageAttributes?: Partial<MessageAttributes>
@@ -747,12 +651,70 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     })
   }
 
-  private logListenerRejected(emitterName: string) {
-    return (error: unknown) =>
-      this.logger.error('Async lifecycle listener rejected', {
-        emitterName,
-        error: serializeError(error)
+  /**
+   * Creates the context passed to incoming middleware. It's frozen, like the message it describes.
+   */
+  private createIncomingContext(
+    transportMessage: TransportMessage<TTransportMessage>
+  ): IncomingContext {
+    return Object.freeze({
+      ...this.createHandlerContext(transportMessage.attributes),
+      message: transportMessage.domainMessage,
+      attributes: transportMessage.attributes,
+      transportMessage
+    })
+  }
+
+  /**
+   * Runs the outgoing middleware for a message being sent or published. Its last step buffers the message in the
+   * current handler's outbox, or sends it to the transport when there's no handler running.
+   */
+  private async dispatchOutgoing(context: OutgoingContext): Promise<void> {
+    let dispatched = false
+    let outboxed: OutboxedMessage | undefined
+    try {
+      await this.middlewarePipeline.runOutgoing(context, async () => {
+        dispatched = true
+        const outgoingMessage: OutboxedMessage = { ...context }
+        if (this.addToOutbox(outgoingMessage)) {
+          outboxed = outgoingMessage
+          return
+        }
+        await this.dispatchToTransport(outgoingMessage)
       })
+    } catch (error) {
+      // A middleware that throws after next() still rejects the send, so take back what was buffered
+      const outbox = this.outbox.getStore()
+      if (outbox && outboxed) {
+        outbox.messages = outbox.messages.filter(m => m !== outboxed)
+      }
+      throw error
+    }
+
+    if (!dispatched) {
+      this.logger.debug('Outgoing message was dropped by middleware', {
+        kind: context.kind,
+        message: context.message
+      })
+    }
+  }
+
+  /**
+   * Sends or publishes a message on the transport, with the headers set by outgoing middleware
+   */
+  private async dispatchToTransport(
+    outgoingMessage: OutboxedMessage
+  ): Promise<void> {
+    const { attributes, headers } = outgoingMessage
+    if (outgoingMessage.kind === 'send') {
+      await this.transport.send(outgoingMessage.message, attributes, {
+        headers
+      })
+    } else {
+      await this.transport.publish(outgoingMessage.message, attributes, {
+        headers
+      })
+    }
   }
 
   private prepareTransportOptions(
@@ -783,62 +745,30 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     return messageAttributes
   }
 
-  async dispatchMessageToHandler(
-    message: Message,
-    attributes: MessageAttributes,
-    handler: HandlerDefinition<Message>
+  /**
+   * Calls one handler for a message inside its own outbox, wrapped in the handler middleware. The outbox is flushed
+   * once the handler and its middleware resolve, and discarded if either throws.
+   */
+  private async dispatchMessageToHandler(
+    transportMessage: TransportMessage<TTransportMessage>,
+    handler: HandlerDefinition
   ): Promise<void> {
+    const { domainMessage: message, attributes } = transportMessage
     const context = this.createHandlerContext(attributes)
-    let handlerCallback: () => Promise<unknown>
-
-    if (isClassHandler(handler)) {
-      const classHandler = handler as ClassConstructor<Handler<Message>>
-
-      const container = this.coreDependencies.container
-      let handlerInstance: Handler<Message> | undefined
-      if (!container) {
-        // Without a container, class handlers are constructed like class workflows are
-        try {
-          handlerInstance = new classHandler()
-        } catch (e) {
-          throw new ClassHandlerNotResolved(
-            classHandler.name,
-            e instanceof Error ? e.message : String(e),
-            e
-          )
-        }
-      } else {
-        try {
-          handlerInstance = await container.get(classHandler, {
-            message,
-            messageAttributes: attributes
-          })
-        } catch (e) {
-          throw new ClassHandlerNotResolved(
-            classHandler.name,
-            e instanceof Error ? e.message : String(e),
-            e
-          )
-        }
-        if (!handlerInstance) {
-          throw new ClassHandlerNotResolved(
-            classHandler.name,
-            'Container failed to resolve an instance.'
-          )
-        }
-      }
-
-      handlerCallback = async () =>
-        handlerInstance!.handle(message, attributes, context)
-    } else {
-      const fnHandler = handler as FunctionHandler<Message>
-      handlerCallback = async () => fnHandler(message, attributes, context)
-    }
+    const invocationContext: HandlerInvocationContext = Object.freeze({
+      ...context,
+      message,
+      attributes,
+      transportMessage,
+      handlerName: handlerNameOf(handler)
+    })
 
     const outbox: Outbox = { state: OutboxState.Open, messages: [] }
     await this.outbox.run(outbox, async () => {
       try {
-        await handlerCallback()
+        await this.middlewarePipeline.runHandler(invocationContext, async () =>
+          this.invokeHandler(message, attributes, handler, context)
+        )
       } catch (error) {
         outbox.state = OutboxState.Discarded
         outbox.messages = []
@@ -860,15 +790,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
               if (messageToSend === undefined) {
                 break
               }
-
-              const { command, event, attributes } = messageToSend
-              if (command) {
-                await this.transport.send(command, attributes)
-                this.afterSend.emit({ command, attributes })
-              } else if (event) {
-                await this.transport.publish(event, attributes)
-                this.afterPublish.emit({ event, attributes })
-              }
+              // The outgoing middleware already ran when the message was sent, so it isn't run again
+              await this.dispatchToTransport(messageToSend)
             }
           })
 
@@ -878,33 +801,58 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
-   * The final middleware that runs, after all the useBeforeHandleNextMessage middlewares have completed
-   * It dispatches a message that has been polled from the queue
-   * and deletes the message from the transport
+   * Resolves a class handler from the container, or constructs it, and calls it. A function handler is called as
+   * it is.
+   * @throws ClassHandlerNotResolved if a class handler can't be resolved or constructed
    */
-  private handleNextMessagePolled: Middleware<
-    TransportMessage<TTransportMessage>
-  > = async (
-    message: TransportMessage<TTransportMessage>,
-    next: Next
-  ): Promise<void> => {
-    await this.dispatchMessageToHandlers(
-      message.domainMessage,
-      message.attributes
-    )
-
-    const { messageReturnedToQueue } = this.messageLifecycleContext.get()
-    if (messageReturnedToQueue) {
-      this.logger.debug(
-        'Message was returned to queue by a handler and will not be deleted',
-        { message }
-      )
-      // Receivers assume that the the host is responsible for deleting successful messages
-    } else if (!this.receiver) {
-      await this.transport.deleteMessage(message)
+  private async invokeHandler(
+    message: Message,
+    attributes: MessageAttributes,
+    handler: HandlerDefinition,
+    context: HandlerContext
+  ): Promise<void> {
+    if (!isClassHandler(handler)) {
+      const fnHandler = handler as FunctionHandler<Message>
+      await fnHandler(message, attributes, context)
+      return
     }
 
-    return next()
+    const classHandler = handler as ClassConstructor<Handler<Message>>
+    const container = this.coreDependencies.container
+    let handlerInstance: Handler<Message> | undefined
+    if (!container) {
+      // Without a container, class handlers are constructed like class workflows are
+      try {
+        handlerInstance = new classHandler()
+      } catch (e) {
+        throw new ClassHandlerNotResolved(
+          classHandler.name,
+          e instanceof Error ? e.message : String(e),
+          e
+        )
+      }
+    } else {
+      try {
+        handlerInstance = await container.get(classHandler, {
+          message,
+          messageAttributes: attributes
+        })
+      } catch (e) {
+        throw new ClassHandlerNotResolved(
+          classHandler.name,
+          e instanceof Error ? e.message : String(e),
+          e
+        )
+      }
+      if (!handlerInstance) {
+        throw new ClassHandlerNotResolved(
+          classHandler.name,
+          'Container failed to resolve an instance.'
+        )
+      }
+    }
+
+    await handlerInstance.handle(message, attributes, context)
   }
 
   /**
