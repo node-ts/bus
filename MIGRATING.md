@@ -34,7 +34,7 @@ Every `@node-ts/bus` package is released as 2.0.0. The adapters peer on `@node-t
    Bus.configure().withMessageTypes(orderMessageTypes, messageTypes)
    ```
 
-   Add the command to your `prebuild` script, and `--check` to CI (see the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#scripts)). Include the files that declare your workflow state if you want their Dates and classes restored too.
+   Add the command to your `prebuild` script, and `--check` to CI (see [Generating message types](https://node-ts.github.io/bus/guide/serializers/message-types#scripts)). Include the files that declare your workflow state if you want their Dates and classes restored too.
 
 4. Remove `.withSerializer(new ClassSerializer())`. The default serializer uses the message types the bus was given. If the service uses several message libraries, generate the types in each and pass them all to `withMessageTypes()`.
 

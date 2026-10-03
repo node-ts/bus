@@ -1,26 +1,30 @@
 # @node-ts/bus-mongodb
 
-A Mongodb based persistence for workflow storage in [@node-ts/bus](https://node-ts.github.io/bus)
+A [MongoDB](https://www.mongodb.com/) persistence for [@node-ts/bus](https://node-ts.github.io/bus), which stores the state of workflows between messages. It uses version 7 of the `mongodb` driver (MongoDB server 4.2 or later).
 
-🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
+[![npm](https://img.shields.io/npm/v/@node-ts/bus-mongodb)](https://www.npmjs.com/package/@node-ts/bus-mongodb)
 
-🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+**[Documentation](https://node-ts.github.io/bus/persistence/mongodb)** · [Changelog](https://github.com/node-ts/bus/blob/master/packages/bus-mongodb/CHANGELOG.md)
 
 ## Installation
 
 Requires Node.js 24 or later.
 
-Install all packages and their dependencies
-
-```bash
-npm install @node-ts/bus-mongodb
+```sh
+npm i @node-ts/bus-mongodb @node-ts/bus-core
 ```
 
-Configure a new Mongodb persistence and register it with `Bus`:
+## Usage
 
-```typescript
+Create a `MongodbPersistence` and pass it to the bus configuration:
+
+<!-- <<< @/snippets/mongodb.ts -->
+
+```ts
 import { Bus } from '@node-ts/bus-core'
-import { MongodbPersistence, MongodbConfiguration } from '@node-ts/bus-mongodb'
+import { MongodbConfiguration, MongodbPersistence } from '@node-ts/bus-mongodb'
+import { messageTypes } from './message-types.generated'
+import { fulfilmentWorkflow } from './workflows/fulfilment-workflow'
 
 const configuration: MongodbConfiguration = {
   connection: 'mongodb://localhost:27017',
@@ -28,26 +32,31 @@ const configuration: MongodbConfiguration = {
 }
 const mongodbPersistence = new MongodbPersistence(configuration)
 
-// Configure bus to use mongodb as a persistence
-const run = async () => {
-  const bus = Bus.configure().withPersistence(mongodbPersistence).build()
-  await bus.initialize()
-  await bus.start()
-}
-run().catch(console.error)
+const bus = Bus.configure()
+  .withMessageTypes(messageTypes)
+  .withPersistence(mongodbPersistence)
+  .withWorkflow(fulfilmentWorkflow)
+  .build()
+
+// Creates a collection, and indexes for its lookups, for each workflow state
+await bus.initialize()
+await bus.start()
 ```
 
-## Configuration Options
+The example uses top-level `await`, so it runs as an ES module. In CommonJS, wrap it in an `async` function.
 
-The Mongodb persistence has the following configuration:
+> **Upgrading from 1.x?** Workflow state keys are encoded differently in 2.0, and state saved by 1.x isn't migrated or found. Read [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2#node-ts-bus-mongodb) before you upgrade.
 
-- **connection** _(required)_ The mongodb connection string to use. This can be a single server, a replica set, or a mongodb+srv connection.
-- **databaseName** _(required)_ The database name to create workflow collections inside.
+## Configuration
 
-## Development
+| Option         | Default | Description                                                                           |
+| -------------- | ------- | ------------------------------------------------------------------------------------- |
+| `connection`   |         | The connection string: a single server, a replica set, or a `mongodb+srv` connection. |
+| `databaseName` |         | The database to create the workflow collections in.                                   |
 
-Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
+To share a client with the rest of your application, pass your `MongoClient`, from `mongodb` 7, as the second constructor argument.
 
-```bash
-docker run --name bus-mongodb -p 27017:27017 -d mongo
-```
+## Learn more
+
+- [MongoDB](https://node-ts.github.io/bus/persistence/mongodb): the collections and indexes it creates, and how keys are stored
+- [Workflows](https://node-ts.github.io/bus/guide/workflows)

@@ -1,83 +1,73 @@
 # @node-ts/bus-sqs-lambda
 
-An Amazon SQS and Lambda receiver for [@node-ts/bus](https://node-ts.github.io/bus).
+An AWS Lambda receiver for [@node-ts/bus](https://node-ts.github.io/bus). A Lambda function that's triggered by an SQS queue passes each batch of messages to the bus, instead of the bus polling the queue itself. It's used with the [@node-ts/bus-sqs](https://www.npmjs.com/package/@node-ts/bus-sqs) transport.
 
-This package allows the host application to receive SQS messages via a Lambda handler directly, rather than subscribing to the SQS transport.
+[![npm](https://img.shields.io/npm/v/@node-ts/bus-sqs-lambda)](https://www.npmjs.com/package/@node-ts/bus-sqs-lambda)
 
-🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
-
-🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+**[Documentation](https://node-ts.github.io/bus/transports/sqs-lambda)** · [Changelog](https://github.com/node-ts/bus/blob/master/packages/bus-sqs-lambda/CHANGELOG.md)
 
 ## Installation
 
 Requires Node.js 24 or later.
 
-Install packages and their dependencies
-
-```bash
+```sh
 npm i @node-ts/bus-sqs-lambda @node-ts/bus-sqs @node-ts/bus-core
-```
-
-Once installed, configure Bus to use this receiver during initialization:
-
-```typescript
-import { Bus } from '@node-ts/bus-core'
-import { SqsTransport, SqsTransportConfiguration } from '@node-ts/bus-sqs'
-import { BusSqsLambdaReceiver } from '@node-ts/bus-sqs-lambda'
-
-const sqsConfiguration: SqsTransportConfiguration = {
-  awsRegion: process.env.AWS_REGION,
-  awsAccountId: process.env.AWS_ACCOUNT_ID,
-  queueName: `my-service`,
-  deadLetterQueueName: `my-service-dead-letter`
-}
-const sqsTransport = new SqsTransport(sqsConfiguration)
-
-// Configure Bus to run in a Lambda
-const bus = Bus.configure()
-  .withTransport(sqsTransport)
-  .withReceiver(new BusSqsLambdaReceiver())
-  .build()
-
-await bus.initialize()
+npm i -D @types/aws-lambda
 ```
 
 ## Usage
 
-Once configured and initialized, any Lambda that is triggered by SQS messages can send these messages to Bus for processing and dispatch using the `bus.receive` method. Pass a function rather than `bus.receive` itself so it keeps its `this` binding:
+Configure the bus with the SQS transport and a `BusSqsLambdaReceiver`, initialize it when the module loads, and pass each event to `bus.receive()`. Don't call `bus.start()`: Lambda reads the queue instead.
 
-```typescript
-// Your lambda code
+<!-- <<< @/snippets/sqs-lambda.ts -->
+
+```ts
+import { Bus } from '@node-ts/bus-core'
+import { SqsTransport } from '@node-ts/bus-sqs'
+import { BusSqsLambdaReceiver } from '@node-ts/bus-sqs-lambda'
 import type { SQSHandler } from 'aws-lambda'
+import { reserveRoomHandler } from './handlers/reserve-room-handler'
+import { messageTypes } from './message-types.generated'
 
+const sqsTransport = new SqsTransport({
+  awsRegion: process.env.AWS_REGION,
+  awsAccountId: process.env.AWS_ACCOUNT_ID,
+  queueName: 'reservations-service',
+  deadLetterQueueName: 'reservations-service-dead-letter'
+})
+
+const bus = Bus.configure()
+  .withMessageTypes(messageTypes)
+  .withTransport(sqsTransport)
+  .withHandler(reserveRoomHandler)
+  // Lambda reads the queue and passes each batch to the bus
+  .withReceiver(new BusSqsLambdaReceiver())
+  // Lambda owns the process, so don't listen for shutdown signals
+  .withInterruptSignals([])
+  .build()
+
+// Runs once per Lambda instance, when the module is loaded
+await bus.initialize()
+
+// Pass a function, rather than bus.receive itself, so it keeps its `this`
 export const handler: SQSHandler = event => bus.receive(event)
 ```
 
-Each record is dispatched to its handlers, throttled to the bus concurrency (`withConcurrency`). Successful records are left for Lambda to delete. Records whose message has no registered handler are discarded, not retried. A handler that calls `bus.returnMessage()` has its record treated as failed so that Lambda retries it, after the delay set by the retry strategy.
+The example uses top-level `await`, so it runs as an ES module. In CommonJS, wrap it in an `async` function.
 
-Requires `@node-ts/bus-core` 1.3.4 or later.
+By default, if any record fails, `bus.receive()` rejects once the batch has been handled, and Lambda retries the **whole** batch, including the records that succeeded.
 
-By default, if any record fails, `bus.receive` rejects once the batch has been handled, and Lambda retries the **whole** batch, including records that already succeeded.
+## Configuration
 
-### Partial batch failures
+`BusSqsLambdaReceiver` takes an optional configuration:
 
-To retry only the records that failed, enable `reportBatchItemFailures`. `bus.receive` then resolves with an [`SQSBatchResponse`](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-errorhandling.html#services-sqs-batchfailurereporting) listing the failed records instead of rejecting:
+| Option                    | Default | Description                                                                                                                                    |
+| ------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reportBatchItemFailures` | `false` | Whether `bus.receive()` resolves with an `SQSBatchResponse` listing the records that failed, rather than rejecting, so only those are retried. |
 
-```typescript
-import type { SQSBatchResponse, SQSHandler } from 'aws-lambda'
+> **With `reportBatchItemFailures`, the Lambda's SQS event source mapping must include `ReportBatchItemFailures` in its `FunctionResponseTypes`.** Without it, Lambda ignores the response, and deletes the failed records along with the rest of the batch.
 
-const bus = Bus.configure()
-  .withTransport(sqsTransport)
-  .withReceiver(new BusSqsLambdaReceiver({ reportBatchItemFailures: true }))
-  .build()
+## Learn more
 
-await bus.initialize()
-
-export const handler: SQSHandler = event => bus.receive<SQSBatchResponse>(event)
-```
-
-The Lambda's SQS event source mapping must include `ReportBatchItemFailures` in its `FunctionResponseTypes`. Without it, Lambda ignores the response and deletes the failed records along with the rest of the batch.
-
-Records are handled concurrently, so on a FIFO queue a failed record doesn't stop later records in the same message group from being handled.
-
-Type definitions come from `@types/aws-lambda`, which you should install as a dev dependency of your Lambda.
+- [SQS and Lambda](https://node-ts.github.io/bus/transports/sqs-lambda): partial batch failures, and how records are handled
+- [Amazon SQS](https://node-ts.github.io/bus/transports/amazon-sqs), for the transport's configuration

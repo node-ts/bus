@@ -1,0 +1,120 @@
+---
+title: Generating message types
+description: Generate the message types that restore Dates, Maps, Sets, bigints and classes in messages, with bus generate-message-types from @node-ts/bus-cli.
+---
+
+# Generating message types
+
+`bus generate-message-types`, from `@node-ts/bus-cli`, reads the TypeScript types of your messages and workflow state, and writes a file that tells the bus how to restore every field that JSON can't hold. This page covers running it, what it reads, the types it supports and its limits.
+
+## Installation
+
+Add it as a dev dependency of the package that declares your messages:
+
+```sh
+npm i -D @node-ts/bus-cli typescript
+npx bus generate-message-types --entry 'src/messages/**/*.ts'
+```
+
+`typescript` (5.0 or later) is a peer dependency. The generator loads your project's own copy, so your source is read with the compiler version and settings your build uses, the way `tsc --noEmit` does. Nothing in your project is compiled or changed, apart from the file it generates.
+
+Generation stops on syntax errors, and on types or modules that can't be resolved, since the generated types would be wrong. Other type errors, such as strictness checks, are printed as warnings. Code that imports the generated file is fine before the file exists or while it's out of date, so a fresh clone generates it on the first run.
+
+## The generated file
+
+The file is plain TypeScript that only exports `messageTypes`, with no side effects, so it compiles with tsc, esbuild, SWC, tsx, Vite or anything else. For a project with one message, `CreditCardCharged`, that has a `Date` field, it's:
+
+<<< @/snippets/message-types-example.ts
+
+Each class and named object type is keyed by its package name, the module that declares it and its name, so two declarations with the same name, in one library or in two, never share an entry. Messages stay plain JSON on the wire: nothing is added to them, and services that don't use the generated file can still read them.
+
+Pass it to every bus that receives these messages, with `withMessageTypes()`:
+
+- **A message library**, a package of messages that several services share: re-export the file from the library's entry, with `export * from './message-types.generated'`, so the services that use the library can pass its `messageTypes` to their bus.
+- **Messages declared in the service that runs the bus**: import `messageTypes` from the generated file where the bus is configured.
+
+The generator warns if nothing in the project imports the generated file, since it then can't reach a bus. How the bus merges the message types of several libraries is covered in [Serializers](/guide/serializers#the-default-serializer-and-message-types).
+
+## Options
+
+| Option                 | Default                          | Description                                                                   |
+| ---------------------- | -------------------------------- | ----------------------------------------------------------------------------- |
+| `-p, --project <path>` | `tsconfig.json`                  | The tsconfig of the project that declares the messages                        |
+| `-e, --entry <glob>`   | every file in the project        | Files to read messages and workflow state from. Repeat it for more globs      |
+| `-x, --exclude <glob>` |                                  | Files to leave out, even if they match `--entry`. Repeat it for more globs    |
+| `-o, --out <path>`     | `src/message-types.generated.ts` | The file to generate                                                          |
+| `--check`              |                                  | Writes nothing, and fails if the file is missing or out of date. Use it in CI |
+| `--watch`              |                                  | Regenerates the file whenever a source file in the project changes            |
+
+Paths and globs are relative to the current directory.
+
+## Scripts
+
+Generate the file before every build, keep it up to date while you work, and check it in CI:
+
+```json
+{
+  "scripts": {
+    "generate:message-types": "bus generate-message-types --entry 'src/messages/**/*.ts'",
+    "prebuild": "npm run generate:message-types",
+    "build": "tsc",
+    "watch:message-types": "bus generate-message-types --entry 'src/messages/**/*.ts' --watch",
+    "check:message-types": "bus generate-message-types --entry 'src/messages/**/*.ts' --check"
+  }
+}
+```
+
+Run `watch:message-types` next to `tsc --watch`, or your bundler's watch mode. Commit the generated file, or generate it in `prebuild` and add it to `.gitignore`.
+
+Formatters and linters are free to change the generated file. `--check` compares what the file declares, not how it's formatted, and regenerating leaves a file that's already up to date untouched.
+
+## What it reads
+
+These are included when they're declared and exported in an entry file, so messages and workflow state are both picked up:
+
+- non-abstract classes with a `$name`
+- messages declared with `defineCommand` or `defineEvent`, as a named or default export, which are restored as plain objects
+- interfaces and type aliases with a string literal `$name`, such as a message from another system that's handled with `withCustomHandler`. One that only describes a message declared another way, such as `type PlaceOrder = MessageOf<typeof PlaceOrder>`, isn't read twice.
+
+Classes and types they use are included wherever they're declared in the project. Re-exports, such as an `index.ts`, don't add anything.
+
+Anything else with a `$name` is skipped with a warning that says why, so a message that would fail at startup with `MessageTypesMissing` is caught when it's generated: a class or definition that isn't exported, an abstract class with a `$name`, a class whose `$name` is never set (unless a message uses it as a field), an interface whose `$name` isn't a string literal or that is generic, an interface with the `$name` of a class or definition, a definition inside an exported object, a class that inherits its static `NAME` (the bus rejects it), and a message re-exported from a file that isn't an entry file. A class whose static `NAME` isn't its `$name` fails generation, since the bus routes by `NAME`.
+
+## Supported types
+
+| Type                                                        | Sent as             | Restored as                              |
+| ----------------------------------------------------------- | ------------------- | ---------------------------------------- |
+| `string`, `number`, `boolean`, literals, enums, `null`      | itself              | itself                                   |
+| `Date`                                                      | ISO string          | `Date`                                   |
+| `bigint`                                                    | string              | `bigint`                                 |
+| A class declared in the project                             | object              | an object with the class' prototype      |
+| An interface or object type                                 | object              | a plain object, with its fields restored |
+| `T[]`, `ReadonlyArray<T>`                                   | array               | array, with each item restored           |
+| `Set<T>`, `ReadonlySet<T>`                                  | array               | `Set`                                    |
+| `Map<K, V>`, `ReadonlyMap<K, V>` with string or number keys | object              | `Map`, with number keys converted back   |
+| `Record<string, T>`, `{ [key: string]: T }`                 | object              | object, with each value restored         |
+| Optional fields, `T \| null`, `T \| undefined`              | as `T`, or left out | as `T`, or left as `null`/`undefined`    |
+| `unknown`, `any`                                            | itself              | as parsed                                |
+
+Generation fails, listing every problem, for anything else, such as functions, symbols, `RegExp` and other built-in classes, generic classes, tuples that contain types that need restoring, two interfaces with the same `$name`, `Map` keys that aren't strings or numbers, unions of types that are restored differently (`Date | string`), interfaces with methods, fields typed as an abstract class, classes that aren't exported by name or are declared outside the project, types that can't be resolved, and a `$name` that can't be worked out without running the code. A `$name` must be a string literal, or a static property or constant that is one, such as `$name = PlaceOrder.NAME`, and `defineCommand` and `defineEvent` must be given a string literal. Leave a file that can't be generated out with `--exclude`.
+
+## Known limits
+
+- **Constructors aren't run.** Restored objects are created from their class' prototype and their fields are copied on, so constructor logic and field initializers don't run. A field that's missing from the payload stays `undefined`, even if the class gives it a default.
+- **`#private` fields aren't restored.** They can't be read by `JSON.stringify` or set from outside the class. TypeScript `private` fields are ordinary properties, so they work.
+- Getters and methods come from the prototype, so they work, but getter values aren't sent.
+- **Values are restored as their declared class.** JSON doesn't say which subclass a value was, so a field declared as `Payment` that held a `CardPayment` comes back as a `Payment`, without `CardPayment`'s methods. Fields typed as an abstract class fail generation for this reason. Use a separate field for each subclass, or a plain type with a discriminant.
+- A message that extends another message needs its own `$name`, and gets its parent's fields as well as its own. A class with a `$name` that's only declared, such as a data field of a nested class, isn't treated as a message.
+- Circular references can't be sent, because `JSON.stringify` rejects them. Recursive types are fine.
+- Values that don't match their type, such as an invalid Date string or a bigint like `"1.5"`, are left as they were parsed rather than failing the message. Payloads nested more than 500 levels deep are restored down to that depth.
+
+## Generating from code
+
+`generateMessageTypes()` takes the same options as the command, and returns the file to write and its content:
+
+<<< @/snippets/generate-message-types.ts
+
+## See also
+
+- [Serializers](/guide/serializers), for how the bus uses the message types
+- [`generateMessageTypes`](/api/bus-cli/functions/generateMessageTypes) in the API reference

@@ -14,15 +14,15 @@ description: Store workflow state in Postgres with @node-ts/bus-postgres.
 ::: code-group
 
 ```sh [npm]
-npm i @node-ts/bus-postgres
+npm i @node-ts/bus-postgres @node-ts/bus-core
 ```
 
 ```sh [pnpm]
-pnpm add @node-ts/bus-postgres
+pnpm add @node-ts/bus-postgres @node-ts/bus-core
 ```
 
 ```sh [yarn]
-yarn add @node-ts/bus-postgres
+yarn add @node-ts/bus-postgres @node-ts/bus-core
 ```
 
 :::

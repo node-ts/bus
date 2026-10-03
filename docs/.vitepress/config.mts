@@ -85,13 +85,18 @@ const guide: DefaultTheme.SidebarItem[] = [
       {
         text: 'Long running processes',
         link: '/guide/long-running-processes'
-      }
+      },
+      { text: 'Several buses', link: '/guide/multiple-buses' }
     ]
   },
   {
     text: 'Serializers',
     link: '/guide/serializers',
     items: [
+      {
+        text: 'Generating message types',
+        link: '/guide/serializers/message-types'
+      },
       { text: 'Class serializer', link: '/guide/serializers/class-serializer' }
     ]
   },

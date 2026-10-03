@@ -14,15 +14,15 @@ description: Run @node-ts/bus on Amazon SQS and SNS with @node-ts/bus-sqs.
 ::: code-group
 
 ```sh [npm]
-npm i @node-ts/bus-sqs
+npm i @node-ts/bus-sqs @node-ts/bus-core
 ```
 
 ```sh [pnpm]
-pnpm add @node-ts/bus-sqs
+pnpm add @node-ts/bus-sqs @node-ts/bus-core
 ```
 
 ```sh [yarn]
-yarn add @node-ts/bus-sqs
+yarn add @node-ts/bus-sqs @node-ts/bus-core
 ```
 
 :::

@@ -16,6 +16,8 @@
     "docs:preview": "pnpm --filter bus-docs run docs:preview",
     "docs:typecheck": "pnpm --filter bus-docs run docs:typecheck",
     "docs:check-redirects": "pnpm --filter bus-docs run docs:check-redirects",
+    "docs:sync-readmes": "pnpm --filter bus-docs run docs:sync-readmes",
+    "docs:check-readmes": "pnpm --filter bus-docs run docs:check-readmes",
     "clean": "pnpm run --recursive clean && rm -r node_modules",
     "format": "prettier --ignore-path .gitignore --write --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",
     "format:check": "prettier --ignore-path .gitignore --check --config .prettierrc.js . \"!**/*.(yml|yaml|mdx)\"",

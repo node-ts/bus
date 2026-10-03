@@ -1,3 +1,4 @@
+// #region usage
 import { Bus } from '@node-ts/bus-core'
 import { SqsTransport, SqsTransportConfiguration } from '@node-ts/bus-sqs'
 import { reserveRoomHandler } from './handlers/reserve-room-handler'
@@ -22,6 +23,7 @@ const bus = Bus.configure()
 await bus.initialize()
 await bus.start()
 // #endregion configure
+// #endregion usage
 
 // #region existing-resources
 // Queues, topics and subscriptions are created elsewhere, e.g. with CDK or Terraform

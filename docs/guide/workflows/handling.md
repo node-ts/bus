@@ -51,6 +51,14 @@ Mapping by fields suits messages that the workflow didn't cause, which don't car
 
 <<< @/snippets/workflows/handling.ts#attribute-mapping
 
+## Typing message attributes
+
+A function workflow handler reads the message's attributes from `ctx.attributes`. To type them, annotate the context:
+
+<<< @/snippets/workflows/handling.ts#typed-attributes
+
+A class workflow handler gets the attributes as its third parameter, and types them the same way as a [handler](/guide/message-attributes/attributes).
+
 ## See also
 
 - [State](/guide/workflows/state)

@@ -2,6 +2,7 @@ import {
   defineWorkflow,
   HandlerContext,
   Workflow,
+  WorkflowContext,
   WorkflowMapper
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -98,6 +99,30 @@ export const fulfilmentByAttributeWorkflow = defineWorkflow(
     }
   )
 // #endregion attribute-mapping
+
+// #region typed-attributes
+type CarrierAttributes = MessageAttributes<{ carrier: string }>
+
+export const fulfilmentByCarrierWorkflow = defineWorkflow(
+  FulfilmentWorkflowState
+)
+  .startedBy(ItemPurchased, ({ itemId, customerId }) => ({
+    itemId,
+    customerId
+  }))
+  .when(
+    ItemShipped,
+    // Annotate the context to type the message attributes
+    (
+      { shippedAt },
+      _state,
+      ctx: WorkflowContext<FulfilmentWorkflowState, CarrierAttributes>
+    ) => {
+      console.log('Shipped by', ctx.attributes.attributes.carrier)
+      return ctx.complete({ shippedAt })
+    }
+  )
+// #endregion typed-attributes
 
 export class FulfilmentByItemWorkflow extends Workflow<FulfilmentWorkflowState> {
   configureWorkflow(

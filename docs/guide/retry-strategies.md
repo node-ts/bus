@@ -7,7 +7,7 @@ description: Control how long the bus waits before retrying a message that faile
 
 When a handler throws, the message goes back on the queue to be retried. A retry strategy decides how long to wait before each retry. This page covers the default strategy and writing your own.
 
-Waiting between retries helps when messages fail because of race conditions, a service being unavailable, or contention with other messages being handled at the same time.
+Waiting between retries helps when messages fail because of race conditions, a service being unavailable, or contention with other messages being handled at the same time. Those failures usually clear up on a later attempt. A message that fails every time, such as because of a bug or data that was changed by hand, is a poison message: once it's out of attempts, it goes to the dead letter queue, where it can be inspected and replayed once the problem is fixed.
 
 <Diagram src="/diagrams/message-flow.svg" alt="A failed message is returned to the queue after the retry strategy's delay, and goes to the dead letter queue once it's out of attempts." />
 

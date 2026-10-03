@@ -104,6 +104,11 @@ jobs:
       - run:
           name: Check the redirects from the old docs
           command: pnpm run docs:check-redirects
+      - run:
+          name: Check the READMEs match the docs
+          # Their code blocks come from docs/snippets, and their links to the
+          # site and the API reference must resolve (after docs:build)
+          command: pnpm run docs:check-readmes
 
   deploy:
     <<: *defaults

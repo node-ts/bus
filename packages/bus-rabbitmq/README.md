@@ -1,69 +1,74 @@
 # @node-ts/bus-rabbitmq
 
-A Rabbit MQ transport adapter for [@node-ts/bus](https://node-ts.github.io/bus)
+A [RabbitMQ](https://www.rabbitmq.com/) transport for [@node-ts/bus](https://node-ts.github.io/bus). It declares the exchanges and queues your handlers need, and retries failed messages after the bus' retry strategy's delay, with no broker plugins.
 
-🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
+[![npm](https://img.shields.io/npm/v/@node-ts/bus-rabbitmq)](https://www.npmjs.com/package/@node-ts/bus-rabbitmq)
 
-🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+**[Documentation](https://node-ts.github.io/bus/transports/rabbitmq)** · [Changelog](https://github.com/node-ts/bus/blob/master/packages/bus-rabbitmq/CHANGELOG.md)
 
 ## Installation
 
 Requires Node.js 24 or later.
 
-Install all packages and their dependencies
-
-```bash
-npm install @node-ts/bus-rabbitmq
+```sh
+npm i @node-ts/bus-rabbitmq @node-ts/bus-core
 ```
 
-Once installed, configure a new `RabbitMqTransport` and register it for use with `Bus`:
+## Usage
 
-```typescript
+Configure a `RabbitMqTransport` and pass it to the bus configuration:
+
+<!-- <<< @/snippets/rabbitmq.ts -->
+
+```ts
 import { Bus } from '@node-ts/bus-core'
 import {
   RabbitMqTransport,
   RabbitMqTransportConfiguration
 } from '@node-ts/bus-rabbitmq'
+import { reserveRoomHandler } from './handlers/reserve-room-handler'
+import { messageTypes } from './message-types.generated'
 
 const rabbitConfiguration: RabbitMqTransportConfiguration = {
-  queueName: 'accounts-application-queue',
+  queueName: 'reservations-service',
+  deadLetterQueueName: 'reservations-service-dead-letter',
   connectionString: 'amqp://guest:guest@localhost',
-  maxRetries: 5
+  maxRetries: 5,
+  // Survive a broker restart
+  persistentMessages: true
 }
 const rabbitMqTransport = new RabbitMqTransport(rabbitConfiguration)
 
-// Configure Bus to use RabbitMQ as a transport
-const run = async () => {
-  const bus = Bus.configure().withTransport(rabbitMqTransport).build()
-  await bus.initialize()
-}
-run.catch(console.error)
+const bus = Bus.configure()
+  .withMessageTypes(messageTypes)
+  .withTransport(rabbitMqTransport)
+  .withHandler(reserveRoomHandler)
+  .build()
+
+// Declares the exchanges and queues, and binds them for each handled message
+await bus.initialize()
+await bus.start()
 ```
 
-## Configuration Options
+The example uses top-level `await`, so it runs as an ES module. In CommonJS, wrap it in an `async` function.
 
-The RabbitMQ transport has the following configuration:
+> **Set `persistentMessages: true` in production.** Messages are transient by default, so a broker restart loses every message in the queues.
 
-- **queueName** _(required)_ The name of the service queue to create and read messages from.
-- **connectionString** _(required)_ An amqp formatted connection string that's used to connect to the RabbitMQ instance
-- **maxRetries** _(optional)_ The number of attempts to retry failed messages before they're routed to the dead letter queue. _Default: 10_
-- **connectionRecovery** _(optional)_ How to reconnect when the connection or channel to RabbitMQ is lost. The transport reconnects with exponential backoff, declares its exchanges, queues and bindings again, and resumes consuming. Messages that were being handled when the channel was lost are redelivered by the broker. _Default: `{ enabled: true, initialDelay: 100, maxDelay: 30000, factor: 2, jitter: 0.2, maxRetries: Infinity }`_
+## Configuration
 
-## Retries
+| Option                | Default       | Description                                                                                                                                                                                         |
+| --------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queueName`           |               | The service queue to create and read messages from.                                                                                                                                                 |
+| `connectionString`    |               | An AMQP connection string, such as `amqp://guest:guest@localhost`.                                                                                                                                  |
+| `deadLetterQueueName` | `dead-letter` | Where messages go once they're out of attempts, or when a handler fails them. Every service shares the default, so give each its own.                                                               |
+| `maxRetries`          | `10`          | How many times a message is attempted before it goes to the dead letter queue. The delay between attempts comes from the bus' retry strategy.                                                       |
+| `persistentMessages`  | `false`       | Whether messages are sent as persistent, so they survive a broker restart.                                                                                                                          |
+| `connectionRecovery`  | enabled       | How to reconnect when the connection or channel is lost: `{ enabled: true, initialDelay: 100, maxDelay: 30000, factor: 2, jitter: 0.2, maxRetries: Infinity }`. The first connection isn't retried. |
 
-When a handler fails, the message is retried after the delay from the bus's retry strategy (`Bus.configure().withRetryStrategy()`, by default an exponential backoff from 5 ms to 2.5 hours). No broker plugin is needed. The transport sets up this topology for a service queue called `<queue>`:
+Retried messages wait in durable `<queue>-retry-<n>ms` queues until their delay expires, and then go back to the service queue.
 
-- `<queue>`: the service queue. Messages are routed into it from a fanout exchange per message name, and from a direct exchange called `<queue>`.
-- `<queue>-retry-<n>ms`: durable retry queues, declared the first time they're needed. A returned message is copied into one of them with a per-message TTL of its retry delay, and then acked. When the TTL expires, the queue dead-letters the message to the `<queue>` exchange, which puts it at the back of the service queue.
-- `<queue>-retry`: a direct exchange, and a queue with a 1 ms TTL, that earlier versions returned messages through. The service queue still dead-letters into it, so it's still declared.
-- The dead letter queue (`deadLetterQueueName`): where messages go once they've been attempted `maxRetries` times, or when a handler calls `bus.failMessage()`.
+## Learn more
 
-RabbitMQ only expires messages from the head of a queue, so a message can't leave a retry queue until the messages ahead of it have. Each retry queue holds delays between half its size and its size (`<n>` is a power of two), so a short delay isn't stuck behind a long one. A message may wait up to twice its delay, but never less than it. The failed attempts are counted in the `failedAttempts` message header.
-
-## Development
-
-Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
-
-```bash
-docker run -d -p 8080:15672 -p 5672:5672 rabbitmq:3-management
-```
+- [RabbitMQ](https://node-ts.github.io/bus/transports/rabbitmq): the topology the transport declares, persistent messages and connection recovery
+- [Retry strategies](https://node-ts.github.io/bus/guide/retry-strategies)
+- [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2#node-ts-bus-rabbitmq)

@@ -19,6 +19,13 @@ export interface SqsTransportConfiguration extends Omit<
   awsRegion?: string
 
   /**
+   * The name of the dead letter queue to fail messages to. Ignored when `deadLetterQueueArn` is given.
+   * @default dlq
+   * @example order-booking-service-dlq
+   */
+  deadLetterQueueName?: string
+
+  /**
    * An optional AWS ARN of the dead letter queue to fail messages to
    * @default undefined
    */

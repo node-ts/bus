@@ -11,6 +11,8 @@
     "docs:preview": "vitepress preview",
     "docs:typecheck": "tsc --noEmit",
     "docs:check-redirects": "node scripts/check-redirects.mjs",
+    "docs:sync-readmes": "node scripts/sync-readmes.mjs",
+    "docs:check-readmes": "node scripts/sync-readmes.mjs --check",
     "generate:message-types": "bus generate-message-types --entry 'snippets/**/*.ts' --out snippets/message-types.generated.ts",
     "check:message-types": "bus generate-message-types --entry 'snippets/**/*.ts' --out snippets/message-types.generated.ts --check"
   },

@@ -1,58 +1,69 @@
 # @node-ts/bus-postgres
 
-A Postgres based persistence for workflow storage in [@node-ts/bus](https://node-ts.github.io/bus)
+A [PostgreSQL](https://www.postgresql.org/) persistence for [@node-ts/bus](https://node-ts.github.io/bus), which stores the state of workflows between messages.
 
-🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
+[![npm](https://img.shields.io/npm/v/@node-ts/bus-postgres)](https://www.npmjs.com/package/@node-ts/bus-postgres)
 
-🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+**[Documentation](https://node-ts.github.io/bus/persistence/postgres)** · [Changelog](https://github.com/node-ts/bus/blob/master/packages/bus-postgres/CHANGELOG.md)
 
 ## Installation
 
 Requires Node.js 24 or later.
 
-Install all packages and their dependencies
-
-```bash
-npm install @node-ts/bus-postgres
+```sh
+npm i @node-ts/bus-postgres @node-ts/bus-core
 ```
 
-Configure a new Postgres persistence and register it with `Bus`:
+## Usage
 
-```typescript
+Create a `PostgresPersistence` and pass it to the bus configuration:
+
+<!-- <<< @/snippets/postgres.ts -->
+
+```ts
 import { Bus } from '@node-ts/bus-core'
 import {
-  PostgresPersistence,
-  PostgresConfiguration
+  PostgresConfiguration,
+  PostgresPersistence
 } from '@node-ts/bus-postgres'
+import { messageTypes } from './message-types.generated'
+import { fulfilmentWorkflow } from './workflows/fulfilment-workflow'
 
-const configuration: PostgresConfiguration = {
+const postgresConfiguration: PostgresConfiguration = {
+  // Passed to a pg Pool
   connection: {
-    connectionString: 'postgres://postgres:password@localhost:5432/postgres'
+    connectionString: 'postgres://postgres:password@localhost:5432/postgres',
+    max: 10
   },
+  // Created if it doesn't exist
   schemaName: 'workflows'
 }
-const postgresPersistence = new PostgresPersistence(configuration)
+const postgresPersistence = new PostgresPersistence(postgresConfiguration)
 
-// Configure bus to use postgres as a persistence
-const run = async () => {
-  const bus = Bus.configure().withPersistence(postgresPersistence).build()
-  await bus.initialize()
-  await bus.start()
-}
-run().catch(console.error)
+const bus = Bus.configure()
+  .withMessageTypes(messageTypes)
+  .withPersistence(postgresPersistence)
+  .withWorkflow(fulfilmentWorkflow)
+  .build()
+
+// Creates a table, and indexes for its lookups, for each workflow state
+await bus.initialize()
+await bus.start()
 ```
 
-## Configuration Options
+The example uses top-level `await`, so it runs as an ES module. In CommonJS, wrap it in an `async` function.
 
-The Postgres persistence has the following configuration:
+## Configuration
 
-- **connection** _(required)_ Connection pool settings for the application to connect to the postgres instance
-- **schemaName** _(required)_ The schema name to create workflow tables under. This can be the 'public' default from postgres, but it's recommended to use 'workflows' or something similar to group all workflow concerns in the one place. This schema will be created if it doesn't already exist. The name is quoted, so it's case-sensitive and used exactly as given.
+| Option       | Default | Description                                                                                                                                                                               |
+| ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection` |         | The [pg `Pool`](https://node-postgres.com/apis/pool) settings, such as `connectionString` and `max`.                                                                                      |
+| `schemaName` |         | The schema to create workflow tables in, such as `workflows`. It's created if it doesn't exist. The name is quoted, so it's case-sensitive and used exactly as given. `public` works too. |
 
-## Development
+To share a pool with the rest of your application, pass your `Pool` as the second constructor argument.
 
-Local development can be done with the aid of docker to run the required infrastructure. To do so, run:
+## Learn more
 
-```bash
-docker run --name bus-postgres -e POSTGRES_PASSWORD=password -p 6432:5432 -d postgres
-```
+- [Postgres](https://node-ts.github.io/bus/persistence/postgres): the tables and indexes it creates
+- [Workflows](https://node-ts.github.io/bus/guide/workflows)
+- [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2#node-ts-bus-postgres)

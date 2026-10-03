@@ -1,134 +1,117 @@
 # @node-ts/bus-core
 
-The core messaging framework. This package provides an in-memory queue and persistence by default, but is designed to be used with other @node-ts/bus-\* packages that provide compatibility with other transports (SQS, RabbitMQ, Azure Queues) and persistence technologies (PostgreSQL, SQL Server, Oracle).
+The core of [@node-ts/bus](https://node-ts.github.io/bus): the bus, message handlers, workflows and retries, with an in-memory transport and persistence for development and tests.
 
-🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
+[![npm](https://img.shields.io/npm/v/@node-ts/bus-core)](https://www.npmjs.com/package/@node-ts/bus-core)
 
-🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+**[Documentation](https://node-ts.github.io/bus/getting-started/installation)** · [Changelog](https://github.com/node-ts/bus/blob/master/packages/bus-core/CHANGELOG.md)
 
 ## Installation
 
 Requires Node.js 24 or later.
 
-Download and install the packages:
-
-```bash
-npm i @node-ts/bus-core @node-ts/bus-messages --save
+```sh
+npm i @node-ts/bus-core @node-ts/bus-messages
+npm i -D @node-ts/bus-cli typescript
 ```
 
-A bus that receives messages needs the message types of every message it handles, generated from your TypeScript source by [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli):
+A bus that receives messages needs the message types of every message it handles, generated from your TypeScript source by `bus generate-message-types`:
 
-```bash
-npm i @node-ts/bus-cli typescript --save-dev
+```sh
 npx bus generate-message-types --entry 'src/**/*.ts'
 ```
 
-Configure and initialize the bus when your application starts up, passing it the generated `messageTypes`.
+## Usage
 
-```typescript
-import { Bus, handlerFor } from '@node-ts/bus-core'
-import { Command } from '@node-ts/bus-messages'
-import { messageTypes } from './message-types.generated'
+Declare a message:
 
-class SendWelcomeEmail extends Command {
-  static NAME = '@my-org/accounts/send-welcome-email'
-  $name = SendWelcomeEmail.NAME
+<!-- <<< @/snippets/messages/reserve-room.ts -->
+
+```ts
+import { Command, Event } from '@node-ts/bus-messages'
+
+export class ReserveRoom extends Command {
+  static NAME = 'reservations/reserve-room'
+  $name = ReserveRoom.NAME
   $version = 0
 
-  constructor(readonly email: string) {
+  constructor(
+    readonly roomId: string,
+    readonly bookingId: string
+  ) {
     super()
   }
 }
 
-const run = async () => {
-  const bus = Bus.configure()
-    .withMessageTypes(messageTypes)
-    .withHandler(
-      handlerFor(SendWelcomeEmail, ({ email }) =>
-        console.log(`Welcome ${email}`)
-      )
-    )
-    .build()
+export class RoomReserved extends Event {
+  static NAME = 'reservations/room-reserved'
+  $name = RoomReserved.NAME
+  $version = 0
 
-  // Create the queues and subscriptions, then start dispatching messages to handlers
-  await bus.initialize()
-  await bus.start()
-
-  await bus.send(new SendWelcomeEmail('ada@example.com'))
+  constructor(
+    readonly roomId: string,
+    readonly bookingId: string
+  ) {
+    super()
+  }
 }
 ```
 
-Messages that are only data can also be declared without a class, with `defineCommand` and `defineEvent` from `@node-ts/bus-messages`. ## Several buses in one process
+Handle it with a function. The handler's context sends and publishes through the bus that received the message:
 
-Each bus is isolated, as if it ran in its own process. Its message types, handling context and logger are its own, so a bus used inside another bus' handler starts a new correlation, doesn't copy the sticky attributes of the message being handled, and can't fail or return that message: `failMessage()` and `returnMessage()` throw, since that bus isn't handling a message. Use the handler context, or the bus that's handling the message, instead.
+<!-- <<< @/snippets/handlers/reserve-room-handler.ts -->
 
-A serializer or persistence can be shared by several buses, since each bus passes its own message types to them. A shared persistence is disposed when the last bus that uses it is disposed. A transport instance holds one queue and one connection, so each bus needs its own: building a second bus with the same transport throws `TransportAlreadyInUse`.
-
-See the [messages guide](https://github.com/node-ts/bus/tree/master/packages/bus-messages#without-a-class).
-
-## Sending and publishing from a handler
-
-Every handler gets a third argument, a `HandlerContext` bound to the bus that received the message. Use it to send and publish instead of capturing the bus in a closure or resolving it from a container. Messages sent through it are held until the handler resolves, and dropped if it throws, and they carry the `correlationId` and sticky attributes of the message being handled.
-
-```typescript
+```ts
 import { handlerFor } from '@node-ts/bus-core'
+import { ReserveRoom, RoomReserved } from '../messages'
+import { reservationService } from '../services'
 
-const placeOrderHandler = handlerFor(
-  PlaceOrder,
-  async (message, attributes, ctx) => {
-    await ctx.publish(new OrderPlaced(message.orderId))
+export const reserveRoomHandler = handlerFor(
+  ReserveRoom,
+  async (command, _attributes, ctx) => {
+    await reservationService.reserveRoom(command.roomId, command.bookingId)
+    // Published once the handler resolves, and dropped if it throws
+    await ctx.publish(new RoomReserved(command.roomId, command.bookingId))
   }
 )
 ```
 
-The context also has `failMessage()`, `returnMessage()` and `correlationId`. Class handlers get it as the third argument of `handle`, and class workflow handlers as the fourth, after the message, the workflow state and the attributes. Workflows declared with `defineWorkflow` get a `WorkflowContext`, which adds the message attributes, `complete()` and `discard()` (see the [workflows guide](https://github.com/node-ts/bus/tree/master/packages/bus-core/src/workflow#with-functions)).
+Configure the bus with the generated message types and the handler, start it, and send the command:
 
-`HandlerContext` and `BusSender` (`send` and `publish`, which `BusInstance` also implements) are interfaces, so a handler can be unit tested by calling it with a plain object. `messageAttributes()` from `@node-ts/bus-messages` fills in empty `attributes` and `stickyAttributes`:
+<!-- <<< @/snippets/handling-messages.ts -->
 
-```typescript
-import { messageAttributes } from '@node-ts/bus-messages'
-
-const published: Event[] = []
-await placeOrderHandler.messageHandler(
-  new PlaceOrder('1'),
-  messageAttributes(),
-  {
-    correlationId: 'test',
-    send: async () => {},
-    publish: async event => {
-      published.push(event)
-    },
-    failMessage: async () => {},
-    returnMessage: async () => {}
-  }
-)
-expect(published).toEqual([new OrderPlaced('1')])
-```
-
-## Shutting down
-
-A bus that handles messages stops gracefully on `SIGINT` and `SIGTERM`. To use other signals, or to let a host such as NestJS or AWS Lambda own shutdown, replace them with `withInterruptSignals`, and call `bus.stop()` or `bus.dispose()` yourself:
-
-```typescript
-const bus = Bus.configure().withInterruptSignals([]).build()
-```
-
-## Dates and classes in messages
-
-Messages are sent as plain JSON. The bus restores Dates, Maps, Sets, bigints and class instances at any depth of the messages and workflow state it receives, using the message types generated by [`bus generate-message-types`](https://github.com/node-ts/bus/tree/master/packages/bus-cli) and passed to `withMessageTypes()`. Pass the generated file of every message library the service handles messages from, as well as its own:
-
-```typescript
-import { messageTypes as orderMessageTypes } from '@my-org/order-messages'
+```ts
+import { Bus } from '@node-ts/bus-core'
+import { reserveRoomHandler } from './handlers/reserve-room-handler'
 import { messageTypes } from './message-types.generated'
+import { ReserveRoom } from './messages'
 
 const bus = Bus.configure()
-  .withMessageTypes(orderMessageTypes, messageTypes)
-  .withHandler(orderPlacedHandler)
+  .withMessageTypes(messageTypes)
+  .withHandler(reserveRoomHandler)
   .build()
+
+await bus.initialize()
+// Start the bus to begin handling messages
+await bus.start()
+
+await bus.send(
+  new ReserveRoom(
+    '63a65cf0-d239-4b83-96da-f33f013db23a',
+    '12b85a56-e929-47a8-9ac3-e87739d5d215'
+  )
+)
 ```
 
-A bus that receives messages checks at `initialize()` that it has message types for every message it handles and every workflow state it persists, and throws `MessageTypesMissing`, naming them, if not. Send-only buses don't need message types. Two maps that define the same `$name` differently throw `MessageTypesConflict` at `build()`.
+The example uses top-level `await`, so it runs as an ES module. In CommonJS, wrap it in an `async` function.
 
-See the [messages guide](https://github.com/node-ts/bus/tree/master/packages/bus-messages#messages) for the plain-data alternative and the known limits.
+Messages travel as JSON. The bus restores the Dates, Maps, Sets, bigints and classes in them from the generated message types, with no decorators.
 
-For more information, visit our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus)
+The in-memory transport and persistence lose everything when the process stops. In production, use a transport, [@node-ts/bus-rabbitmq](https://www.npmjs.com/package/@node-ts/bus-rabbitmq) or [@node-ts/bus-sqs](https://www.npmjs.com/package/@node-ts/bus-sqs), and for workflows a persistence, [@node-ts/bus-postgres](https://www.npmjs.com/package/@node-ts/bus-postgres) or [@node-ts/bus-mongodb](https://www.npmjs.com/package/@node-ts/bus-mongodb).
+
+## Learn more
+
+- [Handling messages](https://node-ts.github.io/bus/getting-started/handling-messages), including testing handlers
+- [Workflows](https://node-ts.github.io/bus/guide/workflows)
+- [Serializers](https://node-ts.github.io/bus/guide/serializers), for how messages are restored
+- [Transports](https://node-ts.github.io/bus/transports) and [persistence](https://node-ts.github.io/bus/persistence)

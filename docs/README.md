@@ -8,6 +8,8 @@ pnpm docs:dev          # http://localhost:5173/bus/, reloading as you edit
 pnpm docs:typecheck    # type check every snippet against the built packages
 pnpm docs:build        # build to docs/.vitepress/dist; fails on dead links
 pnpm docs:check-redirects
+pnpm docs:sync-readmes # write the package READMEs' code blocks from snippets/
+pnpm docs:check-readmes
 ```
 
 ## Layout
@@ -24,7 +26,7 @@ pnpm docs:check-redirects
 | `.vitepress/config.mts`       | Navigation, sidebars, search, `llms.txt` and the head tags                                                       |
 | `.vitepress/theme/`           | The custom theme: brand styles in `style.css`, and the components below                                          |
 | `redirects.json`              | Old paths and the pages they moved to. The build writes a redirect stub at each (`.vitepress/redirect-stubs.ts`) |
-| `scripts/`                    | The redirect check, and the old sites' paths it checks against                                                   |
+| `scripts/`                    | The redirect check and the old sites' paths it checks against, and the README sync                               |
 | `typedoc.json`, `typedoc/`    | The API reference config, and a plugin that fails the build on a `{@link}` that doesn't resolve                  |
 
 A new page needs an entry in the sidebar in `.vitepress/config.mts`, in the section it belongs to: Getting started, Guide, Transports, Persistence or Reference.
@@ -72,6 +74,51 @@ Every TypeScript code block comes from a file in `snippets/`, so that `pnpm docs
 - Show a whole file with `<<< @/snippets/file.ts`, or part of one with `<<< @/snippets/file.ts#region`, marking the part with `// #region name` and `// #endregion name`. Add `[Label]` after it to title it in a code group.
 - A bus that receives messages needs `.withMessageTypes(messageTypes)`. After adding or changing a message or workflow state in `snippets/`, run `pnpm --filter bus-docs run generate:message-types` and commit `snippets/message-types.generated.ts`.
 - Snippets are linted and formatted like the rest of the repo.
+
+## Package READMEs
+
+Each package's `README.md` is published to npm with it, and is the first thing people see there. It's short, and links to the site for everything else. Every package README has the same shape:
+
+````md
+# @node-ts/<package>
+
+One or two sentences: what it is, and which part of @node-ts/bus it fills.
+
+[![npm](https://img.shields.io/npm/v/@node-ts/<package>)](https://www.npmjs.com/package/@node-ts/<package>)
+
+**[Documentation](https://node-ts.github.io/bus/<its page>)** · [Changelog](https://github.com/node-ts/bus/blob/master/packages/<package>/CHANGELOG.md)
+
+## Installation
+
+Requires Node.js 24 or later.
+
+```sh
+npm i @node-ts/<package> <its required peers, such as @node-ts/bus-core>
+```
+
+## Usage
+
+The smallest complete example, from snippets/: imports, configuration, build(), initialize() and start().
+
+<!-- <<< @/snippets/<file>.ts#<region> -->
+
+```ts
+
+```
+
+## Configuration
+
+Adapters only: an Option | Default | Description table that matches the configuration interface's JSDoc and @default values.
+
+## Learn more
+
+- Two to four links to the pages of the site that cover it
+````
+
+- Use absolute URLs, since npm doesn't resolve relative links, and link to the latest docs, at `https://node-ts.github.io/bus/<page>`.
+- Don't add a Development section: [CONTRIBUTING.md](../CONTRIBUTING.md) covers working on the library. Don't add support or community links either.
+- Keep short warnings that people need before they first use the package, such as setting `persistentMessages: true` in production. Behaviour and deep dives go on the site.
+- Every TypeScript code block comes from `snippets/`. Put a `<!-- <<< @/snippets/file.ts#region -->` marker before it, in the same form as a page's `<<<`, and run `pnpm docs:sync-readmes` to write the block. `pnpm docs:check-readmes`, which CircleCI's `docs` job runs after the build, fails if a block is out of date or has no marker, if a link to the site, its headings or a file in the repository doesn't resolve, or if a package README doesn't follow this shape.
 
 ## Components
 

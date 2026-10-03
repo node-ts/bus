@@ -13,7 +13,7 @@ A function handler gets its dependencies from the scope it's declared in. To swa
 
 <<< @/snippets/dependency-injection.ts#closure
 
-A handler doesn't need the bus injected to send or publish: it uses its [`HandlerContext`](/api/bus-core/interfaces/HandlerContext), which is bound to the bus that received the message.
+A handler doesn't need the bus injected to send or publish: it uses its [`HandlerContext`](/api/bus-core/interfaces/HandlerContext), which is bound to the bus that received the message. Code outside handlers that only sends and publishes can depend on the [`BusSender`](/api/bus-core/interfaces/BusSender) interface, which both `BusInstance` and `HandlerContext` implement, so it can be given either, or a fake in tests.
 
 ## With a container
 
