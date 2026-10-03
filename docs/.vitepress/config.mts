@@ -84,7 +84,6 @@ const guide: DefaultTheme.SidebarItem[] = [
     items: [
       { text: 'Retry strategies', link: '/guide/retry-strategies' },
       { text: 'Middleware', link: '/guide/middleware' },
-      { text: 'Lifecycle hooks', link: '/guide/lifecycle-hooks' },
       { text: 'Dependency injection', link: '/guide/dependency-injection' },
       {
         text: 'Long running processes',

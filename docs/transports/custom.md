@@ -30,6 +30,7 @@ A few rules the bus relies on:
 - `returnMessage()` makes the message available again after the retry strategy's delay, and moves it to the dead letter queue once it's out of attempts. The conformance suite expects at least 10 attempts.
 - `fail()` moves a message straight to the dead letter queue. The bus deletes it from the service queue afterwards with `deleteMessage()`.
 - Every attribute is carried with the message, including the [`messageId` and `sentAt`](/guide/message-attributes/message-id) the bus stamps on it, and stays the same when it's retried and when it's dead-lettered. Set `TransportMessage.id` to the broker's own id for the delivery when it has one, since that's what the broker needs to settle it and it may change when a message is copied. A broker with no id of its own can use the bus' `messageId`, as the RabbitMQ transport does.
+- `send()` and `publish()` get the native `headers` that [outgoing middleware](/guide/middleware#transport-headers) set in their third argument. Write them as the broker's own headers, and throw `TransportHeaderReserved` for a name the transport uses itself.
 - Each transport instance is one queue and one connection. `build()` throws `TransportAlreadyInUse` if two buses are given the same instance.
 
 Pass the transport to the bus configuration:

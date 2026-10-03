@@ -28,6 +28,6 @@ Send-only buses never listen for signals.
 
 ## See also
 
-- [Lifecycle hooks](/guide/lifecycle-hooks)
+- [Middleware](/guide/middleware), to run code around every message the bus handles
 - [Long running processes](/guide/long-running-processes), for work that takes longer than a shutdown can wait
 - [`BusInstance`](/api/bus-core/classes/BusInstance) in the API reference
