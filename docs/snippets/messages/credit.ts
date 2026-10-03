@@ -28,6 +28,7 @@ export class CheckCredit extends Command {
   $version = 0
 
   constructor(
+    readonly orderId: string,
     readonly customerId: string,
     readonly amount: number
   ) {
@@ -44,7 +45,7 @@ export class CreditChecked extends Event {
   $version = 0
 
   constructor(
-    readonly customerId: string,
+    readonly orderId: string,
     readonly approved: boolean
   ) {
     super()

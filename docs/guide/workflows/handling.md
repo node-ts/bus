@@ -27,7 +27,7 @@ What happens is:
 4. `ItemShipped` arrives, and its `$workflowId` finds the workflow's state.
 5. The `ItemShipped` handler of that workflow instance runs.
 
-The default mapping suits messages that are replies to commands the workflow sent. [Request and reply](/guide/request-reply) shows it with a request to another service.
+The default mapping suits messages that are replies to commands the workflow sent. [Request and reply](/guide/workflows/request-reply) shows it with a request to another service.
 
 ## Mapping by message fields
 
