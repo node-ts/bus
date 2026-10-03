@@ -8,7 +8,10 @@ import { EventEmitter } from 'events'
 import { Logger } from '../logger'
 import { Milliseconds } from '../retry-strategy'
 import { CoreDependencies } from '../util'
-import { DefaultInMemoryQueueConfiguration } from './default-in-memory-queue-configuration'
+import {
+  DEFAULT_IN_MEMORY_ENDPOINT_NAME,
+  DefaultInMemoryQueueConfiguration
+} from './default-in-memory-queue-configuration'
 import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
 import { Transport, TransportInitializationOptions } from './transport'
 import { TransportMessage } from './transport-message'
@@ -50,9 +53,18 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   private logger!: Logger
   private coreDependencies!: CoreDependencies
 
+  /**
+   * The `endpointName` from the configuration
+   * @default in-memory
+   */
+  readonly endpointName: string
+
   constructor(
     private memoryQueueConfiguration: InMemoryQueueConfiguration = new DefaultInMemoryQueueConfiguration()
-  ) {}
+  ) {
+    this.endpointName =
+      memoryQueueConfiguration.endpointName ?? DEFAULT_IN_MEMORY_ENDPOINT_NAME
+  }
 
   prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies

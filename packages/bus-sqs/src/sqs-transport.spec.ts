@@ -62,6 +62,11 @@ describe('sqs-transport', () => {
       expect(messageAttributes.correlationId).toEqual(correlationId)
     })
 
+    it('should leave out the messageId and sentAt when they are missing', () => {
+      expect(messageAttributes).not.toHaveProperty('messageId')
+      expect(messageAttributes).not.toHaveProperty('sentAt')
+    })
+
     it('should parse the attributes', () => {
       expect(messageAttributes.attributes).toMatchObject({
         attribute1: 'a',
@@ -128,6 +133,8 @@ describe('sqs-transport', () => {
   describe('when round tripping message attributes through the SNS envelope', () => {
     const messageOptions: MessageAttributes = {
       correlationId: randomUUID(),
+      messageId: randomUUID(),
+      sentAt: new Date().toISOString(),
       attributes: { flag: true, off: false, zero: 0, name: 'x' },
       stickyAttributes: { flag: true, off: false, zero: 0, name: 'y' }
     }
@@ -156,6 +163,8 @@ describe('sqs-transport', () => {
   describe('when converting message attributes to SNS attribute values', () => {
     const messageOptions: MessageAttributes = {
       correlationId: randomUUID(),
+      messageId: randomUUID(),
+      sentAt: new Date().toISOString(),
       attributes: {
         attribute1: 'a',
         attribute2: 1
@@ -178,6 +187,17 @@ describe('sqs-transport', () => {
       expect(messageAttributes.correlationId.StringValue).toEqual(
         messageOptions.correlationId
       )
+    })
+
+    it('should convert the messageId and sentAt to top level String attributes', () => {
+      expect(messageAttributes.messageId).toEqual({
+        DataType: 'String',
+        StringValue: messageOptions.messageId
+      })
+      expect(messageAttributes.sentAt).toEqual({
+        DataType: 'String',
+        StringValue: messageOptions.sentAt
+      })
     })
 
     it('should convert attributesValues', () => {
@@ -746,6 +766,38 @@ describe('sqs-transport', () => {
         'us-west-2'
       )
       sqs.verifyAll()
+    })
+  })
+
+  describe('when reading the endpoint name', () => {
+    describe('with a queue name', () => {
+      let sut: string
+
+      beforeAll(() => {
+        sut = new SqsTransport({
+          awsAccountId: '123456789012',
+          awsRegion: 'us-west-2',
+          queueName: 'order-service'
+        }).endpointName
+      })
+
+      it('should be the queue name', () => {
+        expect(sut).toEqual('order-service')
+      })
+    })
+
+    describe('with a queue arn', () => {
+      let sut: string
+
+      beforeAll(() => {
+        sut = new SqsTransport({
+          queueArn: 'arn:aws:sqs:us-west-2:123456789012:order-service'
+        }).endpointName
+      })
+
+      it('should be the queue name from the arn', () => {
+        expect(sut).toEqual('order-service')
+      })
     })
   })
 

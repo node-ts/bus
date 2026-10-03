@@ -72,6 +72,30 @@ describe('InMemoryQueue', () => {
     await sut.initialize()
   })
 
+  describe('when reading the endpoint name', () => {
+    describe('without one configured', () => {
+      it('should default to in-memory', () => {
+        expect(sut.endpointName).toEqual('in-memory')
+      })
+    })
+
+    describe('with one configured', () => {
+      let named: InMemoryQueue
+
+      beforeEach(() => {
+        named = new InMemoryQueue({
+          maxRetries: 3,
+          receiveTimeoutMs: 1000,
+          endpointName: 'order-service'
+        })
+      })
+
+      it('should use it', () => {
+        expect(named.endpointName).toEqual('order-service')
+      })
+    })
+  })
+
   describe('when publishing an event', () => {
     it('should push the event onto the memory queue', async () => {
       await sut.publish(event, messageOptions)

@@ -21,7 +21,7 @@ A RabbitMQ transport (amqplib). Read the root `CLAUDE.md` first.
   - `<queue>-retry-<n>ms` are durable retry queues (no TTL of their own) that dead-letter back to the service exchange. They're declared lazily in `returnMessage` and memoized like `assertedExchanges`.
   - `<queue>-retry` is a direct exchange plus a queue with a 1 ms TTL that dead-letters back to the service exchange. It's legacy: nothing sends to it now, but the service queue's `x-dead-letter-*` arguments point at it, and changing a queue's arguments makes declaring an existing queue fail with `PRECONDITION_FAILED`. Keep it.
   - The DLQ is bound to the retry exchange with routing key `error`.
-- Attributes and sticky attributes are stored in message headers as JSON strings. Each publish gets a new uuid `messageId`.
+- Attributes and sticky attributes are stored in message headers as JSON strings. The AMQP `messageId` property is the bus' `messageId` attribute (a new uuid only if the transport is called without one), and `sentAt` is a `sentAt` header because the AMQP `timestamp` only has second precision. Retry and DLQ copies keep the properties and headers. `endpointName` is `queueName`.
 
 ## Retry and failure
 

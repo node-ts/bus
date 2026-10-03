@@ -320,7 +320,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * or after the handler has already resolved) it's published straight away. `afterPublish` is emitted once
    * the transport has published it.
    * @param event An event to publish
-   * @param messageAttributes A set of attributes to attach to the outgoing message when published
+   * @param messageAttributes A set of attributes to attach to the outgoing message when published. A new
+   * `messageId` and `sentAt` are set unless given.
    */
   async publish<TEvent extends Event>(
     event: TEvent,
@@ -345,7 +346,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * or after the handler has already resolved) it's sent straight away. `afterSend` is emitted once the
    * transport has sent it.
    * @param command A command to send
-   * @param messageAttributes A set of attributes to attach to the outgoing message when sent
+   * @param messageAttributes A set of attributes to attach to the outgoing message when sent. A new `messageId`
+   * and `sentAt` are set unless given.
    */
   async send<TCommand extends Command>(
     command: TCommand,
@@ -766,6 +768,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           ? handlingContext.attributes.correlationId
           : undefined) ||
         randomUUID(),
+      // Unlike the correlation id, these identify this message, so they're never copied from the one being handled
+      messageId: clientOptions.messageId || randomUUID(),
+      sentAt: clientOptions.sentAt || new Date().toISOString(),
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
         ...(handlingContext ? handlingContext.attributes.stickyAttributes : {}),

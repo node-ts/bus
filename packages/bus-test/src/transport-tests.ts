@@ -48,6 +48,7 @@ export const transportTests = (
   const handleChecker = Mock.ofType<HandleChecker>()
   const roundTripReceiver = new RoundTripReceiver()
   let poisonedMessageReceiptAttempts = 0
+  const poisonedMessageAttemptAttributes: MessageAttributes[] = []
   let bus: BusInstance
 
   describe('when the transport has been initialized', () => {
@@ -71,7 +72,8 @@ export const transportTests = (
           })
         )
         .withHandler(
-          handlerFor(TestPoisonedMessage, async () => {
+          handlerFor(TestPoisonedMessage, async (_, attributes) => {
+            poisonedMessageAttemptAttributes.push(attributes)
             poisonedMessageReceiptAttempts++
             testPoisonedMessageHandlerEmitter.emit(
               'received',
@@ -131,6 +133,7 @@ export const transportTests = (
       const testCommand = new TestCommand(randomUUID(), new Date())
       const messageOptions: MessageAttributes = {
         correlationId: randomUUID(),
+        messageId: randomUUID(),
         attributes: {
           attribute1: 'a',
           attribute2: 1
@@ -155,6 +158,19 @@ export const transportTests = (
             h.check(
               It.isAny(),
               It.isObjectWith<MessageAttributes>(messageOptions)
+            ),
+          Times.once()
+        )
+      })
+
+      it('should keep the messageId given by the caller', () => {
+        handleChecker.verify(
+          h =>
+            h.check(
+              It.isAny(),
+              It.is<MessageAttributes>(
+                attributes => attributes.messageId === messageOptions.messageId
+              )
             ),
           Times.once()
         )
@@ -190,17 +206,39 @@ export const transportTests = (
         stickyAttributes: {}
       }
 
-      it('should receive and dispatch to the handler', async () => {
+      beforeAll(async () => {
         const messageHandled = new Promise(resolve =>
-          testEventHandlerEmitter.on('received', resolve)
+          testEventHandlerEmitter.once('received', resolve)
         )
         await bus.publish(testEvent, messageOptions)
         await messageHandled
+      })
+
+      it('should receive and dispatch to the handler', () => {
         handleChecker.verify(
           h =>
             h.check(
               It.isAnyObject(TestEvent),
               It.isObjectWith<MessageAttributes>(messageOptions)
+            ),
+          Times.once()
+        )
+      })
+
+      it('should arrive with the messageId and sentAt stamped by the bus', () => {
+        handleChecker.verify(
+          h =>
+            h.check(
+              It.isAnyObject(TestEvent),
+              It.is<MessageAttributes>(
+                attributes =>
+                  attributes.correlationId === messageOptions.correlationId &&
+                  typeof attributes.messageId === 'string' &&
+                  attributes.messageId.length > 0 &&
+                  typeof attributes.sentAt === 'string' &&
+                  new Date(attributes.sentAt).toISOString() ===
+                    attributes.sentAt
+              )
             ),
           Times.once()
         )
@@ -230,18 +268,37 @@ export const transportTests = (
         const [deadMessage] = deadMessages
         expect(deadMessage.message).toMatchObject(poisonedMessage)
       })
+
+      it('should keep the messageId and sentAt across retries', () => {
+        const [firstAttempt] = poisonedMessageAttemptAttributes
+        expect(firstAttempt.messageId).toBeDefined()
+        expect(firstAttempt.sentAt).toBeDefined()
+        poisonedMessageAttemptAttributes.forEach(attempt => {
+          expect(attempt.messageId).toEqual(firstAttempt.messageId)
+          expect(attempt.sentAt).toEqual(firstAttempt.sentAt)
+        })
+      })
+
+      it('should keep the messageId and sentAt in the dead letter queue', () => {
+        const [firstAttempt] = poisonedMessageAttemptAttributes
+        const [deadMessage] = deadMessages
+        expect(deadMessage.attributes.messageId).toEqual(firstAttempt.messageId)
+        expect(deadMessage.attributes.sentAt).toEqual(firstAttempt.sentAt)
+      })
     })
 
     describe('when failing a message', () => {
       const messageToFail = new TestFailMessage(randomUUID())
       const correlationId = randomUUID()
+      const messageId = randomUUID()
+      const sentAt = new Date().toISOString()
       let deadLetterQueueMessages: {
         message: Message
         attributes: MessageAttributes
       }[]
 
       beforeAll(async () => {
-        await bus.publish(messageToFail, { correlationId })
+        await bus.publish(messageToFail, { correlationId, messageId, sentAt })
         deadLetterQueueMessages = await readAllFromDeadLetterQueue()
       })
 
@@ -264,9 +321,11 @@ export const transportTests = (
         const deadLetterMessage = deadLetterQueueMessages.find(
           msg => msg.message.$name === messageToFail.$name
         )
-        expect(deadLetterMessage?.attributes.correlationId).toEqual(
-          correlationId
-        )
+        expect(deadLetterMessage?.attributes).toMatchObject({
+          correlationId,
+          messageId,
+          sentAt
+        })
       })
     })
   })

@@ -25,6 +25,11 @@ export class MyTransport implements Transport<BrokerMessage> {
     private readonly client: BrokerClient
   ) {}
 
+  // Identifies the service, so it's the name of the queue it receives from
+  get endpointName(): string {
+    return this.configuration.queueName
+  }
+
   // Called by Bus.configure().build() with the bus' serializer, logger and retry strategy
   prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
@@ -90,6 +95,8 @@ export class MyTransport implements Transport<BrokerMessage> {
       ),
       attributes: {
         correlationId: raw.headers.correlationId,
+        messageId: raw.headers.messageId,
+        sentAt: raw.headers.sentAt,
         attributes: JSON.parse(raw.headers.attributes ?? '{}'),
         stickyAttributes: JSON.parse(raw.headers.stickyAttributes ?? '{}')
       }
@@ -138,6 +145,9 @@ export class MyTransport implements Transport<BrokerMessage> {
         ...(attributes.correlationId && {
           correlationId: attributes.correlationId
         }),
+        // The bus sets both on every message it sends
+        ...(attributes.messageId && { messageId: attributes.messageId }),
+        ...(attributes.sentAt && { sentAt: attributes.sentAt }),
         attributes: JSON.stringify(attributes.attributes),
         stickyAttributes: JSON.stringify(attributes.stickyAttributes)
       }

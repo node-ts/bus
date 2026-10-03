@@ -16,6 +16,8 @@ A transport sends commands, publishes events, and reads, deletes, returns and fa
 - `start()` and `stop()`, when the bus starts and stops reading.
 - `disconnect()` and `dispose()`, at `dispose()`.
 
+It also has a readonly `endpointName`: the name of the endpoint the bus runs as, which is the name of the queue it receives from. It identifies the service, so it should be the same on every instance and across restarts. The SQS and RabbitMQ transports use their `queueName`, and `InMemoryQueue` uses its `endpointName` option, `in-memory` by default.
+
 `prepare(coreDependencies)` is called by `build()`. Keep the dependencies it's given: the bus' `messageSerializer`, to write and read message bodies so their Dates and classes are restored, its `loggerFactory` and its `retryStrategy`.
 
 This skeleton adapts an imaginary broker client:
@@ -27,6 +29,7 @@ A few rules the bus relies on:
 - `readNextMessage()` returns `undefined` when there's nothing to read, rather than throwing.
 - `returnMessage()` makes the message available again after the retry strategy's delay, and moves it to the dead letter queue once it's out of attempts. The conformance suite expects at least 10 attempts.
 - `fail()` moves a message straight to the dead letter queue. The bus deletes it from the service queue afterwards with `deleteMessage()`.
+- Every attribute is carried with the message, including the [`messageId` and `sentAt`](/guide/message-attributes/message-id) the bus stamps on it, and stays the same when it's retried and when it's dead-lettered. Keep the broker's own message id in `TransportMessage.id`, since it may change when a message is copied.
 - Each transport instance is one queue and one connection. `build()` throws `TransportAlreadyInUse` if two buses are given the same instance.
 
 Pass the transport to the bus configuration:

@@ -95,6 +95,8 @@ describe('RabbitMqTransport', () => {
 
     const attributes: MessageAttributes = {
       correlationId: rabbitMessage.properties.correlationId as string,
+      messageId: rabbitMessage.properties.messageId as string,
+      sentAt: rabbitMessage.properties.headers?.sentAt as string | undefined,
       attributes:
         rabbitMessage.properties.headers &&
         rabbitMessage.properties.headers.attributes
@@ -140,6 +142,12 @@ describe('RabbitMqTransport', () => {
     systemMessageTopicIdentifier,
     readAllFromDeadLetterQueue
   )
+
+  describe('when reading the endpoint name', () => {
+    it('should be the queue name', () => {
+      expect(rabbitMqTransport.endpointName).toEqual(configuration.queueName)
+    })
+  })
 
   describe('with connection recovery', () => {
     const recoveryConfiguration: RabbitMqTransportConfiguration = {

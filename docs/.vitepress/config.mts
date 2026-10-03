@@ -50,6 +50,10 @@ const guide: DefaultTheme.SidebarItem[] = [
     link: '/guide/message-attributes',
     items: [
       {
+        text: 'Message id and sent time',
+        link: '/guide/message-attributes/message-id'
+      },
+      {
         text: 'Correlation id',
         link: '/guide/message-attributes/correlation-id'
       },

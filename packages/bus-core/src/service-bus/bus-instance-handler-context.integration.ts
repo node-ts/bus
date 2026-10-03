@@ -68,6 +68,65 @@ describe('BusInstance handler context', () => {
     })
   })
 
+  describe('when a handler publishes a message with its own messageId and sentAt', () => {
+    const messageId = 'command-message-id'
+    const sentAt = '2026-01-01T00:00:00.000Z'
+    let bus: BusInstance
+    let commandAttributes: MessageAttributes
+    let eventAttributes: MessageAttributes
+
+    beforeAll(async () => {
+      const events = new EventEmitter()
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(
+          handlerFor(TestCommand, async (_, attributes, ctx) => {
+            commandAttributes = attributes
+            await ctx.publish(new TestEvent())
+          })
+        )
+        .withHandler(
+          handlerFor(TestEvent, async (_, attributes) => {
+            events.emit('received', attributes)
+          })
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const received = once(events, 'received')
+      await sendTestCommand(bus, {
+        correlationId: 'correlation-id',
+        messageId,
+        sentAt
+      })
+      ;[eventAttributes] = await received
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should give the handler the messageId and sentAt the message was sent with', () => {
+      expect(commandAttributes).toMatchObject({ messageId, sentAt })
+    })
+
+    it('should give the published message a new messageId', () => {
+      expect(eventAttributes.messageId).toEqual(expect.any(String))
+      expect(eventAttributes.messageId).not.toEqual(messageId)
+    })
+
+    it('should give the published message its own sentAt', () => {
+      expect(eventAttributes.sentAt).toEqual(expect.any(String))
+      expect(eventAttributes.sentAt).not.toEqual(sentAt)
+    })
+
+    it('should still inherit the correlation id', () => {
+      expect(eventAttributes.correlationId).toEqual('correlation-id')
+    })
+  })
+
   describe('when a function handler publishes through its context and then fails', () => {
     let bus: BusInstance
     const afterPublishCallback = Mock.ofType<(event: Event) => void>()

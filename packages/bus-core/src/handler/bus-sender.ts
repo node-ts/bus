@@ -20,7 +20,8 @@ export interface BusSender {
    * resolves, and is dropped if the handler fails.
    * @param command The command to send
    * @param messageAttributes Attributes to attach to the outgoing message. The `correlationId` and
-   * `stickyAttributes` of the message being handled are added when sent from a handler.
+   * `stickyAttributes` of the message being handled are added when sent from a handler. A new `messageId` and
+   * `sentAt` are set unless given.
    */
   send<TCommand extends Command>(
     command: TCommand,
@@ -32,7 +33,8 @@ export interface BusSender {
    * handler resolves, and is dropped if the handler fails.
    * @param event The event to publish
    * @param messageAttributes Attributes to attach to the outgoing message. The `correlationId` and
-   * `stickyAttributes` of the message being handled are added when published from a handler.
+   * `stickyAttributes` of the message being handled are added when published from a handler. A new `messageId` and
+   * `sentAt` are set unless given.
    */
   publish<TEvent extends Event>(
     event: TEvent,
