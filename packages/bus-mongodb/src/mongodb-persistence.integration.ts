@@ -7,7 +7,10 @@ import {
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { workflowStateRoundTripTests } from '@node-ts/bus-test'
+import {
+  scheduledMessageRoundTripTests,
+  workflowStateRoundTripTests
+} from '@node-ts/bus-test'
 import { Collection, Db, Document, MongoClient } from 'mongodb'
 import { randomUUID } from 'node:crypto'
 import { Mock } from 'typemoq'
@@ -61,6 +64,8 @@ const collectIndexNames = (explain: Document): string[] => {
   return names
 }
 
+const scheduledRoundTripDatabaseName = 'outgoing_round_trip'
+
 describe('MongodbPersistence', () => {
   let sut: MongodbPersistence
   let client: MongoClient
@@ -87,6 +92,7 @@ describe('MongodbPersistence', () => {
 
   afterAll(async () => {
     await client.db(configuration.databaseName).dropDatabase()
+    await client.db(scheduledRoundTripDatabaseName).dropDatabase()
     await bus.dispose()
     await client.close()
   })
@@ -426,4 +432,12 @@ describe('MongodbPersistence', () => {
   })
 
   workflowStateRoundTripTests(new MongodbPersistence(configuration))
+
+  // On a database of its own, so the bus this file starts doesn't send the suite's scheduled messages
+  scheduledMessageRoundTripTests(
+    new MongodbPersistence({
+      ...configuration,
+      databaseName: scheduledRoundTripDatabaseName
+    })
+  )
 })

@@ -3,11 +3,12 @@ import {
   CoreDependencies,
   Logger,
   MessageWorkflowMapping,
+  OutgoingMessage,
   Persistence,
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { Db, MongoClient } from 'mongodb'
+import { AnyBulkWriteOperation, Db, MongoClient } from 'mongodb'
 import { WorkflowStateNotFound } from './error'
 import { decodeKeys, encodeKey, encodeKeys } from './key-encoding'
 import { MongodbConfiguration } from './mongodb-configuration'
@@ -17,7 +18,38 @@ import { MongodbConfiguration } from './mongodb-configuration'
  */
 const WORKFLOW_DATA_FIELD_NAME = 'data'
 
+/**
+ * The collection that stores messages sent with `deliverAfter` or `deliverAt`
+ */
+const OUTGOING_MESSAGES_COLLECTION_NAME = 'outgoingmessages'
+
+/**
+ * A document of the outgoing messages collection. The message, attributes and headers are stored with their keys
+ * encoded, like workflow state.
+ */
+interface OutgoingMessageDocument {
+  _id: string
+  kind: OutgoingMessage['kind']
+  message: object
+  attributes: object
+  headers: object
+  dueAt: Date
+  /**
+   * When the message can next be claimed: its due time, or the end of its lease once it's been claimed. Claims
+   * only read this field, so leased messages don't slow them down as they pile up.
+   */
+  availableAt: Date
+  attempts: number
+}
+
+/**
+ * Stores workflow state, and messages sent with `deliverAfter` or `deliverAt`, in MongoDB
+ */
 export class MongodbPersistence implements Persistence {
+  /**
+   * What it stores is kept in MongoDB, so it survives a restart
+   */
+  readonly durable = true
   private logger: Logger
   private database: Db
   constructor(
@@ -35,6 +67,12 @@ export class MongodbPersistence implements Persistence {
     this.logger.info('Initializing mongodb persistence...')
     await this.client.connect()
     this.database = this.client.db(this.configuration.databaseName)
+    await this.outgoingMessages().createIndex(
+      { availableAt: 1 },
+      {
+        name: resolveIndexName(OUTGOING_MESSAGES_COLLECTION_NAME, 'availableAt')
+      }
+    )
     this.logger.info('Mongodb persistence initialized')
   }
 
@@ -120,6 +158,131 @@ export class MongodbPersistence implements Persistence {
       plainWorkflowState,
       oldVersion,
       newVersion
+    )
+  }
+
+  async storeOutgoingMessages(
+    outgoingMessages: OutgoingMessage[]
+  ): Promise<string[]> {
+    if (outgoingMessages.length === 0) {
+      return []
+    }
+    this.logger.debug('Storing outgoing messages', {
+      numMessages: outgoingMessages.length
+    })
+    // An upsert that only sets fields on insert leaves a message that's already stored as it is
+    const operations: AnyBulkWriteOperation<OutgoingMessageDocument>[] =
+      outgoingMessages.map(
+        ({ id, kind, message, attributes, headers, dueAt, leaseUntil }) => ({
+          updateOne: {
+            filter: { _id: id },
+            update: {
+              $setOnInsert: {
+                kind,
+                message: encodeKeys(message),
+                attributes: encodeKeys(attributes),
+                headers: encodeKeys(headers),
+                dueAt,
+                availableAt: new Date(
+                  Math.max(dueAt.getTime(), leaseUntil?.getTime() ?? 0)
+                ),
+                attempts: 0
+              }
+            },
+            upsert: true
+          }
+        })
+      )
+    const result = await this.outgoingMessages().bulkWrite(operations, {
+      ordered: false
+    })
+    // Only inserted messages are upserted, so the rest were already stored
+    const upsertedIndexes = new Set(Object.keys(result.upsertedIds).map(Number))
+    return outgoingMessages
+      .filter((_, index) => !upsertedIndexes.has(index))
+      .map(({ id }) => id)
+  }
+
+  /**
+   * Claims due messages, comparing times with the database's clock unless `now` is given
+   */
+  async claimDueOutgoingMessages(
+    limit: number,
+    leaseMs: number,
+    maxLeaseMs: number,
+    now?: Date
+  ): Promise<OutgoingMessage[]> {
+    const claimAt = now ?? (await this.databaseTime())
+    const claimed: OutgoingMessage[] = []
+    // Each findOneAndUpdate claims one message atomically, so concurrent claims never return the same one
+    while (claimed.length < limit) {
+      const result = await this.outgoingMessages().findOneAndUpdate(
+        { availableAt: { $lte: claimAt } },
+        // A pipeline update, so the lease can grow with the attempts it has just counted
+        [
+          { $set: { attempts: { $add: ['$attempts', 1] } } },
+          {
+            $set: {
+              availableAt: {
+                $add: [
+                  claimAt,
+                  { $min: [{ $multiply: ['$attempts', leaseMs] }, maxLeaseMs] }
+                ]
+              }
+            }
+          }
+        ],
+        {
+          sort: { availableAt: 1 },
+          returnDocument: 'after',
+          includeResultMetadata: true
+        }
+      )
+      const document = result?.value
+      if (!document) {
+        break
+      }
+      claimed.push({
+        id: document._id,
+        kind: document.kind,
+        message: decodeKeys(document.message),
+        attributes: decodeKeys(
+          document.attributes
+        ) as OutgoingMessage['attributes'],
+        headers: decodeKeys(document.headers) as OutgoingMessage['headers'],
+        dueAt: document.dueAt,
+        attempts: document.attempts
+      })
+    }
+    if (claimed.length > 0) {
+      this.logger.debug('Claimed due outgoing messages', {
+        numMessages: claimed.length
+      })
+    }
+    return claimed.sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime())
+  }
+
+  async deleteOutgoingMessages(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return
+    }
+    this.logger.debug('Deleting outgoing messages', { numMessages: ids.length })
+    await this.outgoingMessages().deleteMany({ _id: { $in: ids } })
+  }
+
+  /**
+   * Reads the database server's clock, so every process claims by the same time
+   */
+  private async databaseTime(): Promise<Date> {
+    const { localTime } = (await this.database.command({ hello: 1 })) as {
+      localTime: Date
+    }
+    return localTime
+  }
+
+  private outgoingMessages() {
+    return this.database.collection<OutgoingMessageDocument>(
+      OUTGOING_MESSAGES_COLLECTION_NAME
     )
   }
 

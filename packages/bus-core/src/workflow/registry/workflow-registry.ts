@@ -32,7 +32,6 @@ import {
 } from '../function-workflow-definition'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
-import { PersistenceNotConfigured } from '../persistence/error'
 import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowContext } from '../workflow-context'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
@@ -50,12 +49,6 @@ const workflowLookup: MessageWorkflowMapping = {
   ) => attributes.stickyAttributes.workflowId,
   mapsTo: '$workflowId'
 }
-
-/**
- * How many buses use each persistence instance, so a persistence shared by several buses is only disposed by the
- * last of them. This holds no message or workflow state, and drops persistences that are garbage collected.
- */
-const PERSISTENCE_USERS = new WeakMap<Persistence, number>()
 
 /**
  * A class workflow, or a workflow declared with `defineWorkflow`, as `withWorkflow()` takes it
@@ -139,10 +132,6 @@ export class WorkflowRegistry {
     this.persistence = persistence
     this.messageHandlingContext = messageHandlingContext
     this.messageLifecycleContext = messageLifecycleContext
-    PERSISTENCE_USERS.set(
-      persistence,
-      (PERSISTENCE_USERS.get(persistence) ?? 0) + 1
-    )
   }
 
   /**
@@ -178,8 +167,8 @@ export class WorkflowRegistry {
 
   /**
    * Initialize all services that are used to support workflows. This registers all messages subscribed to
-   * in workflows as handlers with the bus, as well as initializing the persistence service so that workflow
-   * states can be stored.
+   * in workflows as handlers with the bus, and initializes the storage of each workflow state in the persistence,
+   * which the bus has already initialized.
    *
    * This should be called once as the application is starting.
    */
@@ -202,11 +191,6 @@ export class WorkflowRegistry {
       numWorkflows: this.workflowRegistry.length
     })
     this.isInitializing = true
-
-    if (this.persistence.initialize) {
-      this.logger.info('Initializing persistence...')
-      await this.persistence.initialize!()
-    }
 
     for (const workflow of this.workflowRegistry) {
       this.logger.debug('Initializing workflow', {
@@ -245,40 +229,19 @@ export class WorkflowRegistry {
   }
 
   /**
+   * Whether any workflows are registered and waiting to be initialized
+   * @returns true if `initialize()` has workflows to initialize
+   */
+  hasWorkflowsToInitialize(): boolean {
+    return this.workflowRegistry.length > 0
+  }
+
+  /**
    * Gets the `$name` of the state of every workflow that's been initialized
    * @returns the workflow state names
    */
   getWorkflowStateNames(): string[] {
     return [...this.workflowStateNames]
-  }
-
-  async dispose(): Promise<void> {
-    const isPrepared = this.persistence !== undefined
-    if (!isPrepared) {
-      // If the registry has not been prepared, then there is no logger or persistence available
-      return
-    }
-
-    this.logger.debug('Disposing workflow registry')
-    const remainingUsers = (PERSISTENCE_USERS.get(this.persistence) ?? 1) - 1
-    PERSISTENCE_USERS.set(this.persistence, remainingUsers)
-    if (remainingUsers > 0) {
-      this.logger.debug(
-        'Persistence is still used by another bus, so it will not be disposed',
-        { remainingUsers }
-      )
-      return
-    }
-    try {
-      if (this.persistence.dispose) {
-        await this.persistence.dispose!()
-      }
-    } catch (error) {
-      if (error instanceof PersistenceNotConfigured) {
-        return
-      }
-      throw error
-    }
   }
 
   /**

@@ -3,12 +3,13 @@ import {
   CoreDependencies,
   Logger,
   MessageWorkflowMapping,
+  OutgoingMessage,
   Persistence,
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { createHash } from 'node:crypto'
-import { escapeIdentifier, escapeLiteral, Pool } from 'pg'
+import { escapeIdentifier, escapeLiteral, Pool, PoolClient } from 'pg'
 import { InvalidSchemaName, WorkflowStateNotFound } from './error'
 import { PostgresConfiguration } from './postgres-configuration'
 
@@ -38,6 +39,128 @@ const DUPLICATE_OBJECT_ERROR_CODES = new Set([
   '42P06',
   '42710'
 ])
+
+/**
+ * The table, in the configured schema, that stores messages sent with `deliverAfter` or `deliverAt`
+ */
+const OUTGOING_MESSAGES_TABLE_NAME = 'outgoing_messages'
+
+/**
+ * A row of the outgoing messages table, as `pg` parses it
+ */
+interface OutgoingMessageRow {
+  id: string
+  kind: OutgoingMessage['kind']
+  message: object
+  attributes: OutgoingMessage['attributes']
+  headers: OutgoingMessage['headers']
+  due_at: Date
+  attempts: number
+}
+
+/**
+ * Runs queries on the pool, or on a client checked out of it, such as one in a transaction
+ */
+type Queryable = Pick<Pool | PoolClient, 'query'>
+
+/**
+ * Stores outgoing messages in one statement, leaving any whose id is already stored as it is. A message is first
+ * claimable at its due time, or at its lease if that's later.
+ * @returns the ids of the messages that were already stored
+ */
+const insertOutgoingMessages = async (
+  postgres: Queryable,
+  table: string,
+  outgoingMessages: OutgoingMessage[]
+): Promise<string[]> => {
+  if (outgoingMessages.length === 0) {
+    return []
+  }
+  // Passed as one JSON parameter, so any number of messages is one statement
+  const rows = outgoingMessages.map(
+    ({ id, kind, message, attributes, headers, dueAt, leaseUntil }) => ({
+      id,
+      kind,
+      message,
+      attributes,
+      headers,
+      due_at: dueAt.toISOString(),
+      available_at: new Date(
+        Math.max(dueAt.getTime(), leaseUntil?.getTime() ?? 0)
+      ).toISOString()
+    })
+  )
+  const result = await postgres.query(
+    `
+    insert into ${table} (id, kind, message, attributes, headers, due_at, available_at, attempts)
+    select id, kind, message, attributes, headers, due_at, available_at, 0
+    from jsonb_to_recordset($1::jsonb) as stored (
+      id text,
+      kind text,
+      message jsonb,
+      attributes jsonb,
+      headers jsonb,
+      due_at timestamptz,
+      available_at timestamptz
+    )
+    on conflict (id) do nothing
+    returning id;`,
+    [JSON.stringify(rows)]
+  )
+  const storedIds = new Set(
+    (result.rows as { id: string }[]).map(row => row.id)
+  )
+  return outgoingMessages.map(({ id }) => id).filter(id => !storedIds.has(id))
+}
+
+/**
+ * Claims the messages that are claimable at `now`, or at the database's clock when it isn't given, in one
+ * statement. Each claim adds one to a message's attempts and leases it for `leaseMs` times its attempts, up to
+ * `maxLeaseMs`.
+ */
+const claimOutgoingMessages = async (
+  postgres: Queryable,
+  table: string,
+  limit: number,
+  leaseMs: number,
+  maxLeaseMs: number,
+  now: Date | undefined
+): Promise<OutgoingMessage[]> => {
+  // skip locked lets several processes claim at once without waiting on, or returning, each other's rows. Leased
+  // rows have a later available_at, so they don't slow the index scan down as they pile up.
+  const result = await postgres.query(
+    `
+    with claimable as (
+      select id
+      from ${table}
+      where available_at <= coalesce($1::timestamptz, now())
+      order by available_at
+      limit $2
+      for update skip locked
+    )
+    update ${table} as outgoing
+    set
+      attempts = outgoing.attempts + 1,
+      available_at = coalesce($1::timestamptz, now())
+        + make_interval(
+          secs => least($3::double precision * (outgoing.attempts + 1), $4::double precision) / 1000
+        )
+    from claimable
+    where outgoing.id = claimable.id
+    returning outgoing.id, outgoing.kind, outgoing.message, outgoing.attributes, outgoing.headers, outgoing.due_at,
+      outgoing.attempts;`,
+    [now ?? null, limit, leaseMs, maxLeaseMs]
+  )
+  return (result.rows as OutgoingMessageRow[]).map((row): OutgoingMessage => ({
+    id: row.id,
+    kind: row.kind,
+    message: row.message,
+    attributes: row.attributes,
+    headers: row.headers,
+    dueAt: row.due_at,
+    attempts: row.attempts
+  }))
+}
 
 /**
  * An index this persistence creates on a workflow table
@@ -79,7 +202,15 @@ interface WorkflowTable {
   qualifiedName: string
 }
 
+/**
+ * Stores workflow state, and messages sent with `deliverAfter` or `deliverAt`, in Postgres. Delayed delivery needs
+ * Postgres 9.5 or later.
+ */
 export class PostgresPersistence implements Persistence {
+  /**
+   * What it stores is kept in Postgres, so it survives a restart
+   */
+  readonly durable = true
   private logger: Logger
 
   constructor(
@@ -97,6 +228,7 @@ export class PostgresPersistence implements Persistence {
     this.logger.info('Initializing postgres persistence...')
     assertValidSchemaName(this.configuration.schemaName)
     await this.ensureSchemaExists(this.configuration.schemaName)
+    await this.ensureOutgoingMessagesTableExists()
     this.logger.info('Postgres persistence initialized')
   }
 
@@ -207,6 +339,95 @@ export class PostgresPersistence implements Persistence {
       oldVersion,
       newVersion
     )
+  }
+
+  async storeOutgoingMessages(
+    outgoingMessages: OutgoingMessage[]
+  ): Promise<string[]> {
+    this.logger.debug('Storing outgoing messages', {
+      numMessages: outgoingMessages.length
+    })
+    return insertOutgoingMessages(
+      this.postgres,
+      this.outgoingMessagesTable(),
+      outgoingMessages
+    )
+  }
+
+  /**
+   * Claims due messages, comparing times with the database's clock unless `now` is given
+   */
+  async claimDueOutgoingMessages(
+    limit: number,
+    leaseMs: number,
+    maxLeaseMs: number,
+    now?: Date
+  ): Promise<OutgoingMessage[]> {
+    const claimed = await claimOutgoingMessages(
+      this.postgres,
+      this.outgoingMessagesTable(),
+      limit,
+      leaseMs,
+      maxLeaseMs,
+      now
+    )
+    if (claimed.length > 0) {
+      this.logger.debug('Claimed due outgoing messages', {
+        numMessages: claimed.length
+      })
+    }
+    // The update doesn't keep the order of the select
+    return claimed.sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime())
+  }
+
+  async deleteOutgoingMessages(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return
+    }
+    this.logger.debug('Deleting outgoing messages', { numMessages: ids.length })
+    await this.postgres.query(
+      `delete from ${this.outgoingMessagesTable()} where id = any($1::text[]);`,
+      [ids]
+    )
+  }
+
+  private outgoingMessagesTable(): string {
+    return `${escapeIdentifier(this.configuration.schemaName)}.${escapeIdentifier(OUTGOING_MESSAGES_TABLE_NAME)}`
+  }
+
+  private async ensureOutgoingMessagesTableExists(): Promise<void> {
+    const table = this.outgoingMessagesTable()
+    const indexName = `${OUTGOING_MESSAGES_TABLE_NAME}_available_at_idx`
+    const tableSql = `
+      create table if not exists ${table} (
+        id text not null primary key,
+        kind text not null,
+        message jsonb not null,
+        attributes jsonb not null,
+        headers jsonb not null,
+        due_at timestamptz not null,
+        available_at timestamptz not null,
+        attempts integer not null default 0
+      );
+    `
+    this.logger.debug('Ensuring outgoing messages table exists', {
+      sql: tableSql
+    })
+    await this.createIfMissing(tableSql)
+    const indexSql = `
+      DO
+      $$
+      BEGIN
+        IF to_regclass(${escapeLiteral(`${escapeIdentifier(this.configuration.schemaName)}.${escapeIdentifier(indexName)}`)}) IS NULL THEN
+          CREATE INDEX ${escapeIdentifier(indexName)} ON ${table} (available_at);
+        END IF;
+      END
+      $$;
+    `
+    this.logger.debug('Ensuring outgoing messages index exists', {
+      sql: indexSql
+    })
+    await this.createIfMissing(indexSql)
   }
 
   private async ensureSchemaExists(schema: string): Promise<void> {

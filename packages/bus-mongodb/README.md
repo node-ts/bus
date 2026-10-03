@@ -60,3 +60,4 @@ To share a client with the rest of your application, pass your `MongoClient`, fr
 
 - [MongoDB](https://node-ts.github.io/bus/persistence/mongodb): the collections and indexes it creates, and how keys are stored
 - [Workflows](https://node-ts.github.io/bus/guide/workflows)
+- [Delayed delivery](https://node-ts.github.io/bus/guide/delayed-delivery): messages sent with `deliverAfter` or `deliverAt` are kept in an `outgoingmessages` collection until they're due

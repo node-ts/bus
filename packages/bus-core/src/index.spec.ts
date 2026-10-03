@@ -6,6 +6,8 @@ describe('index', () => {
     it('should export the errors the bus throws to callers', () => {
       expect(sut).toMatchObject({
         BusAlreadyInitialized: expect.any(Function),
+        DelayedDeliveryNotSupported: expect.any(Function),
+        InvalidDeliveryOptions: expect.any(Function),
         InvalidBusState: expect.any(Function),
         InvalidOperation: expect.any(Function),
         MiddlewareNextCalledTwice: expect.any(Function),
@@ -20,6 +22,7 @@ describe('index', () => {
       expect(sut).not.toHaveProperty('TypedEmitter')
       expect(sut).not.toHaveProperty('MiddlewareDispatcher')
       expect(sut).not.toHaveProperty('MiddlewarePipeline')
+      expect(sut).not.toHaveProperty('OutgoingMessageDispatcher')
     })
 
     it('should export the in-memory queue and its configuration', () => {

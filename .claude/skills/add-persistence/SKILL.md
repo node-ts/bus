@@ -44,6 +44,12 @@ An interface with JSDoc on every field. The README repeats these docs.
   - Otherwise, update conditionally on `id` and the old `version`.
   - Store `$version + 1`.
   - If nothing matched, throw `WorkflowStateNotFound` so the registry fails the handler and the message is retried.
+- `readonly durable = true` for a database that survives a restart.
+- `storeOutgoingMessages`, `claimDueOutgoingMessages` and `deleteOutgoingMessages` (delayed delivery, see `docs/guide/delayed-delivery.md`):
+  - Create the table or collection in `initialize()`, with an index on an "available at" field: the due time (or `leaseUntil` if later) when stored, and the end of the lease once claimed.
+  - Storing an `id` that's already stored keeps the stored message (`on conflict do nothing`, `$setOnInsert`), and returns the skipped ids.
+  - Claim atomically with the database's clock (or the `now` argument): rows available by then, up to `limit`, adding one to `attempts` and leasing for `leaseMs * attempts`, capped at `maxLeaseMs`; never delete in a claim (Postgres: `for update skip locked`; MongoDB: one `findOneAndUpdate` per message).
+  - Return every field as it was stored, with `dueAt` as a `Date` and the new `attempts`, ordered by `dueAt`.
 
 ## 4. Errors and exports
 
@@ -65,6 +71,7 @@ An interface with JSDoc on every field. The README repeats these docs.
   - Assert by querying the database directly.
   - In `afterAll`, drop what the test created and `dispose()` the bus.
   - At the end of the top-level `describe`, call `workflowStateRoundTripTests(new <Name>Persistence(configuration))` from `@node-ts/bus-test`, with an instance of its own, to check workflow state with Dates and nested classes survives the round trip.
+  - Then call `scheduledMessageRoundTripTests(...)` with an instance on its own schema or database (the test's own running bus would otherwise send the suite's messages), and drop it in `afterAll`.
 
 ## 6. Docs and wiring
 

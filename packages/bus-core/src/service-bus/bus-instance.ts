@@ -34,6 +34,17 @@ import {
 } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import {
+  DelayedDeliveryNotSupported,
+  DelayedDeliveryUnsupportedReason,
+  InvalidDeliveryOptions,
+  OutgoingMessage,
+  SendOptions
+} from '../outgoing-message'
+import {
+  isOutgoingMessageStore,
+  OutgoingMessageDispatcher
+} from '../outgoing-message/outgoing-message-dispatcher'
+import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
   Receiver
@@ -55,11 +66,18 @@ import {
   TransportMessage
 } from '../transport'
 import { ClassConstructor, CoreDependencies, sleep } from '../util'
+import { Persistence, PersistenceNotConfigured } from '../workflow/persistence'
 import { WorkflowRegistry } from '../workflow/registry'
 import { BusState } from './bus-state'
 import { InvalidBusState, InvalidOperation } from './error'
 
 const EMPTY_QUEUE_SLEEP_MS = 500
+
+/**
+ * How many buses use each persistence instance, so a persistence shared by several buses is only disposed by the
+ * last of them. This holds no message or workflow state, and drops persistences that are garbage collected.
+ */
+const PERSISTENCE_USERS = new WeakMap<Persistence, number>()
 
 interface InterruptSignalListener {
   signal: NodeJS.Signals
@@ -95,9 +113,19 @@ type Settlement =
     }
 
 /**
- * A message buffered in a handler's outbox, as the outgoing middleware left it
+ * A message buffered in a handler's outbox, as the outgoing middleware left it, and when it's due if it's sent
+ * later
  */
-type OutboxedMessage = OutgoingContext
+type OutboxedMessage = OutgoingContext & { dueAt?: Date }
+
+/**
+ * An outgoing message that's stored in the persistence until it's due
+ */
+type DelayedMessage = OutboxedMessage & { dueAt: Date }
+
+const isDelayed = (
+  outgoingMessage: OutboxedMessage
+): outgoingMessage is DelayedMessage => outgoingMessage.dueAt !== undefined
 
 interface Outbox {
   state: OutboxState
@@ -137,6 +165,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
   private readonly outbox = new AsyncLocalStorage<Outbox>()
+  private readonly outgoingMessageDispatcher:
+    OutgoingMessageDispatcher | undefined
+  private hasWarnedOfNonDurableDelivery = false
+  private hasReleasedPersistence = false
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -150,11 +182,25 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly receiver: Receiver | undefined,
     private readonly messageHandlingContext: MessageHandlingContext,
     private readonly messageLifecycleContext: MessageLifecycleContext,
-    private readonly recoverability: RecoverabilityPolicy
+    private readonly recoverability: RecoverabilityPolicy,
+    private readonly persistence: Persistence
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
     )
+    PERSISTENCE_USERS.set(
+      persistence,
+      (PERSISTENCE_USERS.get(persistence) ?? 0) + 1
+    )
+    if (isOutgoingMessageStore(persistence)) {
+      this.outgoingMessageDispatcher = new OutgoingMessageDispatcher(
+        persistence,
+        async outgoingMessage => this.sendStoredMessage(outgoingMessage),
+        coreDependencies.loggerFactory(
+          '@node-ts/bus-core:outgoing-message-dispatcher'
+        )
+      )
+    }
   }
 
   /**
@@ -241,6 +287,14 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       throw new InvalidOperation('Bus has already been initialized')
     }
 
+    const usesPersistence =
+      (!this.sendOnly && this.workflowRegistry.hasWorkflowsToInitialize()) ||
+      isOutgoingMessageStore(this.persistence)
+    if (usesPersistence && this.persistence.initialize) {
+      this.logger.info('Initializing persistence...')
+      await this.persistence.initialize()
+    }
+
     if (!this.sendOnly) {
       await this.workflowRegistry.initialize(
         this.handlerRegistry,
@@ -275,22 +329,35 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * The outgoing middleware runs first. Then, when called from inside a handler, the event is buffered and only
    * published once the handler resolves, and is dropped if the handler fails. Anywhere else (outside a handler, in
    * incoming middleware, or after the handler has already resolved) it's published straight away.
+   *
+   * With `deliverAfter` or `deliverAt`, the event is stored in the persistence instead of being published, and a
+   * started bus that uses the same persistence publishes it once it's due. Inside a handler it's only stored once
+   * the handler resolves.
    * @param event An event to publish
-   * @param messageAttributes A set of attributes to attach to the outgoing message when published. A new
-   * `messageId` and `sentAt` are set unless given.
+   * @param options A set of attributes to attach to the outgoing message when published, and when to publish it. A
+   * new `messageId` and `sentAt` are set unless given.
+   * @throws DelayedDeliveryNotSupported if `deliverAfter` or `deliverAt` is given and the persistence can't store
+   * messages to send later
+   * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
    * @throws the error of an outgoing middleware that throws, in which case nothing is buffered
+   * @example
+   * await bus.publish(new TrialEnded(accountId), { deliverAt: trialEndsAt })
    */
   async publish<TEvent extends Event>(
     event: TEvent,
-    messageAttributes: Partial<MessageAttributes> = {}
+    options: SendOptions = {}
   ): Promise<void> {
-    this.logger.debug('Publishing event', { event, messageAttributes })
-    await this.dispatchOutgoing({
-      kind: 'publish',
-      message: event,
-      attributes: this.prepareTransportOptions(messageAttributes),
-      headers: {}
-    })
+    this.logger.debug('Publishing event', { event, options })
+    const dueAt = this.resolveDueAt(event, options)
+    await this.dispatchOutgoing(
+      {
+        kind: 'publish',
+        message: event,
+        attributes: this.prepareTransportOptions(options),
+        headers: {}
+      },
+      dueAt
+    )
   }
 
   /**
@@ -299,22 +366,35 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * The outgoing middleware runs first. Then, when called from inside a handler, the command is buffered and only
    * sent once the handler resolves, and is dropped if the handler fails. Anywhere else (outside a handler, in
    * incoming middleware, or after the handler has already resolved) it's sent straight away.
+   *
+   * With `deliverAfter` or `deliverAt`, the command is stored in the persistence instead of being sent, and a
+   * started bus that uses the same persistence sends it once it's due. Inside a handler it's only stored once the
+   * handler resolves.
    * @param command A command to send
-   * @param messageAttributes A set of attributes to attach to the outgoing message when sent. A new `messageId`
-   * and `sentAt` are set unless given.
+   * @param options A set of attributes to attach to the outgoing message when sent, and when to send it. A new
+   * `messageId` and `sentAt` are set unless given.
+   * @throws DelayedDeliveryNotSupported if `deliverAfter` or `deliverAt` is given and the persistence can't store
+   * messages to send later
+   * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
    * @throws the error of an outgoing middleware that throws, in which case nothing is buffered
+   * @example
+   * await bus.send(new ChargeCard(orderId), { deliverAfter: 30_000 })
    */
   async send<TCommand extends Command>(
     command: TCommand,
-    messageAttributes: Partial<MessageAttributes> = {}
+    options: SendOptions = {}
   ): Promise<void> {
-    this.logger.debug('Sending command', { command, messageAttributes })
-    await this.dispatchOutgoing({
-      kind: 'send',
-      message: command,
-      attributes: this.prepareTransportOptions(messageAttributes),
-      headers: {}
-    })
+    this.logger.debug('Sending command', { command, options })
+    const dueAt = this.resolveDueAt(command, options)
+    await this.dispatchOutgoing(
+      {
+        kind: 'send',
+        message: command,
+        attributes: this.prepareTransportOptions(options),
+        headers: {}
+      },
+      dueAt
+    )
   }
 
   /**
@@ -374,7 +454,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
   /**
    * Instructs the bus to start reading messages from the underlying service queue
-   * and dispatching to message handlers.
+   * and dispatching to message handlers. It also starts sending the messages in its persistence that were sent with
+   * `deliverAfter` or `deliverAt`, by this bus or any other that uses the same persistence, once they're due.
    *
    * @throws InvalidOperation if the bus is configured to be send-only
    * @throws InvalidOperation if the bus has not been initialized
@@ -428,6 +509,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       }, 0)
     }
 
+    this.outgoingMessageDispatcher?.start()
+
     this.logger.info(`Bus started with concurrency ${this.concurrency}`)
   }
 
@@ -478,9 +561,39 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     if (this.transport.dispose) {
       await this.transport.dispose()
     }
-    await this.workflowRegistry.dispose()
+    await this.disposePersistence()
     this.coreDependencies.handlerRegistry.reset()
     this.logger.info('Bus instance disposed')
+  }
+
+  /**
+   * Disposes the persistence, unless another bus still uses it
+   */
+  private async disposePersistence(): Promise<void> {
+    // Disposing a bus twice mustn't count it twice, or a persistence another bus uses would be disposed
+    if (this.hasReleasedPersistence) {
+      return
+    }
+    this.hasReleasedPersistence = true
+    const remainingUsers = (PERSISTENCE_USERS.get(this.persistence) ?? 1) - 1
+    PERSISTENCE_USERS.set(this.persistence, remainingUsers)
+    if (remainingUsers > 0) {
+      this.logger.debug(
+        'Persistence is still used by another bus, so it will not be disposed',
+        { remainingUsers }
+      )
+      return
+    }
+    try {
+      if (this.persistence.dispose) {
+        await this.persistence.dispose()
+      }
+    } catch (error) {
+      if (error instanceof PersistenceNotConfigured) {
+        return
+      }
+      throw error
+    }
   }
 
   /**
@@ -491,6 +604,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   private async stopTransportAndWorkers(): Promise<void> {
+    await this.outgoingMessageDispatcher?.stop()
     if (this.transport.stop) {
       await this.transport.stop()
     }
@@ -825,12 +939,12 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       correlationId: attributes.correlationId,
       send: async <TCommand extends Command>(
         command: TCommand,
-        messageAttributes?: Partial<MessageAttributes>
-      ) => this.send(command, messageAttributes),
+        options?: SendOptions
+      ) => this.send(command, options),
       publish: async <TEvent extends Event>(
         event: TEvent,
-        messageAttributes?: Partial<MessageAttributes>
-      ) => this.publish(event, messageAttributes),
+        options?: SendOptions
+      ) => this.publish(event, options),
       failMessage: async () => this.failMessage(),
       returnMessage: async () => this.returnMessage()
     })
@@ -852,15 +966,20 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
   /**
    * Runs the outgoing middleware for a message being sent or published. Its last step buffers the message in the
-   * current handler's outbox, or sends it to the transport when there's no handler running.
+   * current handler's outbox, or when there's no handler running, sends it to the transport, or stores it in the
+   * persistence if it's due later.
+   * @param dueAt when the message is due, if it was sent with `deliverAfter` or `deliverAt`
    */
-  private async dispatchOutgoing(context: OutgoingContext): Promise<void> {
+  private async dispatchOutgoing(
+    context: OutgoingContext,
+    dueAt: Date | undefined
+  ): Promise<void> {
     let dispatched = false
     let outboxed: OutboxedMessage | undefined
     try {
       await this.middlewarePipeline.runOutgoing(context, async () => {
         dispatched = true
-        const outgoingMessage = snapshotOutgoing(context)
+        const outgoingMessage: OutboxedMessage = snapshotOutgoing(context)
         // Checked before buffering, so the caller's send rejects rather than the outbox failing when it's flushed
         if (Object.hasOwn(outgoingMessage.headers, FAILURE_HEADER)) {
           // The bus writes it on dead-lettered messages, whatever the transport
@@ -870,11 +989,18 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           )
         }
         this.transport.assertSendOptions?.({ headers: outgoingMessage.headers })
+        if (dueAt && dueAt.getTime() > Date.now()) {
+          outgoingMessage.dueAt = dueAt
+        }
         if (this.addToOutbox(outgoingMessage)) {
           outboxed = outgoingMessage
           return
         }
-        await this.dispatchToTransport(outgoingMessage)
+        if (isDelayed(outgoingMessage)) {
+          await this.storeOutgoing([outgoingMessage])
+        } else {
+          await this.dispatchToTransport(outgoingMessage)
+        }
       })
     } catch (error) {
       // A middleware that throws after next() still rejects the send, so take back what was buffered
@@ -909,6 +1035,136 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         headers
       })
     }
+  }
+
+  /**
+   * Works out when a message sent with `deliverAfter` or `deliverAt` is due, and warns once if the persistence
+   * won't keep it through a restart
+   * @returns when the message is due, or `undefined` if it's sent straight away
+   * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
+   * @throws DelayedDeliveryNotSupported if the persistence can't store messages to send later
+   */
+  private resolveDueAt(
+    message: Message,
+    { deliverAfter, deliverAt }: SendOptions
+  ): Date | undefined {
+    if (deliverAfter === undefined && deliverAt === undefined) {
+      return undefined
+    }
+    if (deliverAfter !== undefined && deliverAt !== undefined) {
+      throw new InvalidDeliveryOptions(
+        'deliverAfter and deliverAt were both given',
+        message.$name
+      )
+    }
+    if (
+      deliverAfter !== undefined &&
+      (typeof deliverAfter !== 'number' ||
+        !Number.isFinite(deliverAfter) ||
+        deliverAfter < 0)
+    ) {
+      throw new InvalidDeliveryOptions(
+        `deliverAfter must be a number of milliseconds that's 0 or more, but was ${String(deliverAfter)}`,
+        message.$name
+      )
+    }
+    if (
+      deliverAt !== undefined &&
+      (!(deliverAt instanceof Date) || Number.isNaN(deliverAt.getTime()))
+    ) {
+      throw new InvalidDeliveryOptions(
+        `deliverAt must be a valid Date, but was ${String(deliverAt)}`,
+        message.$name
+      )
+    }
+    if (!isOutgoingMessageStore(this.persistence)) {
+      throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
+    }
+    const isNeverStarted = this.sendOnly || !!this.receiver
+    const isSharedWithAnotherBus =
+      (PERSISTENCE_USERS.get(this.persistence) ?? 0) > 1
+    if (
+      isNeverStarted &&
+      this.persistence.durable === false &&
+      !isSharedWithAnotherBus
+    ) {
+      // Nothing would ever send it: this bus doesn't dispatch, and no other process can see the store
+      throw new DelayedDeliveryNotSupported(
+        this.persistence.constructor.name,
+        DelayedDeliveryUnsupportedReason.NeverSent
+      )
+    }
+    if (
+      this.persistence.durable === false &&
+      !this.hasWarnedOfNonDurableDelivery
+    ) {
+      this.hasWarnedOfNonDurableDelivery = true
+      this.logger.warn(
+        `Messages sent with deliverAfter or deliverAt are stored in ${this.persistence.constructor.name}, which doesn't survive a restart, so they're lost if the process stops before they're due. Configure a durable persistence with withPersistence(), such as PostgresPersistence from @node-ts/bus-postgres.`,
+        { persistence: this.persistence.constructor.name }
+      )
+    }
+    return deliverAt ?? new Date(Date.now() + (deliverAfter ?? 0))
+  }
+
+  /**
+   * Stores messages in the persistence to send once they're due
+   * @throws DelayedDeliveryNotSupported if the persistence can't store messages to send later, which `send()` and
+   * `publish()` have already checked
+   */
+  private async storeOutgoing(
+    outgoingMessages: DelayedMessage[]
+  ): Promise<void> {
+    if (!isOutgoingMessageStore(this.persistence)) {
+      throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
+    }
+    const { serializer } = this.coreDependencies
+    const toStore = outgoingMessages.map(
+      ({ kind, message, attributes, headers, dueAt }): OutgoingMessage => ({
+        id: attributes.messageId || randomUUID(),
+        kind,
+        message: serializer.toPlain(message),
+        attributes: serializer.toPlain(attributes) as MessageAttributes,
+        headers: { ...headers },
+        dueAt
+      })
+    )
+    const duplicateIds = await this.persistence.storeOutgoingMessages(toStore)
+    if (duplicateIds.length > 0) {
+      this.logger.warn(
+        'Scheduled messages were not stored, because messages with the same messageId are already scheduled. Give each message sent with deliverAfter or deliverAt a messageId of its own.',
+        { duplicateIds }
+      )
+    }
+    this.logger.debug('Stored outgoing messages to send when they are due', {
+      outgoingMessages: toStore.map(({ id, kind, dueAt }) => ({
+        id,
+        kind,
+        dueAt
+      }))
+    })
+    toStore.forEach(({ dueAt }) =>
+      this.outgoingMessageDispatcher?.scheduled(dueAt)
+    )
+  }
+
+  /**
+   * Sends a message from the persistence that's due, as the outgoing middleware left it when it was stored. Its
+   * classes are restored with this bus' message types where it has them, for transports that don't serialize.
+   */
+  private async sendStoredMessage(
+    outgoingMessage: OutgoingMessage
+  ): Promise<void> {
+    const { messageSerializer } = this.coreDependencies
+    const message = messageSerializer.deserialize(
+      messageSerializer.serialize(outgoingMessage.message as Message)
+    )
+    const { attributes, headers } = outgoingMessage
+    await this.dispatchToTransport(
+      outgoingMessage.kind === 'send'
+        ? { kind: 'send', message: message as Command, attributes, headers }
+        : { kind: 'publish', message: message as Event, attributes, headers }
+    )
   }
 
   private prepareTransportOptions(
@@ -994,8 +1250,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
     // Close the outbox before flushing so that any later sends go straight to the transport instead of being lost
     outbox.state = OutboxState.Flushed
-    const outboxedMessages = outbox.messages
+    // Only reached when the message wasn't failed or returned, so a discarded outbox schedules nothing either
+    const delayedMessages = outbox.messages.filter(isDelayed)
+    const outboxedMessages = outbox.messages.filter(m => !isDelayed(m))
     outbox.messages = []
+    if (delayedMessages.length > 0) {
+      await this.storeOutgoing(delayedMessages)
+    }
     if (outboxedMessages.length > 0) {
       // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
       const dispatchWorkerCount = Math.min(outboxedMessages.length, 10)

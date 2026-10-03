@@ -5,9 +5,9 @@ description: Where workflow state is stored, and the persistence adapters mainta
 
 # Persistence
 
-A persistence stores the state of running [workflows](/guide/workflows) between messages. This page lists the persistence adapters maintained with the bus. A service that doesn't use workflows doesn't need one.
+A persistence stores the state of running [workflows](/guide/workflows) between messages, and messages sent with [delayed delivery](/guide/delayed-delivery) until they're due. This page lists the persistence adapters maintained with the bus. A service that uses neither doesn't need one.
 
-By default the bus keeps workflow state in memory, with `InMemoryPersistence`. That's only for development: the state is lost when the process stops, and isn't shared between instances of a service. Because a durable persistence keeps the state in a database, any instance can handle a workflow's next message, services can be scaled in and out freely, and a restart loses nothing.
+By default the bus keeps workflow state and scheduled messages in memory, with `InMemoryPersistence`. That's only for development: they're lost when the process stops, and aren't shared between instances of a service. Because a durable persistence keeps the state in a database, any instance can handle a workflow's next message, services can be scaled in and out freely, and a restart loses nothing.
 
 <FeatureGrid>
   <Card title="Postgres" tag="@node-ts/bus-postgres" link="/persistence/postgres">A jsonb table per workflow state, with an index for each lookup.</Card>
@@ -16,6 +16,8 @@ By default the bus keeps workflow state in memory, with `InMemoryPersistence`. T
 </FeatureGrid>
 
 Every persistence uses optimistic concurrency: saving fails if another handler saved the same workflow instance since it was read, and the message is retried with the latest state.
+
+A scheduled message is only deleted from the persistence once it's sent, so a broker outage pauses scheduled sends rather than dropping them. Every bus that shares a persistence's scheduled messages, in any process, must use the same broker, since any started bus sends them through its own transport (see [delayed delivery](/guide/delayed-delivery#sharing-a-persistence)).
 
 A persistence instance can be shared by several buses in one process. Each bus converts the state with its own serializer and message types, and the persistence is disposed when the last bus that uses it is disposed.
 

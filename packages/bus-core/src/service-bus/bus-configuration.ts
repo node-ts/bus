@@ -123,8 +123,9 @@ export class BusConfiguration {
       interruptSignals: this.interruptSignals
     }
 
+    // Send-only buses use the persistence too, to store messages sent with deliverAfter or deliverAt
+    this.persistence.prepare(coreDependencies)
     if (!this.sendOnly) {
-      this.persistence?.prepare(coreDependencies)
       this.workflowRegistry.prepare(
         coreDependencies,
         this.persistence,
@@ -148,7 +149,8 @@ export class BusConfiguration {
       this.receiver,
       messageHandlingContext,
       messageLifecycleContext,
-      this.recoverability
+      this.recoverability,
+      this.persistence
     )
     return this.busInstance
   }
@@ -334,8 +336,12 @@ export class BusConfiguration {
 
   /**
    * Configures Bus to use a different persistence provider than the default InMemoryPersistence provider.
-   * This is used to persist workflow data and is unused if not using workflows.
+   * This stores workflow state, and messages sent with `deliverAfter` or `deliverAt` until they're due. The
+   * default `InMemoryPersistence` loses both when the process stops.
+   * @default InMemoryPersistence
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * Bus.configure().withPersistence(new PostgresPersistence({ connection, schemaName: 'workflows' }))
    */
   withPersistence(persistence: Persistence): this {
     if (!!this.busInstance) {
