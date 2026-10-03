@@ -1,7 +1,7 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { EventEmitter, once } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
-import { handlerFor } from '../handler'
+import { HandlerContext, handlerFor } from '../handler'
 import { Logger } from '../logger'
 import {
   DelayedDeliveryNotSupported,
@@ -10,6 +10,7 @@ import {
   SendOptions
 } from '../outgoing-message'
 import { Receiver } from '../receiver'
+import { deadLetter } from '../recoverability'
 import { RecordingInMemoryQueue, testMessageTypes } from '../test'
 import { TestCommand } from '../test/test-command'
 import { TestEvent } from '../test/test-event'
@@ -50,8 +51,7 @@ const END_OF_TIME = new Date(8_640_000_000_000_000)
 
 const silentLogger = () => Mock.ofType<Logger>().object
 
-const fastQueue = () =>
-  new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
+const fastQueue = () => new InMemoryQueue({ receiveTimeoutMs: 100 })
 
 interface Received {
   message: Message
@@ -195,14 +195,22 @@ describe('BusInstance delayed delivery', () => {
     })
   })
 
-  describe('when a handler that sent a delayed message fails', () => {
+  describe.each<[string, (ctx: HandlerContext) => Promise<void>]>([
+    [
+      'throws',
+      async () => {
+        throw new Error('handler failed')
+      }
+    ],
+    ['calls failMessage()', async ctx => ctx.failMessage()],
+    ['calls returnMessage()', async ctx => ctx.returnMessage()]
+  ])('when a handler that sent a delayed message %s', (_, endHandler) => {
     const persistence = new InMemoryPersistence()
     let bus: BusInstance
     let stored: unknown[]
 
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(() => undefined, {
-        maxRetries: 0,
         receiveTimeoutMs: 100
       })
       bus = Bus.configure()
@@ -210,25 +218,26 @@ describe('BusInstance delayed delivery', () => {
         .withLogger(silentLogger)
         .withTransport(queue)
         .withPersistence(persistence)
+        .withRecoverability(() => deadLetter())
         .withHandler(
           handlerFor(TestCommand, async (_message, _attributes, ctx) => {
             await ctx.publish(new TestEvent(), { deliverAfter: 60_000 })
-            throw new Error('handler failed')
+            await endHandler(ctx)
           })
         )
         .build()
       await bus.initialize()
       await bus.start()
 
-      const returned = once(queue.settled, 'returned')
+      const deadLettered = once(queue.settled, 'failed')
       await bus.send(new TestCommand())
-      await returned
+      await deadLettered
       stored = await persistence.claimDueOutgoingMessages(10, 1, END_OF_TIME)
     })
 
     afterAll(async () => bus.dispose())
 
-    it('should not store it', () => {
+    it('should not schedule it', () => {
       expect(stored).toEqual([])
     })
   })

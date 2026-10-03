@@ -1,6 +1,7 @@
 import {
   Bus,
   BusInstance,
+  deadLetter,
   handlerFor,
   InMemoryMessage,
   InMemoryQueue,
@@ -119,9 +120,8 @@ export const scheduledMessageRoundTripTests = (
     Bus.configure()
       .withLogger(() => Mock.ofType<Logger>().object)
       .withMessageTypes(messageTypes)
-      .withTransport(
-        new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
-      )
+      .withTransport(new InMemoryQueue({ receiveTimeoutMs: 100 }))
+      .withRecoverability(() => deadLetter())
       .withPersistence(persistence)
       .withHandler(
         handlerFor(TestCommand, (_message, attributes) => {
