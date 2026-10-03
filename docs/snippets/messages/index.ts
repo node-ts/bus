@@ -1,4 +1,5 @@
 export * from './charge-credit-card'
+export * from './credit'
 export * from './credit-card-charged'
 export * from './documents'
 export * from './fulfilment'
