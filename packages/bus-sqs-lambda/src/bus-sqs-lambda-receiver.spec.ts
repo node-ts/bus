@@ -112,6 +112,10 @@ describe('BusSqsLambdaReceiver', () => {
       expect(messages[0].id).toEqual('4b9a650d-00fa-4f86-a4f2-d57661155b94')
     })
 
+    it('should count no failed attempts on the first receive', () => {
+      expect(messages[0].failedAttempts).toEqual(0)
+    })
+
     it('should parse out attributes', () => {
       expect(attributes.attributes).toMatchObject({ 'x-foo-attribute': 'bar' })
     })
@@ -136,6 +140,25 @@ describe('BusSqsLambdaReceiver', () => {
         Attributes: { ApproximateReceiveCount: '1' },
         MessageAttributes: {}
       })
+    })
+  })
+
+  describe('when lambda receives a record that has been received before', () => {
+    let message: TransportMessage<SqsLambdaRecord>
+
+    beforeAll(async () => {
+      const record = {
+        ...attributePayload.Records[0],
+        attributes: {
+          ...attributePayload.Records[0].attributes,
+          ApproximateReceiveCount: '4'
+        }
+      } as SQSRecord
+      ;[message] = await receiver.receive({ Records: [record] }, serializer)
+    })
+
+    it('should count one failed attempt for each earlier receive', () => {
+      expect(message.failedAttempts).toEqual(3)
     })
   })
 
@@ -184,7 +207,8 @@ describe('BusSqsLambdaReceiver', () => {
         id: messageId,
         domainMessage: {} as Message,
         attributes: { attributes: {}, stickyAttributes: {} },
-        raw: { messageId } as SqsLambdaRecord
+        raw: { messageId } as SqsLambdaRecord,
+        failedAttempts: 0
       },
       error
     })

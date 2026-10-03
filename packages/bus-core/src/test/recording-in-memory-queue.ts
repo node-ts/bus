@@ -5,6 +5,7 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import { EventEmitter } from 'node:events'
+import { MessageFailure } from '../recoverability'
 import {
   DefaultInMemoryQueueConfiguration,
   InMemoryMessage,
@@ -14,6 +15,7 @@ import {
   TransportMessage,
   TransportSendOptions
 } from '../transport'
+import { Milliseconds } from '../util'
 
 /**
  * Called with every message sent or published to a `RecordingInMemoryQueue`
@@ -26,8 +28,9 @@ export type MessageDispatched = (
 
 /**
  * An in-memory queue that reports every message sent or published to it, including those it discards for having
- * no handler, so tests can see what reached the transport. `settled` emits `'deleted'` or `'returned'` with each
- * message the bus deletes or returns. Headers named in `reservedHeaders` are rejected as a real transport would.
+ * no handler, so tests can see what reached the transport. `settled` emits `'deleted'`, `'returned'` (with the
+ * delay) or `'failed'` (with the failure metadata) with each message the bus deletes, returns or dead-letters.
+ * Headers named in `reservedHeaders` are rejected as a real transport would.
  */
 export class RecordingInMemoryQueue extends InMemoryQueue {
   readonly settled = new EventEmitter()
@@ -75,9 +78,18 @@ export class RecordingInMemoryQueue extends InMemoryQueue {
   }
 
   async returnMessage(
-    message: TransportMessage<InMemoryMessage>
+    message: TransportMessage<InMemoryMessage>,
+    delay: Milliseconds
   ): Promise<void> {
-    await super.returnMessage(message)
-    this.settled.emit('returned', message)
+    await super.returnMessage(message, delay)
+    this.settled.emit('returned', message, delay)
+  }
+
+  async fail(
+    message: TransportMessage<InMemoryMessage>,
+    failure: MessageFailure
+  ): Promise<void> {
+    await super.fail(message, failure)
+    this.settled.emit('failed', message, failure)
   }
 }

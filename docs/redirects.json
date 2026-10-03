@@ -21,7 +21,8 @@
     "/reference": "/api/",
     "/reference/bus": "/api/bus-core/classes/Bus",
     "/reference/busconfiguration": "/api/bus-core/classes/BusConfiguration",
-    "/reference/businstance": "/api/bus-core/classes/BusInstance"
+    "/reference/businstance": "/api/bus-core/classes/BusInstance",
+    "/guide/retry-strategies": "/guide/recoverability"
   },
   "legacy": {
     "/packages/bus-core/": "/getting-started/installation",

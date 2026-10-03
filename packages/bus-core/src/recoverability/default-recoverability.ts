@@ -1,0 +1,58 @@
+import { Milliseconds } from '../util'
+import { causedBy, ErrorType } from './caused-by'
+import { exponentialBackoff, RetryDelay } from './exponential-backoff'
+import { deadLetter, retry } from './recoverability-action'
+import { RecoverabilityPolicy } from './recoverability-policy'
+
+/**
+ * Options for `defaultRecoverability()`
+ */
+export interface DefaultRecoverabilityOptions {
+  /**
+   * How many times a message is handled before it's moved to the dead letter queue, counting the first attempt. `1`
+   * never retries.
+   * @default 10
+   */
+  maxAttempts?: number
+
+  /**
+   * How long to wait before each retry: a number of milliseconds, or a function of how many times the message has
+   * failed so far
+   * @default exponentialBackoff()
+   */
+  delay?: RetryDelay | Milliseconds
+
+  /**
+   * Errors that retrying can't fix, such as validation errors. A message that fails with one of these, found
+   * anywhere in the error as `causedBy()` looks, goes to the dead letter queue on its first failure.
+   * @default []
+   */
+  unrecoverable?: ErrorType[]
+}
+
+const DEFAULT_MAX_ATTEMPTS = 10
+
+/**
+ * The bus' default recoverability policy. It retries a failed message after `delay` until it has been attempted
+ * `maxAttempts` times, then moves it to the dead letter queue. Messages that fail with an `unrecoverable` error are
+ * dead-lettered straight away.
+ * @param options the attempts, delay and unrecoverable errors
+ * @returns a policy for `Bus.configure().withRecoverability()`
+ * @example
+ * Bus.configure().withRecoverability(
+ *   defaultRecoverability({ maxAttempts: 5, delay: 1_000, unrecoverable: [ValidationError] })
+ * )
+ */
+export const defaultRecoverability = ({
+  maxAttempts = DEFAULT_MAX_ATTEMPTS,
+  delay = exponentialBackoff(),
+  unrecoverable = []
+}: DefaultRecoverabilityOptions = {}): RecoverabilityPolicy => {
+  const retryDelay: RetryDelay = typeof delay === 'number' ? () => delay : delay
+  return ({ error, failedAttempts }) => {
+    if (failedAttempts >= maxAttempts || causedBy(error, unrecoverable)) {
+      return deadLetter()
+    }
+    return retry(retryDelay(failedAttempts))
+  }
+}

@@ -61,7 +61,7 @@ Give either `queueArn`, or `awsAccountId`, `awsRegion` and `queueName`. `awsAcco
 | `queueArn`               |                                            | The ARN of the service queue, instead of `queueName`. The account, region and name are read from it.                               |
 | `deadLetterQueueName`    | `dlq`                                      | The name of the dead letter queue.                                                                                                 |
 | `deadLetterQueueArn`     |                                            | The ARN of an existing dead letter queue. Takes precedence over `deadLetterQueueName`.                                             |
-| `maxReceiveCount`        | `10`                                       | How many times a message is received before SQS moves it to the dead letter queue.                                                 |
+| `maxReceiveCount`        | `15`                                       | How many receives before SQS's redrive policy moves a message to the dead letter queue. Keep it above the bus' `maxAttempts`.      |
 | `visibilityTimeout`      | `30`                                       | The service queue's visibility timeout in seconds (0 to 43200), which is how long a handler has before the message is redelivered. |
 | `waitTimeSeconds`        | `10`                                       | The long polling wait when receiving. `0` turns on short polling. Longer waits make shutdown slower.                               |
 | `messageRetentionPeriod` | `1209600` (14 days)                        | How long the dead letter queue keeps messages, in seconds.                                                                         |
@@ -76,4 +76,4 @@ Set `autoProvision: false` when the queues and topics are created elsewhere, suc
 
 - [Amazon SQS](https://node-ts.github.io/bus/transports/amazon-sqs): managing resources yourself, and how message attributes are sent
 - [SQS and Lambda](https://node-ts.github.io/bus/transports/sqs-lambda), with [@node-ts/bus-sqs-lambda](https://www.npmjs.com/package/@node-ts/bus-sqs-lambda)
-- [Retry strategies](https://node-ts.github.io/bus/guide/retry-strategies)
+- [Recoverability](https://node-ts.github.io/bus/guide/recoverability)

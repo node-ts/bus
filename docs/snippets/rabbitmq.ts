@@ -10,7 +10,6 @@ const rabbitConfiguration: RabbitMqTransportConfiguration = {
   queueName: 'reservations-service',
   deadLetterQueueName: 'reservations-service-dead-letter',
   connectionString: 'amqp://guest:guest@localhost',
-  maxRetries: 5,
   // Survive a broker restart
   persistentMessages: true
 }

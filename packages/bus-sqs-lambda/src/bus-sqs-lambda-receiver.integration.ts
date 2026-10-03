@@ -11,11 +11,14 @@ import {
   Bus,
   BusInstance,
   BusMiddleware,
+  defaultRecoverability,
+  FAILURE_HEADER,
+  fromFailureHeader,
   HandlerDispatchRejected,
   handlerFor,
   Logger,
-  ReceivedMessageReturnedToQueue,
-  RetryStrategy
+  MessageFailure,
+  ReceivedMessageReturnedToQueue
 } from '@node-ts/bus-core'
 import { SqsTransport } from '@node-ts/bus-sqs'
 import type { SQSBatchResponse, SQSEvent } from 'aws-lambda'
@@ -27,7 +30,8 @@ import {
   TestCommand,
   TestCommandOutcome,
   toLambdaRecord,
-  UnhandledCommand
+  UnhandledCommand,
+  UnrecoverableTestError
 } from './test'
 
 jest.setTimeout(60000)
@@ -45,10 +49,11 @@ const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID!
 const VISIBILITY_TIMEOUT_SECONDS = 2
 const MESSAGE_WAIT_MS = 10000
 
-// Returned messages become visible again straight away so the test doesn't wait on the retry backoff
-const immediateRetryStrategy: RetryStrategy = {
-  calculateRetryDelay: () => 0
-}
+// Retried messages become visible again straight away so the test doesn't wait on the retry backoff
+const recoverability = defaultRecoverability({
+  delay: 0,
+  unrecoverable: [UnrecoverableTestError]
+})
 
 const sqs = new SQSClient({ endpoint: LOCALSTACK_ENDPOINT, region: AWS_REGION })
 const sns = new SNSClient({ endpoint: LOCALSTACK_ENDPOINT, region: AWS_REGION })
@@ -170,15 +175,21 @@ const buildBus = async (
     .withMessageTypes(messageTypes)
     .withTransport(transport)
     .withReceiver(new BusSqsLambdaReceiver(configuration))
-    .withRetryStrategy(immediateRetryStrategy)
+    .withRecoverability(recoverability)
     .withMiddleware(...middleware)
     .withHandler(
       handlerFor(TestCommand, async (command: TestCommand) => {
         if (command.outcome === TestCommandOutcome.Throw) {
           throw new Error('Handler failed')
         }
+        if (command.outcome === TestCommandOutcome.Unrecoverable) {
+          throw new UnrecoverableTestError('Handler can never succeed')
+        }
         if (command.outcome === TestCommandOutcome.Return) {
           await bus.returnMessage()
+        }
+        if (command.outcome === TestCommandOutcome.Fail) {
+          await bus.failMessage()
         }
       })
     )
@@ -272,6 +283,83 @@ describe('BusSqsLambdaReceiver', () => {
           `${prefix}-return`,
           `${prefix}-throw`
         ])
+      })
+    })
+
+    describe('with records the recoverability policy dead-letters', () => {
+      const prefix = 'dead-letter'
+      let bus: BusInstance
+      let transport: SqsTransport
+      let response: SQSBatchResponse
+      let messagesThatCameBack: string[]
+      let failures: Map<string, MessageFailure | undefined>
+
+      beforeAll(async () => {
+        ;({ bus, transport } = await buildBus(
+          'integration-bus-sqs-lambda-dead-letter',
+          { reportBatchItemFailures: true }
+        ))
+        await Promise.all([
+          bus.send(
+            new TestCommand(
+              `${prefix}-unrecoverable`,
+              TestCommandOutcome.Unrecoverable
+            )
+          ),
+          bus.send(new TestCommand(`${prefix}-fail`, TestCommandOutcome.Fail))
+        ])
+        const messages = await readMessages(transport.queueUrl, {
+          count: 2,
+          waitMs: MESSAGE_WAIT_MS
+        })
+
+        response = await bus.receive<SQSBatchResponse>({
+          Records: messages.map(m => toLambdaRecord(m.sqsMessage))
+        })
+        messagesThatCameBack = await drainQueue(transport.queueUrl)
+
+        const deadLetters = await readMessages(transport.deadLetterQueueUrl, {
+          count: 2,
+          waitMs: MESSAGE_WAIT_MS
+        })
+        failures = new Map(
+          deadLetters.map(({ id, sqsMessage }) => [
+            id,
+            fromFailureHeader(
+              sqsMessage.MessageAttributes?.[FAILURE_HEADER]?.StringValue
+            )
+          ])
+        )
+      })
+
+      afterAll(async () => {
+        await disposeBus(bus, transport)
+      })
+
+      it('should report them to Lambda as handled', () => {
+        expect(response.batchItemFailures).toEqual([])
+      })
+
+      it('should remove them from the queue', () => {
+        expect(messagesThatCameBack).toEqual([])
+      })
+
+      it('should move a record with an unrecoverable error to the dead letter queue on its first failure', () => {
+        expect(failures.get(`${prefix}-unrecoverable`)).toMatchObject({
+          error: {
+            name: 'UnrecoverableTestError',
+            message: 'Handler can never succeed'
+          },
+          failedAttempts: 1,
+          endpoint: transport.endpointName
+        })
+      })
+
+      it('should move a record failed with failMessage() to the dead letter queue', () => {
+        expect(failures.get(`${prefix}-fail`)).toMatchObject({
+          error: { name: 'FailMessageRequested' },
+          failedAttempts: 1
+        })
       })
     })
 

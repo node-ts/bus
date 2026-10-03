@@ -23,7 +23,8 @@ const incomingContext: IncomingContext = {
     id: '1',
     domainMessage: new TestCommand(),
     attributes,
-    raw: {}
+    raw: {},
+    failedAttempts: 0
   },
   send: async () => undefined,
   publish: async () => undefined,

@@ -14,7 +14,7 @@ import { MessageHandlingContext } from '../message-handling-context'
 import { BusMiddleware } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import { Receiver } from '../receiver'
-import { DefaultRetryStrategy, RetryStrategy } from '../retry-strategy'
+import { RecoverabilityPolicy, defaultRecoverability } from '../recoverability'
 import { JsonSerializer, Serializer } from '../serialization'
 import { MessageSerializer } from '../serialization/message-serializer'
 import { InMemoryQueue, Transport } from '../transport'
@@ -67,7 +67,7 @@ export class BusConfiguration {
   private serializer: Serializer | undefined
   private persistence: Persistence = new InMemoryPersistence()
   private middleware: BusMiddleware[] = []
-  private retryStrategy: RetryStrategy = new DefaultRetryStrategy()
+  private recoverability: RecoverabilityPolicy = defaultRecoverability()
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
   private receiver: Receiver | undefined
@@ -118,7 +118,6 @@ export class BusConfiguration {
         messageTypes
       ),
       messageTypes,
-      retryStrategy: this.retryStrategy,
       interruptSignals: this.interruptSignals
     }
 
@@ -144,7 +143,8 @@ export class BusConfiguration {
       this.container,
       this.sendOnly,
       this.receiver,
-      messageHandlingContext
+      messageHandlingContext,
+      this.recoverability
     )
     return this.busInstance
   }
@@ -408,17 +408,29 @@ export class BusConfiguration {
   }
 
   /**
-   * Configure @node-ts/bus to use a different retry strategy that determines delays between
-   * retrying failed messages.
-   * @default DefaultRetryStrategy
+   * Sets the recoverability policy, which decides what happens each time handling a message fails: retry it after
+   * a delay, or move it to the dead letter queue with its failure metadata. Messages failed with `failMessage()`
+   * always go to the dead letter queue without consulting it.
+   * @param policy a function of the failure that returns `retry(delay)` or `deadLetter()`, such as one built by
+   * `defaultRecoverability()`
+   * @default defaultRecoverability(), which makes 10 attempts with exponentially growing delays
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * Bus.configure().withRecoverability(
+   *   defaultRecoverability({ maxAttempts: 5, delay: 1_000, unrecoverable: [ValidationError] })
+   * )
+   * @example
+   * // A policy of your own
+   * Bus.configure().withRecoverability(({ failedAttempts }) =>
+   *   failedAttempts < 3 ? retry(500) : deadLetter()
+   * )
    */
-  withRetryStrategy(retryStrategy: RetryStrategy): this {
+  withRecoverability(policy: RecoverabilityPolicy): this {
     if (!!this.busInstance) {
       throw new BusAlreadyInitialized()
     }
 
-    this.retryStrategy = retryStrategy
+    this.recoverability = policy
     return this
   }
 

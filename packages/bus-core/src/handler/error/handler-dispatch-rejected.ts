@@ -5,8 +5,8 @@ const describeRejection = (rejection: unknown): string =>
     : String(rejection)
 
 /**
- * Thrown when at least one handler or workflow handler fails for a message, so the message is returned to the queue
- * to be retried. Each handler's error is listed in `message` and kept in `rejections`. The `cause` is the error itself
+ * Thrown when at least one handler or workflow handler fails for a message, so the bus' recoverability policy decides
+ * whether the message is retried or dead-lettered. Each handler's error is listed in `message` and kept in `rejections`. The `cause` is the error itself
  * when one handler failed, or an `AggregateError` of all of them.
  */
 export class HandlerDispatchRejected extends Error {
@@ -19,7 +19,7 @@ export class HandlerDispatchRejected extends Error {
     const count =
       rejections.length === 1 ? '1 handler' : `${rejections.length} handlers`
     super(
-      `Message handling failed in ${count} and the message will be returned to the queue for retry: ` +
+      `Message handling failed in ${count}, so the recoverability policy will retry or dead-letter the message: ` +
         rejections.map(describeRejection).join('; '),
       {
         cause:

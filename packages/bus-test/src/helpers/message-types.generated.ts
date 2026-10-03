@@ -14,6 +14,7 @@ import { TestPoisonedMessage } from './test-poisoned-message.js'
 import { TestRoundTripCommand } from './test-round-trip-command.js'
 import { TestRoundTripWorkflowState } from './test-round-trip-workflow-state.js'
 import { TestStartRoundTripWorkflow } from './test-start-round-trip-workflow.js'
+import { TestUnrecoverableMessage } from './test-unrecoverable-message.js'
 
 // Pass to the bus with Bus.configure().withMessageTypes(messageTypes)
 export const messageTypes: MessageTypes = {
@@ -38,7 +39,9 @@ export const messageTypes: MessageTypes = {
     '@node-ts/bus-test/test-round-trip-workflow-state':
       '@node-ts/bus-test/src/helpers/test-round-trip-workflow-state#TestRoundTripWorkflowState',
     '@node-ts/bus-test/test-start-round-trip-workflow':
-      '@node-ts/bus-test/src/helpers/test-start-round-trip-workflow#TestStartRoundTripWorkflow'
+      '@node-ts/bus-test/src/helpers/test-start-round-trip-workflow#TestStartRoundTripWorkflow',
+    '@node-ts/bus-test/test-unrecoverable-message':
+      '@node-ts/bus-test/src/helpers/test-unrecoverable-message#TestUnrecoverableMessage'
   },
   types: {
     '@node-ts/bus-test/src/helpers/test-address#TestAddress': {
@@ -167,6 +170,11 @@ export const messageTypes: MessageTypes = {
             type: '@node-ts/bus-test/src/helpers/test-customer#TestCustomer'
           }
         }
+      },
+    '@node-ts/bus-test/src/helpers/test-unrecoverable-message#TestUnrecoverableMessage':
+      {
+        class: TestUnrecoverableMessage,
+        fields: {}
       }
   }
 }

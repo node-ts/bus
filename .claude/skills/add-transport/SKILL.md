@@ -38,8 +38,9 @@ The bus calls methods in this order: `prepare` → `connect` → `initialize` �
 - `readNextMessage()`: return `{ id, domainMessage, raw, attributes }` (a `TransportMessage`), or `undefined` when there's nothing to read. It must not block forever, and `stop()` must release any reads still waiting.
 - `deleteMessage(msg)`: ack the message.
 - Unhandled messages: a message the service has no handler for must be discarded (deleted), never returned, retried or dead-lettered. The bus deletes these after dispatch finds no handler, so don't return them from the transport. A transport that filters before queuing, like `InMemoryQueue`, drops them.
-- `returnMessage(msg)`: retry it, with the delay from `coreDependencies.retryStrategy.calculateRetryDelay(attempt)` (milliseconds). After the maximum attempts (default ≥ 10, which the shared suite requires), move it to the dead-letter queue.
-- `fail(msg)`: send it straight to the dead-letter queue. The bus calls `deleteMessage` afterwards, so don't also ack it here.
+- `readNextMessage()` sets `TransportMessage.failedAttempts`: how many times handling the message failed before this delivery, `0` the first time (a delivery count minus one, or a header `returnMessage` writes).
+- `returnMessage(msg, delay)`: make it visible again after `delay` milliseconds (from the bus' recoverability policy), with one more failed attempt. Never dead-letter here: the bus decides when a message is out of attempts and calls `fail` instead.
+- `fail(msg, failure)`: copy it to the dead-letter queue with its attributes and headers, plus a `bus-failure` header (`FAILURE_HEADER`) holding `toFailureHeader(failure)`, then remove it from the service queue (ack/delete). The bus calls exactly one of `deleteMessage`, `returnMessage` or `fail` per message. Reserve `bus-failure` in `assertSendOptions`.
 - `start?()`, `stop?()`, `dispose?()` as needed.
 
 Put errors in `src/error/`, following the root error convention.
@@ -52,7 +53,7 @@ Export the configuration and the transport, plus any attribute helpers other pac
 
 - `src/<name>-transport.integration.ts`: `describe('<Name>Transport', () => { … transportTests(transport, publishSystemMessage, systemMessageTopicIdentifier, readAllFromDeadLetterQueue) })`, importing `transportTests` and `TestSystemMessage` from `@node-ts/bus-test`.
   - `publishSystemMessage(value)` publishes a raw `TestSystemMessage` with the attribute `systemMessage = value` onto `systemMessageTopicIdentifier`.
-  - `readAllFromDeadLetterQueue()` reads, deletes and returns `{ message, attributes }[]`.
+  - `readAllFromDeadLetterQueue()` waits for a message to arrive, then reads, deletes and returns `DeadLetteredMessage[]` (`{ message, attributes, failure }`, with `failure` from `fromFailureHeader()`).
   - Create broker resources in `beforeAll` and purge or delete them in `afterAll`. Put any env vars in the root `test.env`.
   - The shared suites pass bus-test's own generated message types to their buses. Every other bus the test builds that receives messages needs `.withMessageTypes(messageTypes)` with its fixtures' types: add `generate:message-types`/`check:message-types` scripts and a `@node-ts/bus-cli` devDependency, and export the generated file from the fixtures' `index.ts` (see bus-rabbitmq's `src/test`). Give each bus its own transport instance, since `build()` throws `TransportAlreadyInUse` for one another bus uses.
   - bus-test is imported from its build (`dist`), like bus-core, so run `pnpm build` after changing it. `packages/bus-test/README.md` documents the suite's parameters for third-party transport authors.

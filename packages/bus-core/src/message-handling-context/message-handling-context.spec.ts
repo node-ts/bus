@@ -5,7 +5,8 @@ const buildTransportMessage = (): TransportMessage<unknown> => ({
   id: 'a',
   raw: {},
   attributes: { attributes: {}, stickyAttributes: {} },
-  domainMessage: { $name: 'a', $version: 1 }
+  domainMessage: { $name: 'a', $version: 1 },
+  failedAttempts: 0
 })
 
 describe('MessageHandlingContext', () => {

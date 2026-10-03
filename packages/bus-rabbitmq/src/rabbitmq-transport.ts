@@ -1,7 +1,12 @@
 import {
   CoreDependencies,
+  createMessageFailure,
   DEFAULT_DEAD_LETTER_QUEUE_NAME,
+  FAILURE_HEADER,
   Logger,
+  MessageFailure,
+  Milliseconds,
+  toFailureHeader,
   Transport,
   TransportConnectionOptions,
   TransportHeaderReserved,
@@ -34,8 +39,6 @@ import { RabbitMqConnectionRecoveryConfiguration } from './rabbitmq-connection-r
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import { toRetryDelay, toRetryQueueDelay } from './retry-delay'
 
-export const DEFAULT_MAX_RETRIES = 10
-
 /**
  * The message header that counts how many times handling the message has failed
  */
@@ -54,6 +57,7 @@ const RESERVED_HEADERS = new Set([
   'stickyAttributes',
   SENT_AT_HEADER,
   FAILED_ATTEMPTS_HEADER,
+  FAILURE_HEADER,
   'x-death'
 ])
 
@@ -123,7 +127,6 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   private channel: Channel | undefined
   private assertedExchanges: { [key: string]: boolean } = {}
   private assertedRetryQueues = new Set<string>()
-  private maxRetries: number
 
   private deadLetterQueue: string
   private retryQueue: string
@@ -160,7 +163,6 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   constructor(private readonly configuration: RabbitMqTransportConfiguration) {
     this.endpointName = configuration.queueName
-    this.maxRetries = configuration.maxRetries ?? DEFAULT_MAX_RETRIES
     this.deadLetterQueue =
       configuration.deadLetterQueueName || DEFAULT_DEAD_LETTER_QUEUE_NAME
     this.retryQueue = `${configuration.queueName}-retry`
@@ -216,7 +218,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    * Checks the headers set by outgoing middleware before the bus buffers or sends the message
    * @param sendOptions the options the message will be sent with
    * @throws TransportHeaderReserved if a header is named `attributes`, `stickyAttributes`, `sentAt`,
-   * `failedAttempts` or `x-death`, or starts with `x-first-death-` or `x-last-death-`
+   * `failedAttempts`, `bus-failure` or `x-death`, or starts with `x-first-death-` or `x-last-death-`
    */
   assertSendOptions(sendOptions: TransportSendOptions): void {
     assertHeadersNotReserved(sendOptions.headers ?? {})
@@ -252,20 +254,42 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     await this.publishMessage(command, messageAttributes, sendOptions)
   }
 
-  async fail(transportMessage: TransportMessage<unknown>): Promise<void> {
+  /**
+   * Copies a message to the dead letter queue with its properties and headers, plus its failure metadata in a
+   * `bus-failure` header, then acks it
+   * @param transportMessage the message to dead-letter
+   * @param failure why and where it failed
+   */
+  async fail(
+    transportMessage: TransportMessage<unknown>,
+    failure: MessageFailure
+  ): Promise<void> {
     const rawMessage = transportMessage.raw as GetMessage
-    this.settleMessage(rawMessage, 'failed', channel => {
-      const serializedPayload =
-        this.coreDependencies.messageSerializer.serialize(
-          transportMessage.domainMessage
-        )
-      channel.sendToQueue(
-        this.deadLetterQueue,
-        Buffer.from(serializedPayload),
-        rawMessage.properties
-      )
-      this.logger.debug('Message failed immediately to dead letter queue', {
-        rawMessage,
+    this.deadLetterRabbitMessage(rawMessage, failure)
+  }
+
+  /**
+   * Copies a message to the dead letter queue with its failure metadata, then acks it. It's sent before it's acked so
+   * that it isn't lost if the process is killed in between. The `failedAttempts` header is left off the copy.
+   */
+  private deadLetterRabbitMessage(
+    rawMessage: RabbitMqMessage,
+    failure: MessageFailure
+  ): void {
+    // The attempt count is in the failure metadata, and leaving it off lets a replayed message start again
+    const { [FAILED_ATTEMPTS_HEADER]: _failedAttempts, ...headers } =
+      rawMessage.properties.headers ?? {}
+    this.settleMessage(rawMessage, 'dead-lettered', channel => {
+      channel.sendToQueue(this.deadLetterQueue, rawMessage.content, {
+        ...rawMessage.properties,
+        headers: {
+          ...headers,
+          [FAILURE_HEADER]: toFailureHeader(failure)
+        }
+      })
+      channel.ack(rawMessage)
+      this.logger.debug('Message sent to the dead letter queue', {
+        messageId: rawMessage.properties.messageId,
         deadLetterQueue: this.deadLetterQueue
       })
     })
@@ -358,14 +382,14 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
           error: serializeError(error)
         }
       )
-      this.settleMessage(rabbitMessage, 'dead-lettered', channel => {
-        channel.sendToQueue(
-          this.deadLetterQueue,
-          rabbitMessage.content,
-          rabbitMessage.properties
-        )
-        channel.ack(rabbitMessage)
-      })
+      this.deadLetterRabbitMessage(
+        rabbitMessage,
+        createMessageFailure(error, {
+          failedAttempts: this.getFailedAttempts(rabbitMessage) + 1,
+          endpoint: this.endpointName,
+          messageId: rabbitMessage.properties.messageId as string | undefined
+        })
+      )
       return undefined
     }
   }
@@ -403,7 +427,8 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       id: rabbitMessage.properties.messageId as string,
       domainMessage: payload,
       raw: rabbitMessage,
-      attributes
+      attributes,
+      failedAttempts: this.getFailedAttempts(rabbitMessage)
     }
   }
 
@@ -422,42 +447,25 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
   }
 
   /**
-   * Returns a message to the service queue after the delay from the retry strategy, or sends it to
-   * the dead letter queue once it has been attempted `maxRetries` times.
+   * Returns a message to the service queue after `retryDelay`, counting one more failed attempt in its
+   * `failedAttempts` header.
    *
    * The message is copied into a retry queue with a per-message TTL, and acked. When the TTL
    * expires, the retry queue dead-letters it back to the service queue.
+   * @param message the message to return
+   * @param retryDelay how long until it's redelivered, in milliseconds
    */
   async returnMessage(
-    message: TransportMessage<RabbitMqMessage>
+    message: TransportMessage<RabbitMqMessage>,
+    retryDelay: Milliseconds
   ): Promise<void> {
-    const msg = JSON.parse(message.raw.content.toString())
-    const failedAttempts = this.getFailedAttempts(message.raw)
-    // Makes attempt indexed from 1
-    const attempt = failedAttempts + 1
-    const meta = { attempt, message: msg, rawMessage: message.raw }
-
-    if (attempt >= this.maxRetries) {
-      this.settleMessage(message.raw, 'returned', channel => {
-        this.logger.debug(
-          'Message retries failed, sending to dead letter queue',
-          meta
-        )
-
-        // Send to DLQ before ack'ing to avoid dropping messages in case of SIGKILL happening in between
-        channel.sendToQueue(
-          this.deadLetterQueue,
-          message.raw.content,
-          message.raw.properties
-        )
-        channel.ack(message.raw, false)
-      })
-      return
+    const attempt = this.getFailedAttempts(message.raw) + 1
+    const meta = {
+      attempt,
+      messageId: message.raw.properties.messageId
     }
 
-    const delay = toRetryDelay(
-      this.coreDependencies.retryStrategy.calculateRetryDelay(failedAttempts)
-    )
+    const delay = toRetryDelay(retryDelay)
     const retryQueue = `${this.retryQueue}-${toRetryQueueDelay(delay)}ms`
     const channel = this.messageChannels.get(message.raw) ?? this.channel
     if (channel && this.isChannelOpen(channel)) {

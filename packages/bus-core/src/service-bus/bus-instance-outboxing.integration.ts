@@ -4,6 +4,7 @@ import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
+import { deadLetter } from '../recoverability'
 import {
   messageTypesFor,
   RecordingInMemoryQueue,
@@ -104,9 +105,8 @@ describe('BusInstance Outboxing', () => {
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
-        .withTransport(
-          new InMemoryQueue({ maxRetries: 0, receiveTimeoutMs: 100 })
-        )
+        .withTransport(new InMemoryQueue({ receiveTimeoutMs: 100 }))
+        .withRecoverability(() => deadLetter())
         .withMiddleware({
           incoming: async (context, next) => {
             try {
@@ -215,10 +215,10 @@ describe('BusInstance Outboxing', () => {
         .withLogger(() => logger.object)
         .withTransport(
           new RecordingInMemoryQueue(message => dispatched.object(message), {
-            maxRetries: 0,
             receiveTimeoutMs: 100
           })
         )
+        .withRecoverability(() => deadLetter())
         .withHandler(
           handlerFor(TestCommand, async () => {
             // Deliberately not awaited, so the send happens after the handler fails
@@ -276,7 +276,8 @@ describe('BusInstance Outboxing', () => {
           attributes: { attributes: {}, stickyAttributes: {} },
           domainMessage,
           // Functions can't be structured cloned
-          raw: { acknowledge: () => undefined }
+          raw: { acknowledge: () => undefined },
+          failedAttempts: 0
         }
       }
     }
@@ -390,15 +391,13 @@ describe('BusInstance Outboxing', () => {
   describe('when a message is sent from two handlers, and one fails', () => {
     let bus: BusInstance
     const testEventCallback = Mock.ofType<(source: string) => void>()
-    const inMemoryTransport = new InMemoryQueue({
-      maxRetries: 0,
-      receiveTimeoutMs: 100
-    })
+    const inMemoryTransport = new InMemoryQueue({ receiveTimeoutMs: 100 })
 
     beforeAll(async () => {
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withTransport(inMemoryTransport)
+        .withRecoverability(() => deadLetter())
         .withHandler(
           handlerFor(TestCommand, async () => {
             await bus.send(new TestEvent('failing-handler'))
@@ -440,10 +439,7 @@ describe('BusInstance Outboxing', () => {
     let bus: BusInstance
     const testCommandCallback = Mock.ofType<() => void>()
     const testEventCallback = Mock.ofType<(source: string) => void>()
-    const inMemoryTransport = new InMemoryQueue({
-      maxRetries: 0,
-      receiveTimeoutMs: 100
-    })
+    const inMemoryTransport = new InMemoryQueue({ receiveTimeoutMs: 100 })
 
     class TestWorkflowState extends WorkflowState {
       static NAME = 'TestWorkflowState'
@@ -471,6 +467,7 @@ describe('BusInstance Outboxing', () => {
           messageTypesFor('TestWorkflowState')
         )
         .withTransport(inMemoryTransport)
+        .withRecoverability(() => deadLetter())
         .withWorkflow(TestWorkflow)
         .withHandler(
           handlerFor(TestEvent, async (event: TestEvent) => {

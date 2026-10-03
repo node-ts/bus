@@ -1,6 +1,7 @@
 import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
-import { CoreDependencies } from '../util'
+import { MessageFailure } from '../recoverability'
+import { CoreDependencies, Milliseconds } from '../util'
 import { TransportMessage } from './transport-message'
 import { TransportSendOptions } from './transport-send-options'
 
@@ -76,10 +77,20 @@ export interface Transport<TransportMessageType = {}> {
   assertSendOptions?(sendOptions: TransportSendOptions): void
 
   /**
-   * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
-   * queue and have a receipt handle.
+   * Moves a message to the dead letter queue and removes it from the service queue, so it isn't handled again. The
+   * bus calls it when its recoverability policy dead-letters a message, or a handler called `failMessage()`, instead
+   * of `deleteMessage()` or `returnMessage()`.
+   *
+   * Write `failure` on the dead-lettered copy as one header named `bus-failure` (`FAILURE_HEADER`), serialized with
+   * `toFailureHeader()`, keeping the message's other headers and attributes. A transport should reserve that name, so
+   * `assertSendOptions` rejects it.
+   * @param transportMessage the message to dead-letter, as it was read from the queue
+   * @param failure why and where it failed
    */
-  fail(transportMessage: TransportMessage<unknown>): Promise<void>
+  fail(
+    transportMessage: TransportMessage<unknown>,
+    failure: MessageFailure
+  ): Promise<void>
 
   /**
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
@@ -98,11 +109,19 @@ export interface Transport<TransportMessageType = {}> {
   deleteMessage(message: TransportMessage<TransportMessageType>): Promise<void>
 
   /**
-   * Returns a message to the queue for retry. This will be called if an error was thrown when
-   * trying to process a message.
+   * Returns a message to the queue to be handled again after `delay`, counting one more failed attempt. The bus calls
+   * it when handling the message failed and its recoverability policy decided to retry it. The transport doesn't
+   * decide when a message has run out of attempts; the bus does, and calls `fail()` instead.
+   *
+   * The next time the message is read, its `failedAttempts` must be one more than it was. A delay the transport can't
+   * honour exactly, such as below SQS's one second resolution, is rounded to the nearest it supports.
    * @param message The message to be returned to the queue for reprocessing
+   * @param delay how long to wait before the message can be read again, in milliseconds
    */
-  returnMessage(message: TransportMessage<unknown>): Promise<void>
+  returnMessage(
+    message: TransportMessage<unknown>,
+    delay: Milliseconds
+  ): Promise<void>
 
   /**
    * An optional function that is called before startup that will provide core dependencies

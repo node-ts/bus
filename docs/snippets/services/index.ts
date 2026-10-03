@@ -24,6 +24,10 @@ export const taskScheduler = {
   runTask: async (_image: string, _args: string[]): Promise<string> => 'task-1'
 }
 
+export const auditLog = {
+  write: async (_entry: Record<string, unknown>): Promise<void> => {}
+}
+
 export const documentStore = {
   read: async (_key: string): Promise<string> => ''
 }

@@ -29,8 +29,9 @@ export interface Receiver<
    * Optional. When implemented, each received message is handled independently: a failing message no longer
    * makes `bus.receive()` reject straight away. Instead, once every message has been handled, this is called with
    * the ones that failed and its return value is returned by `bus.receive()`. Throw from it to fail the whole
-   * batch. Messages without a handler are discarded and are not reported as failures. Messages that a handler
-   * returned with `bus.returnMessage()` are reported as failures with a `ReceivedMessageReturnedToQueue` error.
+   * batch. Messages without a handler are discarded and are not reported as failures, and nor are messages the
+   * recoverability policy or `failMessage()` moved to the dead letter queue. Messages that a handler returned with
+   * `bus.returnMessage()` are reported as failures with a `ReceivedMessageReturnedToQueue` error.
    *
    * When not implemented, `bus.receive()` rejects as soon as any message fails.
    *

@@ -4,7 +4,7 @@ A RabbitMQ transport (amqplib). Read the root `CLAUDE.md` first.
 
 ## Design
 
-- **Config** (`src/rabbitmq-transport-configuration.ts`): `connectionString`, `queueName`, `deadLetterQueueName` (default `dead-letter`, which every service shares unless you set it), `maxRetries` (default 10), `persistentMessages` (default false) and `connectionRecovery` (`src/rabbitmq-connection-recovery-configuration.ts`: enabled, exponential backoff from 100 ms to 30 s, unlimited retries).
+- **Config** (`src/rabbitmq-transport-configuration.ts`): `connectionString`, `queueName`, `deadLetterQueueName` (default `dead-letter`, which every service shares unless you set it), `persistentMessages` (default false) and `connectionRecovery` (`src/rabbitmq-connection-recovery-configuration.ts`: enabled, exponential backoff from 100 ms to 30 s, unlimited retries).
 - **Lifecycle**:
   - `connect` opens the connection and channel, with prefetch set to `concurrency`.
   - `initialize` always declares the topology, even in send-only mode.
@@ -22,14 +22,14 @@ A RabbitMQ transport (amqplib). Read the root `CLAUDE.md` first.
   - `<queue>-retry` is a direct exchange plus a queue with a 1 ms TTL that dead-letters back to the service exchange. It's legacy: nothing sends to it now, but the service queue's `x-dead-letter-*` arguments point at it, and changing a queue's arguments makes declaring an existing queue fail with `PRECONDITION_FAILED`. Keep it.
   - The DLQ is bound to the retry exchange with routing key `error`.
 - Attributes and sticky attributes are stored in message headers as JSON strings. The AMQP `messageId` property is the bus' `messageId` attribute (a new uuid only if the transport is called without one), and `sentAt` is a `sentAt` header because the AMQP `timestamp` only has second precision. Retry and DLQ copies keep the properties and headers. `endpointName` is `queueName`.
-- Headers set by outgoing middleware (`TransportSendOptions.headers`) are spread into the AMQP `headers` as they are. `x-delay` alone doesn't delay anything, since the delayed-message plugin needs an `x-delayed-message` exchange and the transport declares fanout ones. `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`, `x-death` and names starting `x-first-death-`/`x-last-death-` are reserved (`getFailedAttempts` reads `x-death`) and throw `TransportHeaderReserved` from `assertSendOptions` and `publishMessage`. Retries and `fail` copy `properties`, so headers survive both.
+- Headers set by outgoing middleware (`TransportSendOptions.headers`) are spread into the AMQP `headers` as they are. `x-delay` alone doesn't delay anything, since the delayed-message plugin needs an `x-delayed-message` exchange and the transport declares fanout ones. `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`, `bus-failure`, `x-death` and names starting `x-first-death-`/`x-last-death-` are reserved (`getFailedAttempts` reads `x-death`) and throw `TransportHeaderReserved` from `assertSendOptions` and `publishMessage`. Retries and `fail` copy `properties`, so headers survive both.
 
 ## Retry and failure
 
-- `returnMessage` copies the message into a retry queue with `expiration` set to `retryStrategy.calculateRetryDelay(failedAttempts)` (0-indexed, like `InMemoryQueue`), then acks it. On expiry it goes to the **back** of the service queue. At `>= maxRetries` the message goes to the DLQ and is acked instead.
+- `returnMessage(message, delay)` copies the message into a retry queue with `expiration` set to the delay core passes in (from the recoverability policy), then acks it. On expiry it goes to the **back** of the service queue. It never dead-letters; core calls `fail` when the policy says so.
 - The retry queue is picked by `toRetryQueueDelay` (`src/retry-delay.ts`): the next power of two ms. Per-message TTLs only expire at the head of a queue, so one queue for every delay would hold short delays behind long ones. Bucketing caps that at 2x the delay. The delayed-message plugin was avoided because it needs installing and doesn't replicate.
-- The attempt count is the `failedAttempts` header, which `returnMessage` sets on the copy. For messages returned by earlier versions, it falls back to the `x-death` count on the legacy retry exchange.
-- `fail` re-serializes `domainMessage` into the DLQ without acking it. The bus acks it afterwards through `deleteMessage`.
+- The attempt count is the `failedAttempts` header, which `returnMessage` sets on the copy and `toTransportMessage` reads into `TransportMessage.failedAttempts`. For messages returned by earlier versions, it falls back to the `x-death` count on the legacy retry exchange.
+- `fail(message, failure)` (`deadLetterRabbitMessage`) copies the raw content and properties to the DLQ with a `bus-failure` header and without the `failedAttempts` header (so a shovelled replay starts again), then acks it. Unparseable messages go the same way with the parse error as the failure.
 
 ## Tests
 

@@ -82,7 +82,7 @@ const guide: DefaultTheme.SidebarItem[] = [
   {
     text: 'Running in production',
     items: [
-      { text: 'Retry strategies', link: '/guide/retry-strategies' },
+      { text: 'Recoverability', link: '/guide/recoverability' },
       { text: 'Middleware', link: '/guide/middleware' },
       { text: 'Dependency injection', link: '/guide/dependency-injection' },
       {

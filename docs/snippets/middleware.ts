@@ -10,6 +10,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { reserveRoomHandler } from './handlers/reserve-room-handler'
 import { messageTypes } from './message-types.generated'
 import { ReserveRoom, RoomReserved } from './messages'
+import { auditLog } from './services'
 
 // #region register
 const bus = Bus.configure()
@@ -85,7 +86,7 @@ Bus.configure().withMiddleware({
         correlationId: context.correlationId,
         error
       })
-      // Rethrow so the message is still returned to the queue for retry
+      // Rethrow so the recoverability policy still retries or dead-letters the message
       throw error
     }
   }
@@ -106,6 +107,27 @@ Bus.configure().withMiddleware({
   }
 })
 // #endregion validation
+
+// #region audit
+Bus.configure().withMiddleware({
+  incoming: async (context, next) => {
+    // Throws if the handlers fail, so a message is only audited once it's handled
+    await next()
+    try {
+      await auditLog.write({
+        messageName: context.message.$name,
+        messageId: context.attributes.messageId,
+        correlationId: context.correlationId,
+        message: context.message,
+        handledAt: new Date().toISOString()
+      })
+    } catch (error) {
+      // The message was handled, so don't throw and have it retried
+      console.error('Failed to audit message', { error })
+    }
+  }
+})
+// #endregion audit
 
 // #region handler-timing
 Bus.configure().withMiddleware({

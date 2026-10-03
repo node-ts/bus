@@ -10,6 +10,7 @@ import {
   OutgoingContext
 } from '../middleware'
 import { Receiver } from '../receiver'
+import { deadLetter } from '../recoverability'
 import {
   messageTypesFor,
   RecordingInMemoryQueue,
@@ -70,7 +71,8 @@ class PassthroughReceiver implements Receiver<
       id: domainMessage.$name,
       attributes: { attributes: {}, stickyAttributes: {} },
       domainMessage,
-      raw: domainMessage
+      raw: domainMessage,
+      failedAttempts: 0
     }
   }
 }
@@ -337,12 +339,13 @@ describe('BusInstance middleware', () => {
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(
         message => dispatched.object(message),
-        { maxRetries: 0, receiveTimeoutMs: 100 }
+        { receiveTimeoutMs: 100 }
       )
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(silentLogger)
         .withTransport(queue)
+        .withRecoverability(() => deadLetter())
         .withMiddleware({
           incoming: async (_, next) => {
             try {
@@ -373,9 +376,9 @@ describe('BusInstance middleware', () => {
 
       await bus.initialize()
       await bus.start()
-      const returned = once(queue.settled, 'returned')
+      const failed = once(queue.settled, 'failed')
       await bus.send(new TestCommand())
-      await returned
+      await failed
     })
 
     afterAll(async () => {
@@ -686,13 +689,14 @@ describe('BusInstance middleware', () => {
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(
         message => dispatched.object(message),
-        { maxRetries: 0, receiveTimeoutMs: 100 },
+        { receiveTimeoutMs: 100 },
         ['x-reserved']
       )
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(silentLogger)
         .withTransport(queue)
+        .withRecoverability(() => deadLetter())
         .withMiddleware({
           outgoing: async (context, next) => {
             if (context.message.$name === TestEvent.NAME) {
@@ -717,9 +721,9 @@ describe('BusInstance middleware', () => {
 
       await bus.initialize()
       await bus.start()
-      const returned = once(queue.settled, 'returned')
+      const failed = once(queue.settled, 'failed')
       await bus.send(new TestCommand())
-      await returned
+      await failed
     })
 
     afterAll(async () => {
@@ -807,6 +811,7 @@ describe('BusInstance middleware', () => {
     let bus: BusInstance
     let queue: RecordingInMemoryQueue
     const handled = Mock.ofType<() => void>()
+    const deleted = Mock.ofType<() => void>()
 
     beforeAll(async () => {
       queue = new RecordingInMemoryQueue(() => undefined)
@@ -824,9 +829,10 @@ describe('BusInstance middleware', () => {
 
       await bus.initialize()
       await bus.start()
-      const deleted = once(queue.settled, 'deleted')
+      queue.settled.on('deleted', () => deleted.object())
+      const failed = once(queue.settled, 'failed')
       await bus.send(new TestCommand())
-      await deleted
+      await failed
     })
 
     afterAll(async () => {
@@ -835,6 +841,10 @@ describe('BusInstance middleware', () => {
 
     it('should send the message to the dead letter queue', () => {
       expect(queue.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should not also delete the message', () => {
+      deleted.verify(d => d(), Times.never())
     })
 
     it('should skip the handlers', () => {
