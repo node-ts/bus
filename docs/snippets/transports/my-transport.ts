@@ -75,6 +75,16 @@ export class MyTransport implements Transport<BrokerMessage> {
     }
   }
 
+  // Called by the bus before it buffers or sends a message, so the send itself rejects
+  assertSendOptions({ headers = {} }: TransportSendOptions): void {
+    const reserved = Object.keys(headers).find(name =>
+      RESERVED_HEADERS.includes(name)
+    )
+    if (reserved) {
+      throw new TransportHeaderReserved(reserved, 'MyTransport')
+    }
+  }
+
   async publish<TEvent extends Event>(
     event: TEvent,
     attributes?: MessageAttributes,
@@ -152,12 +162,7 @@ export class MyTransport implements Transport<BrokerMessage> {
     { headers = {} }: TransportSendOptions = {}
   ): Promise<void> {
     // Native headers set by outgoing middleware
-    const reserved = Object.keys(headers).find(name =>
-      RESERVED_HEADERS.includes(name)
-    )
-    if (reserved) {
-      throw new TransportHeaderReserved(reserved, 'MyTransport')
-    }
+    this.assertSendOptions({ headers })
     await this.client.publish(
       message.$name,
       this.coreDependencies.messageSerializer.serialize(message),

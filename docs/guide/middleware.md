@@ -15,13 +15,15 @@ A middleware is an async function that gets a context and a `next` function. Cal
 
 Within each stage, middleware runs in the order it's registered, with the first registered outermost. Each bus has its own middleware, so a plugin that keeps state should be a function that returns a new middleware object for each bus.
 
-| Stage      | Wraps                                                                                | Not calling `next()`                           | Throwing                                                             |
-| ---------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------- |
-| `incoming` | each message received, around all its handlers, including messages without a handler | skips the handlers, and the message is deleted | returns the message for retry, as a failing handler does             |
-| `handler`  | each call of a handler or workflow handler, inside its outbox                        | skips that handler, which counts as succeeded  | fails that handler only, and drops its sends. The message is retried |
-| `outgoing` | each `send()` and `publish()`, before the message is buffered or sent                | drops the message                              | rejects the `send()` or `publish()`, and nothing is buffered or sent |
+| Stage      | Wraps                                                                                | Not calling `next()`                           | Throwing                                                                  |
+| ---------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `incoming` | each message received, around all its handlers, including messages without a handler | skips the handlers, and the message is deleted | returns the message for retry, as a failing handler does                  |
+| `handler`  | each call of a handler or workflow handler, inside its outbox                        | skips that handler, which counts as succeeded  | fails that handler only, and drops its sends. The message is retried      |
+| `outgoing` | each `send()` and `publish()`, before the message is buffered or sent                | drops the message                              | rejects the `send()` or `publish()`. See below for a throw after `next()` |
 
 `next()` can be called at most once. Calling it again throws `MiddlewareNextCalledTwice`. An incoming middleware that catches an error from `next()` without rethrowing it marks the message handled, and it's deleted.
+
+An outgoing middleware that throws before `next()` sends nothing. One that throws after `next()` still rejects the `send()` or `publish()`, but what happens to the message depends on where it was sent from. Outside a handler, the transport has already sent it. Inside a handler, it's taken back out of the handler's outbox, so it's never sent.
 
 ## Incoming middleware
 
@@ -67,7 +69,7 @@ Outgoing middleware runs each time `send()` or `publish()` is called, on the bus
 
 <<< @/snippets/middleware.ts#stamp-attribute
 
-It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it.
+It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport.
 
 ### Transport headers
 
@@ -75,13 +77,13 @@ Outgoing middleware can also set native headers for the transport in `context.he
 
 <<< @/snippets/middleware.ts#headers
 
-| Transport                            | Writes each header as                         | Reserved names                                                                                  |
-| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| [RabbitMQ](/transports/rabbitmq)     | an AMQP header, kept when the message retries | `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`                                    |
-| [Amazon SQS](/transports/amazon-sqs) | an SNS message attribute under its own name   | `correlationId`, `messageId`, `sentAt`, and names starting `attributes.` or `stickyAttributes.` |
-| In-memory queue                      | an entry in the raw message's `headers`       | none                                                                                            |
+| Transport                            | Writes each header as                         | Reserved names                                                                                                                  |
+| ------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [RabbitMQ](/transports/rabbitmq)     | an AMQP header, kept when the message retries | `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`, `x-death`, and names starting `x-first-death-` or `x-last-death-` |
+| [Amazon SQS](/transports/amazon-sqs) | an SNS message attribute under its own name   | `correlationId`, `messageId`, `sentAt`, and names starting `attributes.` or `stickyAttributes.`                                 |
+| In-memory queue                      | an entry in the raw message's `headers`       | none                                                                                                                            |
 
-Setting a reserved name throws `TransportHeaderReserved`. AWS's limit of 10 message attributes on SQS only applies with SNS raw message delivery, which the SQS transport doesn't use.
+Setting a reserved name makes the `send()` or `publish()` throw `TransportHeaderReserved`, before the message is buffered or sent. AWS's limit of 10 message attributes on SQS only applies with SNS raw message delivery, which the SQS transport doesn't use.
 
 ::: warning RabbitMQ delayed messages
 The delayed message plugin only delays a message with an `x-delay` header when its exchange has the plugin's `x-delayed-message` type. The RabbitMQ transport declares a fanout exchange for each message, so an `x-delay` header alone doesn't delay it.
