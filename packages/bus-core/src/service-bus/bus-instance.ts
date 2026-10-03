@@ -85,6 +85,20 @@ const handlerNameOf = (handler: HandlerDefinition): string =>
   handler.name || 'anonymous'
 
 /**
+ * Copies an outgoing message as the outgoing middleware left it when it called `next()`, so changes a middleware
+ * makes after `next()` never reach the transport, whether the message is sent straight away or buffered
+ */
+const snapshotOutgoing = (context: OutgoingContext): OutboxedMessage => ({
+  ...context,
+  attributes: {
+    ...context.attributes,
+    attributes: { ...context.attributes.attributes },
+    stickyAttributes: { ...context.attributes.stickyAttributes }
+  },
+  headers: { ...context.headers }
+})
+
+/**
  * A bus built by `Bus.configure().build()`. It sends and publishes messages, and unless it's send-only, receives
  * them and dispatches them to handlers.
  */
@@ -636,8 +650,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    */
   private createHandlerContext(attributes: MessageAttributes): HandlerContext {
     return Object.freeze({
-      // A custom transport or receiver may pass a message without attributes, which incoming middleware still sees
-      correlationId: attributes?.correlationId,
+      correlationId: attributes.correlationId,
       send: async <TCommand extends Command>(
         command: TCommand,
         messageAttributes?: Partial<MessageAttributes>
@@ -675,7 +688,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     try {
       await this.middlewarePipeline.runOutgoing(context, async () => {
         dispatched = true
-        const outgoingMessage: OutboxedMessage = { ...context }
+        const outgoingMessage = snapshotOutgoing(context)
+        // Checked before buffering, so the caller's send rejects rather than the outbox failing when it's flushed
+        this.transport.assertSendOptions?.({ headers: outgoingMessage.headers })
         if (this.addToOutbox(outgoingMessage)) {
           outboxed = outgoingMessage
           return

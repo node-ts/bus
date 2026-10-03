@@ -10,6 +10,7 @@ import {
   InMemoryMessage,
   InMemoryQueue,
   InMemoryQueueConfiguration,
+  TransportHeaderReserved,
   TransportMessage,
   TransportSendOptions
 } from '../transport'
@@ -26,16 +27,26 @@ export type MessageDispatched = (
 /**
  * An in-memory queue that reports every message sent or published to it, including those it discards for having
  * no handler, so tests can see what reached the transport. `settled` emits `'deleted'` or `'returned'` with each
- * message the bus deletes or returns.
+ * message the bus deletes or returns. Headers named in `reservedHeaders` are rejected as a real transport would.
  */
 export class RecordingInMemoryQueue extends InMemoryQueue {
   readonly settled = new EventEmitter()
 
   constructor(
     private readonly onDispatched: MessageDispatched,
-    configuration: InMemoryQueueConfiguration = new DefaultInMemoryQueueConfiguration()
+    configuration: InMemoryQueueConfiguration = new DefaultInMemoryQueueConfiguration(),
+    private readonly reservedHeaders: string[] = []
   ) {
     super(configuration)
+  }
+
+  assertSendOptions(sendOptions: TransportSendOptions): void {
+    const reserved = Object.keys(sendOptions.headers ?? {}).find(name =>
+      this.reservedHeaders.includes(name)
+    )
+    if (reserved) {
+      throw new TransportHeaderReserved(reserved, 'RecordingInMemoryQueue')
+    }
   }
 
   async publish<TEvent extends Event>(

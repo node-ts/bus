@@ -381,7 +381,13 @@ describe('BusInstance', () => {
 
       queue
         .setup(q => q.readNextMessage())
-        .returns(async () => ({ domainMessage: new TestCommand() }) as any)
+        .returns(async () =>
+          toTransportMessage(
+            new TestCommand(),
+            { attributes: {}, stickyAttributes: {} },
+            true
+          )
+        )
 
       queue
         .setup(q => q.readNextMessage())

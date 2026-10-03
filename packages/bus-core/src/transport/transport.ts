@@ -65,6 +65,17 @@ export interface Transport<TransportMessageType = {}> {
   ): Promise<void>
 
   /**
+   * An optional check of the options a message will be sent with. The bus calls it as soon as `send()` or
+   * `publish()` is called, after the outgoing middleware has set the headers and before the message is buffered in
+   * a handler's outbox or sent. That way the caller's `send()` or `publish()` rejects, instead of the outbox failing
+   * when it's flushed after the handler's other messages have gone out. A transport that writes headers natively
+   * should implement it, and still check in `send()` and `publish()`, which may be called directly.
+   * @param sendOptions the options the message will be sent with
+   * @throws TransportHeaderReserved if a header has a name the transport uses itself
+   */
+  assertSendOptions?(sendOptions: TransportSendOptions): void
+
+  /**
    * Forwards @param transportMessage to the dead letter queue. The message must have been read in from the
    * queue and have a receipt handle.
    */

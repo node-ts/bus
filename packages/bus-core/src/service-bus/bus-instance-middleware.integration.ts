@@ -19,7 +19,11 @@ import {
   TestEvent2,
   testMessageTypes
 } from '../test'
-import { InMemoryMessage, TransportMessage } from '../transport'
+import {
+  InMemoryMessage,
+  TransportHeaderReserved,
+  TransportMessage
+} from '../transport'
 import {
   InMemoryPersistence,
   Workflow,
@@ -670,6 +674,283 @@ describe('BusInstance middleware', () => {
         d => d(It.isObjectWith<Message>({ $name: TestEvent2.NAME })),
         Times.once()
       )
+    })
+  })
+
+  describe('when a handler publishes a message with a reserved header', () => {
+    let bus: BusInstance
+    const dispatched = Mock.ofType<(message: Message) => void>()
+    let publishError: unknown
+    let handlerCalls = 0
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(
+        message => dispatched.object(message),
+        { maxRetries: 0, receiveTimeoutMs: 100 },
+        ['x-reserved']
+      )
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            if (context.message.$name === TestEvent.NAME) {
+              context.headers['x-reserved'] = 'value'
+            }
+            await next()
+          }
+        })
+        .withHandler(
+          handlerFor(TestCommand, async (_m, _a, ctx) => {
+            handlerCalls++
+            await ctx.publish(new TestEvent2())
+            try {
+              await ctx.publish(new TestEvent())
+            } catch (error) {
+              publishError = error
+              throw error
+            }
+          })
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const returned = once(queue.settled, 'returned')
+      await bus.send(new TestCommand())
+      await returned
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should reject the publish itself', () => {
+      expect(publishError).toBeInstanceOf(TransportHeaderReserved)
+    })
+
+    it('should not flush the sibling messages the handler sent', () => {
+      dispatched.verify(
+        d => d(It.isObjectWith<Message>({ $name: TestEvent2.NAME })),
+        Times.never()
+      )
+    })
+
+    it('should handle the message once before dead-lettering it', () => {
+      expect(handlerCalls).toEqual(1)
+    })
+  })
+
+  describe('when outgoing middleware changes the attributes and headers after next()', () => {
+    let bus: BusInstance
+    const sent = new Map<
+      string,
+      { attributes: MessageAttributes | undefined; headers: unknown }
+    >()
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(
+        (message, attributes, sendOptions) => {
+          sent.set(message.$name, {
+            attributes: structuredClone(attributes),
+            headers: structuredClone(sendOptions?.headers)
+          })
+        }
+      )
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            context.headers['x-early'] = true
+            await next()
+            context.attributes.attributes.late = true
+            context.attributes.stickyAttributes.late = true
+            context.headers['x-late'] = true
+          }
+        })
+        .withHandler(
+          handlerFor(TestCommand, async (_m, _a, ctx) => {
+            await ctx.publish(new TestEvent())
+          })
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it.each([
+      ['sent straight away', TestCommand.NAME],
+      ['buffered in a handler', TestEvent.NAME]
+    ])(
+      'should send a message %s as the middleware left it at next()',
+      (_, messageName) => {
+        const { attributes, headers } = sent.get(messageName)!
+        expect(headers).toEqual({ 'x-early': true })
+        expect(attributes!.attributes).not.toHaveProperty('late')
+        expect(attributes!.stickyAttributes).not.toHaveProperty('late')
+      }
+    )
+  })
+
+  describe('when incoming middleware fails the message', () => {
+    let bus: BusInstance
+    let queue: RecordingInMemoryQueue
+    const handled = Mock.ofType<() => void>()
+
+    beforeAll(async () => {
+      queue = new RecordingInMemoryQueue(() => undefined)
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withMiddleware({
+          incoming: async context => {
+            await context.failMessage()
+          }
+        })
+        .withHandler(handlerFor(TestCommand, async () => handled.object()))
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should send the message to the dead letter queue', () => {
+      expect(queue.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should skip the handlers', () => {
+      handled.verify(h => h(), Times.never())
+    })
+  })
+
+  describe('when incoming middleware returns the message', () => {
+    let bus: BusInstance
+    const handled = Mock.ofType<() => void>()
+    const returned = Mock.ofType<() => void>()
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(() => undefined)
+      queue.settled.on('returned', () => returned.object())
+      let attempts = 0
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withMiddleware({
+          incoming: async (context, next) => {
+            if (++attempts === 1) {
+              await context.returnMessage()
+              return
+            }
+            await next()
+          }
+        })
+        .withHandler(handlerFor(TestCommand, async () => handled.object()))
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should return the message instead of deleting it', () => {
+      returned.verify(r => r(), Times.once())
+    })
+
+    it('should handle the message when it is retried', () => {
+      handled.verify(h => h(), Times.once())
+    })
+  })
+
+  describe('when a receiver passes in a message and incoming middleware throws', () => {
+    let bus: BusInstance
+    const middlewareError = new Error('Incoming middleware failed')
+    let receiveError: unknown
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withReceiver(new PassthroughReceiver())
+        .withMiddleware({
+          incoming: async () => {
+            throw middlewareError
+          }
+        })
+        .withHandler(handlerFor(TestCommand, async () => undefined))
+        .build()
+
+      await bus.initialize()
+      receiveError = await bus
+        .receive(new TestCommand())
+        .catch((error: unknown) => error)
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should rethrow the error to the host', () => {
+      expect(receiveError).toBe(middlewareError)
+    })
+  })
+
+  describe('when a receiver passes in a message and incoming middleware does not call next()', () => {
+    let bus: BusInstance
+    const handled = Mock.ofType<() => void>()
+    let receiveError: unknown
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withReceiver(new PassthroughReceiver())
+        .withMiddleware({ incoming: async () => undefined })
+        .withHandler(handlerFor(TestCommand, async () => handled.object()))
+        .build()
+
+      await bus.initialize()
+      receiveError = await bus.receive(new TestCommand()).then(
+        () => undefined,
+        (error: unknown) => error
+      )
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should resolve, so the host deletes the message', () => {
+      expect(receiveError).toBeUndefined()
+    })
+
+    it('should skip the handlers', () => {
+      handled.verify(h => h(), Times.never())
     })
   })
 
