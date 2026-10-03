@@ -27,7 +27,14 @@ The state is the second parameter of every workflow handler. It's read-only: a h
 
 :::
 
-What a handler returns is type checked against the state: a field of the wrong type, or one that isn't in the state at any depth, doesn't compile. A handler with an annotated return type is only checked against its annotation, so leave the return type off to have its fields checked.
+What a handler returns is type checked against the state:
+
+- A field of the wrong type, or one that isn't in the state at any depth, doesn't compile, in every branch of the handler, sync or async, whether it's declared inline or as a separate function.
+- A handler with an annotated type, such as `WorkflowHandlerFunction<ItemShipped, FulfilmentWorkflowState>` or a return type of `WorkflowHandlerResult<FulfilmentWorkflowState>`, is only checked against its annotation, which TypeScript doesn't check for extra fields. Leave the annotation off to have its fields checked.
+- Fields typed `unknown`, `object` or `Record<string, unknown>` take any nested object, and a handler that returns `any`, such as `JSON.parse(...)`, isn't checked.
+- Returning a copy of the state, such as `{ ...state, status }`, is fine.
+
+Nothing checks for fields that aren't in the state at runtime: a state class' fields only exist at runtime once they're set, so the bus can't tell which fields a state has.
 
 ## Discarding state
 
@@ -42,6 +49,8 @@ For example, this workflow is started by a `DocumentUploaded` event, but only fo
 Function workflow handlers are plain functions. Get one from the workflow with `startedByHandler(Message)` or `whenHandler(Message)`, and call it with a context from `workflowContext()`. The context sends and publishes nothing, unless you pass your own functions, and its `complete` and `discard` return what the bus expects.
 
 <<< @/snippets/workflows/state.ts#test
+
+When the handler reads typed message attributes, pass them to `workflowContext()` too, such as `workflowContext<FulfilmentWorkflowState, CarrierAttributes>({ attributes: messageAttributes({ attributes: { carrier: 'post' } }) })`.
 
 ## See also
 

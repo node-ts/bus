@@ -90,6 +90,7 @@ pnpm docs:dev         # preview at http://localhost:5173/bus/
 pnpm docs:typecheck   # type check the snippets
 pnpm docs:build       # fails on a dead internal link or an unresolved {@link}
 pnpm docs:check-redirects
+pnpm docs:check-readmes   # the package READMEs match the snippets, and their links resolve
 ```
 
 - Every page follows the template in [docs/README.md](./docs/README.md): frontmatter with a `title` and `description`, a one-paragraph intro, the content, and a "See also" section. Use only the components listed there. A new page goes in the section of the sidebar it belongs to, in `docs/.vitepress/config.mts`.
@@ -97,7 +98,9 @@ pnpm docs:check-redirects
 - The API reference (`/api/`) is generated from the packages' JSDoc at build time. A `{@link}` that doesn't resolve fails the build; missing JSDoc is only a warning.
 - GitHub Pages can't send redirects, so old URLs keep working through stub pages: the build writes one at each old path in `docs/redirects.json`, which sends the browser on to the new page. When you move or remove a page, add its old path there. Paths with no page and no stub get the 404 page, which links home.
 
-CircleCI's `docs` job runs the type check, the build and the redirect check on every branch, including pull requests.
+- Each package's README is published to npm. It follows the template in [docs/README.md](./docs/README.md#package-readmes) and links to the site for everything but installation, a minimal example and the configuration. Its TypeScript code blocks come from `docs/snippets`: run `pnpm docs:sync-readmes` after changing a snippet a README uses.
+
+CircleCI's `docs` job runs the type check, the build, the redirect check and the README check on every branch, including pull requests.
 
 ### Deploying
 

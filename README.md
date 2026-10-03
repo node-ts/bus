@@ -10,43 +10,20 @@ Requires Node.js 24 or later.
 
 ## Further info
 
-🔥 View our docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus) 🔥
-
-🤔 Have a question? [Join the Discussion](https://github.com/node-ts/bus/discussions) 🤔
+**[Documentation](https://node-ts.github.io/bus)** · [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2)
 
 ## Components
 
-- [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - Core bus library for sending and receiving messages and managing workflows
-- [@node-ts/bus-messages](https://github.com/node-ts/bus/tree/master/packages/bus-messages) - A set of message type definitions used to define your own messages, events and commands
-- [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli) - Command line tools, including `bus generate-message-types`, which lets the default serializer restore Dates and class instances in messages
-- [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence adapter for @node-ts/bus
-- [@node-ts/bus-mongodb](https://github.com/node-ts/bus/tree/master/packages/bus-mongodb) - A MongoDB persistence adapter for @node-ts/bus
-- [@node-ts/bus-rabbitmq](https://github.com/node-ts/bus/tree/master/packages/bus-rabbitmq) - A Rabbit MQ transport adapter for @node-ts/bus
-- [@node-ts/bus-sqs](https://github.com/node-ts/bus/tree/master/packages/bus-sqs) - An Amazon SQS transport adapter for @node-ts/bus
+- [@node-ts/bus-core](https://github.com/node-ts/bus/tree/master/packages/bus-core) - The bus: sending and receiving messages, handlers, workflows and retries, with an in-memory transport and persistence
+- [@node-ts/bus-messages](https://github.com/node-ts/bus/tree/master/packages/bus-messages) - The base types of commands, events and their attributes, used to declare your own messages
+- [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli) - Command line tools, including `bus generate-message-types`, which lets the bus restore Dates and class instances in messages
+- [@node-ts/bus-rabbitmq](https://github.com/node-ts/bus/tree/master/packages/bus-rabbitmq) - A RabbitMQ transport
+- [@node-ts/bus-sqs](https://github.com/node-ts/bus/tree/master/packages/bus-sqs) - An Amazon SQS transport
+- [@node-ts/bus-sqs-lambda](https://github.com/node-ts/bus/tree/master/packages/bus-sqs-lambda) - A receiver that handles SQS messages in AWS Lambda
+- [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence for workflow state
+- [@node-ts/bus-mongodb](https://github.com/node-ts/bus/tree/master/packages/bus-mongodb) - A MongoDB persistence for workflow state
+- [@node-ts/bus-test](https://github.com/node-ts/bus/tree/master/packages/bus-test) - The conformance test suites for transport and persistence adapters
 
-## Development
+## Contributing
 
-This guide is for developers and contributors to the library itself. For consumers, please see our consumer docs at [https://node-ts.github.io/bus](https://node-ts.github.io/bus).
-
-The [design principles](./CONTRIBUTING.md#design-principles) that every API follows, and changesets, releases and the versioning policy, are covered in [CONTRIBUTING.md](./CONTRIBUTING.md). Upgrading from 1.x is covered in [MIGRATING.md](./MIGRATING.md).
-
-### Installation
-
-This package uses `pnpm` for monorepo support and workspaces.
-
-Install dependencies
-
-```sh
-pnpm i
-```
-
-### Scripts
-
-- `bootstrap` - install dependencies in all packages and hoist to root
-- `build` - build all packages
-- `build:watch` - build all packages and watch for changes with incremental builds
-- `clean` - remove all _dist_ and _node_modules_ folders
-- `lint` - run ESLint (typescript-eslint, type-aware) over the repo. Run `build` first, since cross-package types come from each package's `dist`
-- `format` - format with prettier (`format:check` to only check)
-- `test` - run unit and integration tests
-- `test:watch` - run tests in watch mode, rerun on changes
+To work on the library itself, see [CONTRIBUTING.md](./CONTRIBUTING.md): setup, the scripts, tests and local infrastructure, the [design principles](./CONTRIBUTING.md#design-principles) every API follows, and changesets and releases. Upgrading from 1.x is covered in [MIGRATING.md](./MIGRATING.md).

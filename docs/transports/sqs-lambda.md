@@ -36,7 +36,7 @@ yarn add -D @types/aws-lambda
 
 Configure the bus with the SQS transport and a `BusSqsLambdaReceiver`, initialize it when the module loads, and pass each event to `bus.receive()`. Don't call `bus.start()`: Lambda reads the queue instead.
 
-<<< @/snippets/sqs-lambda.ts#configure
+<<< @/snippets/sqs-lambda.ts
 
 Each record is dispatched to its handlers, at most `withConcurrency()` at a time. Records that succeed are left for Lambda to delete. Records whose message has no handler are discarded, not retried. A record whose handler calls `ctx.returnMessage()` is treated as failed, so that Lambda retries it.
 
@@ -46,7 +46,7 @@ By default, if any record fails, `bus.receive()` rejects once the whole batch ha
 
 To retry only the records that failed, pass `reportBatchItemFailures: true`. `bus.receive()` then resolves with an [`SQSBatchResponse`](https://docs.aws.amazon.com/lambda/latest/dg/services-sqs-errorhandling.html#services-sqs-batchfailurereporting) listing the failed records instead of rejecting:
 
-<<< @/snippets/sqs-lambda.ts#batch-failures
+<<< @/snippets/sqs-lambda-batch-failures.ts
 
 ::: warning
 The Lambda's SQS event source mapping must include `ReportBatchItemFailures` in its `FunctionResponseTypes`. Without it, Lambda ignores the response, and deletes the failed records along with the rest of the batch.

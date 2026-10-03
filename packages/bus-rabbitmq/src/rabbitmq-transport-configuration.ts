@@ -16,7 +16,9 @@ export interface RabbitMqTransportConfiguration extends TransportConfiguration {
   maxRetries?: number
 
   /**
-   * Whether the messages in RabbitMQ are persistent or not (survive a broker restart). By default, false.
+   * Whether messages are sent as persistent, so they survive a broker restart. Transient messages are
+   * lost when the broker restarts, so set this to `true` in production.
+   * @default false
    */
   persistentMessages?: boolean
 

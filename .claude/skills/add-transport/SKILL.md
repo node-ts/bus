@@ -59,7 +59,8 @@ Export the configuration and the transport, plus any attribute helpers other pac
 
 ## 6. Docs and wiring
 
-- `README.md`, laid out like bus-rabbitmq's: title and one-liner, docs/Discussion links, `## Installation` (`npm i` plus a `Bus.configure().withTransport(...)` example), `## Configuration Options`, and `## Development` (a `docker run` line for local infra).
+- A docs page, `docs/transports/<name>.md`, laid out like `docs/transports/rabbitmq.md`, with its snippet in `docs/snippets/<name>.ts`, a sidebar entry in `docs/.vitepress/config.mts` and a card in `docs/transports.md`.
+- `README.md`, following the Package READMEs template in `docs/README.md` (like bus-rabbitmq's): install line with the `@node-ts/bus-core` peer, a Usage block synced from the docs snippet with a `<!-- <<< @/snippets/<name>.ts -->` marker (`pnpm docs:sync-readmes`), a Configuration table matching the configuration interface's `@default`s, and Learn more links to the docs page. No Development section: local infra goes in `docker-compose.yml`.
 - Add a bullet to `## Components` in the root `README.md`.
 - Add `packages/bus-<name>/CLAUDE.md` (design, config defaults, retry semantics, local infra), and add the infra line to the root `CLAUDE.md` Commands section.
 
@@ -69,6 +70,7 @@ Export the configuration and the transport, plus any attribute helpers other pac
 pnpm build   # other packages import bus-core from dist
 pnpm exec dotenv -e test.env -- jest packages/bus-<name>
 pnpm format:check
+pnpm docs:typecheck && pnpm docs:build && pnpm docs:check-readmes
 ```
 
 The shared suite needs the real broker running locally. If it isn't available, tell the user rather than skipping the integration test.

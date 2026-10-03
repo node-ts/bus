@@ -68,8 +68,9 @@ An interface with JSDoc on every field. The README repeats these docs.
 
 ## 6. Docs and wiring
 
-- `README.md` with: title and one-liner, docs/Discussion links, Installation (`npm i` plus a `withPersistence(...)` example), Configuration Options, and Development (a `docker run` line).
-- List the package in the root `README.md` `## Components` and in `packages/bus-core/src/workflow/persistence/README.md`.
+- A docs page, `docs/persistence/<name>.md`, laid out like `docs/persistence/postgres.md`, with its snippet in `docs/snippets/<name>.ts`, a sidebar entry in `docs/.vitepress/config.mts` and a card in `docs/persistence.md`.
+- `README.md`, following the Package READMEs template in `docs/README.md` (like bus-postgres'): install line with the `@node-ts/bus-core` peer, a Usage block synced from the docs snippet with a `<!-- <<< @/snippets/<name>.ts -->` marker (`pnpm docs:sync-readmes`), a Configuration table matching the configuration interface, and Learn more links to the docs page. No Development section: local infra goes in `docker-compose.yml`.
+- List the package in the root `README.md` `## Components`.
 - Add `packages/bus-<name>/CLAUDE.md`, and add the infra line to the root `CLAUDE.md`.
 
 ## 7. Verify
@@ -78,6 +79,7 @@ An interface with JSDoc on every field. The README repeats these docs.
 pnpm build
 pnpm exec dotenv -e test.env -- jest packages/bus-<name>
 pnpm format:check
+pnpm docs:typecheck && pnpm docs:build && pnpm docs:check-readmes
 ```
 
 If the database isn't available locally, tell the user rather than skipping the integration test.

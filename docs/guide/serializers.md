@@ -26,11 +26,17 @@ Pass the generated `messageTypes` to every bus that receives the messages:
 
 <<< @/snippets/serializers.ts#message-types
 
-A bus that handles messages from several message libraries passes the message types of each, as in `withMessageTypes(orderMessageTypes, messageTypes)`. They're merged when the bus is built, and `build()` throws `MessageTypesConflict` if two of them map the same `$name` to different types. At `initialize()`, a bus that receives messages throws `MessageTypesMissing`, naming what's missing, unless it has an entry for every message it handles and every workflow state it persists. Send-only buses don't need message types.
+A bus that handles messages from several message libraries passes the message types of each, as in `withMessageTypes(orderMessageTypes, messageTypes)`. They're merged when the bus is built, and `build()` throws `MessageTypesConflict`, naming both files, if two of them map the same `$name` to different types. `mergeMessageTypes()` from `@node-ts/bus-messages` merges them the same way. Each bus has its own message types, so two buses in one process can use different ones. At `initialize()`, a bus that receives messages throws `MessageTypesMissing`, naming what's missing, unless it has an entry for every message it handles and every workflow state it persists. Send-only buses don't need message types.
 
 Messages stay plain JSON on the wire, so services that don't use the generated file, or aren't written in TypeScript, can still read them. Dates are sent as ISO strings, Maps as objects, Sets as arrays and bigints as strings.
 
-The generator's options, the types it supports and its known limits are in the [bus-cli README](https://github.com/node-ts/bus/tree/master/packages/bus-cli#bus-generate-message-types).
+The generator's options, the types it supports and its known limits are in [Generating message types](/guide/serializers/message-types).
+
+## Plain data instead
+
+Messages don't have to use types that need restoring. Declare their fields as the types JSON already has: strings (with ISO strings for dates), numbers, booleans, arrays and plain object types. Nothing then needs restoring, which suits plain JavaScript projects, and services in other languages that read the same messages.
+
+A bus that receives messages still needs an entry in its message types for each message it handles. Generating them works the same for plain-data messages. In a plain JavaScript project, where the generator can't read types, write the entries by hand, with no fields to restore: `{ messages: { 'my-app/orders/place-order': 'PlaceOrder' }, types: { PlaceOrder: { fields: {} } } }`.
 
 ::: warning Constructors aren't run
 Received messages and workflow state are created from their class' prototype, and their fields copied onto it. Constructor logic and field initializers don't run, so a field that's missing from the payload stays `undefined`. `#private` fields aren't sent or restored.
@@ -44,5 +50,6 @@ A serializer implements `Serializer` from `@node-ts/bus-core`. The bus passes it
 
 ## See also
 
+- [Generating message types](/guide/serializers/message-types)
 - [Class serializer](/guide/serializers/class-serializer), which generated message types replaced in 2.0
 - [`Serializer`](/api/bus-core/interfaces/Serializer) and [`generateMessageTypes`](/api/bus-cli/functions/generateMessageTypes) in the API reference

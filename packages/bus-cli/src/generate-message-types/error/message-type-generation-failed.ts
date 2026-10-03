@@ -13,7 +13,7 @@ export class MessageTypeGenerationFailed extends Error {
       `Message types could not be generated:\n${problems.map(problem => `  - ${problem}`).join('\n')}`
     )
     this.help =
-      'Change the types listed above to ones the generator supports (see the @node-ts/bus-cli README), or leave their files out with --exclude'
+      'Change the types listed above to ones the generator supports (see https://node-ts.github.io/bus/guide/serializers/message-types#supported-types), or leave their files out with --exclude'
 
     Object.setPrototypeOf(this, new.target.prototype)
   }

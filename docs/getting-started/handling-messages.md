@@ -31,7 +31,7 @@ This page declares a command, writes a handler for it, registers the handler wit
 
 </Steps>
 
-When the handler resolves, the message is deleted from the queue, and `RoomReserved` is published. If it throws, `RoomReserved` is dropped and the message goes back on the queue to be retried, as described in [Retry strategies](/guide/retry-strategies).
+A handler's return value is ignored, and a promise it returns is awaited, so `handlerFor(ReserveRoom, command => repository.save(command))` is fine. When the handler resolves, the message is deleted from the queue, and `RoomReserved` is published. If it throws, `RoomReserved` is dropped and the message goes back on the queue to be retried, as described in [Retry strategies](/guide/retry-strategies).
 
 <Diagram src="/diagrams/message-flow.svg" alt="A message is sent to the transport's queue, read by the bus and dispatched to its handlers. A handled message is deleted. A failed one is returned to the queue after a delay, and goes to the dead letter queue once it's out of attempts." caption="What happens to a message" />
 
@@ -40,6 +40,8 @@ When the handler resolves, the message is deleted from the queue, and `RoomReser
 A handler is a plain function, and `HandlerContext` is an interface, so a test can call the handler with a fake context. `messageAttributes()` from `@node-ts/bus-messages` fills in empty attributes.
 
 <<< @/snippets/testing-handlers.ts
+
+To test a handler that reads attributes, pass them to `messageAttributes()`, such as `messageAttributes({ attributes: { tenantId: 'tenant-a' } })`. When the attributes type has a required key, such as `messageAttributes<{ tenantId: string }>()`, that map has to be given.
 
 ## See also
 

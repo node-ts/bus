@@ -27,7 +27,13 @@ With functions, `defineWorkflow(State)` returns a workflow that `startedBy` and 
 
 A function workflow reaches its dependencies through closures and needs no container. A class workflow is constructed with no arguments, or resolved from a [container](/guide/dependency-injection) when the bus has one.
 
-Type a class workflow's mapper with the class itself, as `WorkflowMapper<FulfilmentWorkflowState, FulfilmentWorkflow>`. The compiler then checks every handler name against the method it names: the method must be public, accept the message it's mapped to, and return changes to the state with no fields that aren't in it.
+Type a class workflow's mapper with the class itself, as `WorkflowMapper<FulfilmentWorkflowState, FulfilmentWorkflow>`. The compiler then checks every handler name against the method it names:
+
+- The name must be a public method of the workflow, other than `configureWorkflow`. A misspelt name lists the workflow's methods: `'"shipItm"' is not assignable to '"shipItem" | "emailReceipt"'`.
+- The method must accept the message it's mapped to, and the state, attributes and `HandlerContext` it's called with. It can declare fewer parameters, and typed attributes such as `MessageAttributes<{ tenantId: string }>`.
+- It must return changes to the state, or nothing, with no fields that aren't in the state at any depth. The compiler reports them at the `startedBy` or `when` call, in the type the name isn't assignable to, such as `"shipItem" & { 'Fields that are not in the workflow state': "itmId" }`.
+
+Name the class in the mapper's type. `WorkflowMapper<FulfilmentWorkflowState, this>` accepts no handler name, since `this` could be any subclass, and neither does a mapper typed with `any` or another workflow class. A generic workflow, such as `class FulfilmentWorkflow<TState extends FulfilmentWorkflowState>`, types its mapper with a concrete state, as `WorkflowMapper<FulfilmentWorkflowState, FulfilmentWorkflow<FulfilmentWorkflowState>>`.
 
 ## Registering the workflow
 
