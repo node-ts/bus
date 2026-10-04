@@ -20,7 +20,7 @@ import {
   TestEvent2,
   testMessageTypes
 } from '../test'
-import { TransportHeaderReserved } from './error'
+import { EndpointNotFound, TransportHeaderReserved } from './error'
 import { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 
 const event = new TestEvent()
@@ -167,6 +167,52 @@ describe('InMemoryQueue', () => {
         Times.once()
       )
       logger.verify(l => l.warn(It.isAny(), It.isAny()), Times.never())
+    })
+  })
+
+  describe('when sending a message to its own endpoint', () => {
+    const replyOptions: MessageAttributes = {
+      ...messageOptions,
+      replyTo: 'another-endpoint'
+    }
+    let message: TransportMessage<InMemoryMessage> | undefined
+
+    beforeEach(async () => {
+      await sut.sendToAddress('in-memory', command2, replyOptions, {
+        headers: { priority: 'high' }
+      })
+      message = await sut.readNextMessage()
+    })
+
+    it('should queue it even though it has no handler', () => {
+      expect(message!.domainMessage).toEqual(command2)
+    })
+
+    it('should keep its attributes and headers', () => {
+      expect(message!.attributes).toEqual(replyOptions)
+      expect(message!.raw.headers).toEqual({ priority: 'high' })
+    })
+  })
+
+  describe('when sending a message to another endpoint', () => {
+    let sendError: unknown
+
+    beforeEach(async () => {
+      sendError = await sut
+        .sendToAddress('another-endpoint', command, messageOptions)
+        .catch((error: unknown) => error)
+    })
+
+    it('should throw EndpointNotFound', () => {
+      expect(sendError).toBeInstanceOf(EndpointNotFound)
+      expect(sendError).toMatchObject({
+        address: 'another-endpoint',
+        transportName: 'InMemoryQueue'
+      })
+    })
+
+    it('should not queue it', () => {
+      expect(sut.depth).toEqual(0)
     })
   })
 

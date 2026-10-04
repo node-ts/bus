@@ -341,6 +341,7 @@ export class WorkflowRegistry {
           correlationId: context.correlationId,
           send: context.send.bind(context),
           publish: context.publish.bind(context),
+          reply: context.reply.bind(context),
           failMessage: context.failMessage.bind(context),
           returnMessage: context.returnMessage.bind(context),
           attributes,

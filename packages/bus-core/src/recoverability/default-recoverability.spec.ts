@@ -1,5 +1,10 @@
+import { DelayedReplyNotSupported, ReturnAddressMissing } from '../error'
 import { HandlerDispatchRejected } from '../handler/error'
 import { TestCommand } from '../test'
+import {
+  EndpointNotFound,
+  TransportReplyNotSupported
+} from '../transport/error'
 import { WorkflowHandlerFailed } from '../workflow/error'
 import { defaultRecoverability } from './default-recoverability'
 import { MessageHandlingFailure } from './message-handling-failure'
@@ -94,6 +99,24 @@ describe('defaultRecoverability', () => {
 
     it('should retry other errors', () => {
       expect(sut(failure(1, new Error())).action).toEqual('retry')
+    })
+  })
+
+  describe.each([
+    ['DelayedReplyNotSupported', new DelayedReplyNotSupported('reply')],
+    ['ReturnAddressMissing', new ReturnAddressMissing('request', 'reply')],
+    [
+      'TransportReplyNotSupported',
+      new TransportReplyNotSupported('MyTransport', 'reply')
+    ],
+    ['EndpointNotFound', new EndpointNotFound('requester', 'MyTransport')]
+  ])('when a reply fails with %s', (_, replyError) => {
+    const sut = defaultRecoverability({ unrecoverable: [ValidationError] })
+
+    it('should dead-letter the message on its first failure, since retrying can never succeed', () => {
+      expect(
+        sut(failure(1, new HandlerDispatchRejected([replyError])))
+      ).toEqual(deadLetter())
     })
   })
 })

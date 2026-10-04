@@ -17,7 +17,7 @@ This page declares a command, writes a handler for it, registers the handler wit
 
 2. **Write a handler**
 
-   `handlerFor` declares a function that handles one type of message. It's called with the message, its attributes and a [`HandlerContext`](/api/bus-core/interfaces/HandlerContext), which sends and publishes through the bus that received the message.
+   `handlerFor` declares a function that handles one type of message. It's called with the message, its attributes and a [`HandlerContext`](/api/bus-core/interfaces/HandlerContext), which sends, publishes and [replies](/guide/workflows/request-reply) through the bus that received the message.
 
    <<< @/snippets/handlers/reserve-room-handler.ts
 

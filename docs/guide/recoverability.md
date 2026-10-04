@@ -35,7 +35,7 @@ Pass options to change the number of attempts, the delay, and the errors that ar
 | `delay`         | `exponentialBackoff()` | The delay before each retry: a number of milliseconds, or a function of how many times the message has failed so far.     |
 | `unrecoverable` | `[]`                   | Error classes that retrying can't fix, such as validation errors. A message that fails with one is dead-lettered at once. |
 
-An unrecoverable error is found wherever it is in the error the bus caught: thrown by any of the message's handlers, inside a workflow handler's failure, or as the `cause` of another error.
+An unrecoverable error is found wherever it is in the error the bus caught: thrown by any of the message's handlers, inside a workflow handler's failure, or as the `cause` of another error. The errors in `ALWAYS_UNRECOVERABLE` are dead-lettered at once too, whatever `unrecoverable` is: the [reply](/guide/workflows/request-reply#the-return-address) errors `DelayedReplyNotSupported`, `ReturnAddressMissing`, `TransportReplyNotSupported` and `EndpointNotFound`, which no retry can fix.
 
 ## Custom policies
 

@@ -11,6 +11,7 @@ import { RabbitMqTransport } from '@node-ts/bus-rabbitmq'
 import { messageTypes } from './message-types.generated'
 import { CheckCredit, CreditChecked, OrderSubmitted } from './messages'
 import { creditService } from './services'
+import { CreditCheckState } from './workflows/credit-check-state'
 import { OrderApprovalState } from './workflows/order-approval-state'
 
 // #region workflow
@@ -61,17 +62,51 @@ export class OrderApprovalWorkflow extends Workflow<OrderApprovalState> {
 // #endregion class-workflow
 
 // #region handler
-// In the credit service. It replies by publishing CreditChecked while it
-// handles the request, so the request's sticky attributes, and its
-// workflowId, are copied to the reply
+// In the credit service. The reply goes straight back to the service that
+// sent CheckCredit, with the request's workflowId
 export const checkCreditHandler = handlerFor(
   CheckCredit,
   async ({ orderId, customerId, amount }, _attributes, ctx) => {
     const approved = await creditService.check(customerId, amount)
-    await ctx.publish(new CreditChecked(orderId, approved))
+    await ctx.reply(new CreditChecked(orderId, approved))
   }
 )
 // #endregion handler
+
+// #region replying-workflow
+// In the credit service, a workflow that keeps a record of each check. The
+// reply carries the requesting workflow's workflowId, not this one's
+export const creditCheckWorkflow = defineWorkflow(CreditCheckState).startedBy(
+  CheckCredit,
+  async ({ orderId, customerId, amount }, _state, ctx) => {
+    const approved = await creditService.check(customerId, amount)
+    await ctx.reply(new CreditChecked(orderId, approved))
+    return { orderId, approved }
+  }
+)
+// #endregion replying-workflow
+
+// #region replying-class-workflow
+export class CreditCheckWorkflow extends Workflow<CreditCheckState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<CreditCheckState, CreditCheckWorkflow>
+  ): void {
+    mapper.withState(CreditCheckState).startedBy(CheckCredit, 'checkCredit')
+  }
+
+  async checkCredit(
+    { orderId, customerId, amount }: CheckCredit,
+    _state: CreditCheckState,
+    _attributes: MessageAttributes,
+    ctx: HandlerContext
+  ) {
+    const approved = await creditService.check(customerId, amount)
+    // The reply carries the requesting workflow's workflowId, not this one's
+    await ctx.reply(new CreditChecked(orderId, approved))
+    return { orderId, approved }
+  }
+}
+// #endregion replying-class-workflow
 
 // #region field-mapping
 export const orderApprovalByOrderWorkflow = defineWorkflow(OrderApprovalState)
@@ -83,7 +118,7 @@ export const orderApprovalByOrderWorkflow = defineWorkflow(OrderApprovalState)
     }
   )
   // Find the instance by the reply's orderId, so the reply doesn't need to
-  // carry the workflowId
+  // carry the workflowId, such as when another system sends it
   .when(
     CreditChecked,
     { lookup: reply => reply.orderId, mapsTo: 'orderId' },

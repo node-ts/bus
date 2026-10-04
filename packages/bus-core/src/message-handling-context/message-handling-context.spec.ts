@@ -90,4 +90,57 @@ describe('MessageHandlingContext', () => {
       expect(isInHandlerContext).toEqual(false)
     })
   })
+
+  describe('when a copy of the message runs in a nested context', () => {
+    const received = buildTransportMessage()
+    const copy = { ...received }
+    let receivedInNestedContext: TransportMessage<unknown> | undefined
+    let messageInNestedContext: TransportMessage<unknown> | undefined
+
+    beforeAll(async () => {
+      await sut.run(received, async () =>
+        sut.run(copy, () => {
+          receivedInNestedContext = sut.getReceived()
+          messageInNestedContext = sut.get()
+        })
+      )
+    })
+
+    it('should give the copy as the message', () => {
+      expect(messageInNestedContext).toBe(copy)
+    })
+
+    it('should keep the received message', () => {
+      expect(receivedInNestedContext).toBe(received)
+    })
+  })
+
+  describe('when a message is run with the message it was received as', () => {
+    const received = buildTransportMessage()
+    let receivedInContext: TransportMessage<unknown> | undefined
+
+    beforeAll(async () => {
+      const outer = buildTransportMessage()
+      await sut.run(outer, async () =>
+        sut.run(
+          received,
+          () => {
+            receivedInContext = sut.getReceived()
+          },
+          false,
+          received
+        )
+      )
+    })
+
+    it('should use the given received message', () => {
+      expect(receivedInContext).toBe(received)
+    })
+  })
+
+  describe('when outside of a message handling context', () => {
+    it('should have no received message', () => {
+      expect(sut.getReceived()).toBeUndefined()
+    })
+  })
 })

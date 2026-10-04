@@ -9,6 +9,10 @@ import {
   TestFunctionStartedByDiscardState,
   TestFunctionStartedByVoidState
 } from '../workflow/test/test-function-workflow-started-by'
+import {
+  TestReplyingClassWorkflowState,
+  TestReplyingWorkflowState
+} from '../workflow/test/test-replying-workflow'
 import { TestRequestReplyWorkflowState } from '../workflow/test/test-request-reply-workflow'
 import { TestVoidStartedByWorkflowState } from '../workflow/test/test-void-startedby-workflow'
 import { TestWorkflowStartedByCompletesData } from '../workflow/test/test-workflow-startedby-completes'
@@ -49,5 +53,7 @@ export const testMessageTypes = messageTypesFor(
   TestFunctionStartedByCopyState,
   TestFunctionStartedByDiscardState,
   TestFunctionStartedByVoidState,
-  TestRequestReplyWorkflowState
+  TestRequestReplyWorkflowState,
+  TestReplyingWorkflowState,
+  TestReplyingClassWorkflowState
 )

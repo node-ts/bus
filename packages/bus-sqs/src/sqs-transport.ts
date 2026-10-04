@@ -17,6 +17,7 @@ import {
   GetQueueAttributesCommand,
   GetQueueUrlCommand,
   QueueAttributeName,
+  QueueDoesNotExist,
   ReceiveMessageCommand,
   SendMessageCommand,
   SetQueueAttributesCommand,
@@ -27,6 +28,7 @@ import { parse } from '@aws-sdk/util-arn-parser'
 import {
   CoreDependencies,
   createMessageFailure,
+  EndpointNotFound,
   FAILURE_HEADER,
   Logger,
   MessageFailure,
@@ -72,6 +74,10 @@ const DEFAULT_VISIBILITY_TIMEOUT = 30
 const DEFAULT_MAX_RECEIVE_COUNT = 15
 const MILLISECONDS_IN_SECONDS = 1000
 const DEFAULT_WAIT_TIME_SECONDS = 10
+/**
+ * A return address that's a queue URL rather than a bare queue name
+ */
+const QUEUE_URL = /^https?:\/\//
 type Seconds = number
 type Milliseconds = number
 
@@ -90,6 +96,14 @@ export interface SqsMessageAttributes {
  * The shape of an SNS message has when it's in the body of an SQS message that spawned from that subscription
  */
 export interface SQSMessageBody {
+  /**
+   * `Notification` for a message published to SNS, or sent straight to a queue by `sendToAddress`
+   */
+  Type?: string
+  /**
+   * The `$name` of the message
+   */
+  Subject?: string
   Message: string
   MessageAttributes: SqsMessageAttributes
 }
@@ -111,6 +125,10 @@ export class SqsTransport implements Transport<SQSMessage> {
   private readonly sqs: SQSClient
   private readonly sns: SNSClient
   private autoProvision = true
+  /**
+   * Clients for the regions of queues this transport has sent replies to, other than its own client's region
+   */
+  private readonly regionalClients = new Map<string, SQSClient>()
 
   private resolveTopicName: typeof defaultResolveTopicName
   private resolveTopicArn: typeof defaultResolveTopicArn
@@ -140,6 +158,36 @@ export class SqsTransport implements Transport<SQSMessage> {
     return queueName ?? (queueArn ? parse(queueArn).resource : '')
   }
 
+  /**
+   * The URL of the service queue, which the bus stamps on the messages it sends as their return address, so a
+   * replier in any account or region sends replies to it as it is. It's resolved from `queueArn`, or from
+   * `awsAccountId`, `awsRegion` and `queueName`, and is `undefined` without them.
+   * @example https://sqs.us-east-1.amazonaws.com/123456789012/order-booking-service
+   */
+  get returnAddress(): string | undefined {
+    const { queueArn, awsAccountId, awsRegion, queueName } =
+      this.sqsConfiguration
+    if (queueArn) {
+      const { accountId, region, resource } = parse(queueArn)
+      return resolveQueueUrl(
+        { awsAccountId: accountId, awsRegion: region },
+        resource
+      )
+    }
+    if (awsAccountId && awsRegion && queueName) {
+      return resolveQueueUrl(this.sqsConfiguration, queueName)
+    }
+    return undefined
+  }
+
+  /**
+   * Destroys the clients the transport created to send replies to queues in other regions
+   */
+  async dispose(): Promise<void> {
+    this.regionalClients.forEach(client => client.destroy())
+    this.regionalClients.clear()
+  }
+
   prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
@@ -150,7 +198,7 @@ export class SqsTransport implements Transport<SQSMessage> {
   /**
    * Checks the headers set by outgoing middleware before the bus buffers or sends the message
    * @param sendOptions the options the message will be sent with
-   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `bus-failure`, or starts with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt`, `replyTo` or `bus-failure`, or starts with
    * `attributes.` or `stickyAttributes.`
    */
   assertSendOptions(sendOptions: TransportSendOptions): void {
@@ -165,7 +213,7 @@ export class SqsTransport implements Transport<SQSMessage> {
    * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
    * own name. They're carried in the SNS envelope, so SQS's limit of 10 message attributes, which only applies with
    * SNS raw message delivery, doesn't apply.
-   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `bus-failure`, or starts with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt`, `replyTo` or `bus-failure`, or starts with
    * `attributes.` or `stickyAttributes.`
    */
   async publish<EventType extends Event>(
@@ -184,7 +232,7 @@ export class SqsTransport implements Transport<SQSMessage> {
    * @param sendOptions native headers from outgoing middleware, each written as an SNS message attribute under its
    * own name. They're carried in the SNS envelope, so SQS's limit of 10 message attributes, which only applies with
    * SNS raw message delivery, doesn't apply.
-   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `bus-failure`, or starts with
+   * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt`, `replyTo` or `bus-failure`, or starts with
    * `attributes.` or `stickyAttributes.`
    */
   async send<CommandType extends Command>(
@@ -193,6 +241,124 @@ export class SqsTransport implements Transport<SQSMessage> {
     sendOptions?: TransportSendOptions
   ): Promise<void> {
     await this.publishMessage(command, messageAttributes, sendOptions)
+  }
+
+  /**
+   * Sends a message straight to the SQS queue at a return address, without publishing it to its SNS topic, so it
+   * isn't delivered through a subscription and only that queue receives it. The bus calls it for `ctx.reply()`. The
+   * body is the same SNS envelope a subscribed queue receives, so `readNextMessage` and bus-sqs-lambda read it like
+   * any other message. The sender needs `sqs:SendMessage` on the queue.
+   * @param address the queue URL, which is the `returnAddress` of the transport that reads it. A bare queue name,
+   * such as one set by a sender that isn't on @node-ts/bus, is resolved in this transport's account and region.
+   * @param message the command or event to send
+   * @param messageAttributes the attributes to send it with, as for `send`
+   * @param sendOptions native headers from outgoing middleware, written as for `send`
+   * @throws TransportHeaderReserved if a header has a name the transport writes message attributes under
+   * @throws EndpointNotFound if SQS reports that the queue doesn't exist
+   */
+  async sendToAddress(
+    address: string,
+    message: Message,
+    messageAttributes: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    },
+    sendOptions: TransportSendOptions = {}
+  ): Promise<void> {
+    const attributeMap = {
+      ...toHeaderAttributeMap(sendOptions.headers ?? {}),
+      ...toMessageAttributeMap(messageAttributes)
+    }
+    const envelope: SQSMessageBody = {
+      Type: 'Notification',
+      Subject: message.$name,
+      Message: this.coreDependencies.messageSerializer.serialize(message),
+      MessageAttributes: toEnvelopeAttributes(attributeMap)
+    }
+    const queueUrl = QUEUE_URL.test(address)
+      ? address
+      : resolveQueueUrl(this.sqsConfiguration, address)
+    const command = new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify(envelope)
+    })
+    this.logger.debug('Sending message straight to sqs queue', {
+      address,
+      command
+    })
+    try {
+      const sqs = this.sqsClientFor(queueUrl, await this.clientRegion())
+      await sqs.send(command)
+    } catch (error) {
+      if (isQueueMissing(error)) {
+        throw new EndpointNotFound(address, 'SqsTransport', error)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * The region the transport's own client signs requests for
+   */
+  private async clientRegion(): Promise<string | undefined> {
+    // A mocked client may have no config
+    const config = this.sqs.config as SQSClient['config'] | undefined
+    return config ? config.region() : this.sqsConfiguration.awsRegion
+  }
+
+  /**
+   * Gets the client to send to a queue URL with. The SDK sends to the URL's host but signs requests for its client's
+   * region, so a queue in another region needs a client for that region. Those are created once and reused. A
+   * client with a custom endpoint, such as LocalStack, sends everything to that endpoint, so it's always used.
+   * @param queueUrl the URL of the queue to send to
+   * @param clientRegion the region of the transport's own client
+   */
+  private sqsClientFor(
+    queueUrl: string,
+    clientRegion: string | undefined
+  ): SQSClient {
+    const queueRegion = regionOfQueueUrl(queueUrl)
+    const config = this.sqs.config as SQSClient['config'] | undefined
+    if (
+      !queueRegion ||
+      queueRegion === clientRegion ||
+      config?.isCustomEndpoint
+    ) {
+      return this.sqs
+    }
+    let client = this.regionalClients.get(queueRegion)
+    if (!client) {
+      client = this.createRegionalClient(queueRegion)
+      this.regionalClients.set(queueRegion, client)
+    }
+    return client
+  }
+
+  /**
+   * Creates a client for another region, with the credentials and retry settings of the transport's own client
+   * @param region the region of the queue to send to
+   */
+  protected createRegionalClient(region: string): SQSClient {
+    const {
+      credentials,
+      maxAttempts,
+      retryMode,
+      logger,
+      useFipsEndpoint,
+      useDualstackEndpoint,
+      customUserAgent
+    } = this.sqs.config
+    // The request handler isn't shared, since destroying this client destroys its handler
+    return new SQSClient({
+      region,
+      credentials,
+      maxAttempts,
+      retryMode,
+      logger,
+      useFipsEndpoint,
+      useDualstackEndpoint,
+      customUserAgent
+    })
   }
 
   /**
@@ -820,7 +986,7 @@ const toAttributeValue = (
 
 /**
  * Converts message attributes to SNS message attributes, named `attributes.<key>`, `stickyAttributes.<key>`,
- * `correlationId`, `messageId` and `sentAt`. Strings, numbers and booleans keep their type, including `false` and `0`. Empty strings,
+ * `correlationId`, `messageId`, `sentAt` and `replyTo`. Strings, numbers and booleans keep their type, including `false` and `0`. Empty strings,
  * `undefined` and `null` are left out because SNS rejects empty attribute values.
  * @param messageOptions The attributes of the message being sent
  * @returns The SNS message attributes to publish with the message
@@ -846,7 +1012,8 @@ export function toMessageAttributeMap(
   const topLevelAttributes = {
     correlationId: messageOptions.correlationId,
     messageId: messageOptions.messageId,
-    sentAt: messageOptions.sentAt
+    sentAt: messageOptions.sentAt,
+    replyTo: messageOptions.replyTo
   }
   Object.entries(topLevelAttributes).forEach(([name, value]) => {
     if (value) {
@@ -865,6 +1032,7 @@ const RESERVED_HEADERS = new Set([
   'correlationId',
   'messageId',
   'sentAt',
+  'replyTo',
   FAILURE_HEADER
 ])
 
@@ -889,7 +1057,7 @@ const assertHeadersNotReserved = (headers: TransportHeaders): void => {
  * types mapped as for message attributes. Empty strings are left out because SNS rejects empty attribute values.
  * @param headers The headers set by outgoing middleware
  * @returns The SNS message attributes to publish with the message
- * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId` or `sentAt`, or starts with
+ * @throws TransportHeaderReserved if a header is named `correlationId`, `messageId`, `sentAt` or `replyTo`, or starts with
  * `attributes.` or `stickyAttributes.`, which are the names message attributes are written under
  */
 export function toHeaderAttributeMap(
@@ -932,6 +1100,9 @@ export function fromMessageAttributeMap(
     }
     if (sqsAttributes.sentAt) {
       messageOptions.sentAt = sqsAttributes.sentAt.Value
+    }
+    if (sqsAttributes.replyTo) {
+      messageOptions.replyTo = sqsAttributes.replyTo.Value
     }
 
     const attributes: MessageAttributeMap = {}
@@ -1001,6 +1172,47 @@ const parseJsonObject = (
     return undefined
   }
 }
+
+/**
+ * Reads the region from an SQS queue URL, such as `https://sqs.eu-west-1.amazonaws.com/123456789012/orders`, or the
+ * legacy `https://eu-west-1.queue.amazonaws.com/...` form
+ * @returns the region, or `undefined` for a URL with another host, such as a VPC endpoint or LocalStack
+ */
+export const regionOfQueueUrl = (queueUrl: string): string | undefined => {
+  let hostname: string
+  try {
+    hostname = new URL(queueUrl).hostname
+  } catch {
+    return undefined
+  }
+  const match =
+    /^sqs\.([a-z0-9-]+)\.amazonaws\.com(\.cn)?$/.exec(hostname) ??
+    /^([a-z0-9-]+)\.queue\.amazonaws\.com(\.cn)?$/.exec(hostname)
+  return match?.[1]
+}
+
+/**
+ * Whether SQS rejected a request because its queue doesn't exist, whichever protocol reported it
+ */
+const isQueueMissing = (error: unknown): boolean =>
+  error instanceof QueueDoesNotExist ||
+  ['QueueDoesNotExist', 'AWS.SimpleQueueService.NonExistentQueue'].includes(
+    (error as { name?: string } | undefined)?.name ?? ''
+  )
+
+/**
+ * Converts SNS message attributes to the `{ Type, Value }` form SNS writes them in when it delivers a message to a
+ * subscribed queue
+ */
+const toEnvelopeAttributes = (
+  attributeMap: SnsMessageAttributeMap
+): SqsMessageAttributes =>
+  Object.fromEntries(
+    Object.entries(attributeMap).map(([name, value]) => [
+      name,
+      { Type: value.DataType!, Value: value.StringValue! }
+    ])
+  )
 
 function getAttributeValue(
   attributes: SqsMessageAttributes,

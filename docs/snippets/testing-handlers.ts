@@ -12,6 +12,7 @@ const ctx: HandlerContext = {
   publish: async event => {
     published.push(event)
   },
+  reply: async () => {},
   failMessage: async () => {},
   returnMessage: async () => {}
 }

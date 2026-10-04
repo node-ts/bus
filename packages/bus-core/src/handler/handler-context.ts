@@ -1,3 +1,4 @@
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { BusSender } from './bus-sender'
 
 /**
@@ -8,7 +9,8 @@ import { BusSender } from './bus-sender'
  * `send` and `publish` behave like `bus.send` and `bus.publish` inside a handler: messages are buffered until the
  * handler resolves and dropped if it fails, and they carry the `correlationId` and `stickyAttributes` of the
  * message being handled. Inside a workflow handler they also carry the workflow id, so replies route back to the
- * same workflow instance.
+ * same workflow instance. `reply` sends a message straight back to the endpoint that sent the message being
+ * handled, the same way.
  *
  * It's an interface so a handler can be unit tested by calling it with a plain object.
  * @example
@@ -22,6 +24,7 @@ import { BusSender } from './bus-sender'
  *   correlationId: 'test',
  *   send: async () => {},
  *   publish: async event => { published.push(event) },
+ *   reply: async () => {},
  *   failMessage: async () => {},
  *   returnMessage: async () => {}
  * }
@@ -33,6 +36,35 @@ export interface HandlerContext extends BusSender {
    * this context. `undefined` only when a message from outside the bus arrived without one.
    */
   readonly correlationId: string | undefined
+
+  /**
+   * Replies to the message being handled, by sending `message` straight to the queue of the endpoint that sent it,
+   * which is its return address (`replyTo` attribute). The reply isn't delivered through a subscription, so no other
+   * endpoint receives it, even one that handles the same message type. The requester still needs a handler for it,
+   * and its transport still subscribes its queue to every type it handles, as usual.
+   *
+   * The reply can be a command or an event. It carries the `correlationId` and `stickyAttributes` of the message
+   * being handled as they arrived, so a reply from a workflow handler carries the requester's `workflowId`, not its
+   * own, and the requesting workflow's default mapping finds it. Like a send, it runs the outgoing middleware, is
+   * buffered until the handler resolves, and is dropped if the handler fails.
+   * @param message The command or event to reply with
+   * @param messageAttributes Attributes to attach to the reply. Given values replace the inherited ones, and
+   * `stickyAttributes` are merged over those of the message being handled. A new `messageId` and `sentAt` are set
+   * unless given.
+   * @throws ReturnAddressMissing if the message being handled has no return address, such as one sent by a
+   * send-only bus or a service that isn't on @node-ts/bus
+   * @throws ReplyOutsideHandlingContext if it's called outside the handling of this message, such as after its
+   * handler resolved
+   * @throws TransportReplyNotSupported if the bus' transport doesn't implement `sendToAddress`
+   * @example
+   * const checkCreditHandler = handlerFor(CheckCredit, async (request, _attributes, ctx) => {
+   *   await ctx.reply(new CreditChecked(request.orderId, true))
+   * })
+   */
+  reply<TMessage extends Message>(
+    message: TMessage,
+    messageAttributes?: Partial<MessageAttributes>
+  ): Promise<void>
 
   /**
    * Moves the message being handled to the dead letter queue once handling finishes, without retrying it, even if a

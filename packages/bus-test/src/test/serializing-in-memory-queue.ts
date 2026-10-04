@@ -3,7 +3,12 @@ import {
   InMemoryQueue,
   MessageSerializer
 } from '@node-ts/bus-core'
-import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Command,
+  Event,
+  Message,
+  MessageAttributes
+} from '@node-ts/bus-messages'
 
 /**
  * An in-memory queue that puts each message through the bus' `MessageSerializer` when it's sent,
@@ -32,9 +37,19 @@ export class SerializingInMemoryQueue extends InMemoryQueue {
     await super.send(this.roundTrip(command), copy(messageOptions))
   }
 
-  private roundTrip<TMessage extends Command | Event>(
-    message: TMessage
-  ): TMessage {
+  async sendToAddress(
+    address: string,
+    message: Message,
+    messageOptions?: MessageAttributes
+  ): Promise<void> {
+    await super.sendToAddress(
+      address,
+      this.roundTrip(message),
+      copy(messageOptions)
+    )
+  }
+
+  private roundTrip<TMessage extends Message>(message: TMessage): TMessage {
     return this.messageSerializer.deserialize<TMessage>(
       this.messageSerializer.serialize(message)
     )

@@ -11,6 +11,8 @@ import { TestFunctionRoundTripWorkflowState } from './test-function-round-trip-w
 import { TestGeoPoint } from './test-geo-point.js'
 import { TestOrderLine } from './test-order-line.js'
 import { TestPoisonedMessage } from './test-poisoned-message.js'
+import { TestReplyRequest } from './test-reply-request.js'
+import { TestReply } from './test-reply.js'
 import { TestRoundTripCommand } from './test-round-trip-command.js'
 import { TestRoundTripWorkflowState } from './test-round-trip-workflow-state.js'
 import { TestStartRoundTripWorkflow } from './test-start-round-trip-workflow.js'
@@ -34,6 +36,10 @@ export const messageTypes: MessageTypes = {
       '@node-ts/bus-test/src/helpers/test-function-round-trip-workflow-state#TestFunctionRoundTripWorkflowState',
     '@node-ts/bus-test/test-poisoned-message':
       '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage',
+    '@node-ts/bus-test/test-reply':
+      '@node-ts/bus-test/src/helpers/test-reply#TestReply',
+    '@node-ts/bus-test/test-reply-request':
+      '@node-ts/bus-test/src/helpers/test-reply-request#TestReplyRequest',
     '@node-ts/bus-test/test-round-trip-command':
       '@node-ts/bus-test/src/helpers/test-round-trip-command#TestRoundTripCommand',
     '@node-ts/bus-test/test-round-trip-workflow-state':
@@ -116,6 +122,14 @@ export const messageTypes: MessageTypes = {
     },
     '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage': {
       class: TestPoisonedMessage,
+      fields: {}
+    },
+    '@node-ts/bus-test/src/helpers/test-reply#TestReply': {
+      class: TestReply,
+      fields: {}
+    },
+    '@node-ts/bus-test/src/helpers/test-reply-request#TestReplyRequest': {
+      class: TestReplyRequest,
       fields: {}
     },
     '@node-ts/bus-test/src/helpers/test-round-trip-command#TestRoundTripCommand':

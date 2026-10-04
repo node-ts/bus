@@ -86,6 +86,8 @@ The suite builds its own bus around the transport and disposes it when it's done
 
 Your transport has to retry a returned message at least 10 times before it dead-letters it, because the suite waits for 10 delivery attempts.
 
+Your transport has to implement `sendToAddress()`, which sends a message straight to the queue at a return address for [`ctx.reply()`](https://node-ts.github.io/bus/guide/workflows/request-reply), and carry the `replyTo` attribute with every message. The suite sends a message to the transport's own `returnAddress` (or `endpointName`) and checks it arrives without a subscription, and that a reply reaches the requester with the request's correlation id and sticky attributes.
+
 The suite sends messages with Dates, class instances several levels deep, arrays, Maps, Sets, bigints, optional and null fields, and checks they arrive with their types restored and their attributes and sticky attributes intact. It passes its fixtures' generated message types to the buses it builds. Serialize and deserialize message bodies with `coreDependencies.messageSerializer`, rather than calling `JSON.stringify` and `JSON.parse` on them yourself.
 
 ### Other suites

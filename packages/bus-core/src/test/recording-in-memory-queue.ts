@@ -18,12 +18,14 @@ import {
 import { Milliseconds } from '../util'
 
 /**
- * Called with every message sent or published to a `RecordingInMemoryQueue`
+ * Called with every message sent, published or sent to an address (replied) on a `RecordingInMemoryQueue`, with
+ * the address for a message sent straight to one
  */
 export type MessageDispatched = (
   message: Message,
   attributes: MessageAttributes | undefined,
-  sendOptions: TransportSendOptions | undefined
+  sendOptions: TransportSendOptions | undefined,
+  address?: string
 ) => void
 
 /**
@@ -68,6 +70,16 @@ export class RecordingInMemoryQueue extends InMemoryQueue {
   ): Promise<void> {
     this.onDispatched(command, messageOptions, sendOptions)
     await super.send(command, messageOptions, sendOptions)
+  }
+
+  async sendToAddress(
+    address: string,
+    message: Message,
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
+  ): Promise<void> {
+    this.onDispatched(message, messageOptions, sendOptions, address)
+    await super.sendToAddress(address, message, messageOptions, sendOptions)
   }
 
   async deleteMessage(

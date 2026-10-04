@@ -9,7 +9,7 @@ import {
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
 import {
   HandleChecker,
@@ -18,6 +18,8 @@ import {
   TestEvent,
   TestFailMessage,
   TestPoisonedMessage,
+  TestReply,
+  TestReplyRequest,
   TestUnrecoverableError,
   TestUnrecoverableMessage
 } from './helpers'
@@ -68,6 +70,10 @@ export interface DeadLetteredMessage {
  * the source topic of the system message
  * @param readAllFromDeadLetterQueue A callback that waits for a message to be dead-lettered, then reads and deletes
  * all messages on the dead letter queue, with the failure metadata in each one's `bus-failure` header
+ *
+ * The transport must implement `sendToAddress`, so handlers can reply with `ctx.reply()`. The suite checks that a
+ * message sent to the transport's own return address is received without a subscription to it, and that every
+ * message the bus sends arrives with the transport's `returnAddress` (or `endpointName`) as its `replyTo`.
  */
 export const transportTests = (
   transport: Transport,
@@ -79,6 +85,10 @@ export const transportTests = (
   const testEventHandlerEmitter = new EventEmitter()
   const testPoisonedMessageHandlerEmitter = new EventEmitter()
   const testSystemMessageHandlerEmitter = new EventEmitter()
+  const testReplyEmitter = new EventEmitter()
+  // What the bus stamps as replyTo on the messages it sends
+  const returnAddress = () => transport.returnAddress || transport.endpointName
+  const replyRequestAttributes: MessageAttributes[] = []
   const handleChecker = Mock.ofType<HandleChecker>()
   const roundTripReceiver = new RoundTripReceiver()
   let poisonedMessageReceiptAttempts = 0
@@ -132,6 +142,20 @@ export const transportTests = (
               m.$name === TestSystemMessage.NAME,
             topicIdentifier: systemMessageTopicIdentifier
           }
+        )
+        .withHandler(
+          handlerFor(TestReplyRequest, async (request, attributes, ctx) => {
+            replyRequestAttributes.push(attributes)
+            await ctx.reply(new TestReply(request.id))
+          })
+        )
+        // No topic identifier, so the transport doesn't subscribe to TestReply. It only arrives if it's sent
+        // straight to the queue.
+        .withCustomHandler(
+          async (reply: TestReply, attributes) => {
+            testReplyEmitter.emit(reply.id, reply, attributes)
+          },
+          { resolveWith: (m: TestReply) => m.$name === TestReply.NAME }
         )
         .withHandler(
           handlerFor(TestFailMessage, async () => {
@@ -248,6 +272,83 @@ export const transportTests = (
     })
 
     messageRoundTripCases(() => bus, roundTripReceiver)
+
+    describe('when sending a message straight to its return address', () => {
+      const message = new TestReply(randomUUID())
+      const messageAttributes: MessageAttributes = {
+        correlationId: randomUUID(),
+        messageId: randomUUID(),
+        sentAt: new Date().toISOString(),
+        replyTo: 'another-endpoint',
+        attributes: { attribute1: 'a', attribute2: 1 },
+        stickyAttributes: { attribute3: true }
+      }
+      let receivedMessage: TestReply
+      let receivedAttributes: MessageAttributes
+
+      beforeAll(async () => {
+        if (!transport.sendToAddress) {
+          throw new Error(
+            `${transport.constructor.name} must implement sendToAddress() so handlers can reply with ctx.reply()`
+          )
+        }
+        const received = once(testReplyEmitter, message.id)
+        await transport.sendToAddress(
+          returnAddress(),
+          message,
+          messageAttributes
+        )
+        ;[receivedMessage, receivedAttributes] = (await received) as [
+          TestReply,
+          MessageAttributes
+        ]
+      })
+
+      it('should receive it without a subscription to it', () => {
+        // A custom handler gets the message as a plain object
+        expect(receivedMessage).toMatchObject({ ...message })
+      })
+
+      it('should receive it with its attributes, including its return address', () => {
+        expect(receivedAttributes).toMatchObject(messageAttributes)
+      })
+    })
+
+    describe('when a handler replies to a request', () => {
+      const request = new TestReplyRequest(randomUUID())
+      const requestAttributes: Partial<MessageAttributes> = {
+        correlationId: randomUUID(),
+        stickyAttributes: { workflowId: randomUUID() }
+      }
+      let reply: TestReply
+      let replyAttributes: MessageAttributes
+
+      beforeAll(async () => {
+        const replied = once(testReplyEmitter, request.id)
+        await bus.send(request, requestAttributes)
+        ;[reply, replyAttributes] = (await replied) as [
+          TestReply,
+          MessageAttributes
+        ]
+      })
+
+      it('should receive the request with the return address of the sender', () => {
+        expect(replyRequestAttributes).toHaveLength(1)
+        expect(replyRequestAttributes[0].replyTo).toEqual(returnAddress())
+      })
+
+      it('should deliver the reply to the queue at the return address', () => {
+        expect(reply).toMatchObject({ ...new TestReply(request.id) })
+      })
+
+      it('should give the reply the correlation id and sticky attributes of the request', () => {
+        expect(replyAttributes).toMatchObject({
+          correlationId: requestAttributes.correlationId,
+          stickyAttributes: requestAttributes.stickyAttributes,
+          replyTo: returnAddress()
+        })
+      })
+    })
 
     describe('when publishing an event', () => {
       const testEvent = new TestEvent()

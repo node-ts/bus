@@ -1,4 +1,7 @@
 export * from './class-handler-not-resolved'
 export * from './container-not-registered'
+export * from './delayed-reply-not-supported'
 export * from './fail-message-outside-handling-context'
+export * from './reply-outside-handling-context'
+export * from './return-address-missing'
 export * from './return-message-outside-handling-context'

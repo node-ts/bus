@@ -11,7 +11,10 @@ import throat from 'throat'
 import { ContainerAdapter } from '../container'
 import {
   ClassHandlerNotResolved,
+  DelayedReplyNotSupported,
   FailMessageOutsideHandlingContext,
+  ReplyOutsideHandlingContext,
+  ReturnAddressMissing,
   ReturnMessageOutsideHandlingContext
 } from '../error'
 import {
@@ -30,7 +33,8 @@ import { MessageLifecycleContext } from '../message-lifecycle-context'
 import {
   HandlerInvocationContext,
   IncomingContext,
-  OutgoingContext
+  OutgoingContext,
+  OutgoingReplyContext
 } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import {
@@ -64,7 +68,8 @@ import { MessageTypesMissing } from '../serialization'
 import {
   Transport,
   TransportHeaderReserved,
-  TransportMessage
+  TransportMessage,
+  TransportReplyNotSupported
 } from '../transport'
 import { ClassConstructor, CoreDependencies, sleep } from '../util'
 import { Persistence, PersistenceNotConfigured } from '../workflow/persistence'
@@ -122,11 +127,15 @@ type OutboxedMessage = OutgoingContext & { dueAt?: Date }
 /**
  * An outgoing message that's stored in the persistence until it's due
  */
-type DelayedMessage = OutboxedMessage & { dueAt: Date }
+type DelayedMessage = Exclude<OutgoingContext, OutgoingReplyContext> & {
+  dueAt: Date
+}
 
+// Replies are never delayed, since reply() rejects deliverAfter and deliverAt
 const isDelayed = (
   outgoingMessage: OutboxedMessage
-): outgoingMessage is DelayedMessage => outgoingMessage.dueAt !== undefined
+): outgoingMessage is DelayedMessage =>
+  outgoingMessage.dueAt !== undefined && outgoingMessage.kind !== 'reply'
 
 interface Outbox {
   state: OutboxState
@@ -170,6 +179,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     OutgoingMessageDispatcher | undefined
   private hasWarnedOfNonDurableDelivery = false
   private hasReleasedPersistence = false
+  /**
+   * The messages this bus is handling right now, so a reply is only sent while its request is being handled
+   */
+  private readonly messagesBeingHandled = new Set<TransportMessage<unknown>>()
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -342,7 +355,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * the handler resolves.
    * @param event An event to publish
    * @param options A set of attributes to attach to the outgoing message when published, and when to publish it. A
-   * new `messageId` and `sentAt` are set unless given.
+   * new `messageId` and `sentAt` are set unless given, and so is this bus' return address (`replyTo`) unless it's
+   * send-only. Pass `replyTo: undefined` to leave the return address out.
    * @throws DelayedDeliveryNotSupported if `deliverAfter` or `deliverAt` is given and the persistence can't store
    * messages to send later
    * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
@@ -379,7 +393,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * handler resolves.
    * @param command A command to send
    * @param options A set of attributes to attach to the outgoing message when sent, and when to send it. A new
-   * `messageId` and `sentAt` are set unless given.
+   * `messageId` and `sentAt` are set unless given, and so is this bus' return address (`replyTo`) unless it's
+   * send-only. Pass `replyTo: undefined` to leave the return address out.
    * @throws DelayedDeliveryNotSupported if `deliverAfter` or `deliverAt` is given and the persistence can't store
    * messages to send later
    * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
@@ -618,6 +633,20 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     return this.internalState
   }
 
+  /**
+   * The return address stamped on outgoing messages, so replies come back to this bus' queue: the transport's
+   * `returnAddress`, or its `endpointName` when it has none. `undefined` for a send-only bus or a transport with
+   * neither, which have no queue that's read.
+   */
+  private get returnAddress(): string | undefined {
+    if (this.sendOnly) {
+      return undefined
+    }
+    return (
+      this.transport.returnAddress || this.transport.endpointName || undefined
+    )
+  }
+
   private async stopTransportAndWorkers(): Promise<void> {
     await this.outgoingMessageDispatcher?.stop()
     if (!this.scheduler && this.transport.stop) {
@@ -688,6 +717,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
       this.logger.debug('Message read from transport', { message })
 
+      this.messagesBeingHandled.add(message)
       settlement = await this.messageHandlingContext.run(
         message,
         async () =>
@@ -709,7 +739,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
               return this.settleMessage(message, handlingFailure)
             }
           ),
-        true
+        true,
+        message
       )
     } catch (error) {
       this.logger.error(
@@ -721,6 +752,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         throw error
       }
       return
+    } finally {
+      this.messagesBeingHandled.delete(message)
     }
 
     if (settlement.outcome === 'retried' && this.receiver) {
@@ -947,11 +980,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Creates the context passed to a handler. Its methods delegate to this bus, so sends go through the handler's
    * outbox and pick up the correlation and sticky attributes of the message being handled, including the
-   * workflow id when called from a workflow handler.
+   * workflow id when called from a workflow handler. Replies use the attributes the message arrived with instead.
    */
-  private createHandlerContext(attributes: MessageAttributes): HandlerContext {
+  private createHandlerContext(
+    transportMessage: TransportMessage<TTransportMessage>
+  ): HandlerContext {
     return Object.freeze({
-      correlationId: attributes.correlationId,
+      correlationId: transportMessage.attributes.correlationId,
       send: async <TCommand extends Command>(
         command: TCommand,
         options?: SendOptions
@@ -960,9 +995,88 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         event: TEvent,
         options?: SendOptions
       ) => this.publish(event, options),
+      reply: async <TMessage extends Message>(
+        message: TMessage,
+        messageAttributes?: Partial<MessageAttributes>
+      ) => this.reply(transportMessage, message, messageAttributes),
       failMessage: async () => this.failMessage(),
       returnMessage: async () => this.returnMessage()
     })
+  }
+
+  /**
+   * Replies to a message by sending a message straight to its return address, through the outgoing middleware and
+   * the handler's outbox like a send. The reply inherits the correlation id and sticky attributes the message
+   * arrived with, rather than those of the current handling context, which a workflow handler changes to carry its
+   * own workflow id.
+   * @param request the message being replied to
+   * @param message the reply
+   * @param messageAttributes attributes to send the reply with, which replace the inherited ones
+   * @throws ReplyOutsideHandlingContext if this bus isn't handling `request` in the current async context, or the
+   * handler that replies has already finished
+   * @throws DelayedReplyNotSupported if `deliverAfter` or `deliverAt` is given
+   * @throws ReturnAddressMissing if the message being replied to has no return address
+   * @throws TransportReplyNotSupported if the transport doesn't implement `sendToAddress`
+   */
+  private async reply(
+    request: TransportMessage<TTransportMessage>,
+    message: Message,
+    messageAttributes: Partial<MessageAttributes> = {}
+  ): Promise<void> {
+    if (!this.isHandlingInCurrentContext(request)) {
+      throw new ReplyOutsideHandlingContext(message.$name)
+    }
+    // Typed out of reply(), but a caller may pass the options it gives send()
+    if (
+      'deliverAfter' in messageAttributes ||
+      'deliverAt' in messageAttributes
+    ) {
+      throw new DelayedReplyNotSupported(message.$name)
+    }
+    const destination = request.attributes.replyTo
+    if (!destination) {
+      throw new ReturnAddressMissing(request.domainMessage.$name, message.$name)
+    }
+    if (!this.transport.sendToAddress) {
+      throw new TransportReplyNotSupported(
+        this.transport.constructor.name,
+        message.$name
+      )
+    }
+    this.logger.debug('Replying to message', {
+      message,
+      destination,
+      messageAttributes
+    })
+    await this.dispatchOutgoing(
+      {
+        kind: 'reply',
+        message,
+        destination,
+        attributes: this.prepareTransportOptions(
+          messageAttributes,
+          request.attributes
+        ),
+        headers: {}
+      },
+      undefined
+    )
+  }
+
+  /**
+   * Whether `request` is the message being handled in the current async context, and its handler, if one is
+   * running there, hasn't finished. A handler context that was kept and called while another message is handled,
+   * or from a timer that fires after its handler resolved, isn't.
+   */
+  private isHandlingInCurrentContext(
+    request: TransportMessage<TTransportMessage>
+  ): boolean {
+    // Compared with the received message, since a workflow handler runs in a copy of the handling context
+    const isRequest =
+      this.messageHandlingContext.getReceived() === request &&
+      this.messagesBeingHandled.has(request)
+    const outbox = this.outbox.getStore()
+    return isRequest && (!outbox || outbox.state === OutboxState.Open)
   }
 
   /**
@@ -972,7 +1086,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     transportMessage: TransportMessage<TTransportMessage>
   ): IncomingContext {
     return Object.freeze({
-      ...this.createHandlerContext(transportMessage.attributes),
+      ...this.createHandlerContext(transportMessage),
       message: transportMessage.domainMessage,
       attributes: transportMessage.attributes,
       transportMessage
@@ -1035,20 +1149,37 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
-   * Sends or publishes a message on the transport, with the headers set by outgoing middleware
+   * Sends, publishes or replies with a message on the transport, with the headers set by outgoing middleware
    */
   private async dispatchToTransport(
     outgoingMessage: OutboxedMessage
   ): Promise<void> {
     const { attributes, headers } = outgoingMessage
-    if (outgoingMessage.kind === 'send') {
-      await this.transport.send(outgoingMessage.message, attributes, {
-        headers
-      })
-    } else {
-      await this.transport.publish(outgoingMessage.message, attributes, {
-        headers
-      })
+    switch (outgoingMessage.kind) {
+      case 'send':
+        await this.transport.send(outgoingMessage.message, attributes, {
+          headers
+        })
+        return
+      case 'publish':
+        await this.transport.publish(outgoingMessage.message, attributes, {
+          headers
+        })
+        return
+      case 'reply':
+        if (!this.transport.sendToAddress) {
+          // reply() checked this, so it only happens if the transport changed since
+          throw new TransportReplyNotSupported(
+            this.transport.constructor.name,
+            outgoingMessage.message.$name
+          )
+        }
+        await this.transport.sendToAddress(
+          outgoingMessage.destination,
+          outgoingMessage.message,
+          attributes,
+          { headers }
+        )
     }
   }
 
@@ -1183,27 +1314,35 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     )
   }
 
+  /**
+   * Fills in the attributes of an outgoing message
+   * @param clientOptions the attributes given by the caller, which win over everything else
+   * @param inherited the attributes to take the correlation id and sticky attributes from. By default, those of the
+   * current handling context, which a workflow handler gives its own workflow id.
+   */
   private prepareTransportOptions(
-    clientOptions: Partial<MessageAttributes>
+    clientOptions: Partial<MessageAttributes>,
+    inherited: MessageAttributes | undefined = this.messageHandlingContext.get()
+      ?.attributes
   ): MessageAttributes {
-    const handlingContext = this.messageHandlingContext.get()
-
     const messageAttributes: MessageAttributes = {
-      // The optional operator? decided not to work here
       correlationId:
-        clientOptions.correlationId ||
-        (handlingContext
-          ? handlingContext.attributes.correlationId
-          : undefined) ||
-        randomUUID(),
+        clientOptions.correlationId || inherited?.correlationId || randomUUID(),
       // Unlike the correlation id, these identify this message, so they're never copied from the one being handled
       messageId: clientOptions.messageId || randomUUID(),
       sentAt: clientOptions.sentAt || new Date().toISOString(),
       attributes: clientOptions.attributes || {},
       stickyAttributes: {
-        ...(handlingContext ? handlingContext.attributes.stickyAttributes : {}),
+        ...inherited?.stickyAttributes,
         ...clientOptions.stickyAttributes
       }
+    }
+    // Passing replyTo, even as undefined, replaces this bus' return address
+    const replyTo = Object.hasOwn(clientOptions, 'replyTo')
+      ? clientOptions.replyTo
+      : this.returnAddress
+    if (replyTo) {
+      messageAttributes.replyTo = replyTo
     }
 
     this.logger.debug('Prepared transport options', { messageAttributes })
@@ -1220,7 +1359,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     handler: HandlerDefinition
   ): Promise<void> {
     const { domainMessage: message, attributes } = transportMessage
-    const context = this.createHandlerContext(attributes)
+    const context = this.createHandlerContext(transportMessage)
     const invocationContext: HandlerInvocationContext = Object.freeze({
       ...context,
       message,

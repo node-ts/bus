@@ -49,7 +49,7 @@ export interface WorkflowContext<
 }
 
 /**
- * Creates a `WorkflowContext` to call a workflow handler with in a test. `send`, `publish`, `failMessage` and
+ * Creates a `WorkflowContext` to call a workflow handler with in a test. `send`, `publish`, `reply`, `failMessage` and
  * `returnMessage` do nothing, the attributes are empty, and `complete` and `discard` return what the bus expects, unless
  * they're overridden.
  * @param context the members to override, such as a `send` that records what's sent, or the message `attributes`
@@ -71,6 +71,7 @@ export const workflowContext = <
   attributes: messageAttributes() as TMessageAttributes,
   send: async () => {},
   publish: async () => {},
+  reply: async () => {},
   failMessage: async () => {},
   returnMessage: async () => {},
   // TypeScript can't tell `$status` is a field of a generic state, though every WorkflowState has it

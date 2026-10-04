@@ -31,6 +31,7 @@ const attributePayload = {
         '    "correlationId" : {"Type":"String","Value":"e3808fce-9b66-4596-b528-479b72e598fe"},\n' +
         '    "messageId" : {"Type":"String","Value":"0c9a3a5e-6f43-4b8e-9d0c-2b1f6f4e8a17"},\n' +
         '    "sentAt" : {"Type":"String","Value":"2024-08-18T22:03:30.123Z"},\n' +
+        '    "replyTo" : {"Type":"String","Value":"audit-service"},\n' +
         '    "stickyAttributes.x-sticky-attribute" : {"Type":"String","Value":"baz"},\n' +
         '    "attributes.x-foo-attribute" : {"Type":"String","Value":"bar"}\n' +
         '  }\n' +
@@ -106,6 +107,10 @@ describe('BusSqsLambdaReceiver', () => {
         messageId: '0c9a3a5e-6f43-4b8e-9d0c-2b1f6f4e8a17',
         sentAt: '2024-08-18T22:03:30.123Z'
       })
+    })
+
+    it('should parse out the return address', () => {
+      expect(attributes.replyTo).toEqual('audit-service')
     })
 
     it('should keep the SQS message id as the transport message id', () => {

@@ -24,6 +24,11 @@ export interface BrokerClient {
     body: string,
     headers: Record<string, string>
   ): Promise<void>
+  sendToQueue(
+    queue: string,
+    body: string,
+    headers: Record<string, string>
+  ): Promise<void>
   receive(queue: string): Promise<BrokerMessage | undefined>
   ack(queue: string, messageId: string): Promise<void>
   retry(queue: string, messageId: string, delayMs: number): Promise<void>

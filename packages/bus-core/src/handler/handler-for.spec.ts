@@ -14,6 +14,7 @@ const context: HandlerContext = {
   correlationId: undefined,
   send: async () => undefined,
   publish: async () => undefined,
+  reply: async () => undefined,
   failMessage: async () => undefined,
   returnMessage: async () => undefined
 }
