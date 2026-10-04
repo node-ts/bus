@@ -1,7 +1,7 @@
 import { SNSClient } from '@aws-sdk/client-sns'
 import { DeleteQueueCommand, SQSClient } from '@aws-sdk/client-sqs'
 import { BusInstance, InMemoryQueue, Transport } from '@node-ts/bus-core'
-import { MessageAttributeMap } from '@node-ts/bus-messages'
+import { MessageAttributes } from '@node-ts/bus-messages'
 import { RabbitMqTransport } from '@node-ts/bus-rabbitmq'
 import { SqsTransport } from '@node-ts/bus-sqs'
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base'
@@ -13,6 +13,7 @@ import {
   TestTelemetry,
   TracedCommand,
   TracedEvent,
+  TracedReply,
   useContextManager
 } from './test'
 
@@ -94,11 +95,14 @@ describe('openTelemetry', () => {
       const messageId = randomUUID()
       const transport = createTransport()
       let bus: BusInstance
-      let receivedAttributes: MessageAttributeMap
+      let receivedAttributes: MessageAttributes
+      let replyAttributes: MessageAttributes
       let sendSpan: ReadableSpan
       let processCommandSpan: ReadableSpan
       let publishSpan: ReadableSpan
       let processEventSpan: ReadableSpan
+      let replySpan: ReadableSpan
+      let processReplySpan: ReadableSpan
 
       beforeAll(async () => {
         const handled = new EventEmitter()
@@ -106,6 +110,7 @@ describe('openTelemetry', () => {
           telemetry,
           handled,
           transport,
+          reply: true,
           openTelemetryOptions: {
             messagingSystem,
             endpointName: transport.endpointName
@@ -122,9 +127,14 @@ describe('openTelemetry', () => {
           handled,
           handledEvent(TracedEvent.NAME, runId)
         )
+        const replyHandled = once(
+          handled,
+          handledEvent(TracedReply.NAME, runId)
+        )
         await bus.send(new TracedCommand(runId), { messageId })
-        ;[receivedAttributes] = (await commandHandled) as [MessageAttributeMap]
+        ;[receivedAttributes] = (await commandHandled) as [MessageAttributes]
         await eventHandled
+        ;[replyAttributes] = (await replyHandled) as [MessageAttributes]
 
         sendSpan = telemetry.spanWith(
           `send ${TracedCommand.NAME}`,
@@ -144,6 +154,11 @@ describe('openTelemetry', () => {
           publishSpan,
           `process ${TracedEvent.NAME}`
         )
+        replySpan = telemetry.childOf(handlerSpan, `reply ${TracedReply.NAME}`)
+        processReplySpan = telemetry.childOf(
+          replySpan,
+          `process ${TracedReply.NAME}`
+        )
       })
 
       afterAll(async () => {
@@ -154,8 +169,31 @@ describe('openTelemetry', () => {
 
       it('should carry the trace context of the send span in the attributes', () => {
         const { traceId, spanId } = sendSpan.spanContext()
-        expect(receivedAttributes.traceparent).toEqual(
+        expect(receivedAttributes.attributes.traceparent).toEqual(
           `00-${traceId}-${spanId}-01`
+        )
+      })
+
+      it("should carry the reply span's trace context and the return address together on the reply", () => {
+        const { traceId, spanId } = replySpan.spanContext()
+        expect(replyAttributes.attributes.traceparent).toEqual(
+          `00-${traceId}-${spanId}-01`
+        )
+        expect(replyAttributes.replyTo).toEqual(receivedAttributes.replyTo)
+        expect(receivedAttributes.replyTo).toBeTruthy()
+      })
+
+      it('should send the reply to the return address, as a send operation', () => {
+        expect(replySpan.attributes).toMatchObject({
+          'messaging.operation.name': 'reply',
+          'messaging.operation.type': 'send',
+          'messaging.destination.name': receivedAttributes.replyTo
+        })
+      })
+
+      it('should continue the trace in the process span of the reply', () => {
+        expect(processReplySpan.spanContext().traceId).toEqual(
+          sendSpan.spanContext().traceId
         )
       })
 

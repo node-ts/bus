@@ -37,7 +37,8 @@ export interface OutgoingSendContext {
   /**
    * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
    * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
-   * when `next()` sends it.
+   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
+   * to send later.
    *
    * It resolves once the transport has accepted the message, and rejects with the transport's error if sending it
    * failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
@@ -91,7 +92,8 @@ export interface OutgoingPublishContext {
   /**
    * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
    * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
-   * when `next()` sends it.
+   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
+   * to send later.
    *
    * It resolves once the transport has accepted the message, and rejects with the transport's error if sending it
    * failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
@@ -151,7 +153,8 @@ export interface OutgoingReplyContext {
   /**
    * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
    * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
-   * when `next()` sends it.
+   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
+   * to send later.
    *
    * It resolves once the transport has accepted the message, and rejects with the transport's error if sending it
    * failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the

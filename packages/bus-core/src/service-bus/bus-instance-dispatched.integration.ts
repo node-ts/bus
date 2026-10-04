@@ -16,6 +16,7 @@ import {
   TestEvent,
   testMessageTypes
 } from '../test'
+import { DEFAULT_IN_MEMORY_ENDPOINT_NAME } from '../transport'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 
@@ -564,6 +565,133 @@ describe('BusInstance dispatched', () => {
 
     it('should wait for the other send to finish before failing the handler', () => {
       expect(calls).toEqual(['first failed', 'second sent', 'dead-lettered'])
+    })
+  })
+
+  describe('when a message is published with deliverAfter outside a handler', () => {
+    let bus: BusInstance
+    const transported: string[] = []
+    let settlement: Promise<Settlement>
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(
+          new RecordingInMemoryQueue(message => transported.push(message.$name))
+        )
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            settlement = settlementOf(context)
+            await next()
+          }
+        })
+        .build()
+      await bus.initialize()
+      await bus.publish(new TestEvent(), { deliverAfter: 60_000 })
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should resolve once it is stored, before it reaches the transport', async () => {
+      expect(await settlement).toEqual({ resolved: true })
+      expect(transported).toEqual([])
+    })
+  })
+
+  describe('when a handler publishes a message with deliverAfter', () => {
+    let bus: BusInstance
+    const calls: string[] = []
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(message =>
+        calls.push(`transport:${message.$name}`)
+      )
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withHandler(
+          handlerFor(TestCommand, async (_m, _a, ctx) => {
+            await ctx.publish(new TestEvent(), { deliverAfter: 60_000 })
+            calls.push('handler resolved')
+          })
+        )
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            if (context.message.$name === TestEvent.NAME) {
+              void context.dispatched.then(() => calls.push('dispatched'))
+            }
+            await next()
+          }
+        })
+        .build()
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should resolve once the outbox stores it, after the handler resolves', () => {
+      expect(calls.filter(call => !call.includes(TestCommand.NAME))).toEqual([
+        'handler resolved',
+        'dispatched'
+      ])
+    })
+  })
+
+  describe('when a handler replies', () => {
+    let bus: BusInstance
+    const calls: string[] = []
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(
+        (message, _attributes, _options, address) =>
+          calls.push(`transport:${message.$name}:${address ?? 'topic'}`)
+      )
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withHandler(
+          handlerFor(TestCommand, async (_m, _a, ctx) => {
+            await ctx.reply(new TestEvent())
+            calls.push('handler resolved')
+          })
+        )
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            if (context.kind === 'reply') {
+              void context.dispatched.then(() => calls.push('dispatched'))
+            }
+            await next()
+          }
+        })
+        .build()
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should resolve once the reply is sent to the return address', () => {
+      expect(calls.filter(call => !call.includes(TestCommand.NAME))).toEqual([
+        'handler resolved',
+        `transport:${TestEvent.NAME}:${DEFAULT_IN_MEMORY_ENDPOINT_NAME}`,
+        'dispatched'
+      ])
     })
   })
 

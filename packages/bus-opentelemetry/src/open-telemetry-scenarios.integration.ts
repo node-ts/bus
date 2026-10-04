@@ -2,14 +2,16 @@ import {
   Bus,
   BusInstance,
   BusMiddleware,
+  DEFAULT_IN_MEMORY_ENDPOINT_NAME,
   HandlerContext,
   handlerFor,
+  InMemoryQueue,
   Logger,
   Receiver,
   TransportMessage
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
-import { SpanStatusCode } from '@opentelemetry/api'
+import { SpanKind, SpanStatusCode } from '@opentelemetry/api'
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter, once } from 'node:events'
@@ -26,6 +28,7 @@ import {
   TestTelemetry,
   TracedCommand,
   TracedEvent,
+  TracedReply,
   useContextManager
 } from './test'
 
@@ -428,6 +431,115 @@ describe('openTelemetry', () => {
           point => point.attributes['messaging.operation.name'] === 'publish'
         )
       ).toEqual([])
+    })
+  })
+
+  describe('when a handler replies to the message it handles', () => {
+    const telemetry = new TestTelemetry()
+    let bus: BusInstance
+    let handlerSpan: ReadableSpan
+    let replySpan: ReadableSpan
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      const transport = new InMemoryQueue()
+      bus = buildTracedBus({ telemetry, handled, transport, reply: true })
+      await bus.initialize()
+      await bus.start()
+      const replyHandled = once(
+        handled,
+        handledEvent(TracedReply.NAME, 'reply')
+      )
+      await bus.send(new TracedCommand('reply'))
+      await replyHandled
+      await settle()
+      handlerSpan = telemetry.span('reserveRoom')
+      replySpan = telemetry.childOf(handlerSpan, `reply ${TracedReply.NAME}`)
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await telemetry.shutdown()
+    })
+
+    it('should record a producer span for the reply, sent to the return address', () => {
+      expect(replySpan.kind).toEqual(SpanKind.PRODUCER)
+      expect(replySpan.attributes).toMatchObject({
+        'messaging.operation.name': 'reply',
+        'messaging.operation.type': 'send',
+        'messaging.destination.name': DEFAULT_IN_MEMORY_ENDPOINT_NAME,
+        'node_ts_bus.message.name': TracedReply.NAME
+      })
+    })
+
+    it('should process the reply under the reply span', () => {
+      expect(
+        telemetry.childOf(replySpan, `process ${TracedReply.NAME}`)
+      ).toBeDefined()
+    })
+
+    it('should count the reply as sent', async () => {
+      const points = await telemetry.metric('messaging.client.sent.messages')
+      const replies = points.find(
+        point => point.attributes['messaging.operation.name'] === 'reply'
+      )
+      expect(replies?.value).toEqual(1)
+    })
+  })
+
+  describe('when a message is published with deliverAfter', () => {
+    const telemetry = new TestTelemetry()
+    let bus: BusInstance
+    let spansWhenStored: string[]
+    let sentWhenStored: number[]
+    let publishSpan: ReadableSpan
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      bus = buildTracedBus({ telemetry, handled })
+      await bus.initialize()
+      await bus.start()
+      const eventHandled = once(
+        handled,
+        handledEvent(TracedEvent.NAME, 'delayed')
+      )
+      await bus.publish(new TracedEvent('delayed'), { deliverAfter: 200 })
+      await settle()
+      spansWhenStored = telemetry.spans().map(span => span.name)
+      sentWhenStored = (
+        await telemetry.metric('messaging.client.sent.messages')
+      ).map(point => point.value)
+      await eventHandled
+      publishSpan = telemetry.span(`publish ${TracedEvent.NAME}`)
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await telemetry.shutdown()
+    })
+
+    it('should end the publish span and count the message once it is stored', () => {
+      expect(spansWhenStored).toEqual([`publish ${TracedEvent.NAME}`])
+      expect(sentWhenStored).toEqual([1])
+    })
+
+    it('should process it under the publish span when it is delivered later', () => {
+      expect(
+        telemetry.childOf(publishSpan, `process ${TracedEvent.NAME}`)
+      ).toBeDefined()
+    })
+
+    it('should not count it again when the dispatcher sends it', async () => {
+      const points = await telemetry.metric('messaging.client.sent.messages')
+      expect(points.map(point => point.value)).toEqual([1])
+    })
+
+    it('should not record a send span for the dispatcher', () => {
+      expect(
+        telemetry
+          .spans()
+          .filter(span => span.name === `publish ${TracedEvent.NAME}`)
+      ).toHaveLength(1)
     })
   })
 

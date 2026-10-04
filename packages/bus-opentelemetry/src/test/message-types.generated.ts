@@ -3,6 +3,7 @@ import type { MessageTypes } from '@node-ts/bus-messages'
 import { ReservationWorkflowState } from './reservation-workflow-state.js'
 import { TracedCommand } from './traced-command.js'
 import { TracedEvent } from './traced-event.js'
+import { TracedReply } from './traced-reply.js'
 
 // Pass to the bus with Bus.configure().withMessageTypes(messageTypes)
 export const messageTypes: MessageTypes = {
@@ -13,7 +14,9 @@ export const messageTypes: MessageTypes = {
     '@node-ts/bus-opentelemetry/traced-command':
       '@node-ts/bus-opentelemetry/src/test/traced-command#TracedCommand',
     '@node-ts/bus-opentelemetry/traced-event':
-      '@node-ts/bus-opentelemetry/src/test/traced-event#TracedEvent'
+      '@node-ts/bus-opentelemetry/src/test/traced-event#TracedEvent',
+    '@node-ts/bus-opentelemetry/traced-reply':
+      '@node-ts/bus-opentelemetry/src/test/traced-reply#TracedReply'
   },
   types: {
     '@node-ts/bus-opentelemetry/src/test/reservation-workflow-state#ReservationWorkflowState':
@@ -27,6 +30,10 @@ export const messageTypes: MessageTypes = {
     },
     '@node-ts/bus-opentelemetry/src/test/traced-event#TracedEvent': {
       class: TracedEvent,
+      fields: {}
+    },
+    '@node-ts/bus-opentelemetry/src/test/traced-reply#TracedReply': {
+      class: TracedReply,
       fields: {}
     }
   }

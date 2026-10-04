@@ -17,6 +17,7 @@ import { messageTypes } from './message-types.generated'
 import { TestTelemetry } from './test-telemetry'
 import { TracedCommand } from './traced-command'
 import { TracedEvent } from './traced-event'
+import { TracedReply } from './traced-reply'
 
 /**
  * Thrown by the `TracedCommand` handler of a bus built to fail its first attempt
@@ -32,8 +33,8 @@ export const handledEvent = (messageName: string, runId: string): string =>
 export interface TracedBusOptions {
   telemetry: TestTelemetry
   /**
-   * Emits `handledEvent(message.$name, runId)` once each message has been handled, with the attributes it was
-   * received with
+   * Emits `handledEvent(message.$name, runId)` once each message has been handled, with the `MessageAttributes` it
+   * was received with
    */
   handled: EventEmitter
   transport?: Transport
@@ -42,6 +43,10 @@ export interface TracedBusOptions {
    * Makes the `TracedCommand` handler publish and then throw the first time it's called
    */
   failFirstAttempt?: boolean
+  /**
+   * Makes the `TracedCommand` handler also reply to the command with a `TracedReply`, which the bus handles itself
+   */
+  reply?: boolean
 }
 
 /**
@@ -54,7 +59,8 @@ export const buildTracedBus = ({
   handled,
   transport,
   openTelemetryOptions,
-  failFirstAttempt = false
+  failFirstAttempt = false,
+  reply = false
 }: TracedBusOptions): BusInstance => {
   let attempts = 0
   const reserveRoom = async (
@@ -63,22 +69,27 @@ export const buildTracedBus = ({
     ctx: HandlerContext
   ) => {
     await ctx.publish(new TracedEvent(command.runId))
+    if (reply) {
+      await ctx.reply(new TracedReply(command.runId))
+    }
     attempts++
     if (failFirstAttempt && attempts === 1) {
       throw new RoomUnavailable('No rooms left')
     }
   }
   const sendConfirmation = async () => undefined
+  const confirmReservation = async () => undefined
 
   const reportHandled: BusMiddleware = {
     incoming: async (context, next) => {
       try {
         await next()
       } finally {
-        const { runId } = context.message as TracedCommand | TracedEvent
+        const { runId } = context.message as
+          TracedCommand | TracedEvent | TracedReply
         handled.emit(
           handledEvent(context.message.$name, runId),
-          context.attributes.attributes
+          context.attributes
         )
       }
     }
@@ -90,6 +101,7 @@ export const buildTracedBus = ({
     .withRecoverability(() => retry(0))
     .withHandler(handlerFor(TracedCommand, reserveRoom))
     .withHandler(handlerFor(TracedEvent, sendConfirmation))
+    .withHandler(handlerFor(TracedReply, confirmReservation))
     .withMiddleware(
       reportHandled,
       openTelemetry(telemetry.options(openTelemetryOptions))
