@@ -24,7 +24,12 @@ export enum OutgoingMessageDropReason {
   /**
    * Another message in the same outbox failed to send, and this one was never attempted
    */
-  OutboxFlushFailed = 'outbox-flush-failed'
+  OutboxFlushFailed = 'outbox-flush-failed',
+  /**
+   * It was sent with `deliverAfter` or `deliverAt`, and a message with the same `messageId` is already stored to send
+   * later, so the persistence skipped it
+   */
+  Duplicate = 'duplicate'
 }
 
 /**

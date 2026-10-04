@@ -491,8 +491,9 @@ describe('openTelemetry', () => {
     const telemetry = new TestTelemetry()
     let bus: BusInstance
     let spansWhenStored: string[]
-    let sentWhenStored: number[]
+    let scheduledWhenStored: number[]
     let publishSpan: ReadableSpan
+    let dueAt: Date
 
     beforeAll(async () => {
       const handled = new EventEmitter()
@@ -503,11 +504,12 @@ describe('openTelemetry', () => {
         handled,
         handledEvent(TracedEvent.NAME, 'delayed')
       )
-      await bus.publish(new TracedEvent('delayed'), { deliverAfter: 200 })
+      dueAt = new Date(Date.now() + 200)
+      await bus.publish(new TracedEvent('delayed'), { deliverAt: dueAt })
       await settle()
       spansWhenStored = telemetry.spans().map(span => span.name)
-      sentWhenStored = (
-        await telemetry.metric('messaging.client.sent.messages')
+      scheduledWhenStored = (
+        await telemetry.metric('node_ts_bus.scheduled.messages')
       ).map(point => point.value)
       await eventHandled
       publishSpan = telemetry.span(`publish ${TracedEvent.NAME}`)
@@ -518,9 +520,15 @@ describe('openTelemetry', () => {
       await telemetry.shutdown()
     })
 
-    it('should end the publish span and count the message once it is stored', () => {
+    it('should end the publish span and count the message as scheduled once it is stored', () => {
       expect(spansWhenStored).toEqual([`publish ${TracedEvent.NAME}`])
-      expect(sentWhenStored).toEqual([1])
+      expect(scheduledWhenStored).toEqual([1])
+    })
+
+    it('should record when the message is due on the publish span', () => {
+      expect(publishSpan.attributes['node_ts_bus.message.due_at']).toEqual(
+        dueAt.toISOString()
+      )
     })
 
     it('should process it under the publish span when it is delivered later', () => {
@@ -529,9 +537,12 @@ describe('openTelemetry', () => {
       ).toBeDefined()
     })
 
-    it('should not count it again when the dispatcher sends it', async () => {
-      const points = await telemetry.metric('messaging.client.sent.messages')
-      expect(points.map(point => point.value)).toEqual([1])
+    it('should not count it as sent, then or when the dispatcher sends it', async () => {
+      expect(await telemetry.metric('messaging.client.sent.messages')).toEqual(
+        []
+      )
+      const scheduled = await telemetry.metric('node_ts_bus.scheduled.messages')
+      expect(scheduled.map(point => point.value)).toEqual([1])
     })
 
     it('should not record a send span for the dispatcher', () => {
@@ -540,6 +551,47 @@ describe('openTelemetry', () => {
           .spans()
           .filter(span => span.name === `publish ${TracedEvent.NAME}`)
       ).toHaveLength(1)
+    })
+  })
+
+  describe('when two messages are published with deliverAfter and the same messageId', () => {
+    const telemetry = new TestTelemetry()
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withLogger(silentLogger)
+        .withMiddleware(openTelemetry(telemetry.options()))
+        .build()
+      await bus.initialize()
+      await bus.publish(new TracedEvent('first'), {
+        messageId: 'dup',
+        deliverAfter: 60_000
+      })
+      await bus.publish(new TracedEvent('second'), {
+        messageId: 'dup',
+        deliverAfter: 60_000
+      })
+      await settle()
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await telemetry.shutdown()
+    })
+
+    it('should mark the second publish span as a dropped duplicate', () => {
+      const reasons = telemetry
+        .spans()
+        .filter(span => span.name === `publish ${TracedEvent.NAME}`)
+        .map(span => span.attributes['node_ts_bus.dropped.reason'])
+      expect(reasons).toEqual([undefined, 'duplicate'])
+    })
+
+    it('should only count the stored message as scheduled', async () => {
+      const points = await telemetry.metric('node_ts_bus.scheduled.messages')
+      expect(points.map(point => point.value)).toEqual([1])
     })
   })
 

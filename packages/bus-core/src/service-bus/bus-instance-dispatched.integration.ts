@@ -695,6 +695,148 @@ describe('BusInstance dispatched', () => {
     })
   })
 
+  describe('when two messages are published with deliverAfter and the same messageId', () => {
+    let bus: BusInstance
+    const settlements: Promise<Settlement>[] = []
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            settlements.push(settlementOf(context))
+            await next()
+          }
+        })
+        .build()
+      await bus.initialize()
+      await bus.publish(new TestEvent(), {
+        messageId: 'dup',
+        deliverAfter: 60_000
+      })
+      await bus.publish(new TestEvent(), {
+        messageId: 'dup',
+        deliverAfter: 60_000
+      })
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should resolve the first, which is stored', async () => {
+      expect(await settlements[0]).toEqual({ resolved: true })
+    })
+
+    it('should reject the second as a duplicate, since the store skipped it', async () => {
+      expect(await settlements[1]).toEqual({
+        resolved: false,
+        error: expect.objectContaining({
+          reason: OutgoingMessageDropReason.Duplicate
+        })
+      })
+    })
+  })
+
+  describe('when a handler publishes two messages with deliverAfter and the same messageId', () => {
+    let bus: BusInstance
+    const settlements: Promise<Settlement>[] = []
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(() => undefined)
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withTransport(queue)
+        .withHandler(
+          handlerFor(TestCommand, async (_m, _a, ctx) => {
+            await ctx.publish(new TestEvent(), {
+              messageId: 'outbox-dup',
+              deliverAfter: 60_000
+            })
+            await ctx.publish(new TestEvent(), {
+              messageId: 'outbox-dup',
+              deliverAfter: 60_000
+            })
+          })
+        )
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            if (context.message.$name === TestEvent.NAME) {
+              settlements.push(settlementOf(context))
+            }
+            await next()
+          }
+        })
+        .build()
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should store the first and reject the second as a duplicate', async () => {
+      expect(await Promise.all(settlements)).toEqual([
+        { resolved: true },
+        {
+          resolved: false,
+          error: expect.objectContaining({
+            reason: OutgoingMessageDropReason.Duplicate
+          })
+        }
+      ])
+    })
+  })
+
+  describe('when a message is published with deliverAt', () => {
+    let bus: BusInstance
+    const dueAt = new Date(Date.now() + 60_000)
+    let contextDueAt: Date | undefined
+    let immediateDueAt: Date | undefined = new Date()
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(silentLogger)
+        .withMiddleware({
+          outgoing: async (context, next) => {
+            const due = context.kind === 'reply' ? undefined : context.dueAt
+            if (context.attributes.messageId === 'later') {
+              contextDueAt = due
+            } else {
+              immediateDueAt = due
+            }
+            await next()
+          }
+        })
+        .build()
+      await bus.initialize()
+      await bus.publish(new TestEvent(), {
+        messageId: 'later',
+        deliverAt: dueAt
+      })
+      await bus.publish(new TestEvent(), { messageId: 'now' })
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should give outgoing middleware when it is due', () => {
+      expect(contextDueAt).toEqual(dueAt)
+    })
+
+    it('should leave dueAt undefined for a message sent now', () => {
+      expect(immediateDueAt).toBeUndefined()
+    })
+  })
+
   describe('when outgoing middleware does not call next()', () => {
     let bus: BusInstance
     let settlement: Promise<Settlement>

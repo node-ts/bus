@@ -26,6 +26,7 @@ import {
 import { OpenTelemetryOptions } from './open-telemetry-options'
 import {
   ATTR_DROPPED_REASON,
+  ATTR_DUE_AT,
   ATTR_ERROR_TYPE,
   ATTR_FAILED_ATTEMPTS,
   ATTR_HANDLER_NAME,
@@ -44,6 +45,7 @@ import {
   METRIC_MESSAGING_CLIENT_CONSUMED_MESSAGES,
   METRIC_MESSAGING_CLIENT_SENT_MESSAGES,
   METRIC_MESSAGING_PROCESS_DURATION,
+  METRIC_SCHEDULED_MESSAGES,
   OPERATION_PROCESS,
   OPERATION_TYPE_SEND,
   SCHEMA_URL
@@ -78,6 +80,7 @@ const MILLISECONDS_IN_SECOND = 1000
 interface Instruments {
   tracer: Tracer
   sentMessages: Counter
+  scheduledMessages: Counter
   consumedMessages: Counter
   failedMessages: Counter
   processDuration: Histogram
@@ -144,6 +147,11 @@ const createInstruments = (options: OpenTelemetryOptions): Instruments => {
     tracer,
     sentMessages: meter.createCounter(METRIC_MESSAGING_CLIENT_SENT_MESSAGES, {
       description: 'Number of messages sent or published',
+      unit: '{message}'
+    }),
+    scheduledMessages: meter.createCounter(METRIC_SCHEDULED_MESSAGES, {
+      description:
+        'Number of messages sent with deliverAfter or deliverAt that were stored to send later',
       unit: '{message}'
     }),
     consumedMessages: meter.createCounter(
@@ -220,8 +228,12 @@ export const openTelemetry = (
 
   return {
     outgoing: async (outgoingContext, next) => {
-      const { tracer, sentMessages } = getInstruments()
+      const { tracer, sentMessages, scheduledMessages } = getInstruments()
       const { kind, message, attributes } = outgoingContext
+      const dueAt =
+        outgoingContext.kind === 'reply' ? undefined : outgoingContext.dueAt
+      // A delayed message is only stored for now, so it's counted apart from messages handed to the broker
+      const sendCounter = dueAt ? scheduledMessages : sentMessages
       const metricAttributes: Attributes = {
         [ATTR_MESSAGING_SYSTEM]: messagingSystem,
         [ATTR_MESSAGING_OPERATION_NAME]: kind,
@@ -242,7 +254,9 @@ export const openTelemetry = (
             ...metricAttributes,
             ...definedAttributes({
               [ATTR_MESSAGING_MESSAGE_ID]: attributes.messageId,
-              [ATTR_MESSAGING_MESSAGE_CONVERSATION_ID]: attributes.correlationId
+              [ATTR_MESSAGING_MESSAGE_CONVERSATION_ID]:
+                attributes.correlationId,
+              [ATTR_DUE_AT]: dueAt?.toISOString()
             })
           }
         },
@@ -275,7 +289,7 @@ export const openTelemetry = (
       // active, so spans of the transport's own client are its children. A dropped message isn't counted.
       void outgoingContext.dispatched.then(
         () => {
-          sentMessages.add(1, metricAttributes)
+          sendCounter.add(1, metricAttributes)
           span.end()
         },
         (error: unknown) => {
@@ -288,7 +302,7 @@ export const openTelemetry = (
             }
           } else {
             recordError(span, error)
-            sentMessages.add(1, {
+            sendCounter.add(1, {
               ...metricAttributes,
               [ATTR_ERROR_TYPE]: errorType(error)
             })

@@ -48,6 +48,12 @@ export const ATTR_MESSAGE_NAME = 'node_ts_bus.message.name'
 export const ATTR_FAILED_ATTEMPTS = 'node_ts_bus.message.failed_attempts'
 
 /**
+ * When a message sent with `deliverAfter` or `deliverAt` is due, as an ISO 8601 timestamp, on its send or publish
+ * span
+ */
+export const ATTR_DUE_AT = 'node_ts_bus.message.due_at'
+
+/**
  * The name of the handler or workflow, on handler spans
  */
 export const ATTR_HANDLER_NAME = 'node_ts_bus.handler.name'
@@ -91,6 +97,13 @@ export const METRIC_MESSAGING_CLIENT_SENT_MESSAGES =
  */
 export const METRIC_MESSAGING_CLIENT_CONSUMED_MESSAGES =
   'messaging.client.consumed.messages'
+
+/**
+ * Counter of messages sent with `deliverAfter` or `deliverAt` that were stored to send later. They aren't in
+ * `messaging.client.sent.messages`, which only counts messages handed to the broker, and the dispatcher that sends
+ * them once they're due runs no middleware.
+ */
+export const METRIC_SCHEDULED_MESSAGES = 'node_ts_bus.scheduled.messages'
 
 /**
  * Counter of attempts at handling a message that threw, or called `failMessage()` or `returnMessage()`, so the

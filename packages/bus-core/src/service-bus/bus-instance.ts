@@ -239,6 +239,27 @@ const settleDispatched = async (
 }
 
 /**
+ * Works out which of the messages given to `storeOutgoingMessages` it skipped, from the ids it returned, which name
+ * each skipped message once. Of several messages with the same id, the store keeps the first unless the id was
+ * already stored, so the skipped ones are the last of them.
+ * @returns whether each message was skipped, in order
+ */
+const skippedAsDuplicates = (
+  toStore: { id: string }[],
+  duplicateIds: string[]
+): boolean[] => {
+  const skips = new Map<string, number>()
+  duplicateIds.forEach(id => skips.set(id, (skips.get(id) ?? 0) + 1))
+  const remaining = new Map<string, number>()
+  toStore.forEach(({ id }) => remaining.set(id, (remaining.get(id) ?? 0) + 1))
+  return toStore.map(({ id }) => {
+    const left = remaining.get(id)!
+    remaining.set(id, left - 1)
+    return left <= (skips.get(id) ?? 0)
+  })
+}
+
+/**
  * Rejects the `dispatched` promise of a message that won't be sent
  */
 const dropOutgoing = (
@@ -1200,7 +1221,14 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     const settle = Promise.withResolvers<void>()
     // Middleware may never look at it, so a rejection mustn't be reported as unhandled
     void settle.promise.catch(() => undefined)
-    const context = { ...draft, dispatched: settle.promise } as OutgoingContext
+    // A time that has already passed is sent straight away
+    const delayedUntil =
+      dueAt && dueAt.getTime() > Date.now() ? dueAt : undefined
+    const context = {
+      ...draft,
+      ...(delayedUntil ? { dueAt: delayedUntil } : {}),
+      dispatched: settle.promise
+    } as OutgoingContext
     let dispatched = false
     let outboxed: OutboxedMessage | undefined
     try {
@@ -1216,20 +1244,21 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           )
         }
         this.transport.assertSendOptions?.({ headers: outgoingMessage.headers })
-        if (dueAt && dueAt.getTime() > Date.now()) {
-          outgoingMessage.dueAt = dueAt
+        if (delayedUntil) {
+          outgoingMessage.dueAt = delayedUntil
         }
         if (this.addToOutbox(outgoingMessage)) {
           outboxed = outgoingMessage
           return
         }
-        // A delayed message counts as dispatched once it's stored
-        await settleDispatched(
-          [outgoingMessage],
-          isDelayed(outgoingMessage)
-            ? this.storeOutgoing([outgoingMessage])
-            : this.dispatchToTransport(outgoingMessage)
-        )
+        if (isDelayed(outgoingMessage)) {
+          await this.storeAndSettle([outgoingMessage])
+        } else {
+          await settleDispatched(
+            [outgoingMessage],
+            this.dispatchToTransport(outgoingMessage)
+          )
+        }
       })
     } catch (error) {
       // A middleware that throws after next() still rejects the send, so take back what was buffered
@@ -1365,13 +1394,35 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
+   * Stores delayed messages, and settles their `dispatched` promises: resolved once stored, rejected as `duplicate`
+   * when a message with the same `messageId` was already stored, or with the persistence's error, which is rethrown
+   */
+  private async storeAndSettle(
+    outgoingMessages: DelayedMessage[]
+  ): Promise<void> {
+    let stored: boolean[]
+    try {
+      stored = await this.storeOutgoing(outgoingMessages)
+    } catch (error) {
+      outgoingMessages.forEach(m => m.settle.reject(error))
+      throw error
+    }
+    outgoingMessages.forEach((m, index) =>
+      stored[index]
+        ? m.settle.resolve()
+        : dropOutgoing(m, OutgoingMessageDropReason.Duplicate)
+    )
+  }
+
+  /**
    * Stores messages in the persistence to send once they're due
+   * @returns whether each message was stored, in order. One whose id was already stored is skipped.
    * @throws DelayedDeliveryNotSupported if the persistence can't store messages to send later, which `send()` and
    * `publish()` have already checked
    */
   private async storeOutgoing(
     outgoingMessages: DelayedMessage[]
-  ): Promise<void> {
+  ): Promise<boolean[]> {
     if (!isOutgoingMessageStore(this.persistence)) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }
@@ -1403,6 +1454,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     toStore.forEach(({ dueAt }) =>
       this.outgoingMessageDispatcher?.scheduled(dueAt)
     )
+    return skippedAsDuplicates(toStore, duplicateIds).map(skipped => !skipped)
   }
 
   /**
@@ -1522,11 +1574,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     outbox.messages = []
     if (delayedMessages.length > 0) {
       try {
-        // A delayed message counts as dispatched once it's stored
-        await settleDispatched(
-          delayedMessages,
-          this.storeOutgoing(delayedMessages)
-        )
+        await this.storeAndSettle(delayedMessages)
       } catch (error) {
         outboxedMessages.forEach(m =>
           dropOutgoing(m, OutgoingMessageDropReason.OutboxFlushFailed)
