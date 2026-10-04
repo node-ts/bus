@@ -6,6 +6,6 @@ export class OrderApprovalState extends WorkflowState {
   $name = OrderApprovalState.NAME
 
   orderId: string
-  status: 'checking-credit' | 'approved' | 'declined'
+  status: 'checking-credit' | 'approved' | 'declined' | 'credit-check-timed-out'
 }
 // #endregion state

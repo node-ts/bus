@@ -66,7 +66,7 @@ The reply goes back to the workflow instance that sent the request, even when ma
 3. The credit service handles `CheckCredit`. `ctx.reply()` sends `CreditChecked` to the return address, with the correlation id and sticky attributes of `CheckCredit` as they arrived. It carries the same `workflowId`, even when the credit service handles the request in a workflow of its own.
 4. `CreditChecked` arrives at the orders service. Its `when` handler has no mapping, so it uses the [default mapping](/guide/workflows/handling#default-mapping), which loads the running instance whose `$workflowId` matches.
 
-Other running instances of the workflow aren't affected, since their ids don't match. A reply that matches no running instance, such as one that arrives after its workflow completed, is ignored, and the bus logs an error.
+Other running instances of the workflow aren't affected, since their ids don't match. A reply that arrives after its workflow completed, such as after it [timed out](#when-no-reply-arrives), is ignored, and the bus logs it at `debug`. A reply that matches no instance at all is ignored too, and the bus logs a warning.
 
 ## The return address
 
@@ -99,9 +99,21 @@ In these cases, have the replier send or publish the reply, put a field in the r
 
 <<< @/snippets/request-reply.ts#field-mapping
 
-A published reply is received by every service that subscribes to it. Services with a workflow that handles it with the default mapping find no instance of theirs, so they ignore it, and their bus logs an error that it found no workflow state for it.
+A published reply is received by every service that subscribes to it. Services with a workflow that handles it with the default mapping find no instance of theirs, so they ignore it, and their bus logs a warning that it found no workflow instance for it.
 
-The bus doesn't time out a request. The workflow keeps running until a reply arrives, so if the other service might never reply, plan for how the process ends without one.
+## When no reply arrives
+
+The bus doesn't time out a request on its own. The workflow keeps running until a reply arrives, so if the other service might never reply, have the workflow send itself a [timeout](/guide/workflows/timeouts) with the request. It's a delayed message that the workflow handles like the reply:
+
+::: code-group
+
+<<< @/snippets/request-reply.ts#timeout [Functions]
+
+<<< @/snippets/request-reply.ts#class-timeout [Class]
+
+:::
+
+Whichever of `CreditChecked` and `CreditCheckTimedOut` arrives first completes the workflow, and the bus ignores the other, logging it at `debug`. So a reply that arrives after the timeout changes nothing. If the workflow should still act on a late reply, don't complete it in the timeout's handler: save a status instead, and check it in the reply's handler.
 
 ## Why there's no bus.request()
 
@@ -118,5 +130,6 @@ If a caller needs an answer straight away, such as an HTTP request, either call 
 
 - [Workflows](/guide/workflows)
 - [Handling](/guide/workflows/handling), for the ways a message finds its workflow
+- [Timeouts](/guide/workflows/timeouts)
 - [Sticky attributes](/guide/message-attributes/sticky-attributes)
 - [`HandlerContext`](/api/bus-core/interfaces/HandlerContext) in the API reference

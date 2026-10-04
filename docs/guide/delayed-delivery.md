@@ -25,7 +25,7 @@ The handler context takes the same options:
 
 <<< @/snippets/delayed-delivery.ts#from-a-handler
 
-Like any message sent from a handler, it's only scheduled once the handler resolves, and is dropped if the handler fails. It keeps the correlation id and sticky attributes of the message being handled, so a message scheduled from a [workflow](/guide/workflows) routes back to the same workflow instance when it arrives.
+Like any message sent from a handler, it's only scheduled once the handler resolves, and is dropped if the handler fails. It keeps the correlation id and sticky attributes of the message being handled, so a message scheduled from a [workflow](/guide/workflows) routes back to the same workflow instance when it arrives. That's how a workflow [times out](/guide/workflows/timeouts) a step.
 
 ## How messages are delivered
 

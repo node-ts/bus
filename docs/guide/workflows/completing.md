@@ -17,7 +17,7 @@ Return `ctx.complete()` from a function workflow handler, or `this.completeWorkf
 
 :::
 
-The completed state stays in the persistence, with its `$status` set to `complete`, but isn't found by later messages.
+The completed state stays in the persistence, with its `$status` set to `complete`, but isn't found by later messages. A message for it that arrives later, such as a [timeout](/guide/workflows/timeouts) or a late reply, is ignored, and the bus logs it at `debug`.
 
 ## See also
 

@@ -440,9 +440,12 @@ export class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            this.logger.error(
-              'No existing workflow state found for message. Ignoring.',
-              { busMessage: message, attributes }
+            await this.ignoreUnmatchedMessage(
+              message,
+              attributes,
+              workflowName,
+              workflowStateType,
+              messageMapping
             )
             return
           }
@@ -473,6 +476,42 @@ export class WorkflowRegistry {
         }
       )
     })
+  }
+
+  /**
+   * Logs a message that found no running workflow instance, which is then ignored. A message for an instance that
+   * has completed, such as a timeout that arrives after the step it guards, is expected, so it's logged at debug.
+   * One that matches no instance at all may be misrouted or mapped wrongly, so it's logged as a warning.
+   */
+  private async ignoreUnmatchedMessage(
+    message: Message,
+    attributes: MessageAttributes,
+    workflowName: string,
+    workflowStateType: ClassConstructor<WorkflowState>,
+    messageMapping: MessageWorkflowMapping
+  ): Promise<void> {
+    // Only read on a miss, so a message for a running instance costs no extra query
+    const completedWorkflowState = await this.persistence.getWorkflowState<
+      WorkflowState,
+      Message
+    >(workflowStateType, messageMapping, message, attributes, true)
+
+    if (completedWorkflowState.length) {
+      this.logger.debug(
+        'Workflow instance for message has already completed. Ignoring.',
+        {
+          busMessage: message,
+          workflowName,
+          workflowIds: completedWorkflowState.map(state => state.$workflowId)
+        }
+      )
+    } else {
+      this.logger.warn('No workflow instance found for message. Ignoring.', {
+        busMessage: message,
+        attributes,
+        workflowName
+      })
+    }
   }
 
   /**

@@ -39,4 +39,5 @@ Messages are delivered at least once, and a message that starts a workflow isn't
 - [Creating a workflow](/guide/workflows/creating-a-workflow)
 - [Example](/guide/workflows/example), a complete workflow
 - [Request and reply](/guide/workflows/request-reply), a workflow that asks another service and handles its reply
+- [Timeouts](/guide/workflows/timeouts), a step that times out if a message doesn't arrive in time
 - [Persistence](/persistence)
