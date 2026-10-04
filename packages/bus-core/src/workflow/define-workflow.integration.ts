@@ -11,6 +11,7 @@ import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { InMemoryPersistence } from './persistence'
 import {
   FinalTask,
+  runTaskReplyHandler,
   TaskRan,
   TestCommand,
   TestFunctionStartedByCompletesState,
@@ -22,7 +23,9 @@ import {
   TestFunctionStartedByVoidState,
   testFunctionStartedByVoidWorkflow,
   testFunctionWorkflow,
-  TestFunctionWorkflowState
+  TestFunctionWorkflowState,
+  testRequestReplyWorkflow,
+  TestRequestReplyWorkflowState
 } from './test'
 import {
   TestWorkflowStartedByCompletes,
@@ -202,6 +205,70 @@ describe('defineWorkflow', () => {
           $status: WorkflowStatus.Complete,
           $version: 3,
           finalTaskCorrelationId: correlationId
+        })
+      })
+    })
+  })
+
+  describe('when several instances of a workflow send a request that a handler replies to', () => {
+    const requests = ['first-request', 'second-request']
+    const persistence = new InMemoryPersistence()
+    const byRequest: MessageWorkflowMapping<
+      TestCommand,
+      TestRequestReplyWorkflowState
+    > = { lookup: message => message.property1, mapsTo: 'request' }
+    let bus: BusInstance
+    let states: TestRequestReplyWorkflowState[][]
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMiddleware(reportHandled)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes(testMessageTypes)
+        .withPersistence(persistence)
+        .withWorkflow(testRequestReplyWorkflow)
+        .withHandler(runTaskReplyHandler)
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      let repliesHandled = 0
+      const allRepliesHandled = new Promise<void>(resolve => {
+        const onReply = () => {
+          repliesHandled++
+          if (repliesHandled === requests.length) {
+            handledMessages.off(TaskRan.NAME, onReply)
+            resolve()
+          }
+        }
+        handledMessages.on(TaskRan.NAME, onReply)
+      })
+      await Promise.all(
+        requests.map(request => bus.send(new TestCommand(request)))
+      )
+      await allRepliesHandled
+      states = await Promise.all(
+        requests.map(request =>
+          persistence.getWorkflowState(
+            TestRequestReplyWorkflowState,
+            byRequest,
+            new TestCommand(request),
+            noAttributes,
+            true
+          )
+        )
+      )
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should route each reply back to the instance that sent its request, by the workflowId sticky attribute', () => {
+      states.forEach((state, index) => {
+        expect(state).toHaveLength(1)
+        expect(state[0]).toMatchObject({
+          $status: WorkflowStatus.Complete,
+          request: requests[index],
+          reply: requests[index]
         })
       })
     })
