@@ -16,6 +16,7 @@ import { MessageHandlingContext } from '../../message-handling-context'
 import { MessageLifecycleContext } from '../../message-lifecycle-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
+import { applyWorkflowStateChange } from '../apply-workflow-state-change'
 import { FunctionWorkflow } from '../define-workflow'
 import {
   WorkflowAlreadyInitialized,
@@ -680,36 +681,29 @@ export class WorkflowRegistry {
         'Message was failed or returned, so the workflow state changes will not be persisted',
         { workflowId: immutableWorkflowState.$workflowId, workflowName }
       )
-    } else if (
-      workflowStateOutput &&
-      workflowStateOutput.$status === WorkflowStatus.Discard
-    ) {
-      this.logger.debug(
-        'Workflow step is discarding state changes. State changes will not be persisted',
-        { workflowId: immutableWorkflowState.$workflowId, workflowName }
+    } else {
+      const updatedWorkflowState = applyWorkflowStateChange(
+        immutableWorkflowState,
+        workflowStateOutput,
+        workflowStateConstructor
       )
-    } else if (workflowStateOutput || immutableWorkflowState.$version === 0) {
-      // Persist the original workflow state if nothing's returned from the workflow startedBy function
-      const workflowStateToChange =
-        workflowStateOutput ?? immutableWorkflowState
+      if (!updatedWorkflowState) {
+        this.logger.debug(
+          'Workflow step discarded its changes or made none. State changes will not be persisted',
+          {
+            workflowId: immutableWorkflowState.$workflowId,
+            workflowName,
+            discarded: workflowStateOutput?.$status === WorkflowStatus.Discard
+          }
+        )
+        return
+      }
       this.logger.debug(
         'Changes detected in workflow state and will be persisted.',
         {
           workflowId: immutableWorkflowState.$workflowId,
           workflowName,
-          changes: workflowStateToChange
-        }
-      )
-
-      const updatedWorkflowState = Object.assign(
-        new workflowStateConstructor(),
-        immutableWorkflowState,
-        workflowStateToChange,
-        // Managed by the bus, so a handler that returns a copy of the state, or other values, can't change them
-        {
-          $workflowId: immutableWorkflowState.$workflowId,
-          $version: immutableWorkflowState.$version,
-          $name: immutableWorkflowState.$name
+          changes: workflowStateOutput ?? immutableWorkflowState
         }
       )
 
@@ -722,10 +716,6 @@ export class WorkflowRegistry {
         })
         throw error
       }
-    } else {
-      this.logger.debug('No changes detected in workflow state.', {
-        workflowId: immutableWorkflowState.$workflowId
-      })
     }
   }
 

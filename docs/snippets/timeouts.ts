@@ -1,13 +1,12 @@
 import {
   defineWorkflow,
   HandlerContext,
-  SendOptions,
+  testWorkflow,
   Workflow,
-  workflowContext,
   WorkflowMapper
 } from '@node-ts/bus-core'
-import { Command, MessageAttributes } from '@node-ts/bus-messages'
-import { deepStrictEqual } from 'node:assert'
+import { MessageAttributes } from '@node-ts/bus-messages'
+import { deepStrictEqual, strictEqual } from 'node:assert'
 import {
   CancelOrder,
   OrderPlaced,
@@ -19,7 +18,7 @@ import {
 import { OrderPaymentState } from './workflows/order-payment-state'
 
 // #region workflow
-const TIME_TO_PAY_MS = 24 * 60 * 60 * 1_000
+export const TIME_TO_PAY_MS = 24 * 60 * 60 * 1_000
 
 export const orderPaymentWorkflow = defineWorkflow(OrderPaymentState)
   .startedBy(OrderPlaced, async ({ orderId }, _state, ctx) => {
@@ -114,32 +113,23 @@ export class OrderPaymentWorkflow extends Workflow<OrderPaymentState> {
 // #endregion class-workflow
 
 // #region test
-// In a test, with any test runner. Each handler is called straight away, with
-// no clock to wait for
-const sent: [Command, SendOptions | undefined][] = []
-const ctx = workflowContext<OrderPaymentState>({
-  send: async (command, options) => {
-    sent.push([command, options])
-  }
-})
+// In a test, with any test runner. The scenario's clock is moved on by hand, so
+// the test doesn't wait a day for the timeout
+const scenario = testWorkflow(orderPaymentWorkflow)
 
-await orderPaymentWorkflow.startedByHandler(OrderPlaced)(
-  new OrderPlaced('order-1', 120),
-  new OrderPaymentState(),
-  ctx
-)
-deepStrictEqual(sent, [
-  [new PaymentTimedOut('order-1'), { deliverAfter: TIME_TO_PAY_MS }]
+const placed = await scenario.when(new OrderPlaced('order-1', 120))
+deepStrictEqual(placed.sent, [
+  {
+    message: new PaymentTimedOut('order-1'),
+    options: { deliverAfter: TIME_TO_PAY_MS }
+  }
 ])
 
-const awaitingPayment = Object.assign(new OrderPaymentState(), {
-  orderId: 'order-1',
-  status: 'awaiting-payment'
-})
-const result = await orderPaymentWorkflow.whenHandler(PaymentTimedOut)(
-  new PaymentTimedOut('order-1'),
-  awaitingPayment,
-  ctx
+// Delivers the timeout to the instance that sent it
+const [timedOut] = await scenario.advanceTime(TIME_TO_PAY_MS)
+deepStrictEqual(
+  timedOut.sent.map(sent => sent.message),
+  [new CancelOrder('order-1')]
 )
-deepStrictEqual(result, ctx.complete({ status: 'cancelled' }))
+strictEqual(timedOut.state?.status, 'cancelled')
 // #endregion test

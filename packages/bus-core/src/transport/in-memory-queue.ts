@@ -254,6 +254,31 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   }
 
   /**
+   * Waits until the queue has nothing left to handle: no message queued, being handled or waiting to be retried. A
+   * message is only removed once the bus has finished handling it, after the messages its handlers sent were queued,
+   * so a test can send a message to a started bus and await this instead of listening for the handler to finish.
+   *
+   * Messages sent with `deliverAfter` or `deliverAt` wait in the bus' persistence, not in the queue, so they aren't
+   * waited for until they're sent. Nothing is handled before the bus is started, so a queue with messages in it
+   * isn't idle until then.
+   * @returns a promise that resolves once the queue is empty, or straight away if it already is
+   * @example
+   * const queue = new InMemoryQueue()
+   * const bus = Bus.configure().withTransport(queue).withHandler(placeOrderHandler).build()
+   * await bus.initialize()
+   * await bus.start()
+   *
+   * await bus.send(new PlaceOrder('1'))
+   * await queue.idle()
+   */
+  async idle(): Promise<void> {
+    if (this.queue.length === 0) {
+      return
+    }
+    await new Promise<void>(resolve => this.queueEvents.once('idle', resolve))
+  }
+
+  /**
    * Gets the queue depth, which is the number of messages both queued and in flight
    */
   get depth(): number {
@@ -295,6 +320,9 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     })
     this.queue.splice(messageIndex, 1)
     this.logger.debug('Message Deleted', { queueDepth: this.depth })
+    if (this.queue.length === 0) {
+      this.queueEvents.emit('idle')
+    }
   }
 
   /**

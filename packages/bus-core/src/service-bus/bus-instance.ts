@@ -82,6 +82,10 @@ import { WorkflowRegistry } from '../workflow/registry'
 import { BusState } from './bus-state'
 import { InvalidBusState, InvalidOperation } from './error'
 
+/**
+ * The least time between two reads of an application loop that both come back empty, so a transport that returns
+ * straight away when it has no messages doesn't spin
+ */
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 /**
@@ -780,11 +784,17 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     try {
       // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
       while (this.internalState === BusState.Started) {
+        const readStartedAt = Date.now()
         const messageRead = await this.handleNextMessage()
 
-        // Avoids locking up CPU when there are no messages to be processed
+        // Avoids locking up CPU when there are no messages to be processed. A transport that waited for a message
+        // before coming back empty, as the in-memory queue and long polling brokers do, has already waited, and
+        // sleeping on top of that would delay a message that arrives straight after.
         if (!messageRead) {
-          await sleep(EMPTY_QUEUE_SLEEP_MS)
+          const readDuration = Date.now() - readStartedAt
+          if (readDuration < EMPTY_QUEUE_SLEEP_MS) {
+            await sleep(EMPTY_QUEUE_SLEEP_MS - readDuration)
+          }
         }
       }
     } finally {

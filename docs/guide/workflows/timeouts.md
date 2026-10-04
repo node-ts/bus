@@ -46,7 +46,7 @@ A start handler that [discards](/guide/workflows/state#discarding-state) the wor
 
 ## Testing a timeout
 
-Timeout handlers are tested like any other workflow handler, as described in [Testing a workflow handler](/guide/workflows/state#testing-a-workflow-handler). Check that the start handler sends the timeout with its delay, then call the timeout's handler with the state it should see:
+`testWorkflow()` runs the workflow in a test, and records the timeout with its delay when the start handler sends it. `advanceTime()` then moves the scenario's clock on and delivers the timeout to the instance that sent it, as described in [Testing](/guide/testing#timeouts):
 
 <<< @/snippets/timeouts.ts#test
 

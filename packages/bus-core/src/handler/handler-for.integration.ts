@@ -1,12 +1,11 @@
 import { MessageAttributes, MessageTypes } from '@node-ts/bus-messages'
-import { EventEmitter } from 'node:events'
 import { It, Mock, Times } from 'typemoq'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
 import { MessageSerializer, MessageTypesMissing } from '../serialization'
 import { Bus, BusInstance } from '../service-bus'
 import { HandleChecker, TestDefinedCommand, TestDefinedEvent } from '../test'
-import { TransportMessage } from '../transport'
+import { InMemoryQueue, TransportMessage } from '../transport'
 import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
 import { handlerFor } from './handler-for'
 
@@ -63,7 +62,7 @@ const testMessageTypes: MessageTypes = {
 
 describe('handlerFor', () => {
   describe('when handling messages declared with defineCommand and defineEvent', () => {
-    const events = new EventEmitter()
+    const queue = new InMemoryQueue()
     const handleChecker = Mock.ofType<HandleChecker>()
     const workflowChecker = Mock.ofType<HandleChecker>()
     let bus: BusInstance
@@ -88,7 +87,6 @@ describe('handlerFor', () => {
       start(
         command: TestDefinedCommand
       ): Partial<TestDefinedMessageWorkflowState> {
-        events.emit('started')
         return { orderId: command.orderId }
       }
 
@@ -98,7 +96,6 @@ describe('handlerFor', () => {
         attributes: MessageAttributes
       ) {
         workflowChecker.object.check(event, attributes)
-        events.emit('completed')
         return this.completeWorkflow()
       }
     }
@@ -107,6 +104,7 @@ describe('handlerFor', () => {
       bus = Bus.configure()
         .withLogger(() => Mock.ofType<Logger>().object)
         .withMessageTypes(testMessageTypes)
+        .withTransport(queue)
         .withHandler(
           handlerFor(TestDefinedCommand, (command, attributes) => {
             handleChecker.object.check(command, attributes)
@@ -118,14 +116,10 @@ describe('handlerFor', () => {
       await bus.start()
 
       sent = TestDefinedCommand({ orderId: 'a', placedAt: new Date(1) })
-      const started = new Promise(resolve => events.once('started', resolve))
       await bus.send(sent)
-      await started
-      const completed = new Promise(resolve =>
-        events.once('completed', resolve)
-      )
+      await queue.idle()
       await bus.publish(TestDefinedEvent({ orderId: 'a' }))
-      await completed
+      await queue.idle()
     })
 
     afterAll(async () => bus.dispose())
@@ -167,7 +161,7 @@ describe('handlerFor', () => {
   })
 
   describe('when handling a message with attributes typed by handlerFor', () => {
-    const events = new EventEmitter()
+    const queue = new InMemoryQueue()
     const tenantIds: string[] = []
     let bus: BusInstance
 
@@ -175,13 +169,13 @@ describe('handlerFor', () => {
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(queue)
         .withHandler(
           handlerFor<
             TestDefinedCommand,
             MessageAttributes<{ tenantId: string }>
           >(TestDefinedCommand, async (_, attributes) => {
             tenantIds.push(attributes.attributes.tenantId)
-            events.emit('received')
             // A handler can return a value, such as the result of a save, which the bus ignores
             return attributes.attributes.tenantId
           })
@@ -190,14 +184,13 @@ describe('handlerFor', () => {
       await bus.initialize()
       await bus.start()
 
-      const received = new Promise(resolve => events.once('received', resolve))
       await bus.send(
         TestDefinedCommand({ orderId: 'a', placedAt: new Date(1) }),
         {
           attributes: { tenantId: 'tenant-a' }
         }
       )
-      await received
+      await queue.idle()
     })
 
     afterAll(async () => bus.dispose())

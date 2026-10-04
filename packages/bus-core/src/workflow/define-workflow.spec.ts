@@ -1,4 +1,5 @@
 import { Command, defineCommand } from '@node-ts/bus-messages'
+import { workflowContext } from '../testing'
 import { defineWorkflow, FunctionWorkflow } from './define-workflow'
 import {
   WorkflowAlreadyHandlesMessage,
@@ -7,7 +8,6 @@ import {
 } from './error'
 import { FunctionWorkflowDefinition } from './function-workflow-definition'
 import { FinalTask, TaskRan, TestCommand } from './test'
-import { workflowContext } from './workflow-context'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
 import { WorkflowHandlerResult } from './workflow-state-change'
 

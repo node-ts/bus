@@ -37,7 +37,7 @@ A handler's return value is ignored, and a promise it returns is awaited, so `ha
 
 ## Testing a handler
 
-A handler is a plain function, and `HandlerContext` is an interface, so a test can call the handler with a fake context. `messageAttributes()` from `@node-ts/bus-messages` fills in empty attributes.
+A handler is a plain function, and `HandlerContext` is an interface, so a test can call the handler with a fake context. `handlerContext()` makes one that records what the handler sends and publishes, and `messageAttributes()` from `@node-ts/bus-messages` fills in empty attributes.
 
 <<< @/snippets/testing-handlers.ts
 
@@ -46,5 +46,6 @@ To test a handler that reads attributes, pass them to `messageAttributes()`, suc
 ## See also
 
 - [Messages](/guide/messages), for commands, events and messages declared without a class
+- [Testing](/guide/testing), for class handlers, workflows and integration tests
 - [Message attributes](/guide/message-attributes), for the metadata that travels with a message
 - [Shutting down cleanly](/getting-started/shutting-down)

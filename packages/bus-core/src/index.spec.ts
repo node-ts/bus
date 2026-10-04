@@ -18,6 +18,16 @@ describe('index', () => {
       })
     })
 
+    it('should export the test helpers and the errors they throw', () => {
+      expect(sut).toMatchObject({
+        handlerContext: expect.any(Function),
+        workflowContext: expect.any(Function),
+        testWorkflow: expect.any(Function),
+        InvalidTimeAdvance: expect.any(Function),
+        MessageNotHandledByWorkflow: expect.any(Function)
+      })
+    })
+
     it('should not export the removed lifecycle emitters and read middleware', () => {
       expect(sut).not.toHaveProperty('TypedEmitter')
       expect(sut).not.toHaveProperty('MiddlewareDispatcher')
