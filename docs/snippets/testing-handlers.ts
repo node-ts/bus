@@ -1,21 +1,12 @@
-import { HandlerContext } from '@node-ts/bus-core'
-import { Event, messageAttributes } from '@node-ts/bus-messages'
+import { handlerContext } from '@node-ts/bus-core'
+import { messageAttributes } from '@node-ts/bus-messages'
 import { deepStrictEqual } from 'node:assert'
 import { reserveRoomHandler } from './handlers/reserve-room-handler'
 import { ReserveRoom, RoomReserved } from './messages'
 
-// In a test, with any test runner
-const published: Event[] = []
-const ctx: HandlerContext = {
-  correlationId: 'test',
-  send: async () => {},
-  publish: async event => {
-    published.push(event)
-  },
-  reply: async () => {},
-  failMessage: async () => {},
-  returnMessage: async () => {}
-}
+// In a test, with any test runner. The context records what the handler
+// sends and publishes, and sends nothing
+const ctx = handlerContext()
 
 await reserveRoomHandler.messageHandler(
   new ReserveRoom('room-1', 'booking-1'),
@@ -24,4 +15,6 @@ await reserveRoomHandler.messageHandler(
   ctx
 )
 
-deepStrictEqual(published, [new RoomReserved('room-1', 'booking-1')])
+deepStrictEqual(ctx.published, [
+  { message: new RoomReserved('room-1', 'booking-1'), options: {} }
+])

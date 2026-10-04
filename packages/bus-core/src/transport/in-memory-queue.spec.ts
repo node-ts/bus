@@ -20,7 +20,11 @@ import {
   TestEvent2,
   testMessageTypes
 } from '../test'
-import { EndpointNotFound, TransportHeaderReserved } from './error'
+import {
+  EndpointNotFound,
+  InMemoryQueueDisposed,
+  TransportHeaderReserved
+} from './error'
 import { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 
 const event = new TestEvent()
@@ -413,6 +417,87 @@ describe('InMemoryQueue', () => {
     it('should return the message without waiting for the receive timeout', () => {
       expect(message!.domainMessage).toEqual(event)
       expect(elapsedMs).toBeLessThan(500)
+    })
+  })
+
+  describe('when waiting for the queue to be idle', () => {
+    describe('with nothing queued', () => {
+      it('should resolve straight away', async () => {
+        await expect(sut.idle()).resolves.toBeUndefined()
+      })
+    })
+
+    describe('and the queue is disposed with a message left', () => {
+      let idleError: unknown
+      let idleAfterDisposeError: unknown
+
+      beforeEach(async () => {
+        await sut.publish(event, messageOptions)
+        const idle = sut.idle().catch((e: unknown) => e)
+        await sut.dispose()
+        idleError = await idle
+        idleAfterDisposeError = await sut.idle().catch((e: unknown) => e)
+      })
+
+      it('should reject with InMemoryQueueDisposed rather than never settling', () => {
+        expect(idleError).toBeInstanceOf(InMemoryQueueDisposed)
+        expect(idleError).toMatchObject({ queueDepth: 1 })
+      })
+
+      it('should reject when called after it was disposed', () => {
+        expect(idleAfterDisposeError).toBeInstanceOf(InMemoryQueueDisposed)
+      })
+    })
+
+    describe('with a message being handled', () => {
+      let idleBeforeDelete: boolean
+      let idleAfterDelete: boolean
+
+      beforeEach(async () => {
+        let isIdle = false
+        await sut.publish(event, messageOptions)
+        const message = await sut.readNextMessage()
+        const idle = sut.idle().then(() => (isIdle = true))
+        await sleep(10)
+        idleBeforeDelete = isIdle
+        await sut.deleteMessage(message!)
+        await idle
+        idleAfterDelete = isIdle
+      })
+
+      it('should resolve once the message is deleted', () => {
+        expect(idleBeforeDelete).toEqual(false)
+        expect(idleAfterDelete).toEqual(true)
+      })
+    })
+
+    describe('with a message waiting to be retried', () => {
+      let idleWhileWaiting: boolean
+      let idleAfterFailing: boolean
+
+      beforeEach(async () => {
+        let isIdle = false
+        await sut.publish(event, messageOptions)
+        const message = await sut.readNextMessage()
+        await sut.returnMessage(message!, 0)
+        const idle = sut.idle().then(() => (isIdle = true))
+        const retried = await sut.readNextMessage()
+        idleWhileWaiting = isIdle
+        await sut.fail(retried!, {
+          error: { name: 'Error', message: 'Failed' },
+          failedAttempts: 2,
+          endpoint: sut.endpointName,
+          messageId: undefined,
+          failedAt: new Date().toISOString()
+        })
+        await idle
+        idleAfterFailing = isIdle
+      })
+
+      it('should resolve once the message is dead-lettered', () => {
+        expect(idleWhileWaiting).toEqual(false)
+        expect(idleAfterFailing).toEqual(true)
+      })
     })
   })
 

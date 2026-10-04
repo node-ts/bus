@@ -46,11 +46,13 @@ For example, this workflow is started by a `DocumentUploaded` event, but only fo
 
 ## Testing a workflow handler
 
-Function workflow handlers are plain functions. Get one from the workflow with `startedByHandler(Message)` or `whenHandler(Message)`, and call it with a context from `workflowContext()`. The context sends and publishes nothing, unless you pass your own functions, and its `complete` and `discard` return what the bus expects.
+Function workflow handlers are plain functions. Get one from the workflow with `startedByHandler(Message)` or `whenHandler(Message)`, and call it with a context from `workflowContext()`. The context records what the handler sends and publishes in `sent` and `published` instead of sending it, and its `complete` and `discard` return what the bus expects.
 
 <<< @/snippets/workflows/state.ts#test
 
 When the handler reads typed message attributes, pass them to `workflowContext()` too, such as `workflowContext<FulfilmentWorkflowState, CarrierAttributes>({ attributes: messageAttributes({ attributes: { carrier: 'post' } }) })`.
+
+To run the workflow from message to message, with its state saved between them, use `testWorkflow()`, as described in [Testing](/guide/testing#running-a-workflow).
 
 ## See also
 

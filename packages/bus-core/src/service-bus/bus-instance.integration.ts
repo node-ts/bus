@@ -242,6 +242,37 @@ describe('BusInstance', () => {
     })
   })
 
+  describe('when a message is sent to a bus that has been idle', () => {
+    const events = new EventEmitter()
+    let bus: BusInstance
+    let handlingDelay: number
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(handlerFor(TestEvent, () => events.emit('received')))
+        .build()
+      await bus.initialize()
+      await bus.start()
+      // Past the in-memory queue's 1 s receive timeout, so the first read has come back empty
+      await sleep(1_100)
+
+      const received = new Promise(resolve => events.once('received', resolve))
+      const publishedAt = Date.now()
+      await bus.publish(new TestEvent())
+      await received
+      handlingDelay = Date.now() - publishedAt
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should handle it without sleeping after the empty read', () => {
+      // The bus used to sleep 500 ms after every empty read, even one that had already waited for a message
+      expect(handlingDelay).toBeLessThan(250)
+    })
+  })
+
   describe('when sending a message with sticky attributes', () => {
     describe('which results in another message being sent', () => {
       it('should attach sticky attributes', async () => {

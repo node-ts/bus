@@ -81,6 +81,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'Timeouts', link: '/guide/workflows/timeouts' }
     ]
   },
+  { text: 'Testing', link: '/guide/testing' },
   {
     text: 'Running in production',
     items: [

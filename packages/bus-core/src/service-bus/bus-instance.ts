@@ -46,10 +46,10 @@ import {
   DelayedDeliveryNotSupported,
   DelayedDeliveryOptions,
   DelayedDeliveryUnsupportedReason,
-  InvalidDeliveryOptions,
   OutgoingMessage,
   SendOptions
 } from '../outgoing-message'
+import { assertDeliveryOptions } from '../outgoing-message/assert-delivery-options'
 import {
   isOutgoingMessageStore,
   OutgoingMessageDispatcher
@@ -82,6 +82,10 @@ import { WorkflowRegistry } from '../workflow/registry'
 import { BusState } from './bus-state'
 import { InvalidBusState, InvalidOperation } from './error'
 
+/**
+ * The least time between two reads of an application loop that both come back empty, so a transport that returns
+ * straight away when it has no messages doesn't spin
+ */
 const EMPTY_QUEUE_SLEEP_MS = 500
 
 /**
@@ -780,11 +784,17 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     try {
       // Run the loop in a cls-hooked namespace to provide the message handling context to all async operations
       while (this.internalState === BusState.Started) {
+        const readStartedAt = Date.now()
         const messageRead = await this.handleNextMessage()
 
-        // Avoids locking up CPU when there are no messages to be processed
+        // Avoids locking up CPU when there are no messages to be processed. A transport that waited for a message
+        // before coming back empty, as the in-memory queue and long polling brokers do, has already waited, and
+        // sleeping on top of that would delay a message that arrives straight after.
         if (!messageRead) {
-          await sleep(EMPTY_QUEUE_SLEEP_MS)
+          const readDuration = Date.now() - readStartedAt
+          if (readDuration < EMPTY_QUEUE_SLEEP_MS) {
+            await sleep(EMPTY_QUEUE_SLEEP_MS - readDuration)
+          }
         }
       }
     } finally {
@@ -1334,37 +1344,12 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    */
   private resolveDueAt(
     message: Message,
-    { deliverAfter, deliverAt }: SendOptions
+    options: SendOptions
   ): Date | undefined {
-    if (deliverAfter === undefined && deliverAt === undefined) {
+    if (!assertDeliveryOptions(message, options)) {
       return undefined
     }
-    if (deliverAfter !== undefined && deliverAt !== undefined) {
-      throw new InvalidDeliveryOptions(
-        'deliverAfter and deliverAt were both given',
-        message.$name
-      )
-    }
-    if (
-      deliverAfter !== undefined &&
-      (typeof deliverAfter !== 'number' ||
-        !Number.isFinite(deliverAfter) ||
-        deliverAfter < 0)
-    ) {
-      throw new InvalidDeliveryOptions(
-        `deliverAfter must be a number of milliseconds that's 0 or more, but was ${String(deliverAfter)}`,
-        message.$name
-      )
-    }
-    if (
-      deliverAt !== undefined &&
-      (!(deliverAt instanceof Date) || Number.isNaN(deliverAt.getTime()))
-    ) {
-      throw new InvalidDeliveryOptions(
-        `deliverAt must be a valid Date, but was ${String(deliverAt)}`,
-        message.$name
-      )
-    }
+    const { deliverAfter, deliverAt } = options
     if (!isOutgoingMessageStore(this.persistence)) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }

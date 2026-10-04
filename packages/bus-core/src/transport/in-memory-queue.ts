@@ -16,7 +16,11 @@ import {
   DEFAULT_IN_MEMORY_ENDPOINT_NAME,
   DefaultInMemoryQueueConfiguration
 } from './default-in-memory-queue-configuration'
-import { EndpointNotFound, TransportHeaderReserved } from './error'
+import {
+  EndpointNotFound,
+  InMemoryQueueDisposed,
+  TransportHeaderReserved
+} from './error'
 import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
 import { Transport, TransportInitializationOptions } from './transport'
 import { TransportMessage } from './transport-message'
@@ -65,6 +69,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
    */
   private messagesWithHandlers = new Set<string>()
   private retryTimeouts = new Set<NodeJS.Timeout>()
+  private isDisposed = false
   private logger!: Logger
   private coreDependencies!: CoreDependencies
 
@@ -104,6 +109,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   async dispose(): Promise<void> {
     this.retryTimeouts.forEach(timeout => clearTimeout(timeout))
     this.retryTimeouts.clear()
+    this.isDisposed = true
     this.queueEvents.emit('disposed')
 
     if (this.queue.length > 0) {
@@ -254,6 +260,49 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   }
 
   /**
+   * Waits until the queue has nothing left to handle: no message queued, being handled or waiting to be retried. A
+   * message is only removed once the bus has finished handling it, after the messages its handlers sent were queued,
+   * so a test can send a message to a started bus and await this instead of listening for the handler to finish.
+   *
+   * Messages sent with `deliverAfter` or `deliverAt` wait in the bus' persistence, not in the queue, so they aren't
+   * waited for until they're sent. Nothing is handled before the bus is started, so a queue with messages in it
+   * isn't idle until then.
+   *
+   * A queue that's disposed with messages still in it will never be idle, so the promise rejects, rather than never
+   * settling and holding the test until it times out.
+   * @returns a promise that resolves once the queue is empty, or straight away if it already is
+   * @throws InMemoryQueueDisposed if the queue is disposed, or already was, while messages are left in it
+   * @example
+   * const queue = new InMemoryQueue()
+   * const bus = Bus.configure().withTransport(queue).withHandler(placeOrderHandler).build()
+   * await bus.initialize()
+   * await bus.start()
+   *
+   * await bus.send(new PlaceOrder('1'))
+   * await queue.idle()
+   */
+  async idle(): Promise<void> {
+    if (this.queue.length === 0) {
+      return
+    }
+    if (this.isDisposed) {
+      throw new InMemoryQueueDisposed(this.endpointName, this.queue.length)
+    }
+    await new Promise<void>((resolve, reject) => {
+      const onIdle = () => {
+        this.queueEvents.off('disposed', onDisposed)
+        resolve()
+      }
+      const onDisposed = () => {
+        this.queueEvents.off('idle', onIdle)
+        reject(new InMemoryQueueDisposed(this.endpointName, this.queue.length))
+      }
+      this.queueEvents.once('idle', onIdle)
+      this.queueEvents.once('disposed', onDisposed)
+    })
+  }
+
+  /**
    * Gets the queue depth, which is the number of messages both queued and in flight
    */
   get depth(): number {
@@ -295,6 +344,9 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     })
     this.queue.splice(messageIndex, 1)
     this.logger.debug('Message Deleted', { queueDepth: this.depth })
+    if (this.queue.length === 0) {
+      this.queueEvents.emit('idle')
+    }
   }
 
   /**

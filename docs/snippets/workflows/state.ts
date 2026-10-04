@@ -4,7 +4,6 @@ import {
   workflowContext,
   WorkflowMapper
 } from '@node-ts/bus-core'
-import { Command } from '@node-ts/bus-messages'
 import { deepStrictEqual } from 'node:assert'
 import {
   DocumentUploaded,
@@ -69,13 +68,9 @@ export const documentWorkflow = defineWorkflow(DocumentWorkflowState).startedBy(
 // #endregion discard
 
 // #region test
-// In a test, with any test runner
-const sent: Command[] = []
-const ctx = workflowContext<DocumentWorkflowState>({
-  send: async command => {
-    sent.push(command)
-  }
-})
+// In a test, with any test runner. The context records what the handler
+// sends, and sends nothing
+const ctx = workflowContext<DocumentWorkflowState>()
 
 const result = await documentWorkflow.startedByHandler(DocumentUploaded)(
   new DocumentUploaded('documents/invoice.pdf'),
@@ -84,5 +79,7 @@ const result = await documentWorkflow.startedByHandler(DocumentUploaded)(
 )
 
 deepStrictEqual(result, { key: 'documents/invoice.pdf' })
-deepStrictEqual(sent, [new ReadDocument('documents/invoice.pdf')])
+deepStrictEqual(ctx.sent, [
+  { message: new ReadDocument('documents/invoice.pdf'), options: {} }
+])
 // #endregion test
