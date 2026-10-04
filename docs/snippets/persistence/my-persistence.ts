@@ -55,7 +55,12 @@ export class MyPersistence implements Persistence {
     includeCompleted = false
   ): Promise<TWorkflowState[]> {
     const lookupValue = messageMap.lookup(message, attributes)
-    if (lookupValue === undefined) {
+    // A message without a value belongs to no workflow, even one whose field is missing or empty
+    if (
+      lookupValue === undefined ||
+      lookupValue === null ||
+      lookupValue === ''
+    ) {
       return []
     }
     const documents = await this.store.find(

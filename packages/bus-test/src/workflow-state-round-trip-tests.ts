@@ -3,10 +3,13 @@ import {
   BusInstance,
   defineWorkflow,
   Logger,
+  MessageWorkflowMapping,
   Persistence,
   Workflow,
-  WorkflowMapper
+  WorkflowMapper,
+  WorkflowStatus
 } from '@node-ts/bus-core'
+import { messageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { Mock } from 'typemoq'
@@ -25,7 +28,8 @@ import { createTestRoundTripCommand } from './message-round-trip-cases'
 /**
  * A suite that starts a class workflow and a workflow declared with `defineWorkflow`, each with state that has
  * nested types (Dates, class instances several levels deep and arrays of Dates), then checks the state the next
- * handler of each reads back from the persistence has its types restored.
+ * handler of each reads back from the persistence has its types restored. It also checks that a lookup that returns
+ * no value (`undefined`, `null` or `''`) finds no workflow state, even state whose mapped field is missing or empty.
  * @param persistence A fully configured persistence that's the subject under test. It's disposed when
  * the suite's bus is disposed, unless another bus that uses it is still running.
  */
@@ -129,6 +133,62 @@ export const workflowStateRoundTripTests = (persistence: Persistence): void => {
     })
 
     afterAll(async () => bus.dispose())
+
+    describe('and a message lookup returns no value', () => {
+      const noValues: [string, string | undefined][] = [
+        ['undefined', undefined],
+        ['null', null as unknown as undefined],
+        ['an empty string', '']
+      ]
+      const results = new Map<string, unknown[]>()
+
+      const runningState = (
+        orderId: Partial<TestRoundTripWorkflowState>
+      ): TestRoundTripWorkflowState =>
+        ({
+          $name: TestRoundTripWorkflowState.NAME,
+          $workflowId: randomUUID(),
+          $status: WorkflowStatus.Running,
+          $version: 0,
+          ...orderId
+        }) as TestRoundTripWorkflowState
+
+      beforeAll(async () => {
+        // Running instances without the mapped field, or with it empty, mustn't be matched by a message without one
+        await persistence.saveWorkflowState(runningState({}))
+        await persistence.saveWorkflowState(runningState({ orderId: '' }))
+
+        const message = new TestContinueRoundTripWorkflow()
+        for (const [name, value] of noValues) {
+          const mapping: MessageWorkflowMapping<
+            TestContinueRoundTripWorkflow,
+            TestRoundTripWorkflowState
+          > = { lookup: () => value, mapsTo: 'orderId' }
+          for (const includeCompleted of [false, true]) {
+            results.set(
+              `${name}:${includeCompleted}`,
+              await persistence.getWorkflowState(
+                TestRoundTripWorkflowState,
+                mapping,
+                message,
+                messageAttributes(),
+                includeCompleted
+              )
+            )
+          }
+        }
+      })
+
+      describe.each(noValues)('with %s', name => {
+        it('should find no running workflow state', () => {
+          expect(results.get(`${name}:false`)).toEqual([])
+        })
+
+        it('should find no workflow state when completed state is included', () => {
+          expect(results.get(`${name}:true`)).toEqual([])
+        })
+      })
+    })
 
     const stateTests = (
       readState: () =>

@@ -115,6 +115,10 @@ export class MongodbPersistence implements Persistence {
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName)
     const matcherValue = messageMap.lookup(message, attributes)
+    // A query for no value would match every instance whose mapped field is missing, null or empty
+    if (!hasLookupValue(matcherValue)) {
+      return []
+    }
     const collection = this.database.collection(tableName)
     const findObject = {
       [resolveWorkflowStateFieldPath(messageMap.mapsTo)]: matcherValue
@@ -445,3 +449,10 @@ function resolveIndexName(tableName: string, ...fields: string[]): string {
   const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
   return `"${normalizedTableName}_${fields.join('_')}_idx"`
 }
+
+/**
+ * Whether a message's lookup returned a value to find workflow state by. `null` isn't in the lookup's type, but
+ * can come from a message field that's null once deserialized.
+ */
+const hasLookupValue = (value: unknown): boolean =>
+  value !== undefined && value !== null && value !== ''

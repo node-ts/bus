@@ -275,6 +275,10 @@ export class PostgresPersistence implements Persistence {
       this.configuration.schemaName
     )
     const matcherValue = messageMap.lookup(message, attributes)
+    // A query for an empty string would match every instance whose mapped field is empty
+    if (!hasLookupValue(matcherValue)) {
+      return []
+    }
 
     // The field is inlined as a literal rather than bound so the expression matches the secondary index
     const workflowStateField = resolveWorkflowStateField(messageMap.mapsTo)
@@ -733,6 +737,13 @@ const resolveQualifiedIndexLiteral = (
  */
 const resolveWorkflowStateField = (field: string): string =>
   `${WORKFLOW_DATA_FIELD_NAME}->>${escapeLiteral(field)}`
+
+/**
+ * Whether a message's lookup returned a value to find workflow state by. `null` isn't in the lookup's type, but
+ * can come from a message field that's null once deserialized.
+ */
+const hasLookupValue = (value: unknown): boolean =>
+  value !== undefined && value !== null && value !== ''
 
 /**
  * Resolves how postgres deparses an index key on a workflow state field, as returned by
