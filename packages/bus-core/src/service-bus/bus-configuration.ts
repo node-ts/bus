@@ -14,6 +14,7 @@ import { MessageHandlingContext } from '../message-handling-context'
 import { MessageLifecycleContext } from '../message-lifecycle-context'
 import { BusMiddleware } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
+import { DelayedDeliveryOptions } from '../outgoing-message'
 import { Receiver } from '../receiver'
 import { RecoverabilityPolicy, defaultRecoverability } from '../recoverability'
 import { JsonSerializer, Serializer } from '../serialization'
@@ -29,7 +30,11 @@ import {
 import { InMemoryPersistence } from '../workflow/persistence'
 import { WorkflowRegistry } from '../workflow/registry/workflow-registry'
 import { BusInstance } from './bus-instance'
-import { BusAlreadyInitialized, TransportAlreadyInUse } from './error'
+import {
+  BusAlreadyInitialized,
+  InvalidOperation,
+  TransportAlreadyInUse
+} from './error'
 
 /**
  * Gets the message type a class handler handles. A `messageType` getter is read from the prototype without
@@ -69,6 +74,8 @@ export class BusConfiguration {
   private persistence: Persistence = new InMemoryPersistence()
   private middleware: BusMiddleware[] = []
   private recoverability: RecoverabilityPolicy = defaultRecoverability()
+  private delayedDelivery: Required<DelayedDeliveryOptions> = { dispatch: true }
+  private scheduler = false
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
   private receiver: Receiver | undefined
@@ -99,6 +106,10 @@ export class BusConfiguration {
       }
     }
 
+    if (this.scheduler) {
+      this.assertSchedulerConfiguration()
+    }
+
     const transport: Transport = this.configuredTransport || new InMemoryQueue()
     if (TRANSPORTS_IN_USE.has(transport)) {
       throw new TransportAlreadyInUse(transport.constructor.name)
@@ -123,8 +134,9 @@ export class BusConfiguration {
       interruptSignals: this.interruptSignals
     }
 
+    // Send-only buses use the persistence too, to store messages sent with deliverAfter or deliverAt
+    this.persistence.prepare(coreDependencies)
     if (!this.sendOnly) {
-      this.persistence?.prepare(coreDependencies)
       this.workflowRegistry.prepare(
         coreDependencies,
         this.persistence,
@@ -148,9 +160,66 @@ export class BusConfiguration {
       this.receiver,
       messageHandlingContext,
       messageLifecycleContext,
-      this.recoverability
+      this.recoverability,
+      this.persistence,
+      this.delayedDelivery,
+      this.scheduler
     )
     return this.busInstance
+  }
+
+  /**
+   * Configures the bus as a dedicated scheduler, which only sends the scheduled messages in its persistence once
+   * they're due, for every service that uses the same persistence. It doesn't receive: its transport sets up no
+   * queue, and `start()` only starts sending scheduled messages. It doesn't need the message types of the messages
+   * it sends, since it sends each one as it was stored.
+   *
+   * Pair it with `withDelayedDelivery({ dispatch: false })` on the services, so only the scheduler sends them.
+   * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * const scheduler = Bus.configure()
+   *   .withTransport(transport)
+   *   .withPersistence(postgresPersistence)
+   *   .asScheduler()
+   *   .build()
+   * await scheduler.initialize()
+   * await scheduler.start()
+   */
+  asScheduler(): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.scheduler = true
+    return this
+  }
+
+  /**
+   * Checks a bus configured with `asScheduler()` has nothing else to do
+   * @throws InvalidOperation if it's also send-only, has dispatching turned off, or has handlers, workflows or a
+   * receiver
+   */
+  private assertSchedulerConfiguration(): void {
+    const conflicts: [boolean, string][] = [
+      [this.sendOnly, 'asSendOnly()'],
+      [
+        !this.delayedDelivery.dispatch,
+        'withDelayedDelivery({ dispatch: false })'
+      ],
+      [!!this.receiver, 'withReceiver()'],
+      [
+        this.handlerRegistry.getMessageNames().length > 0 ||
+          this.handlerRegistry.getResolvers().length > 0,
+        'withHandler() or withCustomHandler()'
+      ],
+      [this.workflowRegistry.hasWorkflowsToInitialize(), 'withWorkflow()']
+    ]
+    const conflict = conflicts.find(([applies]) => applies)
+    if (conflict) {
+      throw new InvalidOperation(
+        `A bus configured with asScheduler() only sends scheduled messages, so it can't also use ${conflict[1]}. Use a separate bus for that.`
+      )
+    }
   }
 
   /**
@@ -334,8 +403,12 @@ export class BusConfiguration {
 
   /**
    * Configures Bus to use a different persistence provider than the default InMemoryPersistence provider.
-   * This is used to persist workflow data and is unused if not using workflows.
+   * This stores workflow state, and messages sent with `deliverAfter` or `deliverAt` until they're due. The
+   * default `InMemoryPersistence` loses both when the process stops.
+   * @default InMemoryPersistence
    * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * Bus.configure().withPersistence(new PostgresPersistence({ connection, schemaName: 'workflows' }))
    */
   withPersistence(persistence: Persistence): this {
     if (!!this.busInstance) {
@@ -408,6 +481,31 @@ export class BusConfiguration {
     }
 
     this.middleware.push(...middleware)
+    return this
+  }
+
+  /**
+   * Sets how the bus takes part in delayed delivery. By default every started bus whose persistence stores outgoing
+   * messages sends the scheduled messages in it once they're due. Turn `dispatch` off to leave that to another bus on
+   * the same persistence, such as a dedicated scheduler, while this bus still schedules messages with `deliverAfter`
+   * and `deliverAt`.
+   * @param options how the bus takes part in delayed delivery
+   * @default { dispatch: true }
+   * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * // A service whose scheduled messages are sent by a dedicated scheduler
+   * Bus.configure()
+   *   .withPersistence(postgresPersistence)
+   *   .withDelayedDelivery({ dispatch: false })
+   */
+  withDelayedDelivery(options: DelayedDeliveryOptions): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.delayedDelivery = {
+      dispatch: options.dispatch ?? this.delayedDelivery.dispatch
+    }
     return this
   }
 

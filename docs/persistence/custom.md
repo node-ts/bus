@@ -16,6 +16,8 @@ A persistence stores and finds workflow state:
 - `initializeWorkflow(State, mappings)` is called for each workflow state at `initialize()`, to create somewhere to store it and indexes for the fields its messages are looked up by.
 - `getWorkflowState(State, mapping, message, attributes, includeCompleted)` finds the running workflows whose `mapping.mapsTo` field matches the value `mapping.lookup` returns for the message.
 - `saveWorkflowState(state)` inserts a new state, when its `$version` is 0, or updates one.
+- `storeOutgoingMessages(messages)`, `claimDueOutgoingMessages(limit, leaseMs, maxLeaseMs, now?)`, `deleteOutgoingMessages(ids)` and `releaseOutgoingMessages(claims)`, all optional, store messages sent with [delayed delivery](/guide/delayed-delivery) until a bus sends them. Storing a message whose `id` is already stored keeps the stored one, and returns that id. A message stored with a `leaseUntil` isn't claimed before then. A claim returns due messages that aren't leased, ordered by `dueAt`, adds one to each one's `attempts`, and leases it for `leaseMs` times its attempts, up to `maxLeaseMs`, so no other claim returns it until the lease ends, even from another process. A claim never deletes a message. Releasing a claim (`{ id, attempts }` as the claim returned it) makes the message claimable straight away and takes back the attempt its claim counted, but only while its `attempts` still match, so a release that comes after another process claimed it again does nothing. The bus does it for messages it claimed but didn't try to send. Compare times with the database's clock, unless the claim is given `now`. Without these methods, a delayed send throws `DelayedDeliveryNotSupported`.
+- `durable`, optional, is `false` for a persistence that doesn't survive a restart, so a bus warns when it schedules a message on it.
 
 The bus passes state to the persistence as plain JSON values, and restores its classes itself, so return the state as it was stored. Saving must use optimistic concurrency: only update a state if its version is still the one that was read, and throw if it isn't, so the message is retried with the latest state.
 
@@ -29,7 +31,7 @@ Pass the persistence to the bus configuration:
 
 ## Testing with the round trip suite
 
-`workflowStateRoundTripTests()` from `@node-ts/bus-test` starts a workflow whose state has Dates and nested class instances, and checks that the next handler reads it back with its types restored. Run it from your persistence's integration test, with a persistence instance of its own:
+`workflowStateRoundTripTests()` from `@node-ts/bus-test` starts a workflow whose state has Dates and nested class instances, and checks that the next handler reads it back with its types restored. If your persistence stores outgoing messages, `scheduledMessageRoundTripTests()` checks how it stores, claims, leases and deletes them, and that buses sharing it deliver each scheduled message once. Run them from your persistence's integration test, each with a persistence instance of its own:
 
 <<< @/snippets/persistence/my-persistence.integration.ts#suite
 
@@ -42,4 +44,5 @@ To contribute your persistence to **@node-ts/bus**, add it as `packages/bus-<dat
 ## See also
 
 - [Custom transports](/transports/custom)
-- [`Persistence`](/api/bus-core/interfaces/Persistence) and [`workflowStateRoundTripTests`](/api/bus-test/functions/workflowStateRoundTripTests) in the API reference
+- [Delayed delivery](/guide/delayed-delivery)
+- [`Persistence`](/api/bus-core/interfaces/Persistence), [`workflowStateRoundTripTests`](/api/bus-test/functions/workflowStateRoundTripTests) and [`scheduledMessageRoundTripTests`](/api/bus-test/functions/scheduledMessageRoundTripTests) in the API reference

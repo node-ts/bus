@@ -11,6 +11,7 @@ import {
   TransportConnectionOptions,
   TransportHeaderReserved,
   TransportHeaders,
+  TransportInitializationOptions,
   TransportMessage,
   TransportSendOptions
 } from '@node-ts/bus-core'
@@ -197,7 +198,19 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     this.logger.info('Connected to RabbitMQ')
   }
 
-  async initialize(): Promise<void> {
+  /**
+   * Declares the service queue, its retry and dead letter queues, and binds the exchanges of the messages the bus
+   * handles to it. A send-only bus, such as a scheduler, declares nothing, since each send declares its own
+   * exchange.
+   * @param options whether the bus only sends
+   */
+  async initialize(options?: TransportInitializationOptions): Promise<void> {
+    if (options?.sendOnly) {
+      this.logger.info(
+        'RabbitMQ transport only sends, so it declares no queue to receive from'
+      )
+      return
+    }
     this.logger.info('Initializing RabbitMQ transport')
     this.isInitialized = true
     const channel = await this.getChannel()

@@ -44,6 +44,8 @@ To share a pool with the rest of your application, pass your `Pool` as the secon
 
 Each workflow state has a table in the schema, named after its `$name` with invalid characters removed. It has the state's id, its version for optimistic concurrency, and the state itself as `jsonb`. `initialize()` creates the tables, and an index for each field that messages are looked up by. It's safe to run from several instances at once.
 
+`initialize()` also creates an `outgoing_messages` table in the schema, which holds messages sent with [delayed delivery](/guide/delayed-delivery) until they're due. Buses claim them with `for update skip locked`, which needs Postgres 9.5 or later.
+
 ## Running Postgres locally
 
 ```sh

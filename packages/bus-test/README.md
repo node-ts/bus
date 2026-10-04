@@ -92,19 +92,25 @@ The suite sends messages with Dates, class instances several levels deep, arrays
 
 - **`messageRoundTripTests(transport)`** runs only the round trip cases above, for a transport that can't run the full suite.
 - **`workflowStateRoundTripTests(persistence)`** starts a workflow whose state has Dates and nested class instances, and checks the next handler reads the state back with its types restored. Run it from a persistence adapter's integration test with a persistence instance of its own, since the suite disposes it.
+- **`scheduledMessageRoundTripTests(persistence)`** checks a persistence that stores messages sent with `deliverAfter` or `deliverAt`: how it stores, claims, leases and deletes them, and that several buses sharing it deliver each scheduled message once, when it's due, with its attributes, headers and types. Give it a persistence instance of its own, ideally on its own database or schema, since a running bus that shares the store could send the suite's messages.
 
 <!-- <<< @/snippets/persistence/my-persistence.integration.ts#suite -->
 
 ```ts
-import { workflowStateRoundTripTests } from '@node-ts/bus-test'
+import {
+  scheduledMessageRoundTripTests,
+  workflowStateRoundTripTests
+} from '@node-ts/bus-test'
 import { documentStore } from './document-store'
 import { MyPersistence } from './my-persistence'
 
 jest.setTimeout(30_000)
 
 describe('MyPersistence', () => {
-  // The suite disposes the persistence when it's done, so give it its own
+  // Each suite disposes its persistence when it's done, so give each its own
   workflowStateRoundTripTests(new MyPersistence(documentStore))
+  // Only if MyPersistence stores outgoing messages, ideally on a database of its own
+  scheduledMessageRoundTripTests(new MyPersistence(documentStore))
 })
 ```
 

@@ -1,5 +1,6 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger } from '../../logger'
+import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
@@ -14,12 +15,30 @@ interface WorkflowStorage {
 }
 
 /**
- * A non-durable in-memory persistence for storage and retrieval of workflow state. Before using this,
- * be warned that all workflow state will not survive a process restart or application shut down. As
- * such this should only be used for testing, prototyping or handling unimportant workflows.
+ * A stored outgoing message and when its lease ends, if it's been claimed
+ */
+interface StoredOutgoingMessage {
+  outgoingMessage: OutgoingMessage
+  /**
+   * When the message can next be claimed: its due time, or the end of its lease once it's been claimed
+   */
+  availableAt: number
+  attempts: number
+}
+
+/**
+ * A non-durable in-memory persistence for storage and retrieval of workflow state, and of messages sent with
+ * `deliverAfter` or `deliverAt`. Before using this, be warned that neither survives a process restart or
+ * application shut down. As such this should only be used for testing, prototyping or handling unimportant
+ * workflows.
  */
 export class InMemoryPersistence implements Persistence {
+  /**
+   * Nothing it stores survives a restart, so a bus warns on its first delayed send
+   */
+  readonly durable = false
   private workflowState: WorkflowStorage = {}
+  private outgoingMessages = new Map<string, StoredOutgoingMessage>()
   private logger: Logger
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -113,6 +132,68 @@ export class InMemoryPersistence implements Persistence {
     }
   }
 
+  async storeOutgoingMessages(
+    outgoingMessages: OutgoingMessage[]
+  ): Promise<string[]> {
+    const duplicateIds: string[] = []
+    for (const outgoingMessage of outgoingMessages) {
+      if (this.outgoingMessages.has(outgoingMessage.id)) {
+        duplicateIds.push(outgoingMessage.id)
+        continue
+      }
+      this.outgoingMessages.set(outgoingMessage.id, {
+        outgoingMessage: copyOutgoingMessage(outgoingMessage),
+        availableAt: Math.max(
+          outgoingMessage.dueAt.getTime(),
+          outgoingMessage.leaseUntil?.getTime() ?? 0
+        ),
+        attempts: 0
+      })
+    }
+    return duplicateIds
+  }
+
+  /**
+   * Claims due messages, comparing times with this process' clock
+   */
+  async claimDueOutgoingMessages(
+    limit: number,
+    leaseMs: number,
+    maxLeaseMs: number,
+    now = new Date()
+  ): Promise<OutgoingMessage[]> {
+    const nowMs = now.getTime()
+    const claimed = [...this.outgoingMessages.values()]
+      .filter(({ availableAt }) => availableAt <= nowMs)
+      .sort((a, b) => a.availableAt - b.availableAt)
+      .slice(0, limit)
+    return claimed
+      .map(stored => {
+        stored.attempts++
+        stored.availableAt =
+          nowMs + Math.min(leaseMs * stored.attempts, maxLeaseMs)
+        return {
+          ...copyOutgoingMessage(stored.outgoingMessage),
+          attempts: stored.attempts
+        }
+      })
+      .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime())
+  }
+
+  async deleteOutgoingMessages(ids: string[]): Promise<void> {
+    ids.forEach(id => this.outgoingMessages.delete(id))
+  }
+
+  async releaseOutgoingMessages(claims: OutgoingMessageClaim[]): Promise<void> {
+    for (const { id, attempts } of claims) {
+      const stored = this.outgoingMessages.get(id)
+      if (stored && stored.attempts === attempts) {
+        stored.availableAt = stored.outgoingMessage.dueAt.getTime()
+        stored.attempts = Math.max(stored.attempts - 1, 0)
+      }
+    }
+  }
+
   /**
    * Gets the number of workflow states held in memory for a workflow state type
    * @param workflowStateConstructor the type of workflow state to count
@@ -137,3 +218,21 @@ const copyWorkflowState = <TWorkflowState extends WorkflowState>(
     Object.create(Object.getPrototypeOf(workflowState)),
     workflowState
   )
+
+// Copies are kept and returned, like a database would, so that changes made by callers don't reach the store
+const copyOutgoingMessage = (
+  outgoingMessage: OutgoingMessage
+): OutgoingMessage => {
+  const { message, attributes, headers } = JSON.parse(
+    JSON.stringify(outgoingMessage)
+  ) as OutgoingMessage
+  // A lease given when storing isn't returned, as a database wouldn't return it
+  return {
+    id: outgoingMessage.id,
+    kind: outgoingMessage.kind,
+    message,
+    attributes,
+    headers,
+    dueAt: new Date(outgoingMessage.dueAt.getTime())
+  }
+}
