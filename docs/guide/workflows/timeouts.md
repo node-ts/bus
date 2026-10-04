@@ -31,6 +31,8 @@ A message sent from a workflow handler carries the instance's `$workflowId` in i
 
 The timeout is stored in the bus' [persistence](/persistence) until it's due, so it survives a restart only if the persistence does. Use one that stores delayed messages in a database, as described in [Choosing a persistence](/guide/delayed-delivery#choosing-a-persistence).
 
+Like the state the handler returns, the timeout is only stored once every handler of the message resolves, and is dropped if any of them fails. Without the [transactional outbox](/guide/outbox), the state is saved and then the timeout stored, so a crash between the two leaves a running workflow with no timeout. With `withOutbox()`, both are stored in one transaction.
+
 ## When the step already happened
 
 A timeout can't be cancelled. It arrives whether or not the step it guards has happened, so its handler decides what to do:

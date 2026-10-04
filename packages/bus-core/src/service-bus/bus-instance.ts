@@ -43,14 +43,29 @@ import {
 } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import {
+  OutboxNotEnabled,
+  TransactionContext,
+  TransactionRollbackReason,
+  TransactionRolledBack
+} from '../outbox'
+import { BufferedWorkflowStateStore } from '../outbox/buffered-workflow-state-store'
+import {
+  isOutboxPersistence,
+  OutboxPersistence
+} from '../outbox/outbox-persistence'
+import { UnitOfWorkContext } from '../outbox/unit-of-work-context'
+import {
   DelayedDeliveryNotSupported,
   DelayedDeliveryOptions,
   DelayedDeliveryUnsupportedReason,
   OutgoingMessage,
+  OutgoingMessageClaim,
+  OutgoingMessageDestinationMissing,
   SendOptions
 } from '../outgoing-message'
 import { assertDeliveryOptions } from '../outgoing-message/assert-delivery-options'
 import {
+  DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS,
   isOutgoingMessageStore,
   OutgoingMessageDispatcher
 } from '../outgoing-message/outgoing-message-dispatcher'
@@ -77,7 +92,11 @@ import {
   TransportReplyNotSupported
 } from '../transport'
 import { ClassConstructor, CoreDependencies, sleep } from '../util'
-import { Persistence, PersistenceNotConfigured } from '../workflow/persistence'
+import {
+  Persistence,
+  PersistenceNotConfigured,
+  PersistenceTransaction
+} from '../workflow/persistence'
 import { WorkflowRegistry } from '../workflow/registry'
 import { BusState } from './bus-state'
 import { InvalidBusState, InvalidOperation } from './error'
@@ -101,15 +120,15 @@ interface InterruptSignalListener {
 
 enum OutboxState {
   /**
-   * The handler is running, so outgoing messages are buffered
+   * The handlers are running, so outgoing messages are buffered
    */
   Open = 'open',
   /**
-   * The handler resolved and its buffered messages were dispatched
+   * The handlers resolved and their buffered messages were dispatched
    */
   Flushed = 'flushed',
   /**
-   * The handler failed and its buffered messages were dropped
+   * A handler failed and the buffered messages were dropped
    */
   Discarded = 'discarded'
 }
@@ -135,6 +154,18 @@ type OutboxedMessage = OutgoingContext & {
   settle: PromiseWithResolvers<void>
   runInSendContext: <T>(fn: () => T) => T
   dueAt?: Date
+  /**
+   * The handler call that sent it, if a handler did
+   */
+  sentBy?: HandlerCall
+}
+
+/**
+ * One call of a handler or workflow handler for a received message. Its identity ties the messages it sends to the
+ * workflow state it saves.
+ */
+interface HandlerCall {
+  handlerName: string
 }
 
 /**
@@ -158,6 +189,10 @@ type OutgoingDraft =
   | Omit<OutgoingPublishContext, 'dispatched'>
   | Omit<OutgoingReplyContext, 'dispatched'>
 
+/**
+ * Buffers the messages sent while a received message is handled, which all of its handlers share, or while the work
+ * of a `transaction()` runs
+ */
 interface Outbox {
   state: OutboxState
   messages: OutboxedMessage[]
@@ -165,20 +200,54 @@ interface Outbox {
    * Why the outbox was discarded, which a message sent after that is dropped for too
    */
   discardReason?: OutgoingMessageDropReason
+  /**
+   * The persistence transaction the outbox is stored in and committed with, on a bus configured with `withOutbox()`
+   */
+  transaction: PersistenceTransaction | undefined
+  /**
+   * Whether the transaction has been committed or rolled back
+   */
+  transactionEnded: boolean
+  /**
+   * The workflow state the handlers saved, held until the outbox is flushed, on a bus without `withOutbox()`
+   */
+  workflowStateSaves: BufferedWorkflowStateStore<HandlerCall> | undefined
+  /**
+   * What work given to `transaction()` threw while it was joined to the outbox's transaction, which can then only be
+   * rolled back
+   */
+  joinedWorkError: { error: unknown } | undefined
 }
 
 /**
- * Discards an outbox's buffered messages, rejecting their `dispatched` promises, so later sends are dropped too
+ * Drops what an outbox holds: its messages, rejecting their `dispatched` promises, and the workflow state saves it
+ * holds without `withOutbox()`. Later sends into it are dropped too, for the same reason.
  */
 const discardOutbox = (
   outbox: Outbox,
-  reason: OutgoingMessageDropReason
+  reason: OutgoingMessageDropReason,
+  cause?: unknown
 ): void => {
   outbox.state = OutboxState.Discarded
   outbox.discardReason = reason
-  outbox.messages.forEach(m => dropOutgoing(m, reason))
+  outbox.messages.forEach(m => dropOutgoing(m, reason, cause))
   outbox.messages = []
+  outbox.workflowStateSaves?.discard()
 }
+
+/**
+ * An outgoing message that's been committed to the store in an outbox's transaction, and the message as it was
+ * buffered
+ */
+interface CommittedMessage {
+  outboxedMessage: OutboxedMessage
+  outgoingMessage: OutgoingMessage
+}
+
+/**
+ * How many messages an outbox sends to the transport at once
+ */
+const OUTBOX_SEND_CONCURRENCY = 10
 
 /**
  * Names a handler for `HandlerInvocationContext.handlerName`. Class handlers and named functions have their own
@@ -246,12 +315,12 @@ const settleDispatched = async (
  * Splits messages to store into the first with each `messageId` and the later copies, which a store would skip
  * @returns the messages to store, and the copies to drop as duplicates
  */
-const splitRepeatedIds = (
-  outgoingMessages: DelayedMessage[]
-): { unique: DelayedMessage[]; repeated: DelayedMessage[] } => {
+const splitRepeatedIds = <TMessage extends OutboxedMessage>(
+  outgoingMessages: TMessage[]
+): { unique: TMessage[]; repeated: TMessage[] } => {
   const seen = new Set<string>()
-  const unique: DelayedMessage[] = []
-  const repeated: DelayedMessage[] = []
+  const unique: TMessage[] = []
+  const repeated: TMessage[] = []
   outgoingMessages.forEach(m => {
     const id = m.attributes.messageId
     if (id !== undefined && seen.has(id)) {
@@ -290,6 +359,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
   private readonly outbox = new AsyncLocalStorage<Outbox>()
+  /**
+   * The handler call running in the current async context
+   */
+  private readonly handlerCalls = new AsyncLocalStorage<HandlerCall>()
   private readonly outgoingMessageDispatcher:
     OutgoingMessageDispatcher | undefined
   private hasWarnedOfNonDurableDelivery = false
@@ -298,6 +371,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * The messages this bus is handling right now, so a reply is only sent while its request is being handled
    */
   private readonly messagesBeingHandled = new Set<TransportMessage<unknown>>()
+  /**
+   * The persistence, when the bus is configured with `withOutbox()`
+   */
+  private readonly outboxPersistence: OutboxPersistence | undefined
 
   constructor(
     private readonly transport: Transport<TTransportMessage>,
@@ -314,11 +391,16 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly recoverability: RecoverabilityPolicy,
     private readonly persistence: Persistence,
     private readonly delayedDelivery: Required<DelayedDeliveryOptions>,
-    private readonly scheduler: boolean
+    private readonly scheduler: boolean,
+    outbox: boolean,
+    private readonly unitOfWorkContext: UnitOfWorkContext
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
     )
+    // build() has checked the persistence supports the outbox
+    this.outboxPersistence =
+      outbox && isOutboxPersistence(persistence) ? persistence : undefined
     PERSISTENCE_USERS.set(
       persistence,
       (PERSISTENCE_USERS.get(persistence) ?? 0) + 1
@@ -450,6 +532,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       })
     }
 
+    this.warnIfOutboxIsNeverDispatched()
     this.subscribeToInterruptSignals(this.coreDependencies.interruptSignals)
     this.isInitialized = true
     this.logger.debug('Bus initialized', {
@@ -462,12 +545,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Publishes an event to the transport.
    *
    * The outgoing middleware runs first. Then, when called from inside a handler, the event is buffered and only
-   * published once the handler resolves, and is dropped if the handler fails. Anywhere else (outside a handler, in
-   * incoming middleware, or after the handler has already resolved) it's published straight away.
+   * published once every handler of the message resolves, and is dropped if any of them fails. With `withOutbox()`,
+   * it's stored in the message's transaction and published once that's committed. Anywhere else (outside a handler,
+   * in incoming middleware, or after the handlers have already resolved) it's published straight away.
    *
    * With `deliverAfter` or `deliverAt`, the event is stored in the persistence instead of being published, and a
    * started bus that uses the same persistence publishes it once it's due. Inside a handler it's only stored once
-   * the handler resolves.
+   * the handlers resolve.
    * @param event An event to publish
    * @param options A set of attributes to attach to the outgoing message when published, and when to publish it. A
    * new `messageId` and `sentAt` are set unless given, and so is this bus' return address (`replyTo`) unless it's
@@ -500,12 +584,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Sends a command to the transport.
    *
    * The outgoing middleware runs first. Then, when called from inside a handler, the command is buffered and only
-   * sent once the handler resolves, and is dropped if the handler fails. Anywhere else (outside a handler, in
-   * incoming middleware, or after the handler has already resolved) it's sent straight away.
+   * sent once every handler of the message resolves, and is dropped if any of them fails. With `withOutbox()`, it's
+   * stored in the message's transaction and sent once that's committed. Anywhere else (outside a handler, in
+   * incoming middleware, or after the handlers have already resolved) it's sent straight away.
    *
    * With `deliverAfter` or `deliverAt`, the command is stored in the persistence instead of being sent, and a
    * started bus that uses the same persistence sends it once it's due. Inside a handler it's only stored once the
-   * handler resolves.
+   * handlers resolve.
    * @param command A command to send
    * @param options A set of attributes to attach to the outgoing message when sent, and when to send it. A new
    * `messageId` and `sentAt` are set unless given, and so is this bus' return address (`replyTo`) unless it's
@@ -577,6 +662,61 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     this.logger.debug('Message will be returned to the queue once handled', {
       message
     })
+  }
+
+  /**
+   * Runs work in a transaction of the bus' persistence, such as when an HTTP API saves an order and publishes
+   * `OrderPlaced`. The messages it sends and publishes through its context are stored in the transaction and only sent
+   * once it's committed, so they're sent if, and only if, the work's changes are kept. To save your own data in the
+   * same transaction, read it from the context with the persistence's accessor, such as `postgresTransaction(ctx)`.
+   *
+   * Called from inside a handler, or from the work of another `transaction()`, the work joins the transaction that's
+   * already running, and is committed or rolled back with it. If the work throws, that transaction is rolled back
+   * even if the error is caught, and the message being handled fails with `TransactionRolledBack`.
+   *
+   * Once the transaction is committed, a message that fails to send stays in the persistence, and a started bus that
+   * uses it sends it, so the call still resolves.
+   * @param work what to run in the transaction, given a context to send and publish from
+   * @returns what the work returns, once the transaction is committed
+   * @throws OutboxNotEnabled if the bus wasn't configured with `withOutbox()`
+   * @throws InvalidOperation if the bus hasn't been initialized
+   * @throws the error the work throws, once the transaction has been rolled back
+   * @throws the persistence's error if the transaction can't be begun or committed, in which case nothing was kept
+   * or sent
+   * @example
+   * app.post('/orders', async (request, response) => {
+   *   await bus.transaction(async ctx => {
+   *     await postgresTransaction(ctx).query('insert into orders (id) values ($1)', [request.body.orderId])
+   *     await ctx.publish(new OrderPlaced(request.body.orderId))
+   *   })
+   *   response.sendStatus(201)
+   * })
+   */
+  async transaction<TResult>(
+    work: (context: TransactionContext) => Promise<TResult>
+  ): Promise<TResult> {
+    if (!this.outboxPersistence) {
+      throw new OutboxNotEnabled()
+    }
+    if (!this.isInitialized) {
+      throw new InvalidOperation(
+        'Bus must be initialized before running a transaction'
+      )
+    }
+    const outbox = this.outbox.getStore()
+    if (outbox?.transaction && outbox.state === OutboxState.Open) {
+      try {
+        return await work(this.createTransactionContext(outbox.transaction))
+      } catch (error) {
+        // The work is part of the transaction it joined, so that can't be committed without it, even if the error
+        // is caught
+        outbox.joinedWorkError ??= { error }
+        throw error
+      }
+    }
+    return this.runInOutbox(undefined, async ({ transaction }) =>
+      work(this.createTransactionContext(transaction))
+    )
   }
 
   /**
@@ -1047,31 +1187,36 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       return
     }
 
-    const handlersToInvoke = handlers.map(handler =>
-      this.dispatchMessageToHandler(transportMessage, handler)
-    )
-
-    const handlerResults = await Promise.allSettled(handlersToInvoke)
-    const failedHandlers = handlerResults.filter(r => r.status === 'rejected')
-    if (failedHandlers.length) {
-      const reasons = (failedHandlers as PromiseRejectedResult[]).map(
-        h => h.reason
+    // The handlers share one outbox, so a handler that fails drops what the others sent too, rather than leaving it
+    // to be sent again when the message is retried
+    await this.runInOutbox(message, async () => {
+      const handlerResults = await Promise.allSettled(
+        handlers.map(async handler =>
+          this.dispatchMessageToHandler(transportMessage, handler)
+        )
       )
-      throw new HandlerDispatchRejected(reasons)
-    }
+      const failedHandlers = handlerResults.filter(r => r.status === 'rejected')
+      if (failedHandlers.length) {
+        const reasons = (failedHandlers as PromiseRejectedResult[]).map(
+          h => h.reason
+        )
+        throw new HandlerDispatchRejected(reasons)
+      }
+    })
 
     this.logger.debug('Message dispatched to all handlers', {
       message,
-      numHandlers: handlersToInvoke.length
+      numHandlers: handlers.length
     })
   }
 
   /**
-   * Buffers an outgoing message in the current handler's outbox, if there is one.
+   * Buffers an outgoing message in the current outbox, if there is one: that of the message being handled, or of a
+   * `transaction()`.
    * @returns true if the outbox took the message (buffered or dropped), or false if it should be dispatched now
    */
   private addToOutbox(outgoingMessage: OutboxedMessage): boolean {
-    // The outbox only exists while a handler is running. Sends from elsewhere in the handling context, such as
+    // The outbox only exists while handlers are running. Sends from elsewhere in the handling context, such as
     // incoming middleware, have no outbox and are dispatched directly.
     const outbox = this.outbox.getStore()
     if (!outbox) {
@@ -1081,6 +1226,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     const { message } = outgoingMessage
     switch (outbox.state) {
       case OutboxState.Open:
+        outgoingMessage.sentBy = this.handlerCalls.getStore()
         outbox.messages.push(outgoingMessage)
         return true
       case OutboxState.Flushed:
@@ -1112,6 +1258,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   ): HandlerContext {
     return Object.freeze({
       correlationId: transportMessage.attributes.correlationId,
+      // Only set inside the outbox of a message, so incoming middleware, which runs outside it, has none
+      transaction: this.outbox.getStore()?.transaction,
       send: async <TCommand extends Command>(
         command: TCommand,
         options?: SendOptions
@@ -1432,16 +1580,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     if (!isOutgoingMessageStore(this.persistence)) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }
-    const { serializer } = this.coreDependencies
-    const toStore = outgoingMessages.map(
-      ({ kind, message, attributes, headers, dueAt }): OutgoingMessage => ({
-        id: attributes.messageId || randomUUID(),
-        kind,
-        message: serializer.toPlain(message),
-        attributes: serializer.toPlain(attributes) as MessageAttributes,
-        headers: { ...headers },
-        dueAt
-      })
+    const toStore = outgoingMessages.map(outgoingMessage =>
+      this.toOutgoingMessage(outgoingMessage, outgoingMessage.dueAt)
     )
     const duplicateIds = await this.persistence.storeOutgoingMessages(toStore)
     if (duplicateIds.length > 0) {
@@ -1462,8 +1602,35 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
+   * Converts a buffered message to the plain JSON the persistence stores
+   * @param dueAt when it can be sent
+   * @param leaseMs how long only this process may send it, for a message it sends straight away
+   */
+  private toOutgoingMessage(
+    outboxedMessage: OutboxedMessage,
+    dueAt: Date,
+    leaseMs?: number
+  ): OutgoingMessage {
+    const { kind, message, attributes, headers } = outboxedMessage
+    const { serializer } = this.coreDependencies
+    return {
+      id: attributes.messageId || randomUUID(),
+      kind,
+      message: serializer.toPlain(message),
+      attributes: serializer.toPlain(attributes) as MessageAttributes,
+      headers: { ...headers },
+      dueAt,
+      ...(outboxedMessage.kind === 'reply'
+        ? { destination: outboxedMessage.destination }
+        : {}),
+      ...(leaseMs === undefined ? {} : { leaseMs })
+    }
+  }
+
+  /**
    * Sends a message from the persistence that's due, as the outgoing middleware left it when it was stored. Its
    * classes are restored with this bus' message types where it has them, for transports that don't serialize.
+   * @throws OutgoingMessageDestinationMissing if it's a reply the persistence returned without its destination
    */
   private async sendStoredMessage(
     outgoingMessage: OutgoingMessage
@@ -1473,11 +1640,38 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       messageSerializer.serialize(outgoingMessage.message as Message)
     )
     const { attributes, headers } = outgoingMessage
-    await this.dispatchToTransport(
-      outgoingMessage.kind === 'send'
-        ? { kind: 'send', message: message as Command, attributes, headers }
-        : { kind: 'publish', message: message as Event, attributes, headers }
-    )
+    switch (outgoingMessage.kind) {
+      case 'send':
+        await this.dispatchToTransport({
+          kind: 'send',
+          message: message as Command,
+          attributes,
+          headers
+        })
+        return
+      case 'publish':
+        await this.dispatchToTransport({
+          kind: 'publish',
+          message: message as Event,
+          attributes,
+          headers
+        })
+        return
+      case 'reply':
+        if (!outgoingMessage.destination) {
+          throw new OutgoingMessageDestinationMissing(
+            outgoingMessage.id,
+            message.$name
+          )
+        }
+        await this.dispatchToTransport({
+          kind: 'reply',
+          message,
+          destination: outgoingMessage.destination,
+          attributes,
+          headers
+        })
+    }
   }
 
   /**
@@ -1517,8 +1711,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
-   * Calls one handler for a message inside its own outbox, wrapped in the handler middleware. The outbox is flushed
-   * once the handler and its middleware resolve, and discarded if either throws.
+   * Calls one handler for a message, wrapped in the handler middleware, inside the outbox the message's handlers
+   * share
    */
   private async dispatchMessageToHandler(
     transportMessage: TransportMessage<TTransportMessage>,
@@ -1537,63 +1731,150 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       handlerName: handlerNameOf(handler)
     })
 
-    const outbox: Outbox = { state: OutboxState.Open, messages: [] }
-    await this.outbox.run(outbox, async () => {
-      try {
-        await this.middlewarePipeline.runHandler(invocationContext, async () =>
-          this.invokeHandler(message, attributes, handler, context)
-        )
-      } catch (error) {
-        discardOutbox(outbox, OutgoingMessageDropReason.HandlerFailed)
-        throw error
-      }
-
-      await this.flushOutbox(outbox, message)
-    })
+    const handlerCall: HandlerCall = { handlerName: handlerNameOf(handler) }
+    await this.handlerCalls.run(handlerCall, async () =>
+      this.middlewarePipeline.runHandler(invocationContext, async () =>
+        this.invokeHandler(message, attributes, handler, context)
+      )
+    )
   }
 
   /**
-   * Dispatches the messages a handler buffered once it resolves. If the message being handled was failed or
-   * returned by then, with `failMessage()` or `returnMessage()`, the outbox is discarded instead, as when a handler
-   * throws: the message will be dead-lettered or handled again, so its sends would be wrong or duplicated. That's
-   * decided first, before anything is dispatched.
+   * Dispatches the messages buffered while the handlers ran, once they all resolve. If the message being handled was
+   * failed or returned by then, with `failMessage()` or `returnMessage()`, the outbox is discarded instead and its
+   * transaction rolled back, as when a handler throws: the message will be dead-lettered or handled again, so its
+   * sends would be wrong or duplicated. That's decided first, before anything is dispatched.
+   *
+   * With `withOutbox()`, the messages are stored in the outbox's transaction, which is committed before any is sent.
+   * Without it, the workflow state the handlers saved is saved first, then the messages are sent.
+   * @param message the message being handled, or `undefined` for the outbox of a `transaction()`
+   * @throws TransactionRolledBack if work given to `transaction()` threw while it was joined to the outbox's
+   * transaction
+   * @throws the persistence's error if the transaction can't be committed, or the workflow state can't be saved,
+   * such as when it was saved elsewhere since it was read, in which case nothing is sent
    */
-  private async flushOutbox(outbox: Outbox, message: Message): Promise<void> {
-    if (this.messageLifecycleContext.isFailedOrReturned()) {
+  private async flushOutbox(
+    outbox: Outbox,
+    message: Message | undefined
+  ): Promise<void> {
+    if (outbox.joinedWorkError) {
+      discardOutbox(
+        outbox,
+        OutgoingMessageDropReason.TransactionWorkFailed,
+        outbox.joinedWorkError.error
+      )
+      await this.rollback(outbox)
+      throw new TransactionRolledBack(
+        TransactionRollbackReason.JoinedWorkFailed,
+        this.persistence.constructor.name,
+        outbox.joinedWorkError.error
+      )
+    }
+
+    if (message && this.messageLifecycleContext.isFailedOrReturned()) {
       if (outbox.messages.length > 0) {
         this.logger.debug(
-          'Message was failed or returned, so the messages its handler sent are dropped',
+          'Message was failed or returned, so the messages its handlers sent are dropped',
           { messageName: message.$name, dropped: outbox.messages.length }
         )
       }
       discardOutbox(outbox, OutgoingMessageDropReason.MessageFailedOrReturned)
+      await this.rollback(outbox)
       return
+    }
+
+    if (outbox.transaction) {
+      // Close the outbox before flushing so that any later sends go straight to the transport instead of being lost
+      outbox.state = OutboxState.Flushed
+      const outboxedMessages = outbox.messages
+      outbox.messages = []
+      await this.commitOutbox(outbox, outbox.transaction, outboxedMessages)
+      return
+    }
+
+    // Saved before anything is sent, so a state saved elsewhere since it was read fails the message, and the retry
+    // makes the changes and sends the messages again
+    const saves = await outbox.workflowStateSaves?.apply()
+    if (saves?.failure) {
+      await this.sendForSavedHandlerCalls(outbox, saves.savedBy)
+      discardOutbox(
+        outbox,
+        OutgoingMessageDropReason.HandlerFailed,
+        saves.failure.error
+      )
+      throw saves.failure.error
     }
 
     // Close the outbox before flushing so that any later sends go straight to the transport instead of being lost
     outbox.state = OutboxState.Flushed
     // Only reached when the message wasn't failed or returned, so a discarded outbox schedules nothing either
-    const delayedMessages = outbox.messages.filter(isDelayed)
-    const outboxedMessages = outbox.messages.filter(m => !isDelayed(m))
+    const outboxedMessages = outbox.messages
     outbox.messages = []
+    await this.dispatchOutboxed(outboxedMessages)
+  }
+
+  /**
+   * Sends the messages of the handler calls whose workflow state was saved before another save failed, on a bus
+   * without `withOutbox()`. The message is then retried, and those handlers find their state saved, so they could
+   * skip sending the messages again: sending them now means they may be sent twice, but aren't lost. A failure to send
+   * them is logged, since the message fails anyway.
+   */
+  private async sendForSavedHandlerCalls(
+    outbox: Outbox,
+    savedBy: Set<HandlerCall>
+  ): Promise<void> {
+    const toSend = outbox.messages.filter(
+      ({ sentBy }) => sentBy !== undefined && savedBy.has(sentBy)
+    )
+    if (toSend.length === 0) {
+      return
+    }
+    outbox.messages = outbox.messages.filter(m => !toSend.includes(m))
+    this.logger.warn(
+      "Saving a workflow's state failed after other workflows' state was saved, so the messages those workflows sent are sent before the message is retried. They may be sent again by the retry. Use withOutbox() to save state and send messages together.",
+      {
+        handlers: [...savedBy].map(({ handlerName }) => handlerName),
+        numMessages: toSend.length
+      }
+    )
+    try {
+      await this.dispatchOutboxed(toSend)
+    } catch (error) {
+      this.logger.error(
+        'Failed to send the messages of workflows whose state was saved',
+        { error: serializeError(error) }
+      )
+    }
+  }
+
+  /**
+   * Stores the delayed messages of an outbox and sends the rest, a few at a time, settling their `dispatched`
+   * promises
+   * @throws the persistence's or transport's error, once every message has been sent or dropped
+   */
+  private async dispatchOutboxed(
+    outboxedMessages: OutboxedMessage[]
+  ): Promise<void> {
+    const delayedMessages = outboxedMessages.filter(isDelayed)
+    const immediateMessages = outboxedMessages.filter(m => !isDelayed(m))
     if (delayedMessages.length > 0) {
       try {
         await this.storeAndSettle(delayedMessages)
       } catch (error) {
-        outboxedMessages.forEach(m =>
+        immediateMessages.forEach(m =>
           dropOutgoing(m, OutgoingMessageDropReason.OutboxFlushFailed)
         )
         throw error
       }
     }
-    if (outboxedMessages.length > 0) {
+    if (immediateMessages.length > 0) {
       // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
-      const dispatchWorkerCount = Math.min(outboxedMessages.length, 10)
+      const dispatchWorkerCount = Math.min(immediateMessages.length, 10)
       const workers = new Array(dispatchWorkerCount)
         .fill(undefined)
         .map(async () => {
           while (true) {
-            const messageToSend = outboxedMessages.shift()
+            const messageToSend = immediateMessages.shift()
             if (messageToSend === undefined) {
               break
             }
@@ -1610,7 +1891,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
       const results = await Promise.allSettled(workers)
       // Each worker stops at its first failed send, so messages are only left over when every worker failed
-      outboxedMessages.forEach(m =>
+      immediateMessages.forEach(m =>
         dropOutgoing(m, OutgoingMessageDropReason.OutboxFlushFailed)
       )
       const failure = results.find(result => result.status === 'rejected')
@@ -1618,6 +1899,323 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         throw failure.reason
       }
     }
+  }
+
+  /**
+   * Runs work with an outbox of its own, which holds the messages it sends until it resolves: one for each message
+   * received, which all of its handlers share, and one for each `transaction()`. With `withOutbox()`, the work runs in
+   * a transaction of the persistence too, which the outbox is stored in and committed with, and workflow state is
+   * read and saved in it. Without it, the workflow state saved is held until the outbox is flushed. If the work
+   * throws, the outbox is discarded and the transaction rolled back.
+   * @param message the message being handled, or `undefined` for a `transaction()`
+   * @param work what to run, given its outbox
+   * @returns what the work returns, once the outbox is flushed
+   * @throws the error the work throws, or the persistence's error if the transaction can't be begun or committed
+   */
+  private async runInOutbox<TResult>(
+    message: Message | undefined,
+    work: (outbox: Outbox) => Promise<TResult>
+  ): Promise<TResult> {
+    const transaction = await this.outboxPersistence?.beginTransaction()
+    const workflowStateSaves = transaction
+      ? undefined
+      : new BufferedWorkflowStateStore(this.persistence, () =>
+          this.handlerCalls.getStore()
+        )
+    const outbox: Outbox = {
+      state: OutboxState.Open,
+      messages: [],
+      transaction,
+      transactionEnded: false,
+      workflowStateSaves,
+      joinedWorkError: undefined
+    }
+    return this.outbox.run(outbox, async () =>
+      this.unitOfWorkContext.run(
+        transaction ?? workflowStateSaves!,
+        async () => {
+          try {
+            let result: TResult
+            try {
+              result = await work(outbox)
+            } catch (error) {
+              discardOutbox(
+                outbox,
+                message
+                  ? OutgoingMessageDropReason.HandlerFailed
+                  : OutgoingMessageDropReason.TransactionWorkFailed,
+                error
+              )
+              throw error
+            }
+            await this.flushOutbox(outbox, message)
+            return result
+          } finally {
+            // Whatever failed, such as a message that couldn't be converted to store it, the transaction is never left
+            // open, holding its connection and locks
+            await this.rollback(outbox)
+          }
+        }
+      )
+    )
+  }
+
+  /**
+   * Stores an outbox's messages in its transaction and commits it, then sends the messages that aren't delayed and
+   * deletes them from the store. The others are sent by the dispatcher once they're due.
+   *
+   * Their `dispatched` promises settle at the commit: resolved for those committed, which the dispatcher sends if
+   * sending them now fails, rejected as `duplicate` for those whose `messageId` was already stored, or rejected as
+   * `transaction-failed` if nothing could be kept.
+   * @throws the persistence's error if the messages can't be converted or stored, or the transaction committed, in
+   * which case nothing was kept or sent. The caller rolls the transaction back if it's still open.
+   */
+  private async commitOutbox(
+    outbox: Outbox,
+    transaction: PersistenceTransaction,
+    outboxedMessages: OutboxedMessage[]
+  ): Promise<void> {
+    const { leaseMs, sendTimeoutMs } =
+      DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS
+    const storedAt = Date.now()
+    // Stores don't agree on how they report an id repeated within one batch, so only the first is given to the store
+    const { unique, repeated } = splitRepeatedIds(outboxedMessages)
+    let committed: CommittedMessage[]
+    let duplicateIds: string[]
+    try {
+      const toStore = unique.map((outboxedMessage): CommittedMessage => ({
+        outboxedMessage,
+        outgoingMessage: isDelayed(outboxedMessage)
+          ? this.toOutgoingMessage(outboxedMessage, outboxedMessage.dueAt)
+          : // Only this process sends it until the lease ends, so the dispatcher doesn't send it at the same time
+            this.toOutgoingMessage(outboxedMessage, new Date(storedAt), leaseMs)
+      }))
+      duplicateIds =
+        toStore.length > 0
+          ? await transaction.storeOutgoingMessages(
+              toStore.map(({ outgoingMessage }) => outgoingMessage)
+            )
+          : []
+      // Ends the transaction, even when it throws
+      outbox.transactionEnded = true
+      await transaction.commit()
+      const notStoredIds = new Set(duplicateIds)
+      committed = toStore.filter(
+        ({ outgoingMessage: { id } }) => !notStoredIds.has(id)
+      )
+    } catch (error) {
+      outboxedMessages.forEach(m =>
+        dropOutgoing(m, OutgoingMessageDropReason.TransactionFailed, error)
+      )
+      throw error
+    }
+
+    const allDuplicateIds = [
+      ...repeated.map(m => m.attributes.messageId!),
+      ...duplicateIds
+    ]
+    if (allDuplicateIds.length > 0) {
+      this.logger.warn(
+        'Messages were not stored in the outbox, because messages with the same messageId are already stored. Give each message its own messageId.',
+        { duplicateIds: allDuplicateIds }
+      )
+    }
+    const committedMessages = new Set(
+      committed.map(({ outboxedMessage }) => outboxedMessage)
+    )
+    outboxedMessages.forEach(m =>
+      committedMessages.has(m)
+        ? m.settle.resolve()
+        : dropOutgoing(m, OutgoingMessageDropReason.Duplicate)
+    )
+    committed
+      .filter(({ outboxedMessage }) => isDelayed(outboxedMessage))
+      .forEach(({ outgoingMessage }) =>
+        this.outgoingMessageDispatcher?.scheduled(outgoingMessage.dueAt)
+      )
+    await this.sendCommittedMessages(
+      committed.filter(({ outboxedMessage }) => !isDelayed(outboxedMessage)),
+      // A send can take up to sendTimeoutMs, and mustn't outlive the lease, or the dispatcher could send it too
+      storedAt + leaseMs - sendTimeoutMs
+    )
+  }
+
+  /**
+   * Sends messages committed to the store, a few at a time, and deletes them once they're sent. Once one fails or
+   * times out, or the lease is nearly over, the rest are left in the store and released, so that the dispatcher of a
+   * started bus that uses the persistence sends them on its next check. One that timed out keeps its lease, since it
+   * may still be sent, and is sent again once the lease ends if it isn't deleted. It never throws, since the
+   * messages are already committed.
+   * @param sendBefore when, by this process' clock, no more sends start
+   */
+  private async sendCommittedMessages(
+    committed: CommittedMessage[],
+    sendBefore: number
+  ): Promise<void> {
+    const store = this.outboxPersistence
+    if (!store || committed.length === 0) {
+      return
+    }
+    const toSend = [...committed]
+    const sentIds: string[] = []
+    const timedOutIds: string[] = []
+    const notSent: OutgoingMessageClaim[] = []
+    let sendError: unknown
+    // A pool of workers, so that a large number of messages doesn't blow out heap usage
+    const workers = new Array(Math.min(toSend.length, OUTBOX_SEND_CONCURRENCY))
+      .fill(undefined)
+      .map(async () => {
+        while (true) {
+          const next = toSend.shift()
+          if (next === undefined) {
+            break
+          }
+          const { outboxedMessage, outgoingMessage } = next
+          if (sendError !== undefined || Date.now() > sendBefore) {
+            notSent.push({ id: outgoingMessage.id, attempts: 0 })
+            continue
+          }
+          try {
+            // The outgoing middleware already ran when the message was sent, so it isn't run again. It's sent in the
+            // async context it was sent in, so tracing spans started around next() are active. Its dispatched promise
+            // settled at the commit, since the dispatcher sends it if this fails.
+            const sent = await outboxedMessage.runInSendContext(async () =>
+              this.dispatchWithTimeout(outboxedMessage)
+            )
+            if (sent) {
+              sentIds.push(outgoingMessage.id)
+            } else {
+              timedOutIds.push(outgoingMessage.id)
+              // Only logged, so it doesn't need an error class
+              sendError ??= {
+                message: `Sending the message took longer than ${DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS.sendTimeoutMs}ms`
+              }
+            }
+          } catch (error) {
+            sendError ??= error
+            notSent.push({ id: outgoingMessage.id, attempts: 0 })
+          }
+        }
+      })
+    await Promise.all(workers)
+
+    if (sentIds.length > 0) {
+      try {
+        await store.deleteOutgoingMessages(sentIds)
+      } catch (error) {
+        this.logger.error(
+          'Failed to delete messages from the outbox once they were sent. They will be sent again when their lease ends.',
+          { numMessages: sentIds.length, error: serializeError(error) }
+        )
+      }
+    }
+    if (notSent.length === 0 && timedOutIds.length === 0) {
+      return
+    }
+    this.logger.warn(
+      'Messages were committed to the outbox but not sent straight away. They stay in the outbox, and a started bus that uses the same persistence sends them.',
+      {
+        numMessages: notSent.length + timedOutIds.length,
+        timedOutIds,
+        error: serializeError(sendError)
+      }
+    )
+    if (notSent.length === 0) {
+      return
+    }
+    try {
+      // They've never been claimed, so releasing them with no attempts makes them claimable straight away
+      await store.releaseOutgoingMessages(notSent)
+      this.outgoingMessageDispatcher?.scheduled(new Date())
+    } catch (error) {
+      this.logger.debug(
+        'Failed to release messages that were not sent from the outbox. They will be claimable when their lease ends.',
+        { numMessages: notSent.length, error: serializeError(error) }
+      )
+    }
+  }
+
+  /**
+   * Sends a message to the transport, giving up waiting after the dispatcher's `sendTimeoutMs`
+   * @returns true if it was sent, or false if it took too long, in which case it may still be sent
+   * @throws the transport's error if it failed in time
+   */
+  private async dispatchWithTimeout(
+    outboxedMessage: OutboxedMessage
+  ): Promise<boolean> {
+    let timeout: NodeJS.Timeout | undefined
+    const timedOut = new Promise<false>(resolve => {
+      timeout = setTimeout(
+        () => resolve(false),
+        DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS.sendTimeoutMs
+      )
+    })
+    // race() handles a rejection that comes after the timeout, so it's never unhandled
+    const sent = this.dispatchToTransport(outboxedMessage).then(() => true)
+    try {
+      return await Promise.race([sent, timedOut])
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  /**
+   * Rolls back an outbox's transaction, if it has one that hasn't ended. It never throws, so the error that caused
+   * it isn't lost; the rollback ends the transaction even when it fails.
+   */
+  private async rollback(outbox: Outbox): Promise<void> {
+    if (!outbox.transaction || outbox.transactionEnded) {
+      return
+    }
+    outbox.transactionEnded = true
+    try {
+      await outbox.transaction.rollback()
+    } catch (error) {
+      this.logger.error('Failed to roll back a transaction', {
+        error: serializeError(error)
+      })
+    }
+  }
+
+  /**
+   * Warns when messages committed to the outbox that fail to send straight away would never be sent: this bus doesn't
+   * send stored messages itself, and its persistence doesn't outlive the process or reach another bus.
+   */
+  private warnIfOutboxIsNeverDispatched(): void {
+    const neverDispatches =
+      this.sendOnly || !!this.receiver || !this.delayedDelivery.dispatch
+    const isSharedWithAnotherBus =
+      (PERSISTENCE_USERS.get(this.persistence) ?? 0) > 1
+    if (
+      this.outboxPersistence &&
+      neverDispatches &&
+      this.persistence.durable === false &&
+      !isSharedWithAnotherBus
+    ) {
+      this.logger.warn(
+        `Messages committed to the outbox that fail to send straight away are left in ${this.persistence.constructor.name} for a started bus to send, but this bus doesn't send them (it's send-only, has a receiver or has dispatching turned off), and ${this.persistence.constructor.name} isn't durable or used by another bus in this process, so they'd be lost. Use a durable persistence, such as PostgresPersistence from @node-ts/bus-postgres, that a started bus also uses.`,
+        { persistence: this.persistence.constructor.name }
+      )
+    }
+  }
+
+  /**
+   * Creates the context passed to the work of a `transaction()`. Its sends go through the transaction's outbox.
+   */
+  private createTransactionContext(
+    transaction: PersistenceTransaction | undefined
+  ): TransactionContext {
+    return Object.freeze({
+      transaction,
+      send: async <TCommand extends Command>(
+        command: TCommand,
+        options?: SendOptions
+      ) => this.send(command, options),
+      publish: async <TEvent extends Event>(
+        event: TEvent,
+        options?: SendOptions
+      ) => this.publish(event, options)
+    })
   }
 
   /**

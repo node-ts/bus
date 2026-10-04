@@ -55,7 +55,7 @@ A workflow handler can reply the same way, in either style:
 
 `ctx.reply()` answers the message being handled. A workflow that answers a request in a later step, after another message arrived, would reply to that message instead, so it needs to [send the answer another way](#when-the-replier-can-t-use-ctx-reply).
 
-Like `ctx.send()`, a reply runs the [outgoing middleware](/guide/middleware#outgoing-middleware), whose context has the `kind` `reply`. It's sent once the handler resolves, and dropped if the handler fails, as described in [Recoverability](/guide/recoverability).
+Like `ctx.send()`, a reply runs the [outgoing middleware](/guide/middleware#outgoing-middleware), whose context has the `kind` `reply`. It's sent once the message's handlers resolve, and dropped if any of them fails, as described in [Recoverability](/guide/recoverability). With the [transactional outbox](/guide/outbox), it's stored with the rest of the handlers' messages, with the address it's sent to, so it's sent even if the broker is down when the transaction is committed.
 
 ## How the reply finds its workflow
 

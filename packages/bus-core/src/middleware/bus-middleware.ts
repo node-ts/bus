@@ -34,11 +34,12 @@ export interface BusMiddleware {
   incoming?: Middleware<IncomingContext>
 
   /**
-   * Wraps each call of a handler or workflow handler, inside its outbox. For a workflow, that's loading the state,
-   * calling the handler and saving the state.
+   * Wraps each call of a handler or workflow handler, inside the outbox the message's handlers share. For a workflow,
+   * that's loading the state and calling the handler. The state it returns is saved with the outbox, once every
+   * handler of the message resolves.
    *
-   * Not calling `next()` skips that handler, which counts as succeeded. A throw fails that handler only: its sends
-   * are dropped and the recoverability policy retries or dead-letters the message, as when a handler throws.
+   * Not calling `next()` skips that handler, which counts as succeeded. A throw fails the message, as when a handler
+   * throws: what every handler sent and saved is dropped, and the recoverability policy retries or dead-letters it.
    */
   handler?: Middleware<HandlerInvocationContext>
 

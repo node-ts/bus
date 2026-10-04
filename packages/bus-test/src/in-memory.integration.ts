@@ -1,4 +1,5 @@
 import { InMemoryPersistence } from '@node-ts/bus-core'
+import { outboxTests } from './outbox-tests'
 import { scheduledMessageRoundTripTests } from './scheduled-message-round-trip-tests'
 import { TransportTestInMemoryQueue } from './test/transport-test-in-memory-queue'
 import { transportTests } from './transport-tests'
@@ -17,4 +18,5 @@ describe('InMemoryQueue', () => {
 describe('InMemoryPersistence', () => {
   workflowStateRoundTripTests(new InMemoryPersistence())
   scheduledMessageRoundTripTests(new InMemoryPersistence())
+  outboxTests(new InMemoryPersistence())
 })

@@ -1,15 +1,21 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger } from '../../logger'
+import {
+  TransactionNotActive,
+  TransactionNotActiveReason
+} from '../../outbox/error'
 import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { hasLookupValue } from '../has-lookup-value'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import {
+  OutgoingMessageStoredConcurrently,
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './error'
 import { Persistence } from './persistence'
+import { PersistenceTransaction } from './persistence-transaction'
 
 interface WorkflowStorage {
   [workflowStateName: string]: WorkflowState[]
@@ -28,10 +34,42 @@ interface StoredOutgoingMessage {
 }
 
 /**
+ * Workflow state saved in a transaction that hasn't been committed
+ */
+interface PendingWorkflowState {
+  /**
+   * The state as it was saved, with its `$version` incremented
+   */
+  workflowState: WorkflowState
+  /**
+   * The `$version` of the committed state when the transaction first saved it, or `undefined` if there was none. The
+   * commit fails if it's changed since.
+   */
+  committedVersion: number | undefined
+}
+
+/**
+ * What a transaction has changed, which is applied when it's committed
+ */
+interface PendingChanges {
+  /**
+   * Saved workflow state, by `pendingKey`
+   */
+  workflowStates: Map<string, PendingWorkflowState>
+  outgoingMessages: OutgoingMessage[]
+}
+
+const pendingKey = (workflowStateName: string, workflowId: string): string =>
+  JSON.stringify([workflowStateName, workflowId])
+
+/**
  * A non-durable in-memory persistence for storage and retrieval of workflow state, and of messages sent with
  * `deliverAfter` or `deliverAt`. Before using this, be warned that neither survives a process restart or
  * application shut down. As such this should only be used for testing, prototyping or handling unimportant
  * workflows.
+ *
+ * It supports `withOutbox()`. A transaction holds its changes until it's committed, then checks the workflow state it
+ * saved hasn't been saved elsewhere since and applies them all at once.
  */
 export class InMemoryPersistence implements Persistence {
   /**
@@ -66,25 +104,13 @@ export class InMemoryPersistence implements Persistence {
     attributes: MessageAttributes,
     includeCompleted?: boolean | undefined
   ): Promise<WorkflowStateType[]> {
-    const filterValue = messageMap.lookup(message, attributes)
-    if (!hasLookupValue(filterValue)) {
-      return []
-    }
-
-    const workflowStateName = new workflowStateConstructor().$name
-    const workflowState = this.workflowState[
-      workflowStateName
-    ] as WorkflowStateType[]
-    if (!workflowState) {
-      throw new WorkflowStateNotInitialized(workflowStateName)
-    }
-    return workflowState
-      .filter(
-        data =>
-          (includeCompleted || data.$status === WorkflowStatus.Running) &&
-          (data[messageMap.mapsTo] as {} as string) === filterValue
-      )
-      .map(copyWorkflowState)
+    return this.findWorkflowState(
+      this.committedWorkflowState(new workflowStateConstructor().$name),
+      messageMap,
+      message,
+      attributes,
+      includeCompleted
+    )
   }
 
   /**
@@ -98,31 +124,18 @@ export class InMemoryPersistence implements Persistence {
   async saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType
   ): Promise<void> {
-    const workflowStateName = workflowState.$name
-    const existingWorkflowState = this.workflowState[workflowStateName]
-    if (!existingWorkflowState) {
-      throw new WorkflowStateNotInitialized(workflowStateName)
-    }
-
+    const existingWorkflowState = this.committedWorkflowState(
+      workflowState.$name
+    )
     const existingIndex = existingWorkflowState.findIndex(
       d => d.$workflowId === workflowState.$workflowId
     )
-    const existingVersion =
+    assertVersionMatches(
+      workflowState,
       existingIndex >= 0
         ? existingWorkflowState[existingIndex].$version
         : undefined
-    const isVersionMatched =
-      existingVersion === undefined
-        ? workflowState.$version === 0
-        : existingVersion === workflowState.$version
-    if (!isVersionMatched) {
-      throw new WorkflowStateVersionConflict(
-        workflowStateName,
-        workflowState.$workflowId,
-        workflowState.$version,
-        existingVersion
-      )
-    }
+    )
 
     const updatedWorkflowState = copyWorkflowState(workflowState)
     updatedWorkflowState.$version = workflowState.$version + 1
@@ -136,22 +149,7 @@ export class InMemoryPersistence implements Persistence {
   async storeOutgoingMessages(
     outgoingMessages: OutgoingMessage[]
   ): Promise<string[]> {
-    const duplicateIds: string[] = []
-    for (const outgoingMessage of outgoingMessages) {
-      if (this.outgoingMessages.has(outgoingMessage.id)) {
-        duplicateIds.push(outgoingMessage.id)
-        continue
-      }
-      this.outgoingMessages.set(outgoingMessage.id, {
-        outgoingMessage: copyOutgoingMessage(outgoingMessage),
-        availableAt: Math.max(
-          outgoingMessage.dueAt.getTime(),
-          outgoingMessage.leaseUntil?.getTime() ?? 0
-        ),
-        attempts: 0
-      })
-    }
-    return duplicateIds
+    return this.storeOutgoing(outgoingMessages)
   }
 
   /**
@@ -196,6 +194,63 @@ export class InMemoryPersistence implements Persistence {
   }
 
   /**
+   * Begins a transaction that holds the workflow state saved and the outgoing messages stored in it until it's
+   * committed. Reads in it see what it has saved.
+   * @returns the transaction
+   */
+  async beginTransaction(): Promise<PersistenceTransaction> {
+    const pending: PendingChanges = {
+      workflowStates: new Map(),
+      outgoingMessages: []
+    }
+    let isActive = true
+    const assertActive = (operation: string): void => {
+      if (!isActive) {
+        throw new TransactionNotActive(
+          operation,
+          InMemoryPersistence.name,
+          TransactionNotActiveReason.Ended
+        )
+      }
+    }
+    return {
+      getWorkflowState: async (
+        workflowStateConstructor,
+        messageMap,
+        message,
+        attributes,
+        includeCompleted
+      ) => {
+        assertActive('getWorkflowState')
+        return this.findWorkflowState(
+          this.workflowStateIn(pending, new workflowStateConstructor().$name),
+          messageMap,
+          message,
+          attributes,
+          includeCompleted
+        )
+      },
+      saveWorkflowState: async workflowState => {
+        assertActive('saveWorkflowState')
+        this.saveInTransaction(pending, workflowState)
+      },
+      storeOutgoingMessages: async outgoingMessages => {
+        assertActive('storeOutgoingMessages')
+        return this.storeInTransaction(pending, outgoingMessages)
+      },
+      commit: async () => {
+        assertActive('commit')
+        isActive = false
+        this.applyPendingChanges(pending)
+      },
+      rollback: async () => {
+        assertActive('rollback')
+        isActive = false
+      }
+    }
+  }
+
+  /**
    * Gets the number of workflow states held in memory for a workflow state type
    * @param workflowStateConstructor the type of workflow state to count
    * @returns the number of workflow states held, including completed ones
@@ -208,6 +263,211 @@ export class InMemoryPersistence implements Persistence {
       throw new WorkflowStateNotInitialized(workflowStateName)
     }
     return workflowState.length
+  }
+
+  /**
+   * The committed workflow state of a type
+   * @throws WorkflowStateNotInitialized if the workflow state hasn't been initialized
+   */
+  private committedWorkflowState(workflowStateName: string): WorkflowState[] {
+    const workflowState = this.workflowState[workflowStateName]
+    if (!workflowState) {
+      throw new WorkflowStateNotInitialized(workflowStateName)
+    }
+    return workflowState
+  }
+
+  /**
+   * The workflow state of a type as a transaction sees it: the committed state, with what it has saved in its place
+   */
+  private workflowStateIn(
+    pending: PendingChanges,
+    workflowStateName: string
+  ): WorkflowState[] {
+    const committed = this.committedWorkflowState(workflowStateName).filter(
+      ({ $workflowId }) =>
+        !pending.workflowStates.has(pendingKey(workflowStateName, $workflowId))
+    )
+    const saved = [...pending.workflowStates.values()]
+      .map(({ workflowState }) => workflowState)
+      .filter(({ $name }) => $name === workflowStateName)
+    return [...committed, ...saved]
+  }
+
+  /**
+   * Finds the workflow state that a message maps to, and returns copies of it
+   */
+  private findWorkflowState<
+    WorkflowStateType extends WorkflowState,
+    MessageType extends Message
+  >(
+    workflowState: WorkflowState[],
+    messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
+    message: MessageType,
+    attributes: MessageAttributes,
+    includeCompleted: boolean | undefined
+  ): WorkflowStateType[] {
+    const filterValue = messageMap.lookup(message, attributes)
+    if (!hasLookupValue(filterValue)) {
+      return []
+    }
+    return (workflowState as WorkflowStateType[])
+      .filter(
+        data =>
+          (includeCompleted || data.$status === WorkflowStatus.Running) &&
+          (data[messageMap.mapsTo] as {} as string) === filterValue
+      )
+      .map(copyWorkflowState)
+  }
+
+  /**
+   * Saves workflow state in a transaction, with the same version check as `saveWorkflowState`
+   * @throws WorkflowStateVersionConflict if the state was saved elsewhere, or earlier in the transaction, since it was
+   * read
+   */
+  private saveInTransaction(
+    pending: PendingChanges,
+    workflowState: WorkflowState
+  ): void {
+    const key = pendingKey(workflowState.$name, workflowState.$workflowId)
+    const saved = pending.workflowStates.get(key)
+    const committedVersion = saved
+      ? saved.committedVersion
+      : this.committedWorkflowState(workflowState.$name).find(
+          ({ $workflowId }) => $workflowId === workflowState.$workflowId
+        )?.$version
+    assertVersionMatches(
+      workflowState,
+      saved ? saved.workflowState.$version : committedVersion
+    )
+    const updatedWorkflowState = copyWorkflowState(workflowState)
+    updatedWorkflowState.$version = workflowState.$version + 1
+    pending.workflowStates.set(key, {
+      workflowState: updatedWorkflowState,
+      committedVersion
+    })
+  }
+
+  /**
+   * Stores outgoing messages in a transaction
+   * @returns the ids of the messages already stored, or stored earlier in the transaction
+   */
+  private storeInTransaction(
+    pending: PendingChanges,
+    outgoingMessages: OutgoingMessage[]
+  ): string[] {
+    const duplicateIds: string[] = []
+    for (const outgoingMessage of outgoingMessages) {
+      const isDuplicate =
+        this.outgoingMessages.has(outgoingMessage.id) ||
+        pending.outgoingMessages.some(({ id }) => id === outgoingMessage.id)
+      if (isDuplicate) {
+        duplicateIds.push(outgoingMessage.id)
+      } else {
+        pending.outgoingMessages.push(copyOutgoingMessage(outgoingMessage))
+      }
+    }
+    return duplicateIds
+  }
+
+  /**
+   * Applies what a transaction changed, all at once
+   * @throws WorkflowStateVersionConflict if workflow state the transaction saved has been saved elsewhere since, in
+   * which case nothing is applied
+   * @throws OutgoingMessageStoredConcurrently if another transaction stored an outgoing message with the same id since
+   * this one stored it, in which case nothing is applied, as a database would only report the duplicate once the other
+   * transaction ended
+   */
+  private applyPendingChanges(pending: PendingChanges): void {
+    const pendingWorkflowStates = [...pending.workflowStates.values()]
+    // Checked before anything is applied, so a conflict keeps none of the transaction's changes
+    for (const { workflowState, committedVersion } of pendingWorkflowStates) {
+      const currentVersion = this.committedWorkflowState(
+        workflowState.$name
+      ).find(
+        ({ $workflowId }) => $workflowId === workflowState.$workflowId
+      )?.$version
+      if (currentVersion !== committedVersion) {
+        throw new WorkflowStateVersionConflict(
+          workflowState.$name,
+          workflowState.$workflowId,
+          committedVersion ?? 0,
+          currentVersion
+        )
+      }
+    }
+    // The bus sends the messages it was told were stored, so one stored by another transaction meanwhile can't be
+    // skipped silently
+    const storedConcurrently = pending.outgoingMessages.find(({ id }) =>
+      this.outgoingMessages.has(id)
+    )
+    if (storedConcurrently) {
+      throw new OutgoingMessageStoredConcurrently(storedConcurrently.id)
+    }
+    for (const { workflowState } of pendingWorkflowStates) {
+      const existingWorkflowState = this.committedWorkflowState(
+        workflowState.$name
+      )
+      const existingIndex = existingWorkflowState.findIndex(
+        ({ $workflowId }) => $workflowId === workflowState.$workflowId
+      )
+      if (existingIndex >= 0) {
+        existingWorkflowState[existingIndex] = workflowState
+      } else {
+        existingWorkflowState.push(workflowState)
+      }
+    }
+    this.storeOutgoing(pending.outgoingMessages)
+  }
+
+  /**
+   * Stores outgoing messages, skipping any whose id is already stored
+   * @returns the ids of the messages that were already stored
+   */
+  private storeOutgoing(outgoingMessages: OutgoingMessage[]): string[] {
+    const duplicateIds: string[] = []
+    for (const outgoingMessage of outgoingMessages) {
+      if (this.outgoingMessages.has(outgoingMessage.id)) {
+        duplicateIds.push(outgoingMessage.id)
+        continue
+      }
+      this.outgoingMessages.set(outgoingMessage.id, {
+        outgoingMessage: copyOutgoingMessage(outgoingMessage),
+        availableAt: Math.max(
+          outgoingMessage.dueAt.getTime(),
+          outgoingMessage.leaseMs === undefined
+            ? 0
+            : Date.now() + outgoingMessage.leaseMs
+        ),
+        attempts: 0
+      })
+    }
+    return duplicateIds
+  }
+}
+
+/**
+ * Checks the `$version` of workflow state being saved matches the version held, as durable persistence adapters do
+ * to enforce optimistic concurrency
+ * @param heldVersion the `$version` held, or `undefined` if none is held, in which case a new state must have
+ * `$version` 0
+ * @throws WorkflowStateVersionConflict if they don't match
+ */
+const assertVersionMatches = (
+  workflowState: WorkflowState,
+  heldVersion: number | undefined
+): void => {
+  const isVersionMatched =
+    heldVersion === undefined
+      ? workflowState.$version === 0
+      : heldVersion === workflowState.$version
+  if (!isVersionMatched) {
+    throw new WorkflowStateVersionConflict(
+      workflowState.$name,
+      workflowState.$workflowId,
+      workflowState.$version,
+      heldVersion
+    )
   }
 }
 
@@ -234,6 +494,9 @@ const copyOutgoingMessage = (
     message,
     attributes,
     headers,
-    dueAt: new Date(outgoingMessage.dueAt.getTime())
+    dueAt: new Date(outgoingMessage.dueAt.getTime()),
+    ...(outgoingMessage.destination === undefined
+      ? {}
+      : { destination: outgoingMessage.destination })
   }
 }

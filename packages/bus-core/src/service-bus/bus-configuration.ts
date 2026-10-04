@@ -14,6 +14,9 @@ import { MessageHandlingContext } from '../message-handling-context'
 import { MessageLifecycleContext } from '../message-lifecycle-context'
 import { BusMiddleware } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
+import { OutboxNotSupported } from '../outbox'
+import { isOutboxPersistence } from '../outbox/outbox-persistence'
+import { UnitOfWorkContext } from '../outbox/unit-of-work-context'
 import { DelayedDeliveryOptions } from '../outgoing-message'
 import { Receiver } from '../receiver'
 import { RecoverabilityPolicy, defaultRecoverability } from '../recoverability'
@@ -76,6 +79,7 @@ export class BusConfiguration {
   private recoverability: RecoverabilityPolicy = defaultRecoverability()
   private delayedDelivery: Required<DelayedDeliveryOptions> = { dispatch: true }
   private scheduler = false
+  private outbox = false
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
   private receiver: Receiver | undefined
@@ -86,6 +90,7 @@ export class BusConfiguration {
    * @throws BusAlreadyInitialized if the bus has already been built
    * @throws ContainerNotRegistered if a class handler's constructor takes arguments and no container is registered
    * @throws TransportAlreadyInUse if the transport is already used by another bus
+   * @throws OutboxNotSupported if `withOutbox()` was called and the persistence doesn't support it
    * @throws MessageTypesConflict if the message types passed to `withMessageTypes()` define a `$name` or type
    * differently
    * @throws MessageTypeReferenceNotFound if message types passed to `withMessageTypes()` refer to a type they
@@ -110,6 +115,10 @@ export class BusConfiguration {
       this.assertSchedulerConfiguration()
     }
 
+    if (this.outbox && !isOutboxPersistence(this.persistence)) {
+      throw new OutboxNotSupported(this.persistence.constructor.name)
+    }
+
     const transport: Transport = this.configuredTransport || new InMemoryQueue()
     if (TRANSPORTS_IN_USE.has(transport)) {
       throw new TransportAlreadyInUse(transport.constructor.name)
@@ -119,6 +128,7 @@ export class BusConfiguration {
     const messageTypes = mergeMessageTypes(this.messageTypes)
     const messageHandlingContext = new MessageHandlingContext()
     const messageLifecycleContext = new MessageLifecycleContext()
+    const unitOfWorkContext = new UnitOfWorkContext()
 
     const coreDependencies: CoreDependencies = {
       container: this.container,
@@ -141,7 +151,8 @@ export class BusConfiguration {
         coreDependencies,
         this.persistence,
         messageHandlingContext,
-        messageLifecycleContext
+        messageLifecycleContext,
+        unitOfWorkContext
       )
     }
 
@@ -163,7 +174,9 @@ export class BusConfiguration {
       this.recoverability,
       this.persistence,
       this.delayedDelivery,
-      this.scheduler
+      this.scheduler,
+      this.outbox,
+      unitOfWorkContext
     )
     return this.busInstance
   }
@@ -220,6 +233,34 @@ export class BusConfiguration {
         `A bus configured with asScheduler() only sends scheduled messages, so it can't also use ${conflict[1]}. Use a separate bus for that.`
       )
     }
+  }
+
+  /**
+   * Makes the bus handle each message in a transaction of its persistence, so the workflow state its handlers save
+   * and the messages they send are kept together, or not at all. The messages are stored in the transaction and sent
+   * once it's committed. If one can't be sent then, it stays in the persistence and a started bus that uses the same
+   * persistence sends it, so it's never lost. If a handler fails, nothing is saved or sent.
+   *
+   * Handlers can save their own data in the same transaction, through the persistence's accessor, such as
+   * `postgresTransaction(ctx)` from `@node-ts/bus-postgres`, and `bus.transaction()` does the same outside a handler.
+   *
+   * Each message holds a transaction, such as a database connection, while it's handled, so allow for as many as the
+   * bus' concurrency. Delivery is at least once: a message can be sent again if the process stops after sending it
+   * and before deleting it from the persistence, so give handlers a way to recognise a repeat.
+   * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * const bus = Bus.configure()
+   *   .withPersistence(new PostgresPersistence({ connection, schemaName: 'workflows' }))
+   *   .withOutbox()
+   *   .build()
+   */
+  withOutbox(): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.outbox = true
+    return this
   }
 
   /**

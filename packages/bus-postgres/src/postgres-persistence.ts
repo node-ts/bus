@@ -7,6 +7,7 @@ import {
   OutgoingMessage,
   OutgoingMessageClaim,
   Persistence,
+  PersistenceTransaction,
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -14,6 +15,7 @@ import { createHash } from 'node:crypto'
 import { escapeIdentifier, escapeLiteral, Pool, PoolClient } from 'pg'
 import { InvalidSchemaName, WorkflowStateNotFound } from './error'
 import { PostgresConfiguration } from './postgres-configuration'
+import { PostgresPersistenceTransaction } from './postgres-persistence-transaction'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
@@ -53,6 +55,7 @@ const OUTGOING_MESSAGES_TABLE_NAME = 'outgoing_messages'
 interface OutgoingMessageRow {
   id: string
   kind: OutgoingMessage['kind']
+  destination: string | null
   message: object
   attributes: OutgoingMessage['attributes']
   headers: OutgoingMessage['headers']
@@ -67,7 +70,8 @@ type Queryable = Pick<Pool | PoolClient, 'query'>
 
 /**
  * Stores outgoing messages in one statement, leaving any whose id is already stored as it is. A message is first
- * claimable at its due time, or at its lease if that's later.
+ * claimable at its due time, or when its lease ends, `leaseMs` after it's stored by the database's clock, if that's
+ * later.
  * @returns the ids of the messages that were already stored
  */
 const insertOutgoingMessages = async (
@@ -80,30 +84,45 @@ const insertOutgoingMessages = async (
   }
   // Passed as one JSON parameter, so any number of messages is one statement
   const rows = outgoingMessages.map(
-    ({ id, kind, message, attributes, headers, dueAt, leaseUntil }) => ({
+    ({
       id,
       kind,
+      destination,
+      message,
+      attributes,
+      headers,
+      dueAt,
+      leaseMs
+    }) => ({
+      id,
+      kind,
+      destination: destination ?? null,
       message,
       attributes,
       headers,
       due_at: dueAt.toISOString(),
-      available_at: new Date(
-        Math.max(dueAt.getTime(), leaseUntil?.getTime() ?? 0)
-      ).toISOString()
+      lease_ms: leaseMs ?? null
     })
   )
   const result = await postgres.query(
     `
-    insert into ${table} (id, kind, message, attributes, headers, due_at, available_at, attempts)
-    select id, kind, message, attributes, headers, due_at, available_at, 0
+    insert into ${table} (id, kind, destination, message, attributes, headers, due_at, available_at, attempts)
+    select id, kind, destination, message, attributes, headers, due_at,
+      -- A lease runs from now by the database's clock, which claims compare with
+      case
+        when lease_ms is null then due_at
+        else greatest(due_at, clock_timestamp() + make_interval(secs => lease_ms / 1000))
+      end,
+      0
     from jsonb_to_recordset($1::jsonb) as stored (
       id text,
       kind text,
+      destination text,
       message jsonb,
       attributes jsonb,
       headers jsonb,
       due_at timestamptz,
-      available_at timestamptz
+      lease_ms double precision
     )
     on conflict (id) do nothing
     returning id;`,
@@ -149,13 +168,14 @@ const claimOutgoingMessages = async (
         )
     from claimable
     where outgoing.id = claimable.id
-    returning outgoing.id, outgoing.kind, outgoing.message, outgoing.attributes, outgoing.headers, outgoing.due_at,
-      outgoing.attempts;`,
+    returning outgoing.id, outgoing.kind, outgoing.destination, outgoing.message, outgoing.attributes,
+      outgoing.headers, outgoing.due_at, outgoing.attempts;`,
     [now ?? null, limit, leaseMs, maxLeaseMs]
   )
   return (result.rows as OutgoingMessageRow[]).map((row): OutgoingMessage => ({
     id: row.id,
     kind: row.kind,
+    ...(row.destination === null ? {} : { destination: row.destination }),
     message: row.message,
     attributes: row.attributes,
     headers: row.headers,
@@ -207,6 +227,10 @@ interface WorkflowTable {
 /**
  * Stores workflow state, and messages sent with `deliverAfter` or `deliverAt`, in Postgres. Delayed delivery needs
  * Postgres 9.5 or later.
+ *
+ * It supports `withOutbox()`: each message is handled in a transaction on a client checked out of the pool, which
+ * handlers can write their own data in with `postgresTransaction(ctx)`. The client is held until the transaction is
+ * committed or rolled back, so give the pool more connections than the bus' concurrency.
  */
 export class PostgresPersistence implements Persistence {
   /**
@@ -267,84 +291,20 @@ export class PostgresPersistence implements Persistence {
     attributes: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowStateType[]> {
-    this.logger.debug('Getting workflow state', {
-      workflowStateName: workflowStateConstructor.name
-    })
-    const workflowStateName = new workflowStateConstructor().$name
-    const { qualifiedName } = resolveWorkflowTable(
-      workflowStateName,
-      this.configuration.schemaName
+    return this.queryWorkflowState(
+      this.postgres,
+      workflowStateConstructor,
+      messageMap,
+      message,
+      attributes,
+      includeCompleted
     )
-    const matcherValue = messageMap.lookup(message, attributes)
-    // A query for an empty string would match every instance whose mapped field is empty
-    if (!hasLookupValue(matcherValue)) {
-      return []
-    }
-
-    // The field is inlined as a literal rather than bound so the expression matches the secondary index
-    const workflowStateField = resolveWorkflowStateField(messageMap.mapsTo)
-    const statusFilter = includeCompleted
-      ? ''
-      : `and ${WORKFLOW_DATA_FIELD_NAME}->>'$status' = 'running'`
-    // Different workflow states can resolve to the same table, so only rows of this state match
-    const query = `
-      select
-        ${WORKFLOW_DATA_FIELD_NAME}
-      from
-        ${qualifiedName}
-      where
-        (${workflowStateField}) is not null
-        and (${workflowStateField}::text) = $1
-        and ${WORKFLOW_DATA_FIELD_NAME}->>'$name' = $2
-        ${statusFilter}
-    `
-    this.logger.debug('Querying workflow state', { query })
-
-    const results = await this.postgres.query(query, [
-      matcherValue,
-      workflowStateName
-    ])
-
-    this.logger.debug('Got workflow state', {
-      resultsCount: results.rows.length
-    })
-
-    const rows = results.rows as [
-      { [WORKFLOW_DATA_FIELD_NAME]: WorkflowStateType | undefined }
-    ]
-
-    // The bus restores the classes of the state with its own serializer and message types
-    return rows
-      .map(row => row[WORKFLOW_DATA_FIELD_NAME])
-      .filter(workflowState => workflowState !== undefined)
   }
 
   async saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType
   ): Promise<void> {
-    this.logger.debug('Saving workflow state', {
-      workflowStateName: workflowState.$name,
-      id: workflowState.$workflowId
-    })
-    const { qualifiedName } = resolveWorkflowTable(
-      workflowState.$name,
-      this.configuration.schemaName
-    )
-
-    const oldVersion = workflowState.$version
-    const newVersion = oldVersion + 1
-    const plainWorkflowState = {
-      ...workflowState,
-      $version: newVersion
-    }
-
-    await this.upsertWorkflowState(
-      qualifiedName,
-      workflowState.$workflowId,
-      plainWorkflowState,
-      oldVersion,
-      newVersion
-    )
+    await this.writeWorkflowState(this.postgres, workflowState)
   }
 
   async storeOutgoingMessages(
@@ -417,6 +377,142 @@ export class PostgresPersistence implements Persistence {
     )
   }
 
+  /**
+   * Checks a client out of the pool and begins a transaction on it, which holds the client until it's committed or
+   * rolled back. Handlers read the client with `postgresTransaction(ctx)`.
+   * @returns the transaction
+   */
+  async beginTransaction(): Promise<PersistenceTransaction> {
+    const client = await this.postgres.connect()
+    try {
+      await client.query('begin')
+    } catch (error) {
+      // Destroys the client rather than returning a broken connection to the pool
+      client.release(error as Error)
+      throw error
+    }
+    this.logger.debug('Began transaction')
+    return new PostgresPersistenceTransaction(client, this.logger, {
+      getWorkflowState: async (
+        workflowStateConstructor,
+        messageMap,
+        message,
+        attributes,
+        includeCompleted
+      ) =>
+        this.queryWorkflowState(
+          client,
+          workflowStateConstructor,
+          messageMap,
+          message,
+          attributes,
+          includeCompleted
+        ),
+      saveWorkflowState: async workflowState =>
+        this.writeWorkflowState(client, workflowState),
+      storeOutgoingMessages: async outgoingMessages =>
+        insertOutgoingMessages(
+          client,
+          this.outgoingMessagesTable(),
+          outgoingMessages
+        )
+    })
+  }
+
+  private async queryWorkflowState<
+    WorkflowStateType extends WorkflowState,
+    MessageType extends Message
+  >(
+    postgres: Queryable,
+    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
+    messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
+    message: MessageType,
+    attributes: MessageAttributes,
+    includeCompleted = false
+  ): Promise<WorkflowStateType[]> {
+    this.logger.debug('Getting workflow state', {
+      workflowStateName: workflowStateConstructor.name
+    })
+    const workflowStateName = new workflowStateConstructor().$name
+    const { qualifiedName } = resolveWorkflowTable(
+      workflowStateName,
+      this.configuration.schemaName
+    )
+    const matcherValue = messageMap.lookup(message, attributes)
+    // A query for an empty string would match every instance whose mapped field is empty. Guarded here, so a lookup
+    // in a transaction is guarded too.
+    if (!hasLookupValue(matcherValue)) {
+      return []
+    }
+
+    // The field is inlined as a literal rather than bound so the expression matches the secondary index
+    const workflowStateField = resolveWorkflowStateField(messageMap.mapsTo)
+    const statusFilter = includeCompleted
+      ? ''
+      : `and ${WORKFLOW_DATA_FIELD_NAME}->>'$status' = 'running'`
+    // Different workflow states can resolve to the same table, so only rows of this state match
+    const query = `
+      select
+        ${WORKFLOW_DATA_FIELD_NAME}
+      from
+        ${qualifiedName}
+      where
+        (${workflowStateField}) is not null
+        and (${workflowStateField}::text) = $1
+        and ${WORKFLOW_DATA_FIELD_NAME}->>'$name' = $2
+        ${statusFilter}
+    `
+    this.logger.debug('Querying workflow state', { query })
+
+    const results = await postgres.query(query, [
+      matcherValue,
+      workflowStateName
+    ])
+
+    this.logger.debug('Got workflow state', {
+      resultsCount: results.rows.length
+    })
+
+    const rows = results.rows as [
+      { [WORKFLOW_DATA_FIELD_NAME]: WorkflowStateType | undefined }
+    ]
+
+    // The bus restores the classes of the state with its own serializer and message types
+    return rows
+      .map(row => row[WORKFLOW_DATA_FIELD_NAME])
+      .filter(workflowState => workflowState !== undefined)
+  }
+
+  private async writeWorkflowState<WorkflowStateType extends WorkflowState>(
+    postgres: Queryable,
+    workflowState: WorkflowStateType
+  ): Promise<void> {
+    this.logger.debug('Saving workflow state', {
+      workflowStateName: workflowState.$name,
+      id: workflowState.$workflowId
+    })
+    const { qualifiedName } = resolveWorkflowTable(
+      workflowState.$name,
+      this.configuration.schemaName
+    )
+
+    const oldVersion = workflowState.$version
+    const newVersion = oldVersion + 1
+    const plainWorkflowState = {
+      ...workflowState,
+      $version: newVersion
+    }
+
+    await this.upsertWorkflowState(
+      postgres,
+      qualifiedName,
+      workflowState.$workflowId,
+      plainWorkflowState,
+      oldVersion,
+      newVersion
+    )
+  }
+
   private outgoingMessagesTable(): string {
     return `${escapeIdentifier(this.configuration.schemaName)}.${escapeIdentifier(OUTGOING_MESSAGES_TABLE_NAME)}`
   }
@@ -428,6 +524,7 @@ export class PostgresPersistence implements Persistence {
       create table if not exists ${table} (
         id text not null primary key,
         kind text not null,
+        destination text,
         message jsonb not null,
         attributes jsonb not null,
         headers jsonb not null,
@@ -576,6 +673,7 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async upsertWorkflowState(
+    postgres: Queryable,
     tableName: string,
     workflowId: string,
     plainWorkflowState: object,
@@ -591,7 +689,7 @@ export class PostgresPersistence implements Persistence {
       })
 
       // This is a new workflow, so just insert the data
-      await this.postgres.query(
+      await postgres.query(
         `
         insert into ${tableName} (
           id,
@@ -613,7 +711,7 @@ export class PostgresPersistence implements Persistence {
       })
 
       // This is an existing workflow, so update the data
-      const result = await this.postgres.query(
+      const result = await postgres.query(
         `
         update
           ${tableName}

@@ -1,5 +1,5 @@
 import { CoreDependencies, Logger } from '@node-ts/bus-core'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { TestWorkflowState } from '../test'
 import { InvalidSchemaName } from './error'
@@ -108,6 +108,39 @@ describe('PostgresPersistence', () => {
 
     it('should throw the error', () => {
       expect(error).toBe(queryError)
+    })
+  })
+
+  describe('when a transaction fails to begin', () => {
+    const beginError = new Error('Connection refused')
+    let client: IMock<PoolClient>
+    let error: unknown
+
+    beforeAll(async () => {
+      client = Mock.ofType<PoolClient>()
+      // Otherwise the mock looks like a promise, and awaiting it never settles
+      client
+        .setup(c => (c as unknown as { then: unknown }).then)
+        .returns(() => undefined)
+      client
+        .setup(async c => c.query('begin'))
+        .returns(async () => Promise.reject(beginError))
+      pool = Mock.ofType<Pool>()
+      pool.setup(async p => p.connect()).returns(async () => client.object)
+      sut = new PostgresPersistence(
+        { connection: {}, schemaName: 'workflows' },
+        pool.object
+      )
+      sut.prepare(coreDependencies)
+      error = await sut.beginTransaction().catch((e: unknown) => e)
+    })
+
+    it('should throw the error', () => {
+      expect(error).toBe(beginError)
+    })
+
+    it('should destroy the client rather than return it to the pool', () => {
+      client.verify(c => c.release(beginError), Times.once())
     })
   })
 })

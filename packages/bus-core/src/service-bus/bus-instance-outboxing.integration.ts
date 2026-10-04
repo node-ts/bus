@@ -1,24 +1,125 @@
-import { Message, MessageAttributes } from '@node-ts/bus-messages'
+import { Command, Message, MessageAttributes } from '@node-ts/bus-messages'
 import { EventEmitter, once } from 'events'
 import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
 import { Receiver } from '../receiver'
-import { deadLetter } from '../recoverability'
+import { deadLetter, retry } from '../recoverability'
 import {
   messageTypesFor,
   RecordingInMemoryQueue,
   testMessageTypes
 } from '../test'
 import { TestCommand } from '../test/test-command'
+import { TestCommand2 } from '../test/test-command-2'
 import { TestEvent } from '../test/test-event'
 import { InMemoryQueue, TransportMessage } from '../transport'
 import { sleep } from '../util'
-import { Workflow, WorkflowMapper, WorkflowState } from '../workflow'
+import {
+  defineWorkflow,
+  InMemoryPersistence,
+  Workflow,
+  WorkflowMapper,
+  WorkflowState,
+  WorkflowStateVersionConflict
+} from '../workflow'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 
 jest.setTimeout(20_000)
+
+class RequestedWorkflowState extends WorkflowState {
+  static NAME = 'RequestedWorkflowState'
+  $name = RequestedWorkflowState.NAME
+  requested: boolean
+}
+
+class StartOrder extends Command {
+  static NAME = 'StartOrder'
+  $name = StartOrder.NAME
+  $version = 0
+
+  constructor(readonly orderId: string) {
+    super()
+  }
+}
+
+class ProcessOrder extends Command {
+  static NAME = 'ProcessOrder'
+  $name = ProcessOrder.NAME
+  $version = 0
+
+  constructor(readonly orderId: string) {
+    super()
+  }
+}
+
+class RequestedOrderWorkflowState extends WorkflowState {
+  static NAME = 'RequestedOrderWorkflowState'
+  $name = RequestedOrderWorkflowState.NAME
+  orderId: string
+  requested: boolean
+}
+
+class ProcessedWorkflowState extends WorkflowState {
+  static NAME = 'ProcessedWorkflowState'
+  $name = ProcessedWorkflowState.NAME
+  orderId: string
+  processed: boolean
+}
+
+/**
+ * An in-memory persistence whose first update of one workflow state fails, as if it had been saved elsewhere since it
+ * was read
+ */
+class ConflictOnceOnUpdatePersistence extends InMemoryPersistence {
+  private hasConflicted = false
+
+  constructor(private readonly workflowStateName: string) {
+    super()
+  }
+
+  async saveWorkflowState<TWorkflowState extends WorkflowState>(
+    workflowState: TWorkflowState
+  ): Promise<void> {
+    if (
+      !this.hasConflicted &&
+      workflowState.$name === this.workflowStateName &&
+      workflowState.$version > 0
+    ) {
+      this.hasConflicted = true
+      throw new WorkflowStateVersionConflict(
+        workflowState.$name,
+        workflowState.$workflowId,
+        workflowState.$version,
+        workflowState.$version + 1
+      )
+    }
+    await super.saveWorkflowState(workflowState)
+  }
+}
+
+/**
+ * An in-memory persistence whose first save fails, as if the state had been saved elsewhere since it was read
+ */
+class ConflictOncePersistence extends InMemoryPersistence {
+  private hasConflicted = false
+
+  async saveWorkflowState<TWorkflowState extends WorkflowState>(
+    workflowState: TWorkflowState
+  ): Promise<void> {
+    if (!this.hasConflicted) {
+      this.hasConflicted = true
+      throw new WorkflowStateVersionConflict(
+        workflowState.$name,
+        workflowState.$workflowId,
+        workflowState.$version,
+        workflowState.$version + 1
+      )
+    }
+    await super.saveWorkflowState(workflowState)
+  }
+}
 
 describe('BusInstance Outboxing', () => {
   describe('when a message is sent from outside of a handler', () => {
@@ -427,8 +528,8 @@ describe('BusInstance Outboxing', () => {
       await bus.dispose()
     })
 
-    it('should send the non-failing handler message to the transport', async () => {
-      testEventCallback.verify(t => t('success-handler'), Times.once())
+    it('should not send the message from the other handler either, since the message will be retried', async () => {
+      testEventCallback.verify(t => t('success-handler'), Times.never())
     })
 
     it('should not send the message from the failing handler to the transport', async () => {
@@ -490,6 +591,247 @@ describe('BusInstance Outboxing', () => {
     it('should not send the message to the transport', async () => {
       testCommandCallback.verify(t => t(), Times.once())
       testEventCallback.verify(t => t('failed-workflow'), Times.never())
+    })
+  })
+
+  describe('when a workflow handler guards on its state, and another handler of the message fails once', () => {
+    let bus: BusInstance
+    const persistence = new InMemoryPersistence()
+    const dispatched = Mock.ofType<(message: Message) => void>()
+    const requestedWhenHandled: boolean[] = []
+
+    beforeAll(async () => {
+      let failed = false
+      let deletes = 0
+      const handled = new EventEmitter()
+      const queue = new RecordingInMemoryQueue(
+        message => dispatched.object(message),
+        { receiveTimeoutMs: 100 }
+      )
+      queue.settled.on('deleted', () => {
+        // The TestCommand that starts the workflow, then the TestCommand2 it sends
+        if (++deletes === 2) {
+          handled.emit('handled')
+        }
+      })
+      bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor(RequestedWorkflowState)
+        )
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(queue)
+        .withPersistence(persistence)
+        .withRecoverability(({ failedAttempts }) =>
+          failedAttempts < 3 ? retry(0) : deadLetter()
+        )
+        .withWorkflow(
+          defineWorkflow(RequestedWorkflowState)
+            .startedBy(TestCommand, async (_message, _state, ctx) => {
+              await ctx.send(new TestCommand2())
+              return { requested: false }
+            })
+            .when(TestCommand2, async (_message, state, ctx) => {
+              requestedWhenHandled.push(state.requested)
+              if (state.requested) {
+                return undefined
+              }
+              await ctx.publish(new TestEvent('requested'))
+              return { requested: true }
+            })
+        )
+        .withHandler(
+          handlerFor(TestCommand2, async () => {
+            if (!failed) {
+              failed = true
+              throw new Error('Fail the first attempt')
+            }
+          })
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const allHandled = once(handled, 'handled')
+      await bus.send(new TestCommand())
+      await allHandled
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should publish what the workflow handler published once, when the message is retried', () => {
+      dispatched.verify(
+        d => d(It.isObjectWith<TestEvent>({ property1: 'requested' })),
+        Times.once()
+      )
+    })
+
+    it('should not save the state the failed attempt returned', () => {
+      expect(requestedWhenHandled).toEqual([false, false])
+    })
+  })
+
+  describe('when the workflow state saved by a handler was saved elsewhere since it was read', () => {
+    let bus: BusInstance
+    const persistence = new ConflictOncePersistence()
+    const dispatched = Mock.ofType<(message: Message) => void>()
+    const returned = Mock.ofType<() => void>()
+
+    beforeAll(async () => {
+      const queue = new RecordingInMemoryQueue(
+        message => dispatched.object(message),
+        { receiveTimeoutMs: 100 }
+      )
+      queue.settled.on('returned', () => returned.object())
+      bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor(RequestedWorkflowState)
+        )
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(queue)
+        .withPersistence(persistence)
+        .withRecoverability(({ failedAttempts }) =>
+          failedAttempts < 3 ? retry(0) : deadLetter()
+        )
+        .withWorkflow(
+          defineWorkflow(RequestedWorkflowState).startedBy(
+            TestCommand,
+            async (_message, _state, ctx) => {
+              await ctx.publish(new TestEvent('started'))
+              return { requested: true }
+            }
+          )
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const deleted = once(queue.settled, 'deleted')
+      await bus.send(new TestCommand())
+      await deleted
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should fail the message and retry it', () => {
+      returned.verify(r => r(), Times.once())
+    })
+
+    it('should only send what the attempt whose state was saved sent', () => {
+      dispatched.verify(
+        d => d(It.isObjectWith<TestEvent>({ property1: 'started' })),
+        Times.once()
+      )
+    })
+
+    it('should save the state once', () => {
+      expect(persistence.length(RequestedWorkflowState)).toEqual(1)
+    })
+  })
+
+  describe("when two workflows handle a message, and the second one's state was saved elsewhere since it was read", () => {
+    let bus: BusInstance
+    const persistence = new ConflictOnceOnUpdatePersistence(
+      ProcessedWorkflowState.NAME
+    )
+    const dispatched = Mock.ofType<(message: Message) => void>()
+    const returned = Mock.ofType<() => void>()
+    const requestedWhenHandled: boolean[] = []
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      const queue = new RecordingInMemoryQueue(
+        message => dispatched.object(message),
+        { receiveTimeoutMs: 100 }
+      )
+      queue.settled.on('returned', () => returned.object())
+      queue.settled.on('deleted', (message: TransportMessage<unknown>) =>
+        handled.emit((message.domainMessage as Message).$name)
+      )
+      bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor(
+            StartOrder,
+            ProcessOrder,
+            RequestedOrderWorkflowState,
+            ProcessedWorkflowState
+          )
+        )
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(queue)
+        .withPersistence(persistence)
+        .withRecoverability(({ failedAttempts }) =>
+          failedAttempts < 3 ? retry(0) : deadLetter()
+        )
+        .withWorkflow(
+          defineWorkflow(RequestedOrderWorkflowState)
+            .startedBy(StartOrder, ({ orderId }) => ({
+              orderId,
+              requested: false
+            }))
+            .when(
+              ProcessOrder,
+              { lookup: ({ orderId }) => orderId, mapsTo: 'orderId' },
+              async (_message, state, ctx) => {
+                requestedWhenHandled.push(state.requested)
+                if (state.requested) {
+                  return undefined
+                }
+                await ctx.publish(new TestEvent('requested'))
+                return { requested: true }
+              }
+            ),
+          defineWorkflow(ProcessedWorkflowState)
+            .startedBy(StartOrder, ({ orderId }) => ({
+              orderId,
+              processed: false
+            }))
+            .when(
+              ProcessOrder,
+              { lookup: ({ orderId }) => orderId, mapsTo: 'orderId' },
+              async () => {
+                // Resolves after the other workflow, so its state is saved first
+                await sleep(20)
+                return { processed: true }
+              }
+            )
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const orderId = 'order-1'
+      const started = once(handled, StartOrder.NAME)
+      await bus.send(new StartOrder(orderId))
+      await started
+      const processed = once(handled, ProcessOrder.NAME)
+      await bus.send(new ProcessOrder(orderId))
+      await processed
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should retry the message', () => {
+      returned.verify(r => r(), Times.once())
+    })
+
+    it('should skip the publish on the retry, since the first workflow saved its state', () => {
+      expect(requestedWhenHandled).toEqual([false, true])
+    })
+
+    it('should still publish what the workflow whose state was saved published', () => {
+      dispatched.verify(
+        d => d(It.isObjectWith<TestEvent>({ property1: 'requested' })),
+        Times.once()
+      )
     })
   })
 })

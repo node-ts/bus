@@ -12,6 +12,7 @@ import {
 import { DebugLogger, Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { MessageLifecycleContext } from '../../message-lifecycle-context'
+import { UnitOfWorkContext } from '../../outbox/unit-of-work-context'
 import { Bus, BusInstance } from '../../service-bus'
 import { testMessageTypes } from '../../test'
 import { InMemoryQueue } from '../../transport'
@@ -97,7 +98,8 @@ describe('WorkflowRegistry', () => {
         coreDependencies,
         persistence.object,
         new MessageHandlingContext(),
-        new MessageLifecycleContext()
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
       )
       sut.register(TestWorkflow)
       await sut.initialize(new DefaultHandlerRegistry(), undefined)
@@ -141,7 +143,8 @@ describe('WorkflowRegistry', () => {
         coreDependencies,
         persistence.object,
         new MessageHandlingContext(),
-        new MessageLifecycleContext()
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
       )
       sut.register(StatelessWorkflow)
       error = await catchError(() =>
@@ -170,7 +173,8 @@ describe('WorkflowRegistry', () => {
         } as unknown as CoreDependencies,
         persistence.object,
         new MessageHandlingContext(),
-        new MessageLifecycleContext()
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
       )
     })
 
@@ -231,7 +235,8 @@ describe('WorkflowRegistry', () => {
         } as unknown as CoreDependencies,
         functionPersistence.object,
         new MessageHandlingContext(),
-        new MessageLifecycleContext()
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
       )
       await sut.initialize(handlerRegistry, undefined)
     })
@@ -377,7 +382,8 @@ describe('WorkflowRegistry', () => {
         } as unknown as CoreDependencies,
         timeoutPersistence.object,
         new MessageHandlingContext(),
-        new MessageLifecycleContext()
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
       )
       await sut.initialize(handlerRegistry.object, undefined)
 

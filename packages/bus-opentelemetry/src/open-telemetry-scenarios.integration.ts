@@ -5,6 +5,7 @@ import {
   DEFAULT_IN_MEMORY_ENDPOINT_NAME,
   HandlerContext,
   handlerFor,
+  InMemoryPersistence,
   InMemoryQueue,
   Logger,
   Receiver,
@@ -592,6 +593,42 @@ describe('openTelemetry', () => {
     it('should only count the stored message as scheduled', async () => {
       const points = await telemetry.metric('node_ts_bus.scheduled.messages')
       expect(points.map(point => point.value)).toEqual([1])
+    })
+  })
+
+  describe('when messages are published in a transaction with withOutbox()', () => {
+    const telemetry = new TestTelemetry()
+    let bus: BusInstance
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withLogger(silentLogger)
+        .withPersistence(new InMemoryPersistence())
+        .withOutbox()
+        .withMiddleware(openTelemetry(telemetry.options()))
+        .build()
+      await bus.initialize()
+      await bus.transaction(async ctx => {
+        await ctx.publish(new TracedEvent('now'))
+        await ctx.publish(new TracedEvent('later'), { deliverAfter: 60_000 })
+      })
+      await settle()
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await telemetry.shutdown()
+    })
+
+    it('should count the message stored to send straight away as sent, not scheduled', async () => {
+      const sent = await telemetry.metric('messaging.client.sent.messages')
+      expect(sent.map(point => point.value)).toEqual([1])
+    })
+
+    it('should count only the delayed message as scheduled', async () => {
+      const scheduled = await telemetry.metric('node_ts_bus.scheduled.messages')
+      expect(scheduled.map(point => point.value)).toEqual([1])
     })
   })
 

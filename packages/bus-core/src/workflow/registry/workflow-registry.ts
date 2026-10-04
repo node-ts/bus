@@ -14,6 +14,10 @@ import {
 import { Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { MessageLifecycleContext } from '../../message-lifecycle-context'
+import {
+  UnitOfWorkContext,
+  WorkflowStateStore
+} from '../../outbox/unit-of-work-context'
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { applyWorkflowStateChange } from '../apply-workflow-state-change'
@@ -129,6 +133,7 @@ export class WorkflowRegistry {
   private coreDependencies: CoreDependencies
   private messageHandlingContext: MessageHandlingContext
   private messageLifecycleContext: MessageLifecycleContext
+  private unitOfWorkContext: UnitOfWorkContext
 
   /**
    * @param coreDependencies the dependencies of the bus the registry belongs to
@@ -136,12 +141,15 @@ export class WorkflowRegistry {
    * @param messageHandlingContext the handling context of the bus the registry belongs to
    * @param messageLifecycleContext the lifecycle context of the bus, which says if a handler failed or returned the
    * message
+   * @param unitOfWorkContext the unit of work context of the bus, which holds where the message being handled reads
+   * and saves its workflow state
    */
   prepare(
     coreDependencies: CoreDependencies,
     persistence: Persistence,
     messageHandlingContext: MessageHandlingContext,
-    messageLifecycleContext: MessageLifecycleContext
+    messageLifecycleContext: MessageLifecycleContext,
+    unitOfWorkContext: UnitOfWorkContext
   ): void {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:workflow-registry'
@@ -150,6 +158,7 @@ export class WorkflowRegistry {
     this.persistence = persistence
     this.messageHandlingContext = messageHandlingContext
     this.messageLifecycleContext = messageLifecycleContext
+    this.unitOfWorkContext = unitOfWorkContext
   }
 
   /**
@@ -357,6 +366,7 @@ export class WorkflowRegistry {
       async (message, workflowState, attributes, context) => {
         const workflowContext: WorkflowContext<WorkflowState> = {
           correlationId: context.correlationId,
+          transaction: context.transaction,
           send: context.send.bind(context),
           publish: context.publish.bind(context),
           reply: context.reply.bind(context),
@@ -449,16 +459,19 @@ export class WorkflowRegistry {
             msg: message,
             workflowName
           })
-          const storedWorkflowState = await this.persistence.getWorkflowState<
-            WorkflowState,
-            Message
-          >(workflowStateType, messageMapping, message, attributes, false)
+          const storedWorkflowState =
+            await this.workflowStateStore().getWorkflowState<
+              WorkflowState,
+              Message
+            >(workflowStateType, messageMapping, message, attributes, false)
           const workflowState = storedWorkflowState.map(state =>
             this.toWorkflowState(state, workflowStateType)
           )
 
           if (!workflowState.length) {
-            await this.ignoreUnmatchedMessage(this.persistence, {
+            // Read in the message's transaction too, so a miss doesn't wait for a second connection while the
+            // transaction holds one
+            await this.ignoreUnmatchedMessage(this.workflowStateStore(), {
               message,
               attributes,
               workflowName,
@@ -500,11 +513,11 @@ export class WorkflowRegistry {
    * Logs a message that found no running workflow instance, which is then ignored. A message for an instance that
    * has completed, such as a timeout that arrives after the step it guards, is expected, so it's logged at debug.
    * One that matches no instance at all may be misrouted or mapped wrongly, so it's logged as a warning.
-   * @param persistence the store to look for completed instances in
+   * @param store where to look for completed instances: the message's transaction or the persistence
    * @param unmatched the message, and the workflow and mapping it found no running instance with
    */
   private async ignoreUnmatchedMessage(
-    persistence: Persistence,
+    store: Pick<Persistence, 'getWorkflowState'>,
     unmatched: UnmatchedWorkflowMessage
   ): Promise<void> {
     const { message, attributes, workflowName, workflowStateType, mapping } =
@@ -521,7 +534,7 @@ export class WorkflowRegistry {
     // Only read on a miss, so a message for a running instance costs no extra query, and only with a value to find,
     // since a message with none can't belong to a completed instance and some persistence matches every row on it
     const workflowState = hasLookupValue(lookupValue)
-      ? await persistence.getWorkflowState<WorkflowState, Message>(
+      ? await store.getWorkflowState<WorkflowState, Message>(
           workflowStateType,
           mapping,
           message,
@@ -734,10 +747,19 @@ export class WorkflowRegistry {
     )
   }
 
+  /**
+   * Where the workflow state of the message being handled is read and saved: its transaction, on a bus configured
+   * with `withOutbox()`, or a store that holds the saves until its outbox is flushed. Outside the handling of a
+   * message, the persistence.
+   */
+  private workflowStateStore(): WorkflowStateStore {
+    return this.unitOfWorkContext.get() ?? this.persistence
+  }
+
   private async persist(data: WorkflowState) {
     try {
       // The persistence stores plain JSON values, so it doesn't need this bus' serializer
-      await this.persistence.saveWorkflowState(
+      await this.workflowStateStore().saveWorkflowState(
         this.coreDependencies.serializer.toPlain(data) as WorkflowState
       )
       this.logger.debug('Workflow state saved', { data })

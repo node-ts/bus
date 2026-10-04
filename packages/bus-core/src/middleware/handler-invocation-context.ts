@@ -2,8 +2,8 @@ import { IncomingContext } from './incoming-context'
 
 /**
  * The context a `handler` middleware gets each time a handler or workflow handler is called for a message. The
- * middleware runs inside that handler's outbox, so its sends and publishes are buffered with the handler's and
- * dropped if the handler fails.
+ * middleware runs inside the outbox the message's handlers share, so its sends and publishes are buffered with
+ * theirs and dropped if any of them fails. With `withOutbox()`, its `transaction` is the message's transaction.
  * @example
  * const logHandlers: Middleware<HandlerInvocationContext> = async (context, next) => {
  *   console.log(`${context.handlerName} is handling ${context.message.$name}`)

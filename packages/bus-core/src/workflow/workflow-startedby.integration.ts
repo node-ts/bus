@@ -76,7 +76,7 @@ describe('Workflow Started By', () => {
     })
   })
 
-  describe('when a startedBy message is retried after the workflow state was saved', () => {
+  describe('when a startedBy message is retried after another handler failed', () => {
     const persistence = new InMemoryPersistence()
     const workflowRegistryLogger = Mock.ofType<Logger>()
     const events = new EventEmitter()
@@ -119,8 +119,8 @@ describe('Workflow Started By', () => {
 
     afterAll(async () => retriedBus.dispose())
 
-    it('should start a second workflow instance', () => {
-      expect(persistence.length(TestVoidStartedByWorkflowState)).toEqual(2)
+    it('should start one workflow instance, since the failed attempt saved nothing', () => {
+      expect(persistence.length(TestVoidStartedByWorkflowState)).toEqual(1)
     })
 
     it('should log the workflow name', () => {

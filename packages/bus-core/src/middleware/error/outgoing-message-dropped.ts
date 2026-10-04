@@ -13,12 +13,13 @@ export enum OutgoingMessageDropReason {
    */
   Rejected = 'rejected',
   /**
-   * The handler that sent it failed, so its outbox was discarded
+   * A handler of the message being handled failed, or the workflow state its handlers returned couldn't be saved, so
+   * the outbox they share was discarded
    */
   HandlerFailed = 'handler-failed',
   /**
-   * The message being handled was failed or returned with `failMessage()` or `returnMessage()`, so the handler's
-   * outbox was discarded even though the handler resolved
+   * The message being handled was failed or returned with `failMessage()` or `returnMessage()`, so its handlers'
+   * outbox was discarded even though they resolved
    */
   MessageFailedOrReturned = 'message-failed-or-returned',
   /**
@@ -26,10 +27,21 @@ export enum OutgoingMessageDropReason {
    */
   OutboxFlushFailed = 'outbox-flush-failed',
   /**
-   * It was sent with `deliverAfter` or `deliverAt`, and a message with the same `messageId` is already stored to send
-   * later, so the persistence skipped it
+   * A message with the same `messageId` was already stored to send later, or stored earlier in the same outbox, so
+   * the persistence skipped it. That's a message sent with `deliverAfter` or `deliverAt`, or, with `withOutbox()`,
+   * any message stored in the outbox.
    */
-  Duplicate = 'duplicate'
+  Duplicate = 'duplicate',
+  /**
+   * With `withOutbox()`, the outbox's messages couldn't be stored in its transaction, or the transaction couldn't be
+   * committed, so nothing was kept or sent. The error is the drop's `cause`.
+   */
+  TransactionFailed = 'transaction-failed',
+  /**
+   * It was sent from work given to `bus.transaction()` that threw, or from a transaction that such work joined, so the
+   * transaction was rolled back. The error is the drop's `cause`.
+   */
+  TransactionWorkFailed = 'transaction-work-failed'
 }
 
 /**
@@ -40,7 +52,7 @@ export class OutgoingMessageDropped extends Error {
   /**
    * @param messageName the `$name` of the message that was dropped
    * @param reason why it was dropped
-   * @param cause the error that rejected the send, when the reason is `rejected`
+   * @param cause the error behind the drop, such as the one that rejected the send when the reason is `rejected`
    */
   constructor(
     readonly messageName: string,

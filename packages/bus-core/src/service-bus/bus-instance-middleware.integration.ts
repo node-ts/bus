@@ -392,10 +392,10 @@ describe('BusInstance middleware', () => {
       )
     })
 
-    it('should still flush the sends of the other handler', () => {
+    it('should drop the sends of the other handler too, since the message will be retried', () => {
       dispatched.verify(
         d => d(It.isObjectWith<Message>({ $name: TestEvent2.NAME })),
-        Times.once()
+        Times.never()
       )
     })
 
@@ -446,6 +446,7 @@ describe('BusInstance middleware', () => {
     const handlerNames: string[] = []
     let statesBefore: number
     let statesAfter: number
+    let statesOnceHandled: number
 
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(() => undefined)
@@ -473,6 +474,7 @@ describe('BusInstance middleware', () => {
       const deleted = once(queue.settled, 'deleted')
       await bus.send(new TestCommand())
       await deleted
+      statesOnceHandled = persistence.length(MiddlewareWorkflowState)
     })
 
     afterAll(async () => {
@@ -483,9 +485,10 @@ describe('BusInstance middleware', () => {
       expect(handlerNames).toEqual(['MiddlewareWorkflow'])
     })
 
-    it('should wrap saving the workflow state', () => {
+    it("should save the workflow state with the message's outbox, once every handler resolves", () => {
       expect(statesBefore).toEqual(0)
-      expect(statesAfter).toEqual(1)
+      expect(statesAfter).toEqual(0)
+      expect(statesOnceHandled).toEqual(1)
     })
   })
 

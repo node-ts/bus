@@ -18,8 +18,8 @@ import { SendOptions } from '../outgoing-message'
  */
 export interface BusSender {
   /**
-   * Sends a command to the transport. Inside a handler, the command is buffered and only sent once the handler
-   * resolves, and is dropped if the handler fails.
+   * Sends a command to the transport. Inside a handler, the command is buffered and only sent once every handler
+   * of the message resolves, and is dropped if any of them fails.
    * @param command The command to send
    * @param options Attributes to attach to the outgoing message, and when to send it. The `correlationId` and
    * `stickyAttributes` of the message being handled are added when sent from a handler. A new `messageId` and
@@ -37,8 +37,8 @@ export interface BusSender {
   ): Promise<void>
 
   /**
-   * Publishes an event to the transport. Inside a handler, the event is buffered and only published once the
-   * handler resolves, and is dropped if the handler fails.
+   * Publishes an event to the transport. Inside a handler, the event is buffered and only published once every
+   * handler of the message resolves, and is dropped if any of them fails.
    * @param event The event to publish
    * @param options Attributes to attach to the outgoing message, and when to publish it. The `correlationId` and
    * `stickyAttributes` of the message being handled are added when published from a handler. A new `messageId` and

@@ -4,8 +4,10 @@ export * from './has-lookup-value'
 export * from './message-workflow-mapping'
 export {
   InMemoryPersistence,
+  OutgoingMessageStoredConcurrently,
   Persistence,
   PersistenceNotConfigured,
+  PersistenceTransaction,
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './persistence'

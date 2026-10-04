@@ -75,7 +75,7 @@ export class MiddlewarePipeline {
   /**
    * Runs the outgoing middleware around buffering or dispatching an outgoing message
    * @param context the context of the outgoing message
-   * @param dispatch buffers the message in the handler's outbox, or sends it to the transport
+   * @param dispatch buffers the message in the outbox of the message being handled, or sends it to the transport
    */
   async runOutgoing(
     context: OutgoingContext,

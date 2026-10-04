@@ -1,3 +1,5 @@
 export * from './error'
 export * from './postgres-configuration'
 export * from './postgres-persistence'
+export * from './postgres-test-transaction'
+export * from './postgres-transaction'

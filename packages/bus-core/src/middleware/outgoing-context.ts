@@ -41,18 +41,21 @@ export interface OutgoingSendContext {
   readonly dueAt?: Date
 
   /**
-   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
-   * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
-   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
-   * to send later.
+   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the outbox
+   * the message's handlers share is flushed after they all resolve, so it can be well after `next()` resolves;
+   * anywhere else, it's when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on
+   * once it's stored to send later. With `withOutbox()`, a message sent inside a handler or `bus.transaction()` counts
+   * as handed on once its transaction is committed, since a started bus sends it from the persistence if sending it
+   * straight away then fails.
    *
    * It resolves once the transport has accepted the message, or the persistence has stored a delayed one. It
    * rejects with the transport's error if sending it failed, with the persistence's error if storing a delayed
    * message failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
    * `send()` or `publish()` was rejected before the transport (a middleware threw, or a header was reserved; the
-   * error is the drop's `cause`), the handler failed or called `failMessage()` or `returnMessage()`, another
-   * message in the outbox failed to send first, or a delayed message with the same `messageId` is already stored
-   * (`duplicate`). It never rejects with any other error. A rejection nobody awaits is
+   * error is the drop's `cause`), a handler of the message failed or called `failMessage()` or `returnMessage()`,
+   * another message in the outbox failed to send first, a message with the same `messageId` is already stored
+   * (`duplicate`), the transaction it was stored in couldn't be committed (`transaction-failed`), or work given to
+   * `bus.transaction()` threw (`transaction-work-failed`). It never rejects with any other error. A rejection nobody awaits is
    * ignored.
    *
    * A buffered message is sent in the async context `next()` was called in, so a tracing span or other
@@ -104,18 +107,21 @@ export interface OutgoingPublishContext {
   readonly dueAt?: Date
 
   /**
-   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
-   * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
-   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
-   * to send later.
+   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the outbox
+   * the message's handlers share is flushed after they all resolve, so it can be well after `next()` resolves;
+   * anywhere else, it's when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on
+   * once it's stored to send later. With `withOutbox()`, a message sent inside a handler or `bus.transaction()` counts
+   * as handed on once its transaction is committed, since a started bus sends it from the persistence if sending it
+   * straight away then fails.
    *
    * It resolves once the transport has accepted the message, or the persistence has stored a delayed one. It
    * rejects with the transport's error if sending it failed, with the persistence's error if storing a delayed
    * message failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
    * `send()` or `publish()` was rejected before the transport (a middleware threw, or a header was reserved; the
-   * error is the drop's `cause`), the handler failed or called `failMessage()` or `returnMessage()`, another
-   * message in the outbox failed to send first, or a delayed message with the same `messageId` is already stored
-   * (`duplicate`). It never rejects with any other error. A rejection nobody awaits is
+   * error is the drop's `cause`), a handler of the message failed or called `failMessage()` or `returnMessage()`,
+   * another message in the outbox failed to send first, a message with the same `messageId` is already stored
+   * (`duplicate`), the transaction it was stored in couldn't be committed (`transaction-failed`), or work given to
+   * `bus.transaction()` threw (`transaction-work-failed`). It never rejects with any other error. A rejection nobody awaits is
    * ignored.
    *
    * A buffered message is sent in the async context `next()` was called in, so a tracing span or other
@@ -167,18 +173,21 @@ export interface OutgoingReplyContext {
   headers: TransportHeaders
 
   /**
-   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
-   * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
-   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
-   * to send later.
+   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the outbox
+   * the message's handlers share is flushed after they all resolve, so it can be well after `next()` resolves;
+   * anywhere else, it's when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on
+   * once it's stored to send later. With `withOutbox()`, a message sent inside a handler or `bus.transaction()` counts
+   * as handed on once its transaction is committed, since a started bus sends it from the persistence if sending it
+   * straight away then fails.
    *
    * It resolves once the transport has accepted the message, or the persistence has stored a delayed one. It
    * rejects with the transport's error if sending it failed, with the persistence's error if storing a delayed
    * message failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
    * `send()` or `publish()` was rejected before the transport (a middleware threw, or a header was reserved; the
-   * error is the drop's `cause`), the handler failed or called `failMessage()` or `returnMessage()`, another
-   * message in the outbox failed to send first, or a delayed message with the same `messageId` is already stored
-   * (`duplicate`). It never rejects with any other error. A rejection nobody awaits is
+   * error is the drop's `cause`), a handler of the message failed or called `failMessage()` or `returnMessage()`,
+   * another message in the outbox failed to send first, a message with the same `messageId` is already stored
+   * (`duplicate`), the transaction it was stored in couldn't be committed (`transaction-failed`), or work given to
+   * `bus.transaction()` threw (`transaction-work-failed`). It never rejects with any other error. A rejection nobody awaits is
    * ignored.
    *
    * A buffered message is sent in the async context `next()` was called in, so a tracing span or other
