@@ -1,8 +1,15 @@
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { MessageAttributes, messageAttributes } from '@node-ts/bus-messages'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { ContainerAdapter } from '../../container'
-import { DefaultHandlerRegistry, Handler } from '../../handler'
-import { DebugLogger } from '../../logger'
+import {
+  DefaultHandlerRegistry,
+  FunctionHandler,
+  Handler,
+  HandlerContext,
+  HandlerDefinition,
+  HandlerRegistry
+} from '../../handler'
+import { DebugLogger, Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { MessageLifecycleContext } from '../../message-lifecycle-context'
 import { Bus, BusInstance } from '../../service-bus'
@@ -17,11 +24,14 @@ import {
   WorkflowStateNotProvided
 } from '../error'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { InMemoryPersistence } from '../persistence'
+import { InMemoryPersistence, Persistence } from '../persistence'
 import {
   TaskRan,
+  testFunctionTimeoutWorkflow,
+  TestFunctionTimeoutWorkflowState,
   testFunctionWorkflow,
-  TestFunctionWorkflowState
+  TestFunctionWorkflowState,
+  TestPaymentTimedOut
 } from '../test'
 import { FinalTask } from '../test/final-task'
 import { RunTaskHandler } from '../test/run-task-handler'
@@ -29,6 +39,7 @@ import { TestCommand } from '../test/test-command'
 import { TestWorkflow } from '../test/test-workflow'
 import { TestWorkflowState } from '../test/test-workflow-state'
 import { Workflow, WorkflowMapper } from '../workflow'
+import { WorkflowStatus } from '../workflow-state'
 import { WorkflowRegistry } from './workflow-registry'
 
 class TestFinalTaskHandler implements Handler<FinalTask> {
@@ -289,6 +300,248 @@ describe('WorkflowRegistry', () => {
       expect((error as WorkflowNameAlreadyRegistered).workflowName).toEqual(
         TestFunctionWorkflowState.NAME
       )
+    })
+  })
+
+  describe('when a message finds no running workflow instance', () => {
+    const COMPLETED_LOG =
+      'Workflow instance for message has already completed. Ignoring.'
+    const NOT_FOUND_LOG = 'No workflow instance found for message. Ignoring.'
+    const timeout = TestPaymentTimedOut({ orderId: 'order-1' })
+    const attributes = messageAttributes({
+      stickyAttributes: { workflowId: 'workflow-1' }
+    })
+    let logger: IMock<Logger>
+    let timeoutPersistence: IMock<Persistence>
+
+    const workflowState = (
+      $workflowId: string,
+      $status: WorkflowStatus
+    ): TestFunctionTimeoutWorkflowState =>
+      Object.assign(new TestFunctionTimeoutWorkflowState(), {
+        $workflowId,
+        $status,
+        $version: 2,
+        orderId: 'order-1',
+        paid: true,
+        timedOutOrderId: undefined
+      })
+
+    /**
+     * Initializes a registry for `testFunctionTimeoutWorkflow`, and handles a timeout with the handler it registers
+     * @param stateIncludingCompleted what the persistence finds when it's asked for completed instances too
+     * @param timeoutAttributes the attributes the timeout arrives with
+     */
+    const handleTimeout = async (
+      stateIncludingCompleted: TestFunctionTimeoutWorkflowState[],
+      timeoutAttributes: MessageAttributes = attributes
+    ): Promise<void> => {
+      logger = Mock.ofType<Logger>()
+      timeoutPersistence = Mock.ofType<Persistence>()
+      timeoutPersistence
+        .setup(p =>
+          p.getWorkflowState(
+            It.isAny(),
+            It.isAny(),
+            It.isAny(),
+            It.isAny(),
+            false
+          )
+        )
+        .returns(async () => [])
+      timeoutPersistence
+        .setup(p =>
+          p.getWorkflowState(
+            It.isAny(),
+            It.isAny(),
+            It.isAny(),
+            It.isAny(),
+            true
+          )
+        )
+        .returns(async () => stateIncludingCompleted)
+
+      const handlers = new Map<string, HandlerDefinition>()
+      const handlerRegistry = Mock.ofType<HandlerRegistry>()
+      handlerRegistry
+        .setup(r => r.register(It.isAny(), It.isAny()))
+        .callback((messageType: { NAME: string }, handler) =>
+          handlers.set(messageType.NAME, handler)
+        )
+
+      sut = new WorkflowRegistry()
+      sut.register(testFunctionTimeoutWorkflow)
+      sut.prepare(
+        {
+          loggerFactory: () => logger.object
+        } as unknown as CoreDependencies,
+        timeoutPersistence.object,
+        new MessageHandlingContext(),
+        new MessageLifecycleContext()
+      )
+      await sut.initialize(handlerRegistry.object, undefined)
+
+      const handler = handlers.get(
+        TestPaymentTimedOut.NAME
+      ) as FunctionHandler<TestPaymentTimedOut>
+      await handler(
+        timeout,
+        timeoutAttributes,
+        Mock.ofType<HandlerContext>().object
+      )
+    }
+
+    describe('and its instance has completed', () => {
+      beforeAll(async () => {
+        await handleTimeout([
+          workflowState('workflow-1', WorkflowStatus.Complete)
+        ])
+      })
+
+      it('should look for completed instances after finding no running one', () => {
+        timeoutPersistence.verify(
+          p =>
+            p.getWorkflowState(
+              TestFunctionTimeoutWorkflowState,
+              It.isAny(),
+              timeout,
+              attributes,
+              true
+            ),
+          Times.once()
+        )
+      })
+
+      it('should ignore the message and log it at debug with its mapping', () => {
+        logger.verify(
+          l =>
+            l.debug(
+              COMPLETED_LOG,
+              It.isObjectWith({
+                messageName: TestPaymentTimedOut.NAME,
+                workflowName: TestFunctionTimeoutWorkflowState.NAME,
+                mapsTo: '$workflowId',
+                lookupValue: 'workflow-1',
+                completedInstances: 1,
+                workflowIds: ['workflow-1']
+              })
+            ),
+          Times.once()
+        )
+      })
+
+      it('should not log a warning or an error', () => {
+        logger.verify(l => l.warn(It.isAny(), It.isAny()), Times.never())
+        logger.verify(l => l.error(It.isAny(), It.isAny()), Times.never())
+      })
+    })
+
+    describe('and it matches many completed instances', () => {
+      const workflowIds = Array.from(
+        { length: 7 },
+        (_, index) => `workflow-${index}`
+      )
+
+      beforeAll(async () => {
+        await handleTimeout(
+          workflowIds.map(id => workflowState(id, WorkflowStatus.Complete))
+        )
+      })
+
+      it('should log how many there are, and the ids of the first 5 only', () => {
+        logger.verify(
+          l =>
+            l.debug(
+              COMPLETED_LOG,
+              It.isObjectWith({
+                completedInstances: 7,
+                workflowIds: workflowIds.slice(0, 5)
+              })
+            ),
+          Times.once()
+        )
+      })
+    })
+
+    describe('and no instance of it was ever started', () => {
+      beforeAll(async () => {
+        await handleTimeout([])
+      })
+
+      it('should ignore the message and log a warning naming the workflow, the mapping and the fix', () => {
+        logger.verify(
+          l =>
+            l.warn(
+              NOT_FOUND_LOG,
+              It.is<Record<string, unknown>>(
+                context =>
+                  context.messageName === TestPaymentTimedOut.NAME &&
+                  context.workflowName ===
+                    TestFunctionTimeoutWorkflowState.NAME &&
+                  context.mapsTo === '$workflowId' &&
+                  context.lookupValue === 'workflow-1' &&
+                  typeof context.help === 'string'
+              )
+            ),
+          Times.once()
+        )
+      })
+
+      it('should not log it as completed', () => {
+        logger.verify(l => l.debug(COMPLETED_LOG, It.isAny()), Times.never())
+      })
+    })
+
+    describe('and an instance started after the first query', () => {
+      beforeAll(async () => {
+        await handleTimeout([
+          workflowState('workflow-1', WorkflowStatus.Running)
+        ])
+      })
+
+      it('should not log it as completed', () => {
+        logger.verify(l => l.debug(COMPLETED_LOG, It.isAny()), Times.never())
+      })
+
+      it('should log a warning', () => {
+        logger.verify(l => l.warn(NOT_FOUND_LOG, It.isAny()), Times.once())
+      })
+    })
+
+    describe('and its lookup finds no value', () => {
+      beforeAll(async () => {
+        await handleTimeout(
+          [workflowState('workflow-1', WorkflowStatus.Complete)],
+          messageAttributes()
+        )
+      })
+
+      it('should not look for completed instances', () => {
+        timeoutPersistence.verify(
+          p =>
+            p.getWorkflowState(
+              It.isAny(),
+              It.isAny(),
+              It.isAny(),
+              It.isAny(),
+              true
+            ),
+          Times.never()
+        )
+      })
+
+      it('should log a warning', () => {
+        logger.verify(
+          l =>
+            l.warn(
+              NOT_FOUND_LOG,
+              It.is<Record<string, unknown>>(
+                context => 'lookupValue' in context && !context.lookupValue
+              )
+            ),
+          Times.once()
+        )
+      })
     })
   })
 

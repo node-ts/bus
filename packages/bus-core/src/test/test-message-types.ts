@@ -14,6 +14,13 @@ import {
   TestReplyingWorkflowState
 } from '../workflow/test/test-replying-workflow'
 import { TestRequestReplyWorkflowState } from '../workflow/test/test-request-reply-workflow'
+import {
+  StartTestTimeoutWorkflow,
+  TestFunctionTimeoutWorkflowState,
+  TestPaymentReceived,
+  TestPaymentTimedOut,
+  TestTimeoutWorkflowState
+} from '../workflow/test/test-timeout-workflow'
 import { TestVoidStartedByWorkflowState } from '../workflow/test/test-void-startedby-workflow'
 import { TestWorkflowStartedByCompletesData } from '../workflow/test/test-workflow-startedby-completes'
 import { TestWorkflowStartedByDiscardData } from '../workflow/test/test-workflow-startedby-discard'
@@ -55,5 +62,10 @@ export const testMessageTypes = messageTypesFor(
   TestFunctionStartedByVoidState,
   TestRequestReplyWorkflowState,
   TestReplyingWorkflowState,
-  TestReplyingClassWorkflowState
+  TestReplyingClassWorkflowState,
+  StartTestTimeoutWorkflow,
+  TestPaymentReceived,
+  TestPaymentTimedOut,
+  TestTimeoutWorkflowState,
+  TestFunctionTimeoutWorkflowState
 )

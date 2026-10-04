@@ -37,6 +37,15 @@ export class CheckCredit extends Command {
 }
 
 /**
+ * The timeout: the credit check took too long to answer
+ */
+export class CreditCheckTimedOut extends Command {
+  static NAME = 'my-app/orders/credit-check-timed-out'
+  $name = CreditCheckTimedOut.NAME
+  $version = 0
+}
+
+/**
  * The reply: the result of a credit check
  */
 export class CreditChecked extends Event {

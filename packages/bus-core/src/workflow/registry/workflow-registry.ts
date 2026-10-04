@@ -51,6 +51,22 @@ const workflowLookup: MessageWorkflowMapping = {
 }
 
 /**
+ * The most ids of completed workflow instances logged for a message that matches them
+ */
+const MAX_LOGGED_WORKFLOW_IDS = 5
+
+/**
+ * A message that a workflow handles, which found no running instance of it
+ */
+interface UnmatchedWorkflowMessage {
+  message: Message
+  attributes: MessageAttributes
+  workflowName: string
+  workflowStateType: ClassConstructor<WorkflowState>
+  mapping: MessageWorkflowMapping
+}
+
+/**
  * A class workflow, or a workflow declared with `defineWorkflow`, as `withWorkflow()` takes it
  */
 type WorkflowToRegister =
@@ -440,10 +456,13 @@ export class WorkflowRegistry {
           )
 
           if (!workflowState.length) {
-            this.logger.error(
-              'No existing workflow state found for message. Ignoring.',
-              { busMessage: message, attributes }
-            )
+            await this.ignoreUnmatchedMessage(this.persistence, {
+              message,
+              attributes,
+              workflowName,
+              workflowStateType,
+              mapping: messageMapping
+            })
             return
           }
 
@@ -473,6 +492,67 @@ export class WorkflowRegistry {
         }
       )
     })
+  }
+
+  /**
+   * Logs a message that found no running workflow instance, which is then ignored. A message for an instance that
+   * has completed, such as a timeout that arrives after the step it guards, is expected, so it's logged at debug.
+   * One that matches no instance at all may be misrouted or mapped wrongly, so it's logged as a warning.
+   * @param persistence the store to look for completed instances in
+   * @param unmatched the message, and the workflow and mapping it found no running instance with
+   */
+  private async ignoreUnmatchedMessage(
+    persistence: Persistence,
+    unmatched: UnmatchedWorkflowMessage
+  ): Promise<void> {
+    const { message, attributes, workflowName, workflowStateType, mapping } =
+      unmatched
+    const lookupValue: unknown = mapping.lookup(message, attributes)
+    const logContext = {
+      busMessage: message,
+      messageName: message.$name,
+      workflowName,
+      mapsTo: mapping.mapsTo,
+      lookupValue
+    }
+
+    const hasLookupValue =
+      lookupValue !== undefined && lookupValue !== null && lookupValue !== ''
+    // Only read on a miss, so a message for a running instance costs no extra query, and only with a value to find,
+    // since a message with none can't belong to a completed instance and some persistence matches every row on it
+    const workflowState = hasLookupValue
+      ? await persistence.getWorkflowState<WorkflowState, Message>(
+          workflowStateType,
+          mapping,
+          message,
+          attributes,
+          true
+        )
+      : []
+    // An instance that started since the first query is running, not completed, so it doesn't count
+    const completedWorkflowIds = workflowState
+      .filter(state => state.$status === WorkflowStatus.Complete)
+      .map(state => state.$workflowId)
+
+    if (completedWorkflowIds.length) {
+      this.logger.debug(
+        'Workflow instance for message has already completed. Ignoring.',
+        {
+          ...logContext,
+          completedInstances: completedWorkflowIds.length,
+          workflowIds: completedWorkflowIds.slice(0, MAX_LOGGED_WORKFLOW_IDS)
+        }
+      )
+    } else {
+      this.logger.warn('No workflow instance found for message. Ignoring.', {
+        ...logContext,
+        attributes,
+        help:
+          `Check that the message was meant for ${workflowName}, and that its lookup returns the ${mapping.mapsTo}` +
+          ` of an instance. With the default mapping, only messages sent from the workflow, or from handlers of the` +
+          ` messages it sent, carry its workflowId.`
+      })
+    }
   }
 
   /**

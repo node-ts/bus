@@ -9,7 +9,12 @@ import {
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { RabbitMqTransport } from '@node-ts/bus-rabbitmq'
 import { messageTypes } from './message-types.generated'
-import { CheckCredit, CreditChecked, OrderSubmitted } from './messages'
+import {
+  CheckCredit,
+  CreditChecked,
+  CreditCheckTimedOut,
+  OrderSubmitted
+} from './messages'
 import { creditService } from './services'
 import { CreditCheckState } from './workflows/credit-check-state'
 import { OrderApprovalState } from './workflows/order-approval-state'
@@ -126,6 +131,69 @@ export const orderApprovalByOrderWorkflow = defineWorkflow(OrderApprovalState)
       ctx.complete({ status: approved ? 'approved' : 'declined' })
   )
 // #endregion field-mapping
+
+// #region timeout
+const CREDIT_CHECK_TIMEOUT_MS = 5 * 60 * 1_000
+
+export const orderApprovalWithTimeoutWorkflow = defineWorkflow(
+  OrderApprovalState
+)
+  .startedBy(
+    OrderSubmitted,
+    async ({ orderId, customerId, amount }, _state, ctx) => {
+      await ctx.send(new CheckCredit(orderId, customerId, amount))
+      // Comes back to this instance in 5 minutes, unless it has completed
+      await ctx.send(new CreditCheckTimedOut(), {
+        deliverAfter: CREDIT_CHECK_TIMEOUT_MS
+      })
+      return { orderId, status: 'checking-credit' as const }
+    }
+  )
+  .when(CreditChecked, ({ approved }, _state, ctx) =>
+    ctx.complete({ status: approved ? 'approved' : 'declined' })
+  )
+  .when(CreditCheckTimedOut, (_timeout, _state, ctx) =>
+    ctx.complete({ status: 'credit-check-timed-out' })
+  )
+// #endregion timeout
+
+// #region class-timeout
+export class OrderApprovalWithTimeoutWorkflow extends Workflow<OrderApprovalState> {
+  configureWorkflow(
+    mapper: WorkflowMapper<OrderApprovalState, OrderApprovalWithTimeoutWorkflow>
+  ): void {
+    mapper
+      .withState(OrderApprovalState)
+      .startedBy(OrderSubmitted, 'checkCredit')
+      .when(CreditChecked, 'creditChecked')
+      .when(CreditCheckTimedOut, 'creditCheckTimedOut')
+  }
+
+  async checkCredit(
+    { orderId, customerId, amount }: OrderSubmitted,
+    _state: OrderApprovalState,
+    _attributes: MessageAttributes,
+    ctx: HandlerContext
+  ) {
+    await ctx.send(new CheckCredit(orderId, customerId, amount))
+    // Comes back to this instance in 5 minutes, unless it has completed
+    await ctx.send(new CreditCheckTimedOut(), {
+      deliverAfter: CREDIT_CHECK_TIMEOUT_MS
+    })
+    return { orderId, status: 'checking-credit' as const }
+  }
+
+  creditChecked({ approved }: CreditChecked) {
+    return this.completeWorkflow({
+      status: approved ? ('approved' as const) : ('declined' as const)
+    })
+  }
+
+  creditCheckTimedOut() {
+    return this.completeWorkflow({ status: 'credit-check-timed-out' })
+  }
+}
+// #endregion class-timeout
 
 // #region services
 // The orders service runs the workflow. Give it a persistence, such as
