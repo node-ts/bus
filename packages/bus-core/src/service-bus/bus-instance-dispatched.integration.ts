@@ -1,7 +1,7 @@
 import { Event } from '@node-ts/bus-messages'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { once } from 'node:events'
-import { Mock } from 'typemoq'
+import { It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
 import {
@@ -761,12 +761,13 @@ describe('BusInstance dispatched', () => {
     let bus: BusInstance
     const settlements: Promise<Settlement>[] = []
     const persistence = new BatchRecordingPersistence()
+    const logger = Mock.ofType<Logger>()
 
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(() => undefined)
       bus = Bus.configure()
         .withMessageTypes(testMessageTypes)
-        .withLogger(silentLogger)
+        .withLogger(() => logger.object)
         .withTransport(queue)
         .withPersistence(persistence)
         .withHandler(
@@ -803,6 +804,19 @@ describe('BusInstance dispatched', () => {
 
     it('should only give the store the first, so it needs no way to report an id repeated in one batch', () => {
       expect(persistence.storedIds).toEqual([['outbox-dup']])
+    })
+
+    it('should warn that the repeated message was not stored, naming its id', () => {
+      logger.verify(
+        l =>
+          l.warn(
+            It.is<string>(message =>
+              message.startsWith('Scheduled messages were not stored')
+            ),
+            It.isObjectWith({ duplicateIds: ['outbox-dup'] })
+          ),
+        Times.once()
+      )
     })
 
     it('should store the first and reject the second as a duplicate', async () => {

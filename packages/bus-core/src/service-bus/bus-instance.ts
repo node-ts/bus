@@ -1405,6 +1405,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   ): Promise<void> {
     // Stores don't agree on how they report an id repeated within one batch, so only the first is given to the store
     const { unique, repeated } = splitRepeatedIds(outgoingMessages)
+    if (repeated.length > 0) {
+      this.warnOfDuplicates(repeated.map(m => m.attributes.messageId!))
+    }
     repeated.forEach(m => dropOutgoing(m, OutgoingMessageDropReason.Duplicate))
     let stored: boolean[]
     try {
@@ -1417,6 +1420,17 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       stored[index]
         ? m.settle.resolve()
         : dropOutgoing(m, OutgoingMessageDropReason.Duplicate)
+    )
+  }
+
+  /**
+   * Warns that delayed messages weren't stored, because messages with the same `messageId` are already scheduled
+   * @param duplicateIds the ids of the messages that weren't stored
+   */
+  private warnOfDuplicates(duplicateIds: string[]): void {
+    this.logger.warn(
+      'Scheduled messages were not stored, because messages with the same messageId are already scheduled. Give each message sent with deliverAfter or deliverAt a messageId of its own.',
+      { duplicateIds }
     )
   }
 
@@ -1446,10 +1460,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     )
     const duplicateIds = await this.persistence.storeOutgoingMessages(toStore)
     if (duplicateIds.length > 0) {
-      this.logger.warn(
-        'Scheduled messages were not stored, because messages with the same messageId are already scheduled. Give each message sent with deliverAfter or deliverAt a messageId of its own.',
-        { duplicateIds }
-      )
+      this.warnOfDuplicates(duplicateIds)
     }
     this.logger.debug('Stored outgoing messages to send when they are due', {
       outgoingMessages: toStore.map(({ id, kind, dueAt }) => ({
