@@ -72,11 +72,11 @@ Other running instances of the workflow aren't affected, since their ids don't m
 
 Every message sent by a bus that receives messages carries a return address: the `replyTo` [attribute](/guide/message-attributes), set to the address of its transport's queue. On RabbitMQ and the in-memory queue it's the queue's name. On Amazon SQS it's the [queue's URL](/transports/amazon-sqs#replies), so a replier in another account or region can reach it. Like the `messageId`, it isn't copied from the message being handled. A reply has one too, so it can be replied to.
 
-A send-only bus has no queue that's read, so it sets no return address. Pass `replyTo` in the attributes of `send()` or `publish()` to have replies sent to another endpoint, or `replyTo: undefined` to leave it out.
+A send-only bus and a [scheduler](/guide/delayed-delivery#running-a-dedicated-scheduler) have no queue that's read, so they set no return address. A delayed message keeps the return address of the bus that sent it, not the scheduler's. Pass `replyTo` in the attributes of `send()` or `publish()` to have replies sent to another endpoint, or `replyTo: undefined` to leave it out.
 
 `ctx.reply()` throws:
 
-- `ReturnAddressMissing` when the message being handled has no return address, such as one sent by a send-only bus or by a service that isn't on @node-ts/bus.
+- `ReturnAddressMissing` when the message being handled has no return address, such as one sent by a send-only bus, a scheduler, or a service that isn't on @node-ts/bus.
 - `ReplyOutsideHandlingContext` when it's called outside the handling of the message it replies to: from a handler context that was kept and called while another message is handled, or from a timer that fires after its handler resolved.
 - `DelayedReplyNotSupported` when it's given `deliverAfter` or `deliverAt`. Replies are sent straight away; to answer later, send or publish a [delayed message](/guide/delayed-delivery) the requester handles. A delayed `send()` or `publish()` keeps the return address it was sent with.
 - `TransportReplyNotSupported` when the transport can't send a message straight to a queue. The in-memory queue, [RabbitMQ](/transports/rabbitmq#replies) and [Amazon SQS](/transports/amazon-sqs#replies) transports can, and a [custom transport](/transports/custom) implements `sendToAddress()`. The in-memory queue can only reply to its own bus.
@@ -93,7 +93,7 @@ The replying service can't use `ctx.reply()` when:
 
 - **The replying service doesn't use @node-ts/bus.**
 - **The reply is sent from outside the handling of the request**, such as by a later job, a callback, another process, or a later step of a workflow.
-- **The request has no return address**, such as one sent by a send-only bus.
+- **The request has no return address**, such as one sent by a send-only bus or a scheduler.
 
 In these cases, have the replier send or publish the reply, put a field in the request and the reply that the requesting workflow can find itself by, such as the `orderId`, and [map the reply by that field](/guide/workflows/handling#mapping-by-message-fields):
 

@@ -356,7 +356,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * @param event An event to publish
    * @param options A set of attributes to attach to the outgoing message when published, and when to publish it. A
    * new `messageId` and `sentAt` are set unless given, and so is this bus' return address (`replyTo`) unless it's
-   * send-only. Pass `replyTo: undefined` to leave the return address out.
+   * send-only or a scheduler. Pass `replyTo: undefined` to leave the return address out.
    * @throws DelayedDeliveryNotSupported if `deliverAfter` or `deliverAt` is given and the persistence can't store
    * messages to send later
    * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
@@ -394,7 +394,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * @param command A command to send
    * @param options A set of attributes to attach to the outgoing message when sent, and when to send it. A new
    * `messageId` and `sentAt` are set unless given, and so is this bus' return address (`replyTo`) unless it's
-   * send-only. Pass `replyTo: undefined` to leave the return address out.
+   * send-only or a scheduler. Pass `replyTo: undefined` to leave the return address out.
    * @throws DelayedDeliveryNotSupported if `deliverAfter` or `deliverAt` is given and the persistence can't store
    * messages to send later
    * @throws InvalidDeliveryOptions if `deliverAfter` or `deliverAt` isn't a usable time, or both are given
@@ -635,11 +635,11 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
   /**
    * The return address stamped on outgoing messages, so replies come back to this bus' queue: the transport's
-   * `returnAddress`, or its `endpointName` when it has none. `undefined` for a send-only bus or a transport with
-   * neither, which have no queue that's read.
+   * `returnAddress`, or its `endpointName` when it has none. `undefined` for a send-only bus, a scheduler or a
+   * transport with neither, which have no queue that's read.
    */
   private get returnAddress(): string | undefined {
-    if (this.sendOnly) {
+    if (this.sendOnly || this.scheduler) {
       return undefined
     }
     return (

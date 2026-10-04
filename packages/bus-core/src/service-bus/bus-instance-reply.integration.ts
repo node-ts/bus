@@ -672,4 +672,33 @@ describe('BusInstance reply', () => {
       expect(dispatched[0].attributes).not.toHaveProperty('replyTo')
     })
   })
+
+  describe('when a scheduler sends a message', () => {
+    const { dispatched, onDispatched } = recordDispatched()
+    let scheduler: BusInstance
+
+    beforeAll(async () => {
+      scheduler = Bus.configure()
+        .withLogger(silentLogger)
+        .withTransport(
+          new RecordingInMemoryQueue(onDispatched, QUEUE_CONFIGURATION)
+        )
+        .withPersistence(new InMemoryPersistence())
+        .asScheduler()
+        .build()
+      await scheduler.initialize()
+      await scheduler.start()
+      await scheduler.send(new TestCommand())
+      await scheduler.publish(new TestEvent())
+    })
+
+    afterAll(async () => scheduler.dispose())
+
+    it('should not stamp a return address, since it never reads its queue', () => {
+      expect(dispatched).toHaveLength(2)
+      dispatched.forEach(({ attributes }) =>
+        expect(attributes).not.toHaveProperty('replyTo')
+      )
+    })
+  })
 })

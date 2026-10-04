@@ -47,10 +47,10 @@ export interface MessageAttributes<
   /**
    * The return address of the message: the name of the endpoint (the queue) that sent it, where `ctx.reply()` sends
    * replies to it. A bus that receives messages sets it to its transport's `endpointName` on every message it sends,
-   * unless the caller passes its own, or `undefined` to leave it out. A send-only bus has no queue, so it doesn't set
+   * unless the caller passes its own, or `undefined` to leave it out. A send-only bus or a scheduler has no queue that's read, so it doesn't set
    * one. Like `messageId`, it isn't inherited from the message being handled.
    *
-   * This is optional because messages from a send-only bus, or from outside the bus, may not have one.
+   * This is optional because messages from a send-only bus, a scheduler, or from outside the bus, may not have one.
    * @example order-booking-service
    */
   replyTo?: string
