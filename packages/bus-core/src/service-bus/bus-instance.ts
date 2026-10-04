@@ -53,7 +53,10 @@ import {
   isOutboxPersistence,
   OutboxPersistence
 } from '../outbox/outbox-persistence'
-import { UnitOfWorkContext } from '../outbox/unit-of-work-context'
+import {
+  UnitOfWorkContext,
+  UnitOfWorkScope
+} from '../outbox/unit-of-work-context'
 import {
   DelayedDeliveryNotSupported,
   DelayedDeliveryOptions,
@@ -155,17 +158,9 @@ type OutboxedMessage = OutgoingContext & {
   runInSendContext: <T>(fn: () => T) => T
   dueAt?: Date
   /**
-   * The handler call that sent it, if a handler did
+   * The handler call or workflow instance that sent it, if one did
    */
-  sentBy?: HandlerCall
-}
-
-/**
- * One call of a handler or workflow handler for a received message. Its identity ties the messages it sends to the
- * workflow state it saves.
- */
-interface HandlerCall {
-  handlerName: string
+  sentBy?: UnitOfWorkScope
 }
 
 /**
@@ -211,7 +206,7 @@ interface Outbox {
   /**
    * The workflow state the handlers saved, held until the outbox is flushed, on a bus without `withOutbox()`
    */
-  workflowStateSaves: BufferedWorkflowStateStore<HandlerCall> | undefined
+  workflowStateSaves: BufferedWorkflowStateStore<UnitOfWorkScope> | undefined
   /**
    * What work given to `transaction()` threw while it was joined to the outbox's transaction, which can then only be
    * rolled back
@@ -359,10 +354,6 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private stopInProgress: Promise<void> | undefined
   private interruptSignalListeners: InterruptSignalListener[] = []
   private readonly outbox = new AsyncLocalStorage<Outbox>()
-  /**
-   * The handler call running in the current async context
-   */
-  private readonly handlerCalls = new AsyncLocalStorage<HandlerCall>()
   private readonly outgoingMessageDispatcher:
     OutgoingMessageDispatcher | undefined
   private hasWarnedOfNonDurableDelivery = false
@@ -1226,7 +1217,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     const { message } = outgoingMessage
     switch (outbox.state) {
       case OutboxState.Open:
-        outgoingMessage.sentBy = this.handlerCalls.getStore()
+        outgoingMessage.sentBy = this.unitOfWorkContext.currentScope()
         outbox.messages.push(outgoingMessage)
         return true
       case OutboxState.Flushed:
@@ -1731,11 +1722,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       handlerName: handlerNameOf(handler)
     })
 
-    const handlerCall: HandlerCall = { handlerName: handlerNameOf(handler) }
-    await this.handlerCalls.run(handlerCall, async () =>
-      this.middlewarePipeline.runHandler(invocationContext, async () =>
-        this.invokeHandler(message, attributes, handler, context)
-      )
+    // The workflow registry opens a scope of its own for each workflow instance the handler handles
+    await this.unitOfWorkContext.runInScope(
+      { name: handlerNameOf(handler) },
+      async () =>
+        this.middlewarePipeline.runHandler(invocationContext, async () =>
+          this.invokeHandler(message, attributes, handler, context)
+        )
     )
   }
 
@@ -1796,7 +1789,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     // makes the changes and sends the messages again
     const saves = await outbox.workflowStateSaves?.apply()
     if (saves?.failure) {
-      await this.sendForSavedHandlerCalls(outbox, saves.savedBy)
+      await this.sendForSavedScopes(outbox, saves.savedBy)
       discardOutbox(
         outbox,
         OutgoingMessageDropReason.HandlerFailed,
@@ -1814,14 +1807,14 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
-   * Sends the messages of the handler calls whose workflow state was saved before another save failed, on a bus
-   * without `withOutbox()`. The message is then retried, and those handlers find their state saved, so they could
+   * Sends the messages of the handler calls and workflow instances whose workflow state was saved before another save
+   * failed, on a bus without `withOutbox()`. The message is then retried, and those handlers find their state saved, so they could
    * skip sending the messages again: sending them now means they may be sent twice, but aren't lost. A failure to send
    * them is logged, since the message fails anyway.
    */
-  private async sendForSavedHandlerCalls(
+  private async sendForSavedScopes(
     outbox: Outbox,
-    savedBy: Set<HandlerCall>
+    savedBy: Set<UnitOfWorkScope>
   ): Promise<void> {
     const toSend = outbox.messages.filter(
       ({ sentBy }) => sentBy !== undefined && savedBy.has(sentBy)
@@ -1833,7 +1826,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     this.logger.warn(
       "Saving a workflow's state failed after other workflows' state was saved, so the messages those workflows sent are sent before the message is retried. They may be sent again by the retry. Use withOutbox() to save state and send messages together.",
       {
-        handlers: [...savedBy].map(({ handlerName }) => handlerName),
+        savedBy: [...savedBy].map(({ name }) => name),
         numMessages: toSend.length
       }
     )
@@ -1920,7 +1913,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     const workflowStateSaves = transaction
       ? undefined
       : new BufferedWorkflowStateStore(this.persistence, () =>
-          this.handlerCalls.getStore()
+          this.unitOfWorkContext.currentScope()
         )
     const outbox: Outbox = {
       state: OutboxState.Open,

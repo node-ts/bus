@@ -69,13 +69,20 @@ class ProcessedWorkflowState extends WorkflowState {
 }
 
 /**
- * An in-memory persistence whose first update of one workflow state fails, as if it had been saved elsewhere since it
- * was read
+ * An in-memory persistence whose nth update of one workflow state fails, once, as if it had been saved elsewhere since
+ * it was read
  */
 class ConflictOnceOnUpdatePersistence extends InMemoryPersistence {
-  private hasConflicted = false
+  private updates = 0
 
-  constructor(private readonly workflowStateName: string) {
+  /**
+   * @param workflowStateName the `$name` of the workflow state whose update fails
+   * @param conflictingUpdate which of its updates fails, counting from 1
+   */
+  constructor(
+    private readonly workflowStateName: string,
+    private readonly conflictingUpdate = 1
+  ) {
     super()
   }
 
@@ -83,11 +90,10 @@ class ConflictOnceOnUpdatePersistence extends InMemoryPersistence {
     workflowState: TWorkflowState
   ): Promise<void> {
     if (
-      !this.hasConflicted &&
       workflowState.$name === this.workflowStateName &&
-      workflowState.$version > 0
+      workflowState.$version > 0 &&
+      ++this.updates === this.conflictingUpdate
     ) {
-      this.hasConflicted = true
       throw new WorkflowStateVersionConflict(
         workflowState.$name,
         workflowState.$workflowId,
@@ -832,6 +838,88 @@ describe('BusInstance Outboxing', () => {
         d => d(It.isObjectWith<TestEvent>({ property1: 'requested' })),
         Times.once()
       )
+    })
+  })
+
+  describe("when a workflow handler handles two instances of a workflow, and the second one's state was saved elsewhere since it was read", () => {
+    let bus: BusInstance
+    const persistence = new ConflictOnceOnUpdatePersistence(
+      RequestedOrderWorkflowState.NAME,
+      2
+    )
+    const returned = Mock.ofType<() => void>()
+    const publishedFor: string[] = []
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      const queue = new RecordingInMemoryQueue(
+        message => {
+          if (message.$name === TestEvent.NAME) {
+            publishedFor.push((message as TestEvent).property1!)
+          }
+        },
+        { receiveTimeoutMs: 100 }
+      )
+      queue.settled.on('returned', () => returned.object())
+      queue.settled.on('deleted', (message: TransportMessage<unknown>) =>
+        handled.emit((message.domainMessage as Message).$name)
+      )
+      bus = Bus.configure()
+        .withMessageTypes(
+          testMessageTypes,
+          messageTypesFor(StartOrder, ProcessOrder, RequestedOrderWorkflowState)
+        )
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(queue)
+        .withPersistence(persistence)
+        .withRecoverability(({ failedAttempts }) =>
+          failedAttempts < 3 ? retry(0) : deadLetter()
+        )
+        .withWorkflow(
+          defineWorkflow(RequestedOrderWorkflowState)
+            .startedBy(StartOrder, ({ orderId }) => ({
+              orderId,
+              requested: false
+            }))
+            // Matches both instances, which were started for the same order
+            .when(
+              ProcessOrder,
+              { lookup: ({ orderId }) => orderId, mapsTo: 'orderId' },
+              async (_message, state, ctx) => {
+                if (state.requested) {
+                  return undefined
+                }
+                await ctx.publish(new TestEvent(state.$workflowId))
+                return { requested: true }
+              }
+            )
+        )
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const orderId = 'order-2'
+      for (let started = 0; started < 2; started++) {
+        const startHandled = once(handled, StartOrder.NAME)
+        await bus.send(new StartOrder(orderId))
+        await startHandled
+      }
+      const processed = once(handled, ProcessOrder.NAME)
+      await bus.send(new ProcessOrder(orderId))
+      await processed
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+    })
+
+    it('should retry the message', () => {
+      returned.verify(r => r(), Times.once())
+    })
+
+    it('should publish what each instance published once in all', () => {
+      expect(publishedFor).toHaveLength(2)
+      expect(new Set(publishedFor).size).toEqual(2)
     })
   })
 })

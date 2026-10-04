@@ -62,7 +62,7 @@ Every handler of the message shares the transaction, and the bus begins, commits
 
 ### Testing handlers
 
-A handler that uses `postgresTransaction(ctx)` can be unit tested with a fake context. Put `postgresTestTransaction(client)` on it, with a fake client whose `query` records the queries and returns what the handler expects:
+A handler that uses `postgresTransaction(ctx)` can be unit tested with a fake context. Pass `postgresTestTransaction(client)` to [`handlerContext()`](/guide/testing#testing-a-handler) as its `transaction`, with a fake client whose `query` records the queries and returns what the handler expects:
 
 <<< @/snippets/outbox-testing.ts
 

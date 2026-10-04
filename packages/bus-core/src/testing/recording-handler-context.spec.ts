@@ -230,4 +230,17 @@ describe('handlerContext', () => {
       expect(sut.replied).toEqual([])
     })
   })
+
+  describe("when created with a persistence's transaction", () => {
+    const transaction = { fake: 'transaction' }
+    let sut: RecordingHandlerContext
+
+    beforeEach(() => {
+      sut = handlerContext({ transaction })
+    })
+
+    it("should give handlers the transaction, as the persistence's accessor reads it", () => {
+      expect(sut.transaction).toBe(transaction)
+    })
+  })
 })

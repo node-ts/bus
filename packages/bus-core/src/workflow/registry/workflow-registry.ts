@@ -642,20 +642,25 @@ export class WorkflowRegistry {
       immutableWorkflowState
     )
     try {
-      await this.messageHandlingContext.run(
-        workflowContext,
-        async () => {
-          await this.dispatchMessageToWorkflow(
-            message,
-            attributes,
-            workflowName,
-            immutableWorkflowState,
-            workflowStateConstructor,
-            invoke,
-            context
+      // A scope of its own, so without withOutbox() its messages are only sent early when its own state was saved
+      await this.unitOfWorkContext.runInScope(
+        { name: `${workflowName} ${immutableWorkflowState.$workflowId}` },
+        async () =>
+          this.messageHandlingContext.run(
+            workflowContext,
+            async () => {
+              await this.dispatchMessageToWorkflow(
+                message,
+                attributes,
+                workflowName,
+                immutableWorkflowState,
+                workflowStateConstructor,
+                invoke,
+                context
+              )
+            },
+            true
           )
-        },
-        true
       )
     } catch (error) {
       throw new WorkflowHandlerFailed(
