@@ -30,7 +30,8 @@ const incomingContext: IncomingContext = {
   publish: async () => undefined,
   reply: async () => undefined,
   failMessage: async () => undefined,
-  returnMessage: async () => undefined
+  returnMessage: async () => undefined,
+  requestedSettlement: () => undefined
 }
 
 const handlerContext: HandlerInvocationContext = {
@@ -42,7 +43,8 @@ const outgoingContext = (): OutgoingContext => ({
   kind: 'publish',
   message: new TestEvent(),
   attributes: { attributes: {}, stickyAttributes: {} },
-  headers: {}
+  headers: {},
+  dispatched: Promise.resolve()
 })
 
 /**

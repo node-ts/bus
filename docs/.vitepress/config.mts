@@ -87,6 +87,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'Recoverability', link: '/guide/recoverability' },
       { text: 'Middleware', link: '/guide/middleware' },
       { text: 'Delayed delivery', link: '/guide/delayed-delivery' },
+      { text: 'OpenTelemetry', link: '/guide/opentelemetry' },
       { text: 'Dependency injection', link: '/guide/dependency-injection' },
       {
         text: 'Long running processes',
