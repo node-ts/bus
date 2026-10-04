@@ -16,7 +16,7 @@ import {
   DEFAULT_IN_MEMORY_ENDPOINT_NAME,
   DefaultInMemoryQueueConfiguration
 } from './default-in-memory-queue-configuration'
-import { TransportHeaderReserved } from './error'
+import { EndpointNotFound, TransportHeaderReserved } from './error'
 import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
 import { Transport, TransportInitializationOptions } from './transport'
 import { TransportMessage } from './transport-message'
@@ -128,6 +128,28 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     sendOptions?: TransportSendOptions
   ): Promise<void> {
     this.addToQueue(command, messageOptions, sendOptions)
+  }
+
+  /**
+   * Adds a message to this queue, which is the only return address an in-memory queue can reach: its
+   * `endpointName`. Unlike `send` and `publish`, it's queued even if it has no handler, like a message sent to a
+   * broker's queue, and the bus discards it when it's read.
+   * @param address the return address to send to, which must be this queue's `endpointName`
+   * @param message the message to send
+   * @param messageOptions the attributes to send it with
+   * @param sendOptions native headers from outgoing middleware
+   * @throws EndpointNotFound if `address` isn't this queue's `endpointName`
+   */
+  async sendToAddress(
+    address: string,
+    message: Message,
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
+  ): Promise<void> {
+    if (address !== this.endpointName) {
+      throw new EndpointNotFound(address, 'InMemoryQueue')
+    }
+    this.enqueue(message, messageOptions, sendOptions)
   }
 
   /**
@@ -288,13 +310,14 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     return { ...message, failedAttempts: message.raw.failedAttempts }
   }
 
+  /**
+   * Adds a sent or published message to the queue if it has a handler, as if the queue only subscribes to the
+   * messages it handles
+   */
   private addToQueue(
     message: Message,
-    messageOptions: MessageAttributes = {
-      attributes: {},
-      stickyAttributes: {}
-    },
-    sendOptions: TransportSendOptions = {}
+    messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): void {
     if (!this.messagesWithHandlers.has(message.$name)) {
       this.logger.debug(
@@ -303,7 +326,17 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
       )
       return
     }
+    this.enqueue(message, messageOptions, sendOptions)
+  }
 
+  private enqueue(
+    message: Message,
+    messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    },
+    sendOptions: TransportSendOptions = {}
+  ): void {
     const transportMessage = toTransportMessage(
       message,
       messageOptions,

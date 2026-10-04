@@ -33,6 +33,7 @@ const createFakeContext = (correlationId: string) => {
     publish: async event => {
       published.push(event)
     },
+    reply: async () => undefined,
     failMessage: async () => undefined,
     returnMessage: async () => undefined
   }

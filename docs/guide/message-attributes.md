@@ -16,9 +16,10 @@ Handlers receive the attributes as their second argument, a `MessageAttributes` 
   <Card title="Correlation id" link="/guide/message-attributes/correlation-id">An id that relates messages to each other. It's copied to every message sent while handling one that has it.</Card>
   <Card title="Attributes" link="/guide/message-attributes/attributes">Values for the receiver of this message only.</Card>
   <Card title="Sticky attributes" link="/guide/message-attributes/sticky-attributes">Values copied to every message sent while handling this one, and the ones after it.</Card>
+  <Card title="Return address" link="/guide/workflows/request-reply#the-return-address">A <code>replyTo</code> with the address of the queue the message was sent from, such as its name or, on SQS, its URL. <code>ctx.reply()</code> sends replies to it.</Card>
 </FeatureGrid>
 
-`messageId` and `sentAt` are new for every message, and aren't copied from the message being handled. `attributes` and `stickyAttributes` are always objects in a handler, even when the sender didn't set any, so read them without `?.`. Values can be strings, numbers or booleans.
+`messageId` and `sentAt` are set on every message the bus sends, and `replyTo` on every message sent by a bus that receives messages, so not by a send-only bus or a [scheduler](/guide/delayed-delivery#running-a-dedicated-scheduler). None of them are copied from the message being handled. `attributes` and `stickyAttributes` are always objects in a handler, even when the sender didn't set any, so read them without `?.`. Values can be strings, numbers or booleans.
 
 ## See also
 

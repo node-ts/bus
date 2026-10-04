@@ -22,8 +22,15 @@ import {
   TransportHeaderReserved
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { TestSystemMessage, transportTests } from '@node-ts/bus-test'
-import { EventEmitter } from 'node:events'
+import {
+  messageTypes as busTestMessageTypes,
+  TestReply,
+  TestReplyRequest,
+  TestSystemMessage,
+  transportTests
+} from '@node-ts/bus-test'
+import { randomUUID } from 'node:crypto'
+import { EventEmitter, once } from 'node:events'
 import { Mock } from 'typemoq'
 import {
   fromMessageAttributeMap,
@@ -254,6 +261,109 @@ describe('SqsTransport', () => {
       expect(receivedAttributes.stickyAttributes).toEqual(
         messageOptions.stickyAttributes
       )
+    })
+  })
+
+  describe('when a service replies to a request and another service handles the reply type', () => {
+    const request = new TestReplyRequest(randomUUID())
+    // Published, so it reaches every service subscribed to TestReply
+    const publishedReply = new TestReply(randomUUID())
+    const requesterReplies: TestReply[] = []
+    const bystanderReplies: TestReply[] = []
+    const endpoints: { bus: BusInstance; transport: SqsTransport }[] = []
+
+    beforeAll(async () => {
+      const requesterReceived = new EventEmitter()
+      const bystanderReceived = new EventEmitter()
+      const buildBus = async (
+        endpoint: string,
+        configure: (
+          configuration: ReturnType<typeof Bus.configure>
+        ) => ReturnType<typeof Bus.configure>
+      ) => {
+        const transport = new SqsTransport(
+          {
+            awsRegion: AWS_REGION,
+            awsAccountId: AWS_ACCOUNT_ID,
+            queueName: `${resourcePrefix}-reply-${endpoint}`,
+            deadLetterQueueName: `${resourcePrefix}-reply-${endpoint}-dead-letter`,
+            waitTimeSeconds: 1
+          },
+          sqs,
+          sns
+        )
+        const bus = configure(
+          Bus.configure()
+            .withLogger(() => Mock.ofType<Logger>().object)
+            .withMessageTypes(busTestMessageTypes)
+            .withTransport(transport)
+        ).build()
+        endpoints.push({ bus, transport })
+        await bus.initialize()
+        await bus.start()
+        return bus
+      }
+
+      const requester = await buildBus('requester', c =>
+        c.withHandler(
+          handlerFor(TestReply, reply => {
+            requesterReplies.push(reply)
+            requesterReceived.emit(reply.id)
+          })
+        )
+      )
+      const replier = await buildBus('replier', c =>
+        c.withHandler(
+          handlerFor(TestReplyRequest, async ({ id }, _attributes, ctx) =>
+            ctx.reply(new TestReply(id))
+          )
+        )
+      )
+      // Subscribed to TestReply's topic, so it would get a published reply
+      await buildBus('bystander', c =>
+        c.withHandler(
+          handlerFor(TestReply, reply => {
+            bystanderReplies.push(reply)
+            bystanderReceived.emit(reply.id)
+          })
+        )
+      )
+
+      const replied = once(requesterReceived, request.id)
+      await requester.send(request)
+      await replied
+
+      // A positive control: the bystander gets a published TestReply, so its subscription works. The reply was
+      // sent first, so had it been routed to the bystander it would have arrived by now.
+      const publishedReceived = once(bystanderReceived, publishedReply.id)
+      await replier.publish(publishedReply)
+      await publishedReceived
+    })
+
+    afterAll(async () => {
+      await Promise.all(
+        endpoints.map(async ({ bus, transport }) => {
+          await bus.dispose()
+          await sqs.send(
+            new DeleteQueueCommand({ QueueUrl: transport.queueUrl })
+          )
+          await sqs.send(
+            new DeleteQueueCommand({ QueueUrl: transport.deadLetterQueueUrl })
+          )
+        })
+      )
+    })
+
+    it('should deliver the reply to the requester', () => {
+      expect(requesterReplies.filter(r => r.id === request.id)).toHaveLength(1)
+    })
+
+    it('should deliver a published reply type to the other service', () => {
+      expect(bystanderReplies.map(r => r.id)).toContain(publishedReply.id)
+    })
+
+    it('should not deliver the reply to another service that handles its type', () => {
+      expect(bystanderReplies.filter(r => r.id === request.id)).toHaveLength(0)
     })
   })
 

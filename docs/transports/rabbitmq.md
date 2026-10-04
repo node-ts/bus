@@ -60,7 +60,13 @@ The number of failed attempts is kept in the `failedAttempts` message header. De
 
 ## Message attributes
 
-The message's [`messageId`](/guide/message-attributes/message-id) is sent as the AMQP `messageId` property, which is also the `TransportMessage.id`, since RabbitMQ doesn't assign ids of its own. AMQP limits it to 255 bytes, and longer ids are rejected when the message is sent. `sentAt` is sent in a `sentAt` header, because the AMQP `timestamp` property only has second precision. The correlation id is the `correlationId` property, and `attributes` and `stickyAttributes` are JSON in headers of the same names. Retried and dead-lettered messages keep all of them.
+The message's [`messageId`](/guide/message-attributes/message-id) is sent as the AMQP `messageId` property, which is also the `TransportMessage.id`, since RabbitMQ doesn't assign ids of its own. AMQP limits it to 255 bytes, and longer ids are rejected when the message is sent. `sentAt` is sent in a `sentAt` header, because the AMQP `timestamp` property only has second precision. The correlation id is the `correlationId` property, the return address is the `replyTo` property, and `attributes` and `stickyAttributes` are JSON in headers of the same names. Retried and dead-lettered messages keep all of them.
+
+## Replies
+
+A [reply](/guide/workflows/request-reply) from `ctx.reply()` is sent through the default exchange with the requester's queue name as its routing key, so it goes straight to the requester's queue and no other queue receives it, even one bound to the reply's exchange. The queue is the request's return address, its `replyTo` property, which is the `queueName` of the bus that sent it. RabbitMQ drops a reply to a queue that doesn't exist, without an error, so the handler succeeds and the reply is lost.
+
+Every message from a bus that receives messages has the AMQP `replyTo` property set. A consumer that isn't on @node-ts/bus and answers messages that have one, such as a listener that returns a value, sends its answer to the bus' queue.
 
 ## Running RabbitMQ locally
 

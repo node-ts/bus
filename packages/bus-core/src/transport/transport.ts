@@ -1,4 +1,9 @@
-import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Command,
+  Event,
+  Message,
+  MessageAttributes
+} from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
 import { MessageFailure } from '../recoverability'
 import { CoreDependencies, Milliseconds } from '../util'
@@ -36,6 +41,17 @@ export interface Transport<TransportMessageType = {}> {
   readonly endpointName: string
 
   /**
+   * The address that replies to this endpoint are sent to. The bus stamps it on every message it sends, unless it's
+   * send-only, as the `replyTo` attribute, and `ctx.reply()` passes it to the replying transport's `sendToAddress()`.
+   * It must reach this endpoint's queue from any service the endpoint talks to, so a transport whose queue names
+   * aren't enough to find a queue, such as SQS with queues in other accounts or regions, returns a full address such
+   * as the queue URL. Leave it out to use `endpointName`.
+   * @default endpointName
+   * @example https://sqs.us-east-1.amazonaws.com/123456789012/order-booking-service
+   */
+  readonly returnAddress?: string
+
+  /**
    * Publishes an event to the underlying transport. This is generally done to a topic or some other
    * mechanism that consumers can subscribe themselves to
    * @param event A domain event to be published
@@ -62,6 +78,32 @@ export interface Transport<TransportMessageType = {}> {
   send<TCommand extends Command>(
     command: TCommand,
     messageOptions?: MessageAttributes,
+    sendOptions?: TransportSendOptions
+  ): Promise<void>
+
+  /**
+   * Sends a message straight to the queue at a return address, bypassing the topics or exchanges that `send()` and
+   * `publish()` route by, so the message isn't delivered through any subscription and only that queue receives it.
+   * The bus calls it for `ctx.reply()`, with the return address (`replyTo` attribute) of the message being handled.
+   *
+   * Write the message and its attributes as `send()` does, including `replyTo`, so the receiving transport reads
+   * it like any other message. A transport that doesn't implement it can't be used with `ctx.reply()`, which throws
+   * `TransportReplyNotSupported`.
+   * @param address the return address to send to, which is the `returnAddress` (or `endpointName`) of the
+   * transport that reads the queue
+   * @param message the command or event to send
+   * @param messageAttributes Options that control the behaviour around how the message is sent and additional
+   * information that travels with it
+   * @param sendOptions How to send this message, such as the native headers set by outgoing middleware
+   * @throws TransportHeaderReserved if a header in `sendOptions` has a name the transport uses itself
+   * @throws EndpointNotFound if the transport finds there's no queue at `address`, which retrying can't fix
+   * @example
+   * await transport.sendToAddress('orders-service', new CreditChecked('order-1', true), attributes)
+   */
+  sendToAddress?(
+    address: string,
+    message: Message,
+    messageAttributes?: MessageAttributes,
     sendOptions?: TransportSendOptions
   ): Promise<void>
 

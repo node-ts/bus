@@ -19,12 +19,15 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import {
+  messageTypes as busTestMessageTypes,
   HandleChecker,
+  TestReply,
+  TestReplyRequest,
   TestSystemMessage,
   transportTests
 } from '@node-ts/bus-test'
 import { Channel, ChannelModel, connect, ConsumeMessage } from 'amqplib'
-import { EventEmitter } from 'events'
+import { EventEmitter, once } from 'events'
 import { randomUUID } from 'node:crypto'
 import { It, Mock, Times } from 'typemoq'
 import { RabbitMqConnectionRecoveryFailed } from './error'
@@ -158,6 +161,166 @@ describe('RabbitMqTransport', () => {
   describe('when reading the endpoint name', () => {
     it('should be the queue name', () => {
       expect(rabbitMqTransport.endpointName).toEqual(configuration.queueName)
+    })
+  })
+
+  describe('when a service replies to a request and another service handles the reply type', () => {
+    const endpointConfiguration = (
+      endpoint: string
+    ): RabbitMqTransportConfiguration => ({
+      queueName: `@node-ts/bus-rabbitmq-reply-test-${endpoint}`,
+      deadLetterQueueName: `@node-ts/bus-rabbitmq-reply-test-${endpoint}-dead-letter`,
+      connectionString: configuration.connectionString
+    })
+    const request = new TestReplyRequest(randomUUID())
+    // Published, so it reaches every service subscribed to TestReply
+    const publishedReply = new TestReply(randomUUID())
+    const requesterReplies: TestReply[] = []
+    const bystanderReplies: TestReply[] = []
+    const buses: BusInstance[] = []
+
+    beforeAll(async () => {
+      const requesterReceived = new EventEmitter()
+      const bystanderReceived = new EventEmitter()
+      const buildBus = async (
+        endpoint: string,
+        configure: (
+          configuration: ReturnType<typeof Bus.configure>
+        ) => ReturnType<typeof Bus.configure>
+      ) => {
+        const bus = configure(
+          Bus.configure()
+            .withLogger(() => Mock.ofType<Logger>().object)
+            .withMessageTypes(busTestMessageTypes)
+            .withTransport(
+              new RabbitMqTransport(endpointConfiguration(endpoint))
+            )
+        ).build()
+        buses.push(bus)
+        await bus.initialize()
+        await bus.start()
+        return bus
+      }
+
+      const requester = await buildBus('requester', c =>
+        c.withHandler(
+          handlerFor(TestReply, reply => {
+            requesterReplies.push(reply)
+            requesterReceived.emit(reply.id)
+          })
+        )
+      )
+      const replier = await buildBus('replier', c =>
+        c.withHandler(
+          handlerFor(TestReplyRequest, async ({ id }, _attributes, ctx) =>
+            ctx.reply(new TestReply(id))
+          )
+        )
+      )
+      // Subscribed to TestReply's exchange, so it would get a published reply
+      await buildBus('bystander', c =>
+        c.withHandler(
+          handlerFor(TestReply, reply => {
+            bystanderReplies.push(reply)
+            bystanderReceived.emit(reply.id)
+          })
+        )
+      )
+
+      const replied = once(requesterReceived, request.id)
+      await requester.send(request)
+      await replied
+
+      // A positive control: the bystander gets a published TestReply, so its subscription works. The reply was
+      // sent first, so had it been routed to the bystander it would have arrived by now.
+      const publishedReceived = once(bystanderReceived, publishedReply.id)
+      await replier.publish(publishedReply)
+      await publishedReceived
+    })
+
+    afterAll(async () => {
+      await Promise.all(buses.map(async bus => bus.dispose()))
+    })
+
+    it('should deliver the reply to the requester', () => {
+      expect(requesterReplies.filter(r => r.id === request.id)).toHaveLength(1)
+    })
+
+    it('should deliver a published reply type to the other service', () => {
+      expect(bystanderReplies.map(r => r.id)).toContain(publishedReply.id)
+    })
+
+    it('should not deliver the reply to another service that handles its type', () => {
+      expect(bystanderReplies.filter(r => r.id === request.id)).toHaveLength(0)
+    })
+  })
+
+  describe('when a send-only transport, as a scheduler uses, sends to a return address and publishes with one', () => {
+    const queueName = '@node-ts/bus-rabbitmq-reply-test-scheduled-requester'
+    const direct = new TestReply(randomUUID())
+    const published = new TestReply(randomUUID())
+    const received = new Map<string, MessageAttributes>()
+    let requester: BusInstance
+    let sender: BusInstance
+
+    beforeAll(async () => {
+      const replies = new EventEmitter()
+      requester = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes(busTestMessageTypes)
+        .withTransport(
+          new RabbitMqTransport({
+            queueName,
+            deadLetterQueueName: `${queueName}-dead-letter`,
+            connectionString: configuration.connectionString
+          })
+        )
+        .withHandler(
+          handlerFor(TestReply, (reply, attributes) => {
+            received.set(reply.id, attributes)
+            replies.emit(reply.id)
+          })
+        )
+        .build()
+      await requester.initialize()
+      await requester.start()
+
+      const senderTransport = new RabbitMqTransport({
+        queueName: '@node-ts/bus-rabbitmq-reply-test-scheduler',
+        connectionString: configuration.connectionString
+      })
+      sender = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withTransport(senderTransport)
+        .asSendOnly()
+        .build()
+      await sender.initialize()
+
+      const bothReceived = Promise.all([
+        once(replies, direct.id),
+        once(replies, published.id)
+      ])
+      await senderTransport.sendToAddress(queueName, direct, {
+        replyTo: 'origin-queue',
+        attributes: {},
+        stickyAttributes: {}
+      })
+      // A stored message keeps the return address of the bus that sent it, which the scheduler passes on
+      await sender.publish(published, { replyTo: 'origin-queue' })
+      await bothReceived
+    })
+
+    afterAll(async () => {
+      await sender.dispose()
+      await requester.dispose()
+    })
+
+    it('should send through the default exchange without declaring a queue of its own', () => {
+      expect(received.get(direct.id)?.replyTo).toEqual('origin-queue')
+    })
+
+    it('should keep the replyTo property it is given', () => {
+      expect(received.get(published.id)?.replyTo).toEqual('origin-queue')
     })
   })
 

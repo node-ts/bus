@@ -13,7 +13,12 @@ import {
   TransportMessage,
   TransportSendOptions
 } from '@node-ts/bus-core'
-import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Command,
+  Event,
+  Message,
+  MessageAttributes
+} from '@node-ts/bus-messages'
 import { BrokerClient, BrokerMessage } from './broker-client'
 
 // The headers the transport writes itself, which middleware can't set
@@ -21,6 +26,7 @@ const RESERVED_HEADERS = [
   'correlationId',
   'messageId',
   'sentAt',
+  'replyTo',
   'attributes',
   'stickyAttributes',
   FAILURE_HEADER
@@ -105,6 +111,21 @@ export class MyTransport implements Transport<BrokerMessage> {
     await this.dispatch(command, attributes, sendOptions)
   }
 
+  // Sends a reply straight to the requester's queue, bypassing the topics, so no
+  // other service receives it
+  async sendToAddress(
+    address: string,
+    message: Message,
+    attributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
+  ): Promise<void> {
+    await this.client.sendToQueue(
+      address,
+      this.coreDependencies.messageSerializer.serialize(message),
+      this.toHeaders(attributes, sendOptions)
+    )
+  }
+
   async readNextMessage(): Promise<
     TransportMessage<BrokerMessage> | undefined
   > {
@@ -123,6 +144,8 @@ export class MyTransport implements Transport<BrokerMessage> {
         correlationId: raw.headers.correlationId,
         messageId: raw.headers.messageId,
         sentAt: raw.headers.sentAt,
+        // The return address that ctx.reply() sends replies to
+        replyTo: raw.headers.replyTo,
         attributes: JSON.parse(raw.headers.attributes ?? '{}'),
         stickyAttributes: JSON.parse(raw.headers.stickyAttributes ?? '{}')
       },
@@ -166,27 +189,36 @@ export class MyTransport implements Transport<BrokerMessage> {
 
   private async dispatch(
     message: Command | Event,
-    attributes: MessageAttributes = { attributes: {}, stickyAttributes: {} },
-    { headers = {} }: TransportSendOptions = {}
+    attributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
   ): Promise<void> {
-    // Native headers set by outgoing middleware
-    this.assertSendOptions({ headers })
     await this.client.publish(
       message.$name,
       this.coreDependencies.messageSerializer.serialize(message),
-      {
-        ...Object.fromEntries(
-          Object.entries(headers).map(([name, value]) => [name, String(value)])
-        ),
-        ...(attributes.correlationId && {
-          correlationId: attributes.correlationId
-        }),
-        // The bus sets both on every message it sends
-        ...(attributes.messageId && { messageId: attributes.messageId }),
-        ...(attributes.sentAt && { sentAt: attributes.sentAt }),
-        attributes: JSON.stringify(attributes.attributes),
-        stickyAttributes: JSON.stringify(attributes.stickyAttributes)
-      }
+      this.toHeaders(attributes, sendOptions)
     )
+  }
+
+  private toHeaders(
+    attributes: MessageAttributes = { attributes: {}, stickyAttributes: {} },
+    { headers = {} }: TransportSendOptions = {}
+  ): Record<string, string> {
+    // Native headers set by outgoing middleware
+    this.assertSendOptions({ headers })
+    return {
+      ...Object.fromEntries(
+        Object.entries(headers).map(([name, value]) => [name, String(value)])
+      ),
+      ...(attributes.correlationId && {
+        correlationId: attributes.correlationId
+      }),
+      // The bus sets both on every message it sends
+      ...(attributes.messageId && { messageId: attributes.messageId }),
+      ...(attributes.sentAt && { sentAt: attributes.sentAt }),
+      // Set on every message from a bus that receives messages
+      ...(attributes.replyTo && { replyTo: attributes.replyTo }),
+      attributes: JSON.stringify(attributes.attributes),
+      stickyAttributes: JSON.stringify(attributes.stickyAttributes)
+    }
   }
 }

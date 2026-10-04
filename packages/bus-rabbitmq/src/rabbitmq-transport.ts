@@ -48,6 +48,10 @@ const FAILED_ATTEMPTS_HEADER = 'failedAttempts'
  * Carries `sentAt`, because the AMQP `timestamp` property only has second precision
  */
 const SENT_AT_HEADER = 'sentAt'
+/**
+ * The broker's default exchange, which routes a message to the queue named by its routing key
+ */
+const DEFAULT_EXCHANGE = ''
 
 /**
  * The AMQP headers the transport or the broker writes, which outgoing middleware can't set. The transport reads
@@ -249,7 +253,12 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     messageAttributes?: MessageAttributes,
     sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.publishMessage(event, messageAttributes, sendOptions)
+    await this.publishMessage(
+      { exchange: event.$name, routingKey: '' },
+      event,
+      messageAttributes,
+      sendOptions
+    )
   }
 
   /**
@@ -264,7 +273,36 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     messageAttributes?: MessageAttributes,
     sendOptions?: TransportSendOptions
   ): Promise<void> {
-    await this.publishMessage(command, messageAttributes, sendOptions)
+    await this.publishMessage(
+      { exchange: command.$name, routingKey: '' },
+      command,
+      messageAttributes,
+      sendOptions
+    )
+  }
+
+  /**
+   * Sends a message straight to the queue at a return address through the default exchange, with the queue name as
+   * the routing key, so it isn't delivered through any exchange binding and only that queue receives it. The bus
+   * calls it for `ctx.reply()`. The broker drops a message sent to a queue that doesn't exist.
+   * @param address the name of the queue to send to, which is the `queueName` of the transport that reads it
+   * @param message the command or event to send
+   * @param messageAttributes the attributes to send it with, written as for `send`
+   * @param sendOptions native headers from outgoing middleware, written as AMQP headers as they are
+   * @throws TransportHeaderReserved if a header has a name the transport or broker writes (see `assertSendOptions`)
+   */
+  async sendToAddress(
+    address: string,
+    message: Message,
+    messageAttributes?: MessageAttributes,
+    sendOptions?: TransportSendOptions
+  ): Promise<void> {
+    await this.publishMessage(
+      { exchange: DEFAULT_EXCHANGE, routingKey: address },
+      message,
+      messageAttributes,
+      sendOptions
+    )
   }
 
   /**
@@ -415,11 +453,13 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
       this.coreDependencies.messageSerializer.deserialize(payloadStr)
 
     const sentAt: unknown = rabbitMessage.properties.headers?.[SENT_AT_HEADER]
+    const replyTo: unknown = rabbitMessage.properties.replyTo
     const attributes = {
       correlationId: rabbitMessage.properties.correlationId as
         string | undefined,
       messageId: rabbitMessage.properties.messageId as string | undefined,
       sentAt: typeof sentAt === 'string' ? sentAt : undefined,
+      ...(typeof replyTo === 'string' && replyTo ? { replyTo } : {}),
       attributes:
         rabbitMessage.properties.headers &&
         rabbitMessage.properties.headers.attributes
@@ -910,8 +950,11 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
 
   /**
    * Publishes a message, waiting for the channel to be reopened and trying again if it's lost.
+   * @param destination the exchange to publish to and the routing key. A message's own fanout exchange is declared
+   * first, and the default exchange routes to the queue named by the routing key.
    */
   private async publishMessage(
+    destination: { exchange: string; routingKey: string },
     message: Message,
     messageOptions: MessageAttributes = {
       attributes: {},
@@ -926,23 +969,31 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     while (true) {
       const channel = await this.getChannel()
       try {
-        await this.assertExchange(channel, message.$name)
-        channel.publish(message.$name, '', Buffer.from(payload), {
-          correlationId: messageOptions.correlationId,
-          // The bus always sets a messageId. This only covers the transport being called directly
-          messageId: messageOptions.messageId ?? randomUUID(),
-          persistent: this.persistentMessages,
-          headers: {
-            ...nativeHeaders,
-            [SENT_AT_HEADER]: messageOptions.sentAt,
-            attributes: messageOptions.attributes
-              ? JSON.stringify(messageOptions.attributes)
-              : undefined,
-            stickyAttributes: messageOptions.stickyAttributes
-              ? JSON.stringify(messageOptions.stickyAttributes)
-              : undefined
+        if (destination.exchange !== DEFAULT_EXCHANGE) {
+          await this.assertExchange(channel, destination.exchange)
+        }
+        channel.publish(
+          destination.exchange,
+          destination.routingKey,
+          Buffer.from(payload),
+          {
+            correlationId: messageOptions.correlationId,
+            replyTo: messageOptions.replyTo,
+            // The bus always sets a messageId. This only covers the transport being called directly
+            messageId: messageOptions.messageId ?? randomUUID(),
+            persistent: this.persistentMessages,
+            headers: {
+              ...nativeHeaders,
+              [SENT_AT_HEADER]: messageOptions.sentAt,
+              attributes: messageOptions.attributes
+                ? JSON.stringify(messageOptions.attributes)
+                : undefined,
+              stickyAttributes: messageOptions.stickyAttributes
+                ? JSON.stringify(messageOptions.stickyAttributes)
+                : undefined
+            }
           }
-        })
+        )
         return
       } catch (error) {
         if (this.isDisconnecting) {

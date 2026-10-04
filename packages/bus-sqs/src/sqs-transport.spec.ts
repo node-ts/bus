@@ -12,6 +12,7 @@ import {
   GetQueueAttributesCommand,
   GetQueueUrlCommand,
   Message,
+  QueueDoesNotExist,
   ReceiveMessageCommand,
   SendMessageCommand,
   SetQueueAttributesCommand,
@@ -21,6 +22,7 @@ import {
   CoreDependencies,
   DebugLogger,
   DefaultHandlerRegistry,
+  EndpointNotFound,
   FAILURE_HEADER,
   fromFailureHeader,
   JsonSerializer,
@@ -30,12 +32,13 @@ import {
   TransportHeaderReserved,
   TransportMessage
 } from '@node-ts/bus-core'
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { Message as BusMessage, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { IMock, It, Mock, Times } from 'typemoq'
 import {
   fromMessageAttributeMap,
   MAX_SQS_VISIBILITY_TIMEOUT_SECONDS,
+  regionOfQueueUrl,
   SnsMessageAttributeMap,
   SqsMessageAttributes,
   SqsTransport,
@@ -140,6 +143,7 @@ describe('sqs-transport', () => {
       correlationId: randomUUID(),
       messageId: randomUUID(),
       sentAt: new Date().toISOString(),
+      replyTo: 'orders-service',
       attributes: { flag: true, off: false, zero: 0, name: 'x' },
       stickyAttributes: { flag: true, off: false, zero: 0, name: 'y' }
     }
@@ -255,6 +259,7 @@ describe('sqs-transport', () => {
     'correlationId',
     'messageId',
     'sentAt',
+    'replyTo',
     'attributes.tenant',
     'stickyAttributes.tenant'
   ])('when converting a header named %s', headerName => {
@@ -274,27 +279,30 @@ describe('sqs-transport', () => {
     })
   })
 
-  describe.each(['correlationId', 'messageId', 'sentAt', 'attributes.tenant'])(
-    'when checking send options with a header named %s',
-    headerName => {
-      let error: unknown
+  describe.each([
+    'correlationId',
+    'messageId',
+    'sentAt',
+    'replyTo',
+    'attributes.tenant'
+  ])('when checking send options with a header named %s', headerName => {
+    let error: unknown
 
-      beforeEach(() => {
-        const sut = new SqsTransport({
-          queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
-        } as SqsTransportConfiguration)
-        try {
-          sut.assertSendOptions({ headers: { [headerName]: 'value' } })
-        } catch (e) {
-          error = e
-        }
-      })
+    beforeEach(() => {
+      const sut = new SqsTransport({
+        queueArn: 'arn:aws:sqs:us-west-2:12345678:test'
+      } as SqsTransportConfiguration)
+      try {
+        sut.assertSendOptions({ headers: { [headerName]: 'value' } })
+      } catch (e) {
+        error = e
+      }
+    })
 
-      it('should throw TransportHeaderReserved before the bus buffers or sends the message', () => {
-        expect(error).toBeInstanceOf(TransportHeaderReserved)
-      })
-    }
-  )
+    it('should throw TransportHeaderReserved before the bus buffers or sends the message', () => {
+      expect(error).toBeInstanceOf(TransportHeaderReserved)
+    })
+  })
 
   describe('when reading a message that cannot be parsed', () => {
     const sqs = Mock.ofType<SQSClient>()
@@ -410,6 +418,330 @@ describe('sqs-transport', () => {
 
       await sut.returnMessage({ raw: {} } as TransportMessage<Message>, 3_000)
       sqs.verifyAll()
+    })
+  })
+
+  describe('when sending a message to an address', () => {
+    const messageOptions: MessageAttributes = {
+      correlationId: randomUUID(),
+      messageId: randomUUID(),
+      replyTo: 'https://sqs.us-west-2.amazonaws.com/12345678/credit-service',
+      attributes: { tenant: 'a' },
+      stickyAttributes: { workflowId: 'w' }
+    }
+    const reply = {
+      $name: 'my-app/credit-checked',
+      $version: 0,
+      approved: true
+    } as BusMessage
+
+    /**
+     * Sends `reply` to `address` with a transport in us-west-2, and returns the SendMessage command, or the error
+     */
+    const sendToAddress = async (
+      address: string,
+      sendError?: Error
+    ): Promise<{ sent?: SendMessageCommand; error?: unknown }> => {
+      const sqs = Mock.ofType<SQSClient>()
+      const sut = new SqsTransport(
+        {
+          awsAccountId: '12345678',
+          awsRegion: 'us-west-2',
+          queueName: 'credit-service'
+        },
+        sqs.object
+      )
+      sut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object,
+        messageSerializer: new MessageSerializer(
+          new JsonSerializer(),
+          new DefaultHandlerRegistry(),
+          { messages: {}, types: {} }
+        )
+      } as any as CoreDependencies)
+      let sent: SendMessageCommand | undefined
+      sqs
+        .setup(s => s.config)
+        .returns(
+          () =>
+            ({
+              region: async () => 'us-west-2',
+              isCustomEndpoint: false
+            }) as any
+        )
+      sqs
+        .setup(s => s.send(It.isAny()))
+        .callback((command: SendMessageCommand) => {
+          sent = command
+        })
+        .returns(async () => {
+          if (sendError) {
+            throw sendError
+          }
+          return {} as any
+        })
+      try {
+        await sut.sendToAddress(address, reply, messageOptions, {
+          headers: { priority: 'high' }
+        })
+        return { sent }
+      } catch (error) {
+        return { sent, error }
+      }
+    }
+
+    describe('with a queue url in another account', () => {
+      const address =
+        'https://sqs.us-west-2.amazonaws.com/87654321/orders-service'
+      let sent: SendMessageCommand | undefined
+
+      beforeAll(async () => {
+        ;({ sent } = await sendToAddress(address))
+      })
+
+      it('should send it straight to that queue url', () => {
+        expect(sent).toBeInstanceOf(SendMessageCommand)
+        expect(sent!.input.QueueUrl).toEqual(address)
+      })
+
+      it('should wrap it in an SNS envelope that the receiving queue reads like a published message', () => {
+        const envelope = JSON.parse(sent!.input.MessageBody!)
+        expect(envelope).toMatchObject({
+          Type: 'Notification',
+          Subject: 'my-app/credit-checked'
+        })
+        expect(JSON.parse(envelope.Message)).toMatchObject({
+          $name: 'my-app/credit-checked',
+          approved: true
+        })
+        expect(fromMessageAttributeMap(envelope.MessageAttributes)).toEqual(
+          messageOptions
+        )
+        expect(envelope.MessageAttributes.priority).toEqual({
+          Type: 'String',
+          Value: 'high'
+        })
+      })
+    })
+
+    describe('with a bare queue name', () => {
+      let sent: SendMessageCommand | undefined
+
+      beforeAll(async () => {
+        ;({ sent } = await sendToAddress('orders-service'))
+      })
+
+      it("should resolve it in the transport's account and region", () => {
+        expect(sent!.input.QueueUrl).toEqual(
+          'https://sqs.us-west-2.amazonaws.com/12345678/orders-service'
+        )
+      })
+    })
+
+    describe('and the queue does not exist', () => {
+      const address =
+        'https://sqs.us-west-2.amazonaws.com/87654321/missing-service'
+      let error: unknown
+
+      beforeAll(async () => {
+        ;({ error } = await sendToAddress(
+          address,
+          new QueueDoesNotExist({ message: 'missing', $metadata: {} })
+        ))
+      })
+
+      it('should throw EndpointNotFound, which the default recoverability policy dead-letters', () => {
+        expect(error).toBeInstanceOf(EndpointNotFound)
+        expect(error).toMatchObject({ address, transportName: 'SqsTransport' })
+      })
+    })
+  })
+
+  describe('when sending a message to a queue url in another region', () => {
+    /**
+     * Records the regions it creates clients for, and hands out mocked clients
+     */
+    class RegionRecordingSqsTransport extends SqsTransport {
+      readonly createdRegions: string[] = []
+      readonly regionalMocks = new Map<string, IMock<SQSClient>>()
+
+      protected createRegionalClient(region: string): SQSClient {
+        this.createdRegions.push(region)
+        const client = Mock.ofType<SQSClient>()
+        client.setup(c => c.send(It.isAny())).returns(async () => ({}) as any)
+        this.regionalMocks.set(region, client)
+        return client.object
+      }
+
+      /**
+       * Calls the real factory, to check what it copies
+       */
+      createRealRegionalClient(region: string): SQSClient {
+        return super.createRegionalClient(region)
+      }
+    }
+
+    const reply = { $name: 'my-app/reply', $version: 0 } as BusMessage
+    const euQueueUrl =
+      'https://sqs.eu-west-1.amazonaws.com/87654321/orders-service'
+    const sqs = Mock.ofType<SQSClient>()
+    let sut: RegionRecordingSqsTransport
+
+    beforeAll(async () => {
+      sqs
+        .setup(s => s.config)
+        .returns(
+          () =>
+            ({
+              region: async () => 'us-west-2',
+              isCustomEndpoint: false
+            }) as any
+        )
+      sqs.setup(s => s.send(It.isAny())).returns(async () => ({}) as any)
+      sut = new RegionRecordingSqsTransport(
+        {
+          awsAccountId: '12345678',
+          awsRegion: 'us-west-2',
+          queueName: 'credit-service'
+        },
+        sqs.object
+      )
+      sut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object,
+        messageSerializer: new MessageSerializer(
+          new JsonSerializer(),
+          new DefaultHandlerRegistry(),
+          { messages: {}, types: {} }
+        )
+      } as any as CoreDependencies)
+
+      await sut.sendToAddress(euQueueUrl, reply)
+      await sut.sendToAddress(euQueueUrl, reply)
+      await sut.sendToAddress(
+        'https://sqs.us-west-2.amazonaws.com/87654321/orders-service',
+        reply
+      )
+    })
+
+    it("should send through a client for the queue's region, so the request is signed for it", () => {
+      expect(sut.createdRegions).toEqual(['eu-west-1'])
+      sut.regionalMocks
+        .get('eu-west-1')!
+        .verify(
+          c =>
+            c.send(
+              It.is(
+                (command: SendMessageCommand) =>
+                  command.input.QueueUrl === euQueueUrl
+              )
+            ),
+          Times.exactly(2)
+        )
+    })
+
+    it("should send to a queue in the transport's own region with its own client", () => {
+      sqs.verify(
+        s =>
+          s.send(
+            It.is(
+              (command: SendMessageCommand) =>
+                command.input.QueueUrl ===
+                'https://sqs.us-west-2.amazonaws.com/87654321/orders-service'
+            )
+          ),
+        Times.once()
+      )
+    })
+
+    describe('and the transport is disposed', () => {
+      beforeAll(async () => sut.dispose())
+
+      it('should destroy the regional client', () => {
+        sut.regionalMocks
+          .get('eu-west-1')!
+          .verify(c => c.destroy(), Times.once())
+      })
+    })
+
+    describe('and the real factory creates the client', () => {
+      const credentials = {
+        accessKeyId: 'access-key',
+        secretAccessKey: 'secret'
+      }
+      let regionalClient: SQSClient
+      let region: string
+      let regionalCredentials: unknown
+
+      beforeAll(async () => {
+        const transport = new RegionRecordingSqsTransport(
+          { awsAccountId: '12345678', awsRegion: 'us-west-2' },
+          new SQSClient({ region: 'us-west-2', credentials, maxAttempts: 7 })
+        )
+        regionalClient = transport.createRealRegionalClient('eu-west-1')
+        region = await regionalClient.config.region()
+        regionalCredentials = await regionalClient.config.credentials()
+      })
+
+      afterAll(() => regionalClient.destroy())
+
+      it('should use the region of the queue', () => {
+        expect(region).toEqual('eu-west-1')
+      })
+
+      it("should use the transport's client credentials and retry settings", async () => {
+        expect(regionalCredentials).toMatchObject(credentials)
+        expect(await regionalClient.config.maxAttempts()).toEqual(7)
+      })
+    })
+  })
+
+  describe('when sending a message to a queue url with a client that has a custom endpoint', () => {
+    let sut: SqsTransport
+    const sqs = Mock.ofType<SQSClient>()
+
+    beforeAll(async () => {
+      sqs
+        .setup(s => s.config)
+        .returns(
+          () =>
+            ({
+              region: async () => 'us-east-1',
+              isCustomEndpoint: true
+            }) as any
+        )
+      sqs.setup(s => s.send(It.isAny())).returns(async () => ({}) as any)
+      sut = new SqsTransport(
+        { awsAccountId: '12345678', awsRegion: 'us-east-1' },
+        sqs.object
+      )
+      sut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object,
+        messageSerializer: new MessageSerializer(
+          new JsonSerializer(),
+          new DefaultHandlerRegistry(),
+          { messages: {}, types: {} }
+        )
+      } as any as CoreDependencies)
+      await sut.sendToAddress(
+        'https://sqs.eu-west-1.amazonaws.com/87654321/orders-service',
+        { $name: 'my-app/reply', $version: 0 } as BusMessage
+      )
+    })
+
+    it('should send with its own client, which sends everything to the endpoint', () => {
+      sqs.verify(s => s.send(It.isAny()), Times.once())
+    })
+  })
+
+  describe('when reading the region of a queue url', () => {
+    it.each([
+      ['https://sqs.eu-west-1.amazonaws.com/123/q', 'eu-west-1'],
+      ['https://sqs.cn-north-1.amazonaws.com.cn/123/q', 'cn-north-1'],
+      ['https://ap-southeast-2.queue.amazonaws.com/123/q', 'ap-southeast-2'],
+      ['http://localhost:4566/000000000000/q', undefined],
+      ['not a url', undefined]
+    ])('should read %s as %s', (queueUrl, region) => {
+      expect(regionOfQueueUrl(queueUrl)).toEqual(region)
     })
   })
 
@@ -944,6 +1276,43 @@ describe('sqs-transport', () => {
 
       it('should be the queue name from the arn', () => {
         expect(sut).toEqual('order-service')
+      })
+    })
+  })
+
+  describe('when reading the return address', () => {
+    describe('with a queue name', () => {
+      it('should be the url of the queue', () => {
+        expect(
+          new SqsTransport({
+            awsAccountId: '123456789012',
+            awsRegion: 'us-west-2',
+            queueName: 'order-service'
+          }).returnAddress
+        ).toEqual(
+          'https://sqs.us-west-2.amazonaws.com/123456789012/order-service'
+        )
+      })
+    })
+
+    describe('with a queue arn', () => {
+      it('should be the url of the queue, in the account and region of the arn', () => {
+        expect(
+          new SqsTransport({
+            queueArn: 'arn:aws:sqs:eu-west-1:123456789012:order-service'
+          }).returnAddress
+        ).toEqual(
+          'https://sqs.eu-west-1.amazonaws.com/123456789012/order-service'
+        )
+      })
+    })
+
+    describe('without a queue', () => {
+      it('should be undefined', () => {
+        expect(
+          new SqsTransport({ awsAccountId: '123456789012', awsRegion: 'x' })
+            .returnAddress
+        ).toBeUndefined()
       })
     })
   })

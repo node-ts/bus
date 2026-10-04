@@ -40,6 +40,8 @@ Configure the bus with the SQS transport and a `BusSqsLambdaReceiver`, initializ
 
 Each record is dispatched to its handlers, at most `withConcurrency()` at a time. Records that succeed are left for Lambda to delete. Records whose message has no handler are discarded, not retried. A record that fails is settled by the [recoverability policy](/guide/recoverability#receivers): when it's retried, its visibility timeout is set to the policy's delay and it's treated as failed, so that Lambda retries it. When it's dead-lettered, or a handler calls `ctx.failMessage()`, it's moved to the dead letter queue with its failure metadata and treated as handled. A record whose handler calls `ctx.returnMessage()` is retried the same way.
 
+Messages sent from the Lambda's bus carry the URL of the transport's queue as their return address, so [replies](/guide/workflows/request-reply) to them go to that queue. Configure the transport with the Lambda's source queue, as `queueArn` or as `queueName` with `awsAccountId` and `awsRegion`, as it already needs for retries and dead-lettering.
+
 By default, if any record fails, `bus.receive()` rejects once the whole batch has been handled, and Lambda retries the **whole** batch, including the records that succeeded.
 
 ## Partial batch failures

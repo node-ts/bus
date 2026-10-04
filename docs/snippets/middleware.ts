@@ -27,7 +27,9 @@ const bus = Bus.configure()
       await next()
     },
     outgoing: async (context, next) => {
-      console.log(context.kind === 'send' ? 'Sending' : 'Publishing', {
+      // kind is 'send', 'publish' or 'reply'
+      console.log('Dispatching', {
+        kind: context.kind,
         messageName: context.message.$name
       })
       await next()

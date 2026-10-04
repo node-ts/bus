@@ -45,6 +45,17 @@ export interface MessageAttributes<
   sentAt?: string
 
   /**
+   * The return address of the message: the name of the endpoint (the queue) that sent it, where `ctx.reply()` sends
+   * replies to it. A bus that receives messages sets it to its transport's `endpointName` on every message it sends,
+   * unless the caller passes its own, or `undefined` to leave it out. A send-only bus or a scheduler has no queue that's read, so it doesn't set
+   * one. Like `messageId`, it isn't inherited from the message being handled.
+   *
+   * This is optional because messages from a send-only bus, a scheduler, or from outside the bus, may not have one.
+   * @example order-booking-service
+   */
+  replyTo?: string
+
+  /**
    * Additional metadata that will be sent alongside the message payload.
    * This is useful for sending information like:
    * - the id of a user where the message originated from
@@ -78,6 +89,7 @@ export type MessageAttributesInput<
   correlationId?: Uuid
   messageId?: string
   sentAt?: string
+  replyTo?: string
 } & ({} extends AttributesType
   ? { attributes?: AttributesType }
   : { attributes: AttributesType }) &
@@ -89,7 +101,7 @@ export type MessageAttributesInput<
  * Creates `MessageAttributes` with `attributes` and `stickyAttributes` defaulted to `{}`, so a test can call a
  * handler directly without spelling out empty attributes. Handlers still receive both fields, so they read them
  * without `?.`.
- * @param input the correlation id, message id, sent time and attributes to set
+ * @param input the correlation id, message id, sent time, return address and attributes to set
  * @returns message attributes with any missing `attributes` or `stickyAttributes` set to `{}`
  * @example
  * await placeOrderHandler.messageHandler(PlaceOrder({ orderId: '1' }), messageAttributes(), fakeContext)

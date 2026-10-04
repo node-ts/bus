@@ -64,7 +64,19 @@ Set `autoProvision: false` when the queues and topics are created elsewhere, suc
 
 ## Message attributes
 
-Attributes are sent as SNS message attributes named `attributes.<key>`, `stickyAttributes.<key>`, `correlationId`, `messageId` and `sentAt`. Strings use the `String` type and numbers `Number`. SNS has no boolean type, so booleans are sent as `String.boolean`, with the value `true` or `false`, and read back as booleans. Keep this in mind when writing SNS subscription filter policies. Empty strings are left out, because SNS rejects them.
+Attributes are sent as SNS message attributes named `attributes.<key>`, `stickyAttributes.<key>`, `correlationId`, `messageId`, `sentAt` and `replyTo`. Strings use the `String` type and numbers `Number`. SNS has no boolean type, so booleans are sent as `String.boolean`, with the value `true` or `false`, and read back as booleans. Keep this in mind when writing SNS subscription filter policies. Empty strings are left out, because SNS rejects them.
+
+## Replies
+
+A [reply](/guide/workflows/request-reply) from `ctx.reply()` isn't published to SNS. It's sent straight to the requester's queue with `SendMessage`, so it isn't delivered through a subscription and no other queue receives it. The requester's transport still subscribes its queue to every message it handles, including its replies, so a reply type that's also published elsewhere reaches it that way too.
+
+The queue is the request's return address, the `replyTo` attribute. The SQS transport stamps the URL of its queue, such as `https://sqs.us-east-1.amazonaws.com/123456789012/orders-service`, so a replier in another account or region sends to it as it is. For a queue in another region, the replier's transport creates a client for that region once, with its own client's credentials, and destroys it at `dispose()`. A bare queue name, such as one set by a sender that isn't on @node-ts/bus, is looked up in the replier's own account and region.
+
+The replying service needs the `sqs:SendMessage` permission on the requester's queue. In another account, the requester's queue policy must also allow it: the policy the transport attaches only allows SNS topics in its own account, so pass a `queuePolicy` that allows the replier too. A `queuePolicy` replaces the default policy rather than adding to it, so it must also keep the statement that lets the SNS topics send to the queue.
+
+The body is in the same SNS envelope as a message delivered from a topic, so the requester reads it like any other message, including in a [Lambda function](/transports/sqs-lambda).
+
+A reply is sent when the handler's outbox is flushed, after the handler resolved. If SQS reports that the requester's queue doesn't exist, the reply throws `EndpointNotFound`, and the default [recoverability policy](/guide/recoverability) moves the request to the dead letter queue straight away, since retrying can't help. Any other error, such as a missing permission, fails the request, which is retried like any failed message, and its handler runs again.
 
 ## Running SQS locally
 

@@ -21,6 +21,7 @@ import {
   VideoEncoded,
   VideoEncodingStarted
 } from './messages/videos'
+import { CreditCheckState } from './workflows/credit-check-state'
 import { DocumentWorkflowState } from './workflows/document-workflow-state'
 import { FulfilmentWorkflowState } from './workflows/fulfilment-workflow-state'
 import { OrderApprovalState } from './workflows/order-approval-state'
@@ -39,6 +40,8 @@ export const messageTypes: MessageTypes = {
       'bus-docs/snippets/messages-without-a-class#RefundPayment',
     'my-app/credit/check-credit':
       'bus-docs/snippets/messages/credit#CheckCredit',
+    'my-app/credit/credit-check-state':
+      'bus-docs/snippets/workflows/credit-check-state#CreditCheckState',
     'my-app/credit/credit-checked':
       'bus-docs/snippets/messages/credit#CreditChecked',
     'my-app/documents/document-read':
@@ -159,6 +162,10 @@ export const messageTypes: MessageTypes = {
     },
     'bus-docs/snippets/messages/videos#VideoEncodingStarted': {
       class: VideoEncodingStarted,
+      fields: {}
+    },
+    'bus-docs/snippets/workflows/credit-check-state#CreditCheckState': {
+      class: CreditCheckState,
       fields: {}
     },
     'bus-docs/snippets/workflows/document-workflow-state#DocumentWorkflowState':
