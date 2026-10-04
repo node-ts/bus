@@ -1,6 +1,7 @@
 import {
   ClassConstructor,
   CoreDependencies,
+  hasLookupValue,
   Logger,
   MessageWorkflowMapping,
   Persistence,
@@ -56,11 +57,7 @@ export class MyPersistence implements Persistence {
   ): Promise<TWorkflowState[]> {
     const lookupValue = messageMap.lookup(message, attributes)
     // A message without a value belongs to no workflow, even one whose field is missing or empty
-    if (
-      lookupValue === undefined ||
-      lookupValue === null ||
-      lookupValue === ''
-    ) {
+    if (!hasLookupValue(lookupValue)) {
       return []
     }
     const documents = await this.store.find(

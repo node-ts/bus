@@ -1,6 +1,7 @@
 import {
   ClassConstructor,
   CoreDependencies,
+  hasLookupValue,
   Logger,
   MessageWorkflowMapping,
   OutgoingMessage,
@@ -449,10 +450,3 @@ function resolveIndexName(tableName: string, ...fields: string[]): string {
   const normalizedTableName = tableName.replace(/"/g, '').replace('.', '_')
   return `"${normalizedTableName}_${fields.join('_')}_idx"`
 }
-
-/**
- * Whether a message's lookup returned a value to find workflow state by. `null` isn't in the lookup's type, but
- * can come from a message field that's null once deserialized.
- */
-const hasLookupValue = (value: unknown): boolean =>
-  value !== undefined && value !== null && value !== ''

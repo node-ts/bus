@@ -30,6 +30,7 @@ import {
   FunctionWorkflowHandler,
   isFunctionWorkflow
 } from '../function-workflow-definition'
+import { hasLookupValue } from '../has-lookup-value'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { Persistence } from '../persistence'
 import { Workflow, WorkflowMapper } from '../workflow'
@@ -516,11 +517,9 @@ export class WorkflowRegistry {
       lookupValue
     }
 
-    const hasLookupValue =
-      lookupValue !== undefined && lookupValue !== null && lookupValue !== ''
     // Only read on a miss, so a message for a running instance costs no extra query, and only with a value to find,
     // since a message with none can't belong to a completed instance and some persistence matches every row on it
-    const workflowState = hasLookupValue
+    const workflowState = hasLookupValue(lookupValue)
       ? await persistence.getWorkflowState<WorkflowState, Message>(
           workflowStateType,
           mapping,

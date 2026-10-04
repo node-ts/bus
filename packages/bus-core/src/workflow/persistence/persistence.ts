@@ -50,8 +50,8 @@ export interface Persistence {
 
   /**
    * Retrieves all workflow state models that match the given `messageMap` criteria. When the lookup returns no
-   * value (`undefined`, `null` or `''`) nothing matches, so return an empty array without querying, rather than
-   * matching state whose mapped field is missing or empty.
+   * value (`undefined`, `null` or `''`, see `hasLookupValue`) nothing matches, so return an empty array without
+   * querying, rather than matching state whose mapped field is missing or empty.
    * @param workflowStateConstructor The workflow model type to retrieve
    * @param messageMap How the message is mapped to workflow state models
    * @param message The message to map to workflow state

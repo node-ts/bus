@@ -1,6 +1,7 @@
 import {
   ClassConstructor,
   CoreDependencies,
+  hasLookupValue,
   Logger,
   MessageWorkflowMapping,
   OutgoingMessage,
@@ -737,13 +738,6 @@ const resolveQualifiedIndexLiteral = (
  */
 const resolveWorkflowStateField = (field: string): string =>
   `${WORKFLOW_DATA_FIELD_NAME}->>${escapeLiteral(field)}`
-
-/**
- * Whether a message's lookup returned a value to find workflow state by. `null` isn't in the lookup's type, but
- * can come from a message field that's null once deserialized.
- */
-const hasLookupValue = (value: unknown): boolean =>
-  value !== undefined && value !== null && value !== ''
 
 /**
  * Resolves how postgres deparses an index key on a workflow state field, as returned by

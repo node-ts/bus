@@ -142,21 +142,30 @@ export const workflowStateRoundTripTests = (persistence: Persistence): void => {
       ]
       const results = new Map<string, unknown[]>()
 
-      const runningState = (
+      const workflowState = (
+        $status: WorkflowStatus,
         orderId: Partial<TestRoundTripWorkflowState>
       ): TestRoundTripWorkflowState =>
         ({
           $name: TestRoundTripWorkflowState.NAME,
           $workflowId: randomUUID(),
-          $status: WorkflowStatus.Running,
+          $status,
           $version: 0,
           ...orderId
         }) as TestRoundTripWorkflowState
 
       beforeAll(async () => {
-        // Running instances without the mapped field, or with it empty, mustn't be matched by a message without one
-        await persistence.saveWorkflowState(runningState({}))
-        await persistence.saveWorkflowState(runningState({ orderId: '' }))
+        // Instances without the mapped field, or with it empty, mustn't be matched by a message without one, whether
+        // they're running or, when completed state is included, complete
+        for (const status of [
+          WorkflowStatus.Running,
+          WorkflowStatus.Complete
+        ]) {
+          await persistence.saveWorkflowState(workflowState(status, {}))
+          await persistence.saveWorkflowState(
+            workflowState(status, { orderId: '' })
+          )
+        }
 
         const message = new TestContinueRoundTripWorkflow()
         for (const [name, value] of noValues) {
@@ -184,7 +193,7 @@ export const workflowStateRoundTripTests = (persistence: Persistence): void => {
           expect(results.get(`${name}:false`)).toEqual([])
         })
 
-        it('should find no workflow state when completed state is included', () => {
+        it('should find no running or completed workflow state when completed state is included', () => {
           expect(results.get(`${name}:true`)).toEqual([])
         })
       })

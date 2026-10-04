@@ -2,6 +2,7 @@ import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Logger } from '../../logger'
 import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
 import { ClassConstructor, CoreDependencies } from '../../util'
+import { hasLookupValue } from '../has-lookup-value'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import {
@@ -66,7 +67,7 @@ export class InMemoryPersistence implements Persistence {
     includeCompleted?: boolean | undefined
   ): Promise<WorkflowStateType[]> {
     const filterValue = messageMap.lookup(message, attributes)
-    if (!filterValue) {
+    if (!hasLookupValue(filterValue)) {
       return []
     }
 
