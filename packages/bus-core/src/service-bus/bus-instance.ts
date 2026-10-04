@@ -239,24 +239,27 @@ const settleDispatched = async (
 }
 
 /**
- * Works out which of the messages given to `storeOutgoingMessages` it skipped, from the ids it returned, which name
- * each skipped message once. Of several messages with the same id, the store keeps the first unless the id was
- * already stored, so the skipped ones are the last of them.
- * @returns whether each message was skipped, in order
+ * Splits messages to store into the first with each `messageId` and the later copies, which a store would skip
+ * @returns the messages to store, and the copies to drop as duplicates
  */
-const skippedAsDuplicates = (
-  toStore: { id: string }[],
-  duplicateIds: string[]
-): boolean[] => {
-  const skips = new Map<string, number>()
-  duplicateIds.forEach(id => skips.set(id, (skips.get(id) ?? 0) + 1))
-  const remaining = new Map<string, number>()
-  toStore.forEach(({ id }) => remaining.set(id, (remaining.get(id) ?? 0) + 1))
-  return toStore.map(({ id }) => {
-    const left = remaining.get(id)!
-    remaining.set(id, left - 1)
-    return left <= (skips.get(id) ?? 0)
+const splitRepeatedIds = (
+  outgoingMessages: DelayedMessage[]
+): { unique: DelayedMessage[]; repeated: DelayedMessage[] } => {
+  const seen = new Set<string>()
+  const unique: DelayedMessage[] = []
+  const repeated: DelayedMessage[] = []
+  outgoingMessages.forEach(m => {
+    const id = m.attributes.messageId
+    if (id !== undefined && seen.has(id)) {
+      repeated.push(m)
+    } else {
+      if (id !== undefined) {
+        seen.add(id)
+      }
+      unique.push(m)
+    }
   })
+  return { unique, repeated }
 }
 
 /**
@@ -1400,14 +1403,17 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private async storeAndSettle(
     outgoingMessages: DelayedMessage[]
   ): Promise<void> {
+    // Stores don't agree on how they report an id repeated within one batch, so only the first is given to the store
+    const { unique, repeated } = splitRepeatedIds(outgoingMessages)
+    repeated.forEach(m => dropOutgoing(m, OutgoingMessageDropReason.Duplicate))
     let stored: boolean[]
     try {
-      stored = await this.storeOutgoing(outgoingMessages)
+      stored = await this.storeOutgoing(unique)
     } catch (error) {
-      outgoingMessages.forEach(m => m.settle.reject(error))
+      unique.forEach(m => m.settle.reject(error))
       throw error
     }
-    outgoingMessages.forEach((m, index) =>
+    unique.forEach((m, index) =>
       stored[index]
         ? m.settle.resolve()
         : dropOutgoing(m, OutgoingMessageDropReason.Duplicate)
@@ -1416,7 +1422,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
   /**
    * Stores messages in the persistence to send once they're due
-   * @returns whether each message was stored, in order. One whose id was already stored is skipped.
+   * @returns whether each message was stored, in order. One whose id was already stored is skipped. The ids must be
+   * unique within `outgoingMessages`, so the store only reports ids it already had.
    * @throws DelayedDeliveryNotSupported if the persistence can't store messages to send later, which `send()` and
    * `publish()` have already checked
    */
@@ -1454,7 +1461,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     toStore.forEach(({ dueAt }) =>
       this.outgoingMessageDispatcher?.scheduled(dueAt)
     )
-    return skippedAsDuplicates(toStore, duplicateIds).map(skipped => !skipped)
+    const skipped = new Set(duplicateIds)
+    return toStore.map(({ id }) => !skipped.has(id))
   }
 
   /**

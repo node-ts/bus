@@ -9,6 +9,7 @@ import {
   OutgoingMessageDropped,
   OutgoingMessageDropReason
 } from '../middleware'
+import { OutgoingMessage } from '../outgoing-message'
 import { deadLetter, FAILURE_HEADER, retry } from '../recoverability'
 import {
   RecordingInMemoryQueue,
@@ -17,6 +18,7 @@ import {
   testMessageTypes
 } from '../test'
 import { DEFAULT_IN_MEMORY_ENDPOINT_NAME } from '../transport'
+import { InMemoryPersistence } from '../workflow'
 import { Bus } from './bus'
 import { BusInstance } from './bus-instance'
 
@@ -27,6 +29,22 @@ const silentLogger = () => Mock.ofType<Logger>().object
 class TransportUnavailable extends Error {}
 class HandlerFailed extends Error {}
 class MessageInvalid extends Error {}
+
+/**
+ * Records the ids of each batch the bus asks it to store, and reports no duplicates, as a store that can't tell a
+ * repeated id within a batch from a new one would
+ */
+class BatchRecordingPersistence extends InMemoryPersistence {
+  readonly storedIds: string[][] = []
+
+  async storeOutgoingMessages(
+    outgoingMessages: OutgoingMessage[]
+  ): Promise<string[]> {
+    this.storedIds.push(outgoingMessages.map(({ id }) => id))
+    await super.storeOutgoingMessages(outgoingMessages)
+    return []
+  }
+}
 
 /**
  * Fails the first event it's asked to publish straight away, and takes a while to publish the second
@@ -742,6 +760,7 @@ describe('BusInstance dispatched', () => {
   describe('when a handler publishes two messages with deliverAfter and the same messageId', () => {
     let bus: BusInstance
     const settlements: Promise<Settlement>[] = []
+    const persistence = new BatchRecordingPersistence()
 
     beforeAll(async () => {
       const queue = new RecordingInMemoryQueue(() => undefined)
@@ -749,6 +768,7 @@ describe('BusInstance dispatched', () => {
         .withMessageTypes(testMessageTypes)
         .withLogger(silentLogger)
         .withTransport(queue)
+        .withPersistence(persistence)
         .withHandler(
           handlerFor(TestCommand, async (_m, _a, ctx) => {
             await ctx.publish(new TestEvent(), {
@@ -779,6 +799,10 @@ describe('BusInstance dispatched', () => {
 
     afterAll(async () => {
       await bus.dispose()
+    })
+
+    it('should only give the store the first, so it needs no way to report an id repeated in one batch', () => {
+      expect(persistence.storedIds).toEqual([['outbox-dup']])
     })
 
     it('should store the first and reject the second as a duplicate', async () => {
