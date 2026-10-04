@@ -33,6 +33,40 @@ export interface OutgoingSendContext {
    * @default {}
    */
   headers: TransportHeaders
+
+  /**
+   * When the message is due, if it's sent with `deliverAfter` or `deliverAt` for a time that's still to come. It's
+   * then stored and sent once it's due, rather than sent straight away. `undefined` for a message sent now.
+   */
+  readonly dueAt?: Date
+
+  /**
+   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
+   * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
+   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
+   * to send later.
+   *
+   * It resolves once the transport has accepted the message, or the persistence has stored a delayed one. It
+   * rejects with the transport's error if sending it failed, with the persistence's error if storing a delayed
+   * message failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
+   * `send()` or `publish()` was rejected before the transport (a middleware threw, or a header was reserved; the
+   * error is the drop's `cause`), the handler failed or called `failMessage()` or `returnMessage()`, another
+   * message in the outbox failed to send first, or a delayed message with the same `messageId` is already stored
+   * (`duplicate`). It never rejects with any other error. A rejection nobody awaits is
+   * ignored.
+   *
+   * A buffered message is sent in the async context `next()` was called in, so a tracing span or other
+   * `AsyncLocalStorage` state a middleware set around `next()` is active for the transport call too.
+   * @example
+   * const countSent: Middleware<OutgoingContext> = async (context, next) => {
+   *   void context.dispatched.then(
+   *     () => sentCounter.add(1),
+   *     () => undefined
+   *   )
+   *   await next()
+   * }
+   */
+  readonly dispatched: Promise<void>
 }
 
 /**
@@ -62,6 +96,40 @@ export interface OutgoingPublishContext {
    * @default {}
    */
   headers: TransportHeaders
+
+  /**
+   * When the message is due, if it's sent with `deliverAfter` or `deliverAt` for a time that's still to come. It's
+   * then stored and sent once it's due, rather than sent straight away. `undefined` for a message sent now.
+   */
+  readonly dueAt?: Date
+
+  /**
+   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
+   * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
+   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
+   * to send later.
+   *
+   * It resolves once the transport has accepted the message, or the persistence has stored a delayed one. It
+   * rejects with the transport's error if sending it failed, with the persistence's error if storing a delayed
+   * message failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
+   * `send()` or `publish()` was rejected before the transport (a middleware threw, or a header was reserved; the
+   * error is the drop's `cause`), the handler failed or called `failMessage()` or `returnMessage()`, another
+   * message in the outbox failed to send first, or a delayed message with the same `messageId` is already stored
+   * (`duplicate`). It never rejects with any other error. A rejection nobody awaits is
+   * ignored.
+   *
+   * A buffered message is sent in the async context `next()` was called in, so a tracing span or other
+   * `AsyncLocalStorage` state a middleware set around `next()` is active for the transport call too.
+   * @example
+   * const countSent: Middleware<OutgoingContext> = async (context, next) => {
+   *   void context.dispatched.then(
+   *     () => sentCounter.add(1),
+   *     () => undefined
+   *   )
+   *   await next()
+   * }
+   */
+  readonly dispatched: Promise<void>
 }
 
 /**
@@ -97,6 +165,34 @@ export interface OutgoingReplyContext {
    * @default {}
    */
   headers: TransportHeaders
+
+  /**
+   * Settles once the message has been handed to the transport, or won't be. Inside a handler, that's when the
+   * handler's outbox is flushed after it resolves, so it can be well after `next()` resolves; anywhere else, it's
+   * when `next()` sends it. A message sent with `deliverAfter` or `deliverAt` counts as handed on once it's stored
+   * to send later.
+   *
+   * It resolves once the transport has accepted the message, or the persistence has stored a delayed one. It
+   * rejects with the transport's error if sending it failed, with the persistence's error if storing a delayed
+   * message failed, or with `OutgoingMessageDropped` if it was never sent: a middleware didn't call `next()`, the
+   * `send()` or `publish()` was rejected before the transport (a middleware threw, or a header was reserved; the
+   * error is the drop's `cause`), the handler failed or called `failMessage()` or `returnMessage()`, another
+   * message in the outbox failed to send first, or a delayed message with the same `messageId` is already stored
+   * (`duplicate`). It never rejects with any other error. A rejection nobody awaits is
+   * ignored.
+   *
+   * A buffered message is sent in the async context `next()` was called in, so a tracing span or other
+   * `AsyncLocalStorage` state a middleware set around `next()` is active for the transport call too.
+   * @example
+   * const countSent: Middleware<OutgoingContext> = async (context, next) => {
+   *   void context.dispatched.then(
+   *     () => sentCounter.add(1),
+   *     () => undefined
+   *   )
+   *   await next()
+   * }
+   */
+  readonly dispatched: Promise<void>
 }
 
 /**

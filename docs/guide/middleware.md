@@ -29,11 +29,15 @@ An outgoing middleware that throws before `next()` sends nothing. One that throw
 
 Incoming middleware runs for every message the bus receives, whether it polled the transport or a [receiver](/transports/sqs-lambda) passed it in. Its context has the `message`, its `attributes` and the `transportMessage` the transport read, which are read-only, and `send`, `publish`, `failMessage` and `returnMessage` like a [handler's context](/getting-started/handling-messages). No handler is running yet, so its sends go straight to the transport.
 
+After `await next()`, `context.requestedSettlement()` says whether a handler or middleware called `failMessage()` (`RequestedSettlement.Failed`) or `returnMessage()` (`RequestedSettlement.Returned`), so an attempt that didn't throw but won't be deleted can be told from a successful one. Whether a returned message is then retried or dead-lettered is decided after the middleware chain, so it can't be read there.
+
 ### Timing messages
 
 Telemetry such as AWS X-Ray, New Relic or Datadog can profile message handling with middleware. That helps find the messages that take longest to handle, and would benefit from tuning.
 
 <<< @/snippets/middleware.ts#timing
+
+For OpenTelemetry, [`@node-ts/bus-opentelemetry`](/guide/opentelemetry) is middleware that traces messages across services and records their metrics.
 
 ### Adding context to logs
 
@@ -79,6 +83,14 @@ Outgoing middleware runs each time `send()` or `publish()` is called, on the bus
 
 It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport. A message sent with [`deliverAfter` or `deliverAt`](/guide/delayed-delivery) is stored in the persistence instead, and sent as the middleware left it once it's due, without running the middleware again.
 
+### Knowing when a message is sent
+
+`context.dispatched` is a promise that settles once the message has reached the transport, or won't. It resolves when the transport has sent it, or for a message sent with [`deliverAfter` or `deliverAt`](/guide/delayed-delivery), once it's stored to send later, and rejects with the transport's error if sending failed, with the persistence's error if storing failed, or with `OutgoingMessageDropped` if the message was never sent. Its `reason` says why: a later middleware didn't call `next()` (`middleware-skipped`), the `send()` or `publish()` was rejected before it reached the transport, by a middleware that threw or a reserved header, with that error as its `cause` (`rejected`), the handler failed (`handler-failed`) or called `failMessage()` or `returnMessage()` (`message-failed-or-returned`), another message from the same handler failed to send first (`outbox-flush-failed`), or a delayed message with the same `messageId` is already stored (`duplicate`). `context.dueAt` is when a delayed message is due, and `undefined` for one sent now. A rejection that nothing handles is ignored.
+
+<<< @/snippets/middleware.ts#dispatched
+
+A buffered message is sent in the async context the middleware called `next()` in, so a tracing span or `AsyncLocalStorage` store set around `next()` is active while the transport sends it.
+
 ### Transport headers
 
 Outgoing middleware can also set native headers for the transport in `context.headers`, for consumers and broker plugins outside the bus. Messages the bus receives keep them on `context.transportMessage.raw`.
@@ -121,6 +133,7 @@ See [upgrading](/upgrading/v2) for the details.
 
 ## See also
 
+- [OpenTelemetry](/guide/opentelemetry)
 - [Correlation id](/guide/message-attributes/correlation-id)
 - [Recoverability](/guide/recoverability)
 - [`BusMiddleware`](/api/bus-core/interfaces/BusMiddleware), [`IncomingContext`](/api/bus-core/interfaces/IncomingContext), [`HandlerInvocationContext`](/api/bus-core/interfaces/HandlerInvocationContext) and [`OutgoingContext`](/api/bus-core/type-aliases/OutgoingContext) in the API reference

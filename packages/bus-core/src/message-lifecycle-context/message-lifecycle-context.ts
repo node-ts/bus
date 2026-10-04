@@ -46,6 +46,16 @@ export class MessageLifecycleContext {
   }
 
   /**
+   * Reads the lifecycle context of the message being handled now, even when it's called later from elsewhere. The
+   * context is replaced on each `set()`, so the reader sees every change made while handling that message.
+   * @returns a function that returns that message's lifecycle context, or `undefined` if no message is being handled
+   */
+  bindToCurrent(): () => Context | undefined {
+    const store = this.storage.getStore()
+    return () => store?.message
+  }
+
+  /**
    * Whether the message being handled in the current async stack has been failed with `failMessage()` or returned
    * with `returnMessage()`
    * @returns true if either was called, or false outside of a message lifecycle context

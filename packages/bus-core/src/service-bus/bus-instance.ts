@@ -34,7 +34,12 @@ import {
   HandlerInvocationContext,
   IncomingContext,
   OutgoingContext,
-  OutgoingReplyContext
+  OutgoingMessageDropped,
+  OutgoingMessageDropReason,
+  OutgoingPublishContext,
+  OutgoingReplyContext,
+  OutgoingSendContext,
+  RequestedSettlement
 } from '../middleware'
 import { MiddlewarePipeline } from '../middleware/middleware-pipeline'
 import {
@@ -119,15 +124,19 @@ type Settlement =
     }
 
 /**
- * A message buffered in a handler's outbox, as the outgoing middleware left it, and when it's due if it's sent
- * later
+ * A message buffered in a handler's outbox, as the outgoing middleware left it, with what settles its `dispatched`
+ * promise, the async context it was sent in, and when it's due if it's sent later
  */
-type OutboxedMessage = OutgoingContext & { dueAt?: Date }
+type OutboxedMessage = OutgoingContext & {
+  settle: PromiseWithResolvers<void>
+  runInSendContext: <T>(fn: () => T) => T
+  dueAt?: Date
+}
 
 /**
  * An outgoing message that's stored in the persistence until it's due
  */
-type DelayedMessage = Exclude<OutgoingContext, OutgoingReplyContext> & {
+type DelayedMessage = Exclude<OutboxedMessage, { kind: 'reply' }> & {
   dueAt: Date
 }
 
@@ -137,9 +146,34 @@ const isDelayed = (
 ): outgoingMessage is DelayedMessage =>
   outgoingMessage.dueAt !== undefined && outgoingMessage.kind !== 'reply'
 
+/**
+ * An outgoing context before the bus adds its `dispatched` promise, which is also what the transport is called with
+ */
+type OutgoingDraft =
+  | Omit<OutgoingSendContext, 'dispatched'>
+  | Omit<OutgoingPublishContext, 'dispatched'>
+  | Omit<OutgoingReplyContext, 'dispatched'>
+
 interface Outbox {
   state: OutboxState
   messages: OutboxedMessage[]
+  /**
+   * Why the outbox was discarded, which a message sent after that is dropped for too
+   */
+  discardReason?: OutgoingMessageDropReason
+}
+
+/**
+ * Discards an outbox's buffered messages, rejecting their `dispatched` promises, so later sends are dropped too
+ */
+const discardOutbox = (
+  outbox: Outbox,
+  reason: OutgoingMessageDropReason
+): void => {
+  outbox.state = OutboxState.Discarded
+  outbox.discardReason = reason
+  outbox.messages.forEach(m => dropOutgoing(m, reason))
+  outbox.messages = []
 }
 
 /**
@@ -153,8 +187,13 @@ const handlerNameOf = (handler: HandlerDefinition): string =>
  * Copies an outgoing message as the outgoing middleware left it when it called `next()`, so changes a middleware
  * makes after `next()` never reach the transport, whether the message is sent straight away or buffered
  */
-const snapshotOutgoing = (context: OutgoingContext): OutboxedMessage => ({
+const snapshotOutgoing = (
+  context: OutgoingContext,
+  settle: OutboxedMessage['settle']
+): OutboxedMessage => ({
   ...context,
+  settle,
+  runInSendContext: AsyncLocalStorage.snapshot(),
   attributes: {
     ...context.attributes,
     attributes: { ...context.attributes.attributes },
@@ -162,6 +201,78 @@ const snapshotOutgoing = (context: OutgoingContext): OutboxedMessage => ({
   },
   headers: { ...context.headers }
 })
+
+/**
+ * Creates `requestedSettlement()` for one message, reading its own lifecycle context however late it's called
+ * @param readLifecycle reads the lifecycle context of that message
+ */
+const requestedSettlementOf =
+  (
+    readLifecycle: () =>
+      { messageFailed: boolean; messageReturnedToQueue: boolean } | undefined
+  ) =>
+  (): RequestedSettlement | undefined => {
+    const lifecycle = readLifecycle()
+    if (lifecycle?.messageFailed) {
+      return RequestedSettlement.Failed
+    }
+    return lifecycle?.messageReturnedToQueue
+      ? RequestedSettlement.Returned
+      : undefined
+  }
+
+/**
+ * Resolves the `dispatched` promises of messages once `handOff` has sent or stored them, or rejects them with its
+ * error, which is rethrown
+ */
+const settleDispatched = async (
+  outgoingMessages: Pick<OutboxedMessage, 'settle'>[],
+  handOff: Promise<void>
+): Promise<void> => {
+  try {
+    await handOff
+  } catch (error) {
+    outgoingMessages.forEach(m => m.settle.reject(error))
+    throw error
+  }
+  outgoingMessages.forEach(m => m.settle.resolve())
+}
+
+/**
+ * Splits messages to store into the first with each `messageId` and the later copies, which a store would skip
+ * @returns the messages to store, and the copies to drop as duplicates
+ */
+const splitRepeatedIds = (
+  outgoingMessages: DelayedMessage[]
+): { unique: DelayedMessage[]; repeated: DelayedMessage[] } => {
+  const seen = new Set<string>()
+  const unique: DelayedMessage[] = []
+  const repeated: DelayedMessage[] = []
+  outgoingMessages.forEach(m => {
+    const id = m.attributes.messageId
+    if (id !== undefined && seen.has(id)) {
+      repeated.push(m)
+    } else {
+      if (id !== undefined) {
+        seen.add(id)
+      }
+      unique.push(m)
+    }
+  })
+  return { unique, repeated }
+}
+
+/**
+ * Rejects the `dispatched` promise of a message that won't be sent
+ */
+const dropOutgoing = (
+  outgoingMessage: Pick<OutboxedMessage, 'message' | 'settle'>,
+  reason: OutgoingMessageDropReason,
+  cause?: unknown
+): void =>
+  outgoingMessage.settle.reject(
+    new OutgoingMessageDropped(outgoingMessage.message.$name, reason, cause)
+  )
 
 /**
  * A bus built by `Bus.configure().build()`. It sends and publishes messages, and unless it's send-only, receives
@@ -973,6 +1084,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           'Message was sent after its handler failed and will be dropped',
           { message }
         )
+        dropOutgoing(
+          outgoingMessage,
+          outbox.discardReason ?? OutgoingMessageDropReason.HandlerFailed
+        )
         return true
     }
   }
@@ -1089,7 +1204,10 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       ...this.createHandlerContext(transportMessage),
       message: transportMessage.domainMessage,
       attributes: transportMessage.attributes,
-      transportMessage
+      transportMessage,
+      requestedSettlement: requestedSettlementOf(
+        this.messageLifecycleContext.bindToCurrent()
+      )
     })
   }
 
@@ -1100,15 +1218,26 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * @param dueAt when the message is due, if it was sent with `deliverAfter` or `deliverAt`
    */
   private async dispatchOutgoing(
-    context: OutgoingContext,
+    draft: OutgoingDraft,
     dueAt: Date | undefined
   ): Promise<void> {
+    const settle = Promise.withResolvers<void>()
+    // Middleware may never look at it, so a rejection mustn't be reported as unhandled
+    void settle.promise.catch(() => undefined)
+    // A time that has already passed is sent straight away
+    const delayedUntil =
+      dueAt && dueAt.getTime() > Date.now() ? dueAt : undefined
+    const context = {
+      ...draft,
+      ...(delayedUntil ? { dueAt: delayedUntil } : {}),
+      dispatched: settle.promise
+    } as OutgoingContext
     let dispatched = false
     let outboxed: OutboxedMessage | undefined
     try {
       await this.middlewarePipeline.runOutgoing(context, async () => {
         dispatched = true
-        const outgoingMessage: OutboxedMessage = snapshotOutgoing(context)
+        const outgoingMessage = snapshotOutgoing(context, settle)
         // Checked before buffering, so the caller's send rejects rather than the outbox failing when it's flushed
         if (Object.hasOwn(outgoingMessage.headers, FAILURE_HEADER)) {
           // The bus writes it on dead-lettered messages, whatever the transport
@@ -1118,17 +1247,20 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           )
         }
         this.transport.assertSendOptions?.({ headers: outgoingMessage.headers })
-        if (dueAt && dueAt.getTime() > Date.now()) {
-          outgoingMessage.dueAt = dueAt
+        if (delayedUntil) {
+          outgoingMessage.dueAt = delayedUntil
         }
         if (this.addToOutbox(outgoingMessage)) {
           outboxed = outgoingMessage
           return
         }
         if (isDelayed(outgoingMessage)) {
-          await this.storeOutgoing([outgoingMessage])
+          await this.storeAndSettle([outgoingMessage])
         } else {
-          await this.dispatchToTransport(outgoingMessage)
+          await settleDispatched(
+            [outgoingMessage],
+            this.dispatchToTransport(outgoingMessage)
+          )
         }
       })
     } catch (error) {
@@ -1137,10 +1269,20 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       if (outbox && outboxed) {
         outbox.messages = outbox.messages.filter(m => m !== outboxed)
       }
+      // A no-op if the message already reached the transport, or the transport's error already rejected it
+      dropOutgoing(
+        { message: context.message, settle },
+        OutgoingMessageDropReason.Rejected,
+        error
+      )
       throw error
     }
 
     if (!dispatched) {
+      dropOutgoing(
+        { message: context.message, settle },
+        OutgoingMessageDropReason.MiddlewareSkipped
+      )
       this.logger.debug('Outgoing message was dropped by middleware', {
         kind: context.kind,
         message: context.message
@@ -1152,7 +1294,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Sends, publishes or replies with a message on the transport, with the headers set by outgoing middleware
    */
   private async dispatchToTransport(
-    outgoingMessage: OutboxedMessage
+    outgoingMessage: OutgoingDraft
   ): Promise<void> {
     const { attributes, headers } = outgoingMessage
     switch (outgoingMessage.kind) {
@@ -1255,13 +1397,53 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
+   * Stores delayed messages, and settles their `dispatched` promises: resolved once stored, rejected as `duplicate`
+   * when a message with the same `messageId` was already stored, or with the persistence's error, which is rethrown
+   */
+  private async storeAndSettle(
+    outgoingMessages: DelayedMessage[]
+  ): Promise<void> {
+    // Stores don't agree on how they report an id repeated within one batch, so only the first is given to the store
+    const { unique, repeated } = splitRepeatedIds(outgoingMessages)
+    if (repeated.length > 0) {
+      this.warnOfDuplicates(repeated.map(m => m.attributes.messageId!))
+    }
+    repeated.forEach(m => dropOutgoing(m, OutgoingMessageDropReason.Duplicate))
+    let stored: boolean[]
+    try {
+      stored = await this.storeOutgoing(unique)
+    } catch (error) {
+      unique.forEach(m => m.settle.reject(error))
+      throw error
+    }
+    unique.forEach((m, index) =>
+      stored[index]
+        ? m.settle.resolve()
+        : dropOutgoing(m, OutgoingMessageDropReason.Duplicate)
+    )
+  }
+
+  /**
+   * Warns that delayed messages weren't stored, because messages with the same `messageId` are already scheduled
+   * @param duplicateIds the ids of the messages that weren't stored
+   */
+  private warnOfDuplicates(duplicateIds: string[]): void {
+    this.logger.warn(
+      'Scheduled messages were not stored, because messages with the same messageId are already scheduled. Give each message sent with deliverAfter or deliverAt a messageId of its own.',
+      { duplicateIds }
+    )
+  }
+
+  /**
    * Stores messages in the persistence to send once they're due
+   * @returns whether each message was stored, in order. One whose id was already stored is skipped. The ids must be
+   * unique within `outgoingMessages`, so the store only reports ids it already had.
    * @throws DelayedDeliveryNotSupported if the persistence can't store messages to send later, which `send()` and
    * `publish()` have already checked
    */
   private async storeOutgoing(
     outgoingMessages: DelayedMessage[]
-  ): Promise<void> {
+  ): Promise<boolean[]> {
     if (!isOutgoingMessageStore(this.persistence)) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }
@@ -1278,10 +1460,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     )
     const duplicateIds = await this.persistence.storeOutgoingMessages(toStore)
     if (duplicateIds.length > 0) {
-      this.logger.warn(
-        'Scheduled messages were not stored, because messages with the same messageId are already scheduled. Give each message sent with deliverAfter or deliverAt a messageId of its own.',
-        { duplicateIds }
-      )
+      this.warnOfDuplicates(duplicateIds)
     }
     this.logger.debug('Stored outgoing messages to send when they are due', {
       outgoingMessages: toStore.map(({ id, kind, dueAt }) => ({
@@ -1293,6 +1472,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     toStore.forEach(({ dueAt }) =>
       this.outgoingMessageDispatcher?.scheduled(dueAt)
     )
+    const skipped = new Set(duplicateIds)
+    return toStore.map(({ id }) => !skipped.has(id))
   }
 
   /**
@@ -1365,6 +1546,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       message,
       attributes,
       transportMessage,
+      requestedSettlement: requestedSettlementOf(
+        this.messageLifecycleContext.bindToCurrent()
+      ),
       handlerName: handlerNameOf(handler)
     })
 
@@ -1375,8 +1559,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
           this.invokeHandler(message, attributes, handler, context)
         )
       } catch (error) {
-        outbox.state = OutboxState.Discarded
-        outbox.messages = []
+        discardOutbox(outbox, OutgoingMessageDropReason.HandlerFailed)
         throw error
       }
 
@@ -1392,14 +1575,13 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    */
   private async flushOutbox(outbox: Outbox, message: Message): Promise<void> {
     if (this.messageLifecycleContext.isFailedOrReturned()) {
-      outbox.state = OutboxState.Discarded
       if (outbox.messages.length > 0) {
         this.logger.debug(
           'Message was failed or returned, so the messages its handler sent are dropped',
           { messageName: message.$name, dropped: outbox.messages.length }
         )
       }
-      outbox.messages = []
+      discardOutbox(outbox, OutgoingMessageDropReason.MessageFailedOrReturned)
       return
     }
 
@@ -1410,7 +1592,14 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     const outboxedMessages = outbox.messages.filter(m => !isDelayed(m))
     outbox.messages = []
     if (delayedMessages.length > 0) {
-      await this.storeOutgoing(delayedMessages)
+      try {
+        await this.storeAndSettle(delayedMessages)
+      } catch (error) {
+        outboxedMessages.forEach(m =>
+          dropOutgoing(m, OutgoingMessageDropReason.OutboxFlushFailed)
+        )
+        throw error
+      }
     }
     if (outboxedMessages.length > 0) {
       // In case of a large number of messages to send, use a worker pool to dispatch so that we don't blow out heap usage
@@ -1423,12 +1612,26 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
             if (messageToSend === undefined) {
               break
             }
-            // The outgoing middleware already ran when the message was sent, so it isn't run again
-            await this.dispatchToTransport(messageToSend)
+            // The outgoing middleware already ran when the message was sent, so it isn't run again. It's sent in
+            // the async context it was sent in, so tracing spans started around next() are active.
+            await messageToSend.runInSendContext(async () =>
+              settleDispatched(
+                [messageToSend],
+                this.dispatchToTransport(messageToSend)
+              )
+            )
           }
         })
 
-      await Promise.all(workers)
+      const results = await Promise.allSettled(workers)
+      // Each worker stops at its first failed send, so messages are only left over when every worker failed
+      outboxedMessages.forEach(m =>
+        dropOutgoing(m, OutgoingMessageDropReason.OutboxFlushFailed)
+      )
+      const failure = results.find(result => result.status === 'rejected')
+      if (failure) {
+        throw failure.reason
+      }
     }
   }
 
