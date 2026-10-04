@@ -1,4 +1,5 @@
 import { messageAttributes } from '@node-ts/bus-messages'
+import { InvalidDeliveryOptions } from '../outgoing-message'
 import {
   StartTestTimeoutWorkflow,
   testFunctionTimeoutWorkflow,
@@ -7,7 +8,11 @@ import {
   TestPaymentTimedOut
 } from '../workflow/test/test-timeout-workflow'
 import { WorkflowStatus } from '../workflow/workflow-state'
-import { workflowContext } from './recording-workflow-context'
+import {
+  RecordingWorkflowContext,
+  workflowContext
+} from './recording-workflow-context'
+import { TEST_RETURN_ADDRESS } from './test-return-address'
 
 const runningState = (): TestFunctionTimeoutWorkflowState =>
   Object.assign(new TestFunctionTimeoutWorkflowState(), {
@@ -80,7 +85,11 @@ describe('workflowContext', () => {
       expect(sut.messageFailed).toEqual(true)
       expect(sut.messageReturned).toEqual(true)
       expect(sut.replied).toEqual([
-        { message: TestPaymentReceived({ orderId: '1' }), options: {} }
+        {
+          message: TestPaymentReceived({ orderId: '1' }),
+          options: {},
+          destination: TEST_RETURN_ADDRESS
+        }
       ])
     })
 
@@ -99,6 +108,46 @@ describe('workflowContext', () => {
     it('should use them', () => {
       expect(sut.attributes).toBe(attributes)
       expect(sut.correlationId).toEqual('correlation-1')
+    })
+  })
+
+  describe('when created with attributes that have a correlation id and return address', () => {
+    let sut: RecordingWorkflowContext<TestFunctionTimeoutWorkflowState>
+
+    beforeAll(async () => {
+      sut = workflowContext<TestFunctionTimeoutWorkflowState>({
+        attributes: messageAttributes({
+          correlationId: 'from-attributes',
+          replyTo: 'requester'
+        })
+      })
+      await sut.reply(TestPaymentReceived({ orderId: '1' }))
+    })
+
+    it('should take the correlation id from them', () => {
+      expect(sut.correlationId).toEqual('from-attributes')
+    })
+
+    it('should record replies to their return address', () => {
+      expect(sut.replied[0].destination).toEqual('requester')
+    })
+  })
+
+  describe('when a handler sends with an invalid deliverAfter', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      error = await testFunctionTimeoutWorkflow
+        .startedByHandler(StartTestTimeoutWorkflow)(
+          StartTestTimeoutWorkflow({ orderId: '1', timeoutMs: NaN }),
+          runningState(),
+          workflowContext<TestFunctionTimeoutWorkflowState>()
+        )
+        .catch((e: unknown) => e)
+    })
+
+    it('should throw InvalidDeliveryOptions, as the bus does', () => {
+      expect(error).toBeInstanceOf(InvalidDeliveryOptions)
     })
   })
 })

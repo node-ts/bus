@@ -45,6 +45,8 @@ deepStrictEqual(ctx.published, [
   { message: new RoomReserved('room-1', 'booking-1'), options: {} }
 ])
 deepStrictEqual(ctx.sent, [])
+// Narrowed to RoomReserved, so its fields can be read
+strictEqual(ctx.publishedOf(RoomReserved)[0].message.bookingId, 'booking-1')
 // #endregion function-handler
 
 // #region class-handler
@@ -137,10 +139,7 @@ const unpaid = testWorkflow(OrderPaymentWorkflow)
 await unpaid.when(new OrderPlaced('order-2', 80))
 
 const [timedOut] = await unpaid.advanceTime(TIME_TO_PAY_MS)
-deepStrictEqual(
-  timedOut.sent.map(sent => sent.message),
-  [new CancelOrder('order-2')]
-)
+strictEqual(timedOut.sentOf(CancelOrder)[0].message.orderId, 'order-2')
 strictEqual(timedOut.state?.status, 'cancelled')
 // #endregion timeout
 

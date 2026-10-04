@@ -1,11 +1,18 @@
-import { Command, Event, Message } from '@node-ts/bus-messages'
+import { Message } from '@node-ts/bus-messages'
 import { WorkflowState, WorkflowStatus } from '../workflow'
-import { RecordedMessage } from './recorded-message'
+import { RecordedMessages } from './recorded-messages'
 
 /**
- * What happened when a `testWorkflow()` scenario delivered a message to the workflow
+ * What happened when a `testWorkflow()` scenario delivered a message to the workflow.
+ *
+ * `sent`, `published` and `replied` hold what the handler sent, published and replied with, and `sentOf`,
+ * `publishedOf` and `repliedOf` narrow them to one type. Commands and events sent with `deliverAfter` or `deliverAt`
+ * are also scheduled, and `advanceTime()` delivers the ones the workflow handles. All three are empty when the
+ * handler failed or returned the message, since the bus drops them.
  */
-export interface WorkflowScenarioResult<TWorkflowState extends WorkflowState> {
+export interface WorkflowScenarioResult<
+  TWorkflowState extends WorkflowState
+> extends RecordedMessages {
   /**
    * The message that was delivered
    */
@@ -35,30 +42,13 @@ export interface WorkflowScenarioResult<TWorkflowState extends WorkflowState> {
   readonly status: WorkflowStatus | undefined
 
   /**
-   * The commands the handler sent, with their options. Those sent with `deliverAfter` or `deliverAt` are also
-   * scheduled, and `advanceTime()` delivers the ones the workflow handles. Empty when the handler failed or returned
-   * the message, since the bus drops them.
-   */
-  readonly sent: RecordedMessage<Command>[]
-
-  /**
-   * The events the handler published, with their options. Empty when the handler failed or returned the message.
-   */
-  readonly published: RecordedMessage<Event>[]
-
-  /**
-   * The messages the handler replied with, with their attributes. Empty when the handler failed or returned the
-   * message.
-   */
-  readonly replied: RecordedMessage<Message>[]
-
-  /**
    * Whether the handler called `failMessage()`. The bus would dead-letter the message, so the state isn't saved.
    */
   readonly messageFailed: boolean
 
   /**
-   * Whether the handler called `returnMessage()`. The bus would retry the message, so the state isn't saved.
+   * Whether the handler called `returnMessage()`. The bus would retry the message, so the state isn't saved, and a
+   * scheduled message that `advanceTime()` delivered is scheduled again.
    */
   readonly messageReturned: boolean
 }

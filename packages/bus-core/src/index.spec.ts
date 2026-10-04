@@ -24,7 +24,10 @@ describe('index', () => {
         workflowContext: expect.any(Function),
         testWorkflow: expect.any(Function),
         InvalidTimeAdvance: expect.any(Function),
-        MessageNotHandledByWorkflow: expect.any(Function)
+        MessageNotHandledByWorkflow: expect.any(Function),
+        WorkflowFactoryMissing: expect.any(Function),
+        InMemoryQueueDisposed: expect.any(Function),
+        TEST_RETURN_ADDRESS: 'test-return-address'
       })
     })
 

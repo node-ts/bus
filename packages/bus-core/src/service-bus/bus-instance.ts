@@ -46,10 +46,10 @@ import {
   DelayedDeliveryNotSupported,
   DelayedDeliveryOptions,
   DelayedDeliveryUnsupportedReason,
-  InvalidDeliveryOptions,
   OutgoingMessage,
   SendOptions
 } from '../outgoing-message'
+import { assertDeliveryOptions } from '../outgoing-message/assert-delivery-options'
 import {
   isOutgoingMessageStore,
   OutgoingMessageDispatcher
@@ -1344,37 +1344,12 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    */
   private resolveDueAt(
     message: Message,
-    { deliverAfter, deliverAt }: SendOptions
+    options: SendOptions
   ): Date | undefined {
-    if (deliverAfter === undefined && deliverAt === undefined) {
+    if (!assertDeliveryOptions(message, options)) {
       return undefined
     }
-    if (deliverAfter !== undefined && deliverAt !== undefined) {
-      throw new InvalidDeliveryOptions(
-        'deliverAfter and deliverAt were both given',
-        message.$name
-      )
-    }
-    if (
-      deliverAfter !== undefined &&
-      (typeof deliverAfter !== 'number' ||
-        !Number.isFinite(deliverAfter) ||
-        deliverAfter < 0)
-    ) {
-      throw new InvalidDeliveryOptions(
-        `deliverAfter must be a number of milliseconds that's 0 or more, but was ${String(deliverAfter)}`,
-        message.$name
-      )
-    }
-    if (
-      deliverAt !== undefined &&
-      (!(deliverAt instanceof Date) || Number.isNaN(deliverAt.getTime()))
-    ) {
-      throw new InvalidDeliveryOptions(
-        `deliverAt must be a valid Date, but was ${String(deliverAt)}`,
-        message.$name
-      )
-    }
+    const { deliverAfter, deliverAt } = options
     if (!isOutgoingMessageStore(this.persistence)) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }

@@ -1,3 +1,5 @@
+import { ReturnAddressMissing } from '../error'
+import { InvalidDeliveryOptions } from '../outgoing-message'
 import { WorkflowStateNotProvided } from '../workflow'
 import { TestCommand } from '../workflow/test/test-command'
 import { TestDiscardedWorkflow } from '../workflow/test/test-discarded-workflow'
@@ -12,6 +14,15 @@ import {
   testFunctionStartedByDiscardWorkflow
 } from '../workflow/test/test-function-workflow-started-by'
 import {
+  StartTestScenario,
+  TestScenarioClassWorkflow,
+  TestScenarioItemAdded,
+  TestScenarioStarted,
+  TestScenarioState,
+  TestScenarioTimedOut,
+  testScenarioWorkflow
+} from '../workflow/test/test-scenario-workflow'
+import {
   StartTestSettlingWorkflow,
   testFunctionSettlingWorkflow,
   TestSettlingWorkflow
@@ -25,7 +36,12 @@ import {
 } from '../workflow/test/test-timeout-workflow'
 import { Workflow, WorkflowMapper } from '../workflow/workflow'
 import { WorkflowState, WorkflowStatus } from '../workflow/workflow-state'
-import { InvalidTimeAdvance, MessageNotHandledByWorkflow } from './error'
+import {
+  InvalidTimeAdvance,
+  MessageNotHandledByWorkflow,
+  WorkflowFactoryMissing
+} from './error'
+import { TEST_RETURN_ADDRESS } from './test-return-address'
 import { testWorkflow } from './test-workflow'
 import { WorkflowScenario } from './workflow-scenario'
 import { WorkflowScenarioOptions } from './workflow-scenario-options'
@@ -422,6 +438,187 @@ describe('testWorkflow', () => {
       expect(() => testWorkflow(StatelessWorkflow)).toThrow(
         WorkflowStateNotProvided
       )
+    })
+  })
+
+  describe('when a handler replies', () => {
+    let result: WorkflowScenarioResult<TestScenarioState>
+
+    beforeAll(async () => {
+      result = await testWorkflow(testScenarioWorkflow).when(
+        StartTestScenario({ orderNumber: 1, timeoutOutcome: 'complete' })
+      )
+    })
+
+    it('should record the reply to the test return address', () => {
+      expect(result.replied).toEqual([
+        {
+          message: TestScenarioStarted({ orderNumber: 1 }),
+          options: {},
+          destination: TEST_RETURN_ADDRESS
+        }
+      ])
+    })
+
+    it('should narrow the recorded messages by type', () => {
+      expect(
+        result.repliedOf(TestScenarioStarted)[0].message.orderNumber
+      ).toEqual(1)
+      expect(result.sentOf(TestScenarioTimedOut)[0].message.outcome).toEqual(
+        'complete'
+      )
+      expect(result.sentOf(TestCommand)).toEqual([])
+    })
+
+    describe('and the message has a return address', () => {
+      let replied: WorkflowScenarioResult<TestScenarioState>
+
+      beforeAll(async () => {
+        replied = await testWorkflow(testScenarioWorkflow).when(
+          StartTestScenario({ orderNumber: 1, timeoutOutcome: 'complete' }),
+          { replyTo: 'requester' }
+        )
+      })
+
+      it('should record the reply to it', () => {
+        expect(replied.replied[0].destination).toEqual('requester')
+      })
+    })
+  })
+
+  describe('when a handler replies to a message without a return address', () => {
+    it('should throw ReturnAddressMissing naming the message', async () => {
+      await expect(
+        testWorkflow(testScenarioWorkflow).when(
+          StartTestScenario({ orderNumber: 1, timeoutOutcome: 'complete' }),
+          { replyTo: undefined }
+        )
+      ).rejects.toMatchObject({
+        constructor: ReturnAddressMissing,
+        messageName: StartTestScenario.NAME,
+        replyName: TestScenarioStarted.NAME
+      })
+    })
+  })
+
+  describe('when a custom mapping looks up 0', () => {
+    let result: WorkflowScenarioResult<TestScenarioState>
+
+    beforeAll(async () => {
+      const sut = testWorkflow(testScenarioWorkflow)
+      await sut.when(
+        StartTestScenario({ orderNumber: 0, timeoutOutcome: 'complete' })
+      )
+      result = await sut.when(TestScenarioItemAdded({ orderNumber: 0 }))
+    })
+
+    it('should map the message to the instance, as the persistence does', () => {
+      expect(result.handled).toEqual(true)
+      expect(result.state).toMatchObject({ items: 1 })
+    })
+  })
+
+  describe('when a timeout is delivered', () => {
+    let sut: WorkflowScenario<TestScenarioState>
+    let result: WorkflowScenarioResult<TestScenarioState>
+
+    beforeAll(async () => {
+      sut = testWorkflow(testScenarioWorkflow)
+      await sut.when(
+        StartTestScenario({ orderNumber: 1, timeoutOutcome: 'complete' })
+      )
+      ;[result] = await sut.advanceTime(1_000)
+    })
+
+    it('should give it a correlation id and the return address, as the bus does', () => {
+      expect(result.state).toMatchObject({
+        timeoutCorrelationId: expect.any(String),
+        timeoutReplyTo: TEST_RETURN_ADDRESS
+      })
+    })
+  })
+
+  describe('when a timeout handler throws', () => {
+    let sut: WorkflowScenario<TestScenarioState>
+    let error: unknown
+
+    beforeAll(async () => {
+      sut = testWorkflow(testScenarioWorkflow, { now: START_TIME })
+      await sut.when(
+        StartTestScenario({ orderNumber: 1, timeoutOutcome: 'throw' })
+      )
+      error = await sut.advanceTime(5_000).catch((e: unknown) => e)
+    })
+
+    it('should reject with its error', () => {
+      expect(error).toMatchObject({ message: 'The timeout failed' })
+    })
+
+    it('should keep the timeout scheduled, and stop the clock when it was due', () => {
+      expect(sut.scheduled).toHaveLength(1)
+      expect(sut.now).toEqual(new Date(START_TIME.getTime() + 1_000))
+    })
+  })
+
+  describe('when a timeout handler returns the message', () => {
+    let sut: WorkflowScenario<TestScenarioState>
+    let first: WorkflowScenarioResult<TestScenarioState>[]
+    let second: WorkflowScenarioResult<TestScenarioState>[]
+
+    beforeAll(async () => {
+      sut = testWorkflow(testScenarioWorkflow)
+      await sut.when(
+        StartTestScenario({ orderNumber: 1, timeoutOutcome: 'return' })
+      )
+      first = await sut.advanceTime(1_000)
+      second = await sut.advanceTime(0)
+    })
+
+    it('should deliver it once each time the clock moves', () => {
+      expect(first).toHaveLength(1)
+      expect(first[0].messageReturned).toEqual(true)
+      expect(second).toHaveLength(1)
+    })
+
+    it('should keep it scheduled for the next retry', () => {
+      expect(sut.scheduled).toHaveLength(1)
+    })
+  })
+
+  describe('when a class workflow has constructor arguments', () => {
+    describe('without createWorkflow', () => {
+      it('should throw WorkflowFactoryMissing', () => {
+        expect(() => testWorkflow(TestScenarioClassWorkflow)).toThrow(
+          WorkflowFactoryMissing
+        )
+      })
+    })
+
+    describe('with createWorkflow', () => {
+      let result: WorkflowScenarioResult<TestScenarioState>
+
+      beforeAll(async () => {
+        result = await testWorkflow(TestScenarioClassWorkflow, {
+          createWorkflow: () =>
+            new TestScenarioClassWorkflow({ next: () => 42 })
+        }).when(
+          StartTestScenario({ orderNumber: 1, timeoutOutcome: 'complete' })
+        )
+      })
+
+      it('should use it', () => {
+        expect(result.state).toMatchObject({ orderNumber: 42 })
+      })
+    })
+  })
+
+  describe('when a handler sends with invalid delivery options', () => {
+    it('should throw InvalidDeliveryOptions, as the bus does', async () => {
+      await expect(
+        testWorkflow(TestTimeoutWorkflow).when(
+          StartTestTimeoutWorkflow({ orderId: '1', timeoutMs: -1 })
+        )
+      ).rejects.toBeInstanceOf(InvalidDeliveryOptions)
     })
   })
 })

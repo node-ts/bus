@@ -12,23 +12,17 @@ import { BusSender } from './bus-sender'
  * same workflow instance. `reply` sends a message straight back to the endpoint that sent the message being
  * handled, the same way.
  *
- * It's an interface so a handler can be unit tested by calling it with a plain object.
+ * It's an interface so a handler can be unit tested by calling it with a fake, such as the recording one from
+ * `handlerContext()`.
  * @example
  * const placeOrderHandler = handlerFor(PlaceOrder, async (message, _attributes, ctx) => {
  *   await ctx.publish(new OrderPlaced(message.orderId))
  * })
  *
  * // In a test
- * const published: Event[] = []
- * const ctx: HandlerContext = {
- *   correlationId: 'test',
- *   send: async () => {},
- *   publish: async event => { published.push(event) },
- *   reply: async () => {},
- *   failMessage: async () => {},
- *   returnMessage: async () => {}
- * }
- * await placeOrderHandler.messageHandler(new PlaceOrder('1'), attributes, ctx)
+ * const ctx = handlerContext()
+ * await placeOrderHandler.messageHandler(new PlaceOrder('1'), messageAttributes(), ctx)
+ * deepStrictEqual(ctx.published, [{ message: new OrderPlaced('1'), options: {} }])
  */
 export interface HandlerContext extends BusSender {
   /**

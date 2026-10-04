@@ -4,7 +4,7 @@ import { SendOptions } from '../outgoing-message'
 /**
  * Sends commands and publishes events. `BusInstance` implements it, and so does the `HandlerContext` that's
  * passed to every handler, so code that only needs to send messages can depend on this interface and be given
- * either one, or a plain object in a test.
+ * either one, or a fake in a test, such as the recording one from `handlerContext()`.
  * @example
  * const placeOrder = async (sender: BusSender, orderId: string) =>
  *   sender.send(new PlaceOrder(orderId))
@@ -12,8 +12,9 @@ import { SendOptions } from '../outgoing-message'
  * // In production
  * await placeOrder(bus, '1')
  * // In a test
- * const sent: Command[] = []
- * await placeOrder({ send: async c => { sent.push(c) }, publish: async () => {} }, '1')
+ * const ctx = handlerContext()
+ * await placeOrder(ctx, '1')
+ * deepStrictEqual(ctx.sent, [{ message: new PlaceOrder('1'), options: {} }])
  */
 export interface BusSender {
   /**

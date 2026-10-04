@@ -20,7 +20,11 @@ import {
   TestEvent2,
   testMessageTypes
 } from '../test'
-import { EndpointNotFound, TransportHeaderReserved } from './error'
+import {
+  EndpointNotFound,
+  InMemoryQueueDisposed,
+  TransportHeaderReserved
+} from './error'
 import { InMemoryMessage, InMemoryQueue } from './in-memory-queue'
 
 const event = new TestEvent()
@@ -420,6 +424,28 @@ describe('InMemoryQueue', () => {
     describe('with nothing queued', () => {
       it('should resolve straight away', async () => {
         await expect(sut.idle()).resolves.toBeUndefined()
+      })
+    })
+
+    describe('and the queue is disposed with a message left', () => {
+      let idleError: unknown
+      let idleAfterDisposeError: unknown
+
+      beforeEach(async () => {
+        await sut.publish(event, messageOptions)
+        const idle = sut.idle().catch((e: unknown) => e)
+        await sut.dispose()
+        idleError = await idle
+        idleAfterDisposeError = await sut.idle().catch((e: unknown) => e)
+      })
+
+      it('should reject with InMemoryQueueDisposed rather than never settling', () => {
+        expect(idleError).toBeInstanceOf(InMemoryQueueDisposed)
+        expect(idleError).toMatchObject({ queueDepth: 1 })
+      })
+
+      it('should reject when called after it was disposed', () => {
+        expect(idleAfterDisposeError).toBeInstanceOf(InMemoryQueueDisposed)
       })
     })
 

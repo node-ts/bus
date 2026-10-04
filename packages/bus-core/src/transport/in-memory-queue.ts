@@ -16,7 +16,11 @@ import {
   DEFAULT_IN_MEMORY_ENDPOINT_NAME,
   DefaultInMemoryQueueConfiguration
 } from './default-in-memory-queue-configuration'
-import { EndpointNotFound, TransportHeaderReserved } from './error'
+import {
+  EndpointNotFound,
+  InMemoryQueueDisposed,
+  TransportHeaderReserved
+} from './error'
 import { InMemoryQueueConfiguration } from './in-memory-queue-configuration'
 import { Transport, TransportInitializationOptions } from './transport'
 import { TransportMessage } from './transport-message'
@@ -65,6 +69,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
    */
   private messagesWithHandlers = new Set<string>()
   private retryTimeouts = new Set<NodeJS.Timeout>()
+  private isDisposed = false
   private logger!: Logger
   private coreDependencies!: CoreDependencies
 
@@ -104,6 +109,7 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
   async dispose(): Promise<void> {
     this.retryTimeouts.forEach(timeout => clearTimeout(timeout))
     this.retryTimeouts.clear()
+    this.isDisposed = true
     this.queueEvents.emit('disposed')
 
     if (this.queue.length > 0) {
@@ -261,7 +267,11 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
    * Messages sent with `deliverAfter` or `deliverAt` wait in the bus' persistence, not in the queue, so they aren't
    * waited for until they're sent. Nothing is handled before the bus is started, so a queue with messages in it
    * isn't idle until then.
+   *
+   * A queue that's disposed with messages still in it will never be idle, so the promise rejects, rather than never
+   * settling and holding the test until it times out.
    * @returns a promise that resolves once the queue is empty, or straight away if it already is
+   * @throws InMemoryQueueDisposed if the queue is disposed, or already was, while messages are left in it
    * @example
    * const queue = new InMemoryQueue()
    * const bus = Bus.configure().withTransport(queue).withHandler(placeOrderHandler).build()
@@ -275,7 +285,21 @@ export class InMemoryQueue implements Transport<InMemoryMessage> {
     if (this.queue.length === 0) {
       return
     }
-    await new Promise<void>(resolve => this.queueEvents.once('idle', resolve))
+    if (this.isDisposed) {
+      throw new InMemoryQueueDisposed(this.endpointName, this.queue.length)
+    }
+    await new Promise<void>((resolve, reject) => {
+      const onIdle = () => {
+        this.queueEvents.off('disposed', onDisposed)
+        resolve()
+      }
+      const onDisposed = () => {
+        this.queueEvents.off('idle', onIdle)
+        reject(new InMemoryQueueDisposed(this.endpointName, this.queue.length))
+      }
+      this.queueEvents.once('idle', onIdle)
+      this.queueEvents.once('disposed', onDisposed)
+    })
   }
 
   /**

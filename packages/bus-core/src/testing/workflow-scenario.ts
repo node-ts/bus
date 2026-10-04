@@ -48,11 +48,16 @@ export interface WorkflowScenario<TWorkflowState extends WorkflowState> {
    * The handler's state is saved by the bus' rules: the changes it returns are merged over the state, `$workflowId`,
    * `$version` and `$name` are kept, `complete()` ends the workflow and `discard()` saves nothing. A handler that
    * calls `failMessage()` or `returnMessage()` saves nothing and sends nothing.
+   *
+   * The message's return address (`replyTo`) is `TEST_RETURN_ADDRESS` unless `attributes` set one, so replies are
+   * recorded with it as their `destination`. Pass `replyTo: undefined` to test a message without one, whose replies
+   * throw `ReturnAddressMissing`, as on a bus.
    * @param message the message to deliver
    * @param attributes the attributes it arrived with. `attributes` and `stickyAttributes` default to `{}`.
    * @returns what the handler did, and the state after it
    * @throws MessageNotHandledByWorkflow if the workflow isn't started by and doesn't handle the message
-   * @throws the error the handler throws, after which nothing is saved, as on a bus that retries the message
+   * @throws the error the handler throws, after which nothing is saved, as on a bus that retries the message. That
+   * includes `InvalidDeliveryOptions`, `DelayedReplyNotSupported` and `ReturnAddressMissing` from its context.
    * @example
    * const scenario = testWorkflow(orderWorkflow)
    * const started = await scenario.when(OrderPlaced({ orderId: '1' }))
@@ -66,11 +71,16 @@ export interface WorkflowScenario<TWorkflowState extends WorkflowState> {
   /**
    * Moves the scenario's clock on, and delivers each scheduled message that falls due, in the order they're due,
    * with `when()`'s rules. Only messages the workflow handles are delivered. They carry the `workflowId` of the
-   * instance that sent them, and the attributes they were sent with. Messages scheduled by the handlers that run,
-   * and due in the same time, are delivered too.
+   * instance that sent them, and the attributes the bus would send them with: those they were sent with, the
+   * correlation id of the message that sent them or a new one, and `TEST_RETURN_ADDRESS` as their return address.
+   * Messages scheduled by the handlers that run, and due in the same time, are delivered too.
+   *
+   * A message whose handler throws or calls `returnMessage()` stays scheduled, as the bus would retry it, and is
+   * delivered again the next time the clock moves. One whose handler calls `failMessage()` is dropped.
    * @param milliseconds how far to move the clock on
    * @returns what happened for each message that was delivered, in order
    * @throws InvalidTimeAdvance if `milliseconds` isn't a finite number of 0 or more
+   * @throws the error a handler throws, which stops the clock at the time that message was due
    * @example
    * await scenario.when(OrderPlaced({ orderId: '1' }))
    * const [timedOut] = await scenario.advanceTime(30_000)

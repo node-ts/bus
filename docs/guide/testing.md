@@ -11,8 +11,11 @@ Handlers and workflows are plain functions, so a unit test calls them directly, 
 
 `handlerContext()` makes a fake `HandlerContext` that records what the handler does instead of doing it:
 
-- `sent`, `published` and `replied` hold each message with the options it was given, such as `deliverAfter` or attributes. The options are `{}` when none were given.
+- `sent`, `published` and `replied` hold each message with the options it was given, such as `deliverAfter` or attributes. The options are `{}` when none were given. A reply also has its `destination`, the return address of the message being handled.
+- `sentOf(Type)`, `publishedOf(Type)` and `repliedOf(Type)` narrow them to one message type, typed as that type, so a test can read their fields.
 - `messageFailed` and `messageReturned` say whether the handler called `failMessage()` or `returnMessage()`.
+
+It checks what the bus checks. `send()` and `publish()` throw `InvalidDeliveryOptions` for a `deliverAfter` that isn't a number of 0 or more, a `deliverAt` that isn't a valid date, or both. `reply()` throws `DelayedReplyNotSupported` when it's given either, and `ReturnAddressMissing` when the message being handled has no return address.
 
 Call a function handler's `messageHandler` with the message, its attributes and the context. `messageAttributes()` from `@node-ts/bus-messages` fills in empty attributes.
 
@@ -28,11 +31,13 @@ A class handler is tested the same way. Construct it with fakes for its dependen
 
 :::
 
-Pass `handlerContext()` the members to replace, such as `handlerContext({ correlationId: 'c-1' })` for a handler that reads the correlation id. Replacing a function, such as `send`, stops that function from being recorded.
+Pass `handlerContext()` the members to replace, such as `handlerContext({ correlationId: 'c-1' })` for a handler that reads the correlation id. Replies are recorded as sent to `TEST_RETURN_ADDRESS` unless you pass the message's `replyTo`, and `handlerContext({ replyTo: undefined })` tests a message without one. Replacing a function, such as `send`, stops that function from being recorded.
+
+The context records every call, including one made after the handler resolved, such as from a timer it started without awaiting. A bus handles that differently: a late send or publish goes out straight away, outside the handler's outbox, or is dropped with a warning if the handler failed, and a late `reply()` throws `ReplyOutsideHandlingContext`. Await everything a handler sends before it returns.
 
 ## Testing a workflow handler
 
-`workflowContext()` makes a fake `WorkflowContext` for the handlers of a workflow declared with `defineWorkflow`. It records the same things as `handlerContext()`, and also sets `completed` or `discarded` when the handler calls `complete()` or `discard()`, which return what the bus expects. Get a handler with `startedByHandler(Message)` or `whenHandler(Message)`, and call it with the state it should see:
+`workflowContext()` makes a fake `WorkflowContext` for the handlers of a workflow declared with `defineWorkflow`. It records and checks the same things as `handlerContext()`, and also sets `completed` or `discarded` when the handler calls `complete()` or `discard()`, which return what the bus expects. Its `correlationId` and return address come from the `attributes` you pass it. Get a handler with `startedByHandler(Message)` or `whenHandler(Message)`, and call it with the state it should see:
 
 <<< @/snippets/testing.ts#workflow-handler
 
@@ -50,6 +55,7 @@ It applies the same rules as the bus:
 - The changes a handler returns are merged over the state, and `$workflowId`, `$version` and `$name` are kept. `$version` counts the saves.
 - `complete()` ends the workflow, and later messages aren't handled. `discard()` saves nothing, so a discarded start leaves no instance.
 - A handler that calls `failMessage()` or `returnMessage()` saves nothing, and what it sent is dropped. A handler that throws rejects `when()` with its error.
+- Messages passed to `when()` have the return address `TEST_RETURN_ADDRESS`, which replies are recorded as sent to, unless their attributes set a `replyTo`. Pass `replyTo: undefined` to test a message without one, whose replies throw `ReturnAddressMissing`.
 
 A message the workflow neither starts with nor handles throws `MessageNotHandledByWorkflow`, since it would never reach the workflow on a bus.
 
@@ -58,6 +64,8 @@ A message the workflow neither starts with nor handles throws `MessageNotHandled
 Messages a handler sends with `deliverAfter` or `deliverAt`, such as [timeouts](/guide/workflows/timeouts), are scheduled on the scenario's clock. `advanceTime()` moves the clock on and delivers the ones that fall due and that the workflow handles, in the order they're due, to the instance that sent them. It returns a result for each:
 
 <<< @/snippets/testing.ts#timeout
+
+Each delivered message has the attributes the bus would give it: those it was sent with, the instance's `workflowId`, the correlation id of the message that sent it (or a new one), and `TEST_RETURN_ADDRESS` as its return address. A message whose handler throws or calls `returnMessage()` stays scheduled, as the bus would retry it, and is delivered again the next time the clock moves. A handler that throws also rejects `advanceTime()`, with the clock stopped when that message was due.
 
 The clock starts at the current time, or at the `now` option, such as `testWorkflow(orderPaymentWorkflow, { now: new Date('2030-01-01') })`. `scenario.scheduled` lists the messages that aren't due yet. Messages sent without a delay aren't delivered, even to the workflow itself: pass them to `when()` to continue with them.
 
@@ -69,11 +77,11 @@ The clock starts at the current time, or at the `now` option, such as `testWorkf
 
 ### Options
 
-| Option           | Default                 | Description                                                                                                             |
-| ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `createWorkflow` | `new` with no arguments | Creates a class workflow for each message, such as `() => new OrderWorkflow(fakeRepository)`                            |
-| `context`        | none                    | Members of every handler's context, such as a fake for a field a persistence adds. The `correlationId` is the message's |
-| `now`            | the current time        | When the scenario's clock starts                                                                                        |
+| Option           | Default                 | Description                                                                                                                                                                                           |
+| ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createWorkflow` | `new` with no arguments | Creates a class workflow for each message, such as `() => new OrderWorkflow(fakeRepository)`. Required for a class whose constructor takes arguments, which otherwise throws `WorkflowFactoryMissing` |
+| `context`        | none                    | Members of every handler's context, such as a fake for a field a persistence adds. The `correlationId` is the message's                                                                               |
+| `now`            | the current time        | When the scenario's clock starts                                                                                                                                                                      |
 
 The scenario doesn't serialize the state, so it doesn't check that the workflow state is in your [message types](/guide/serializers/message-types). An integration test with a bus covers that.
 
@@ -83,7 +91,7 @@ An integration test that runs a bus over an `InMemoryQueue` can wait for it to f
 
 <<< @/snippets/testing.ts#idle
 
-Messages sent with `deliverAfter` or `deliverAt` wait in the persistence, not the queue, so `idle()` doesn't wait for them. It only resolves once the bus is started, since nothing is handled before then.
+Messages sent with `deliverAfter` or `deliverAt` wait in the persistence, not the queue, so `idle()` doesn't wait for them. It only resolves once the bus is started, since nothing is handled before then. If the queue is disposed while messages are left in it, `idle()` rejects with `InMemoryQueueDisposed` rather than never settling.
 
 ## See also
 

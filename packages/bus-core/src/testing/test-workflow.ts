@@ -4,6 +4,7 @@ import { HandlerContext } from '../handler'
 import { ClassConstructor } from '../util'
 import {
   FunctionWorkflow,
+  hasLookupValue,
   MessageWorkflowMapping,
   Workflow,
   WorkflowHandlerResult,
@@ -17,14 +18,20 @@ import {
   FunctionWorkflowDefinition,
   isFunctionWorkflow
 } from '../workflow/function-workflow-definition'
-import { InvalidTimeAdvance, MessageNotHandledByWorkflow } from './error'
-import { RecordedMessage } from './recorded-message'
 import {
-  handlerContext,
-  RecordingHandlerContext
-} from './recording-handler-context'
-import { workflowContext } from './recording-workflow-context'
+  createRecordingHandlerContext,
+  withTypedAccess
+} from './create-recording-handler-context'
+import { createRecordingWorkflowContext } from './create-recording-workflow-context'
+import {
+  InvalidTimeAdvance,
+  MessageNotHandledByWorkflow,
+  WorkflowFactoryMissing
+} from './error'
+import { RecordedMessage } from './recorded-message'
+import { RecordingHandlerContext } from './recording-handler-context'
 import { ScheduledMessage } from './scheduled-message'
+import { TEST_RETURN_ADDRESS } from './test-return-address'
 import { WorkflowScenario } from './workflow-scenario'
 import { WorkflowScenarioOptions } from './workflow-scenario-options'
 import { WorkflowScenarioResult } from './workflow-scenario-result'
@@ -74,11 +81,14 @@ const readFunctionWorkflow = <TWorkflowState extends WorkflowState>(
       handler: FunctionWorkflowDefinition<TWorkflowState>['startedByHandlers'][number]
     ): ScenarioHandler<TWorkflowState> =>
     async (message, workflowState, attributes) => {
-      const context = workflowContext<TWorkflowState>({
-        correlationId: attributes.correlationId,
-        ...contextOverrides,
-        attributes
-      })
+      const context = createRecordingWorkflowContext<TWorkflowState>(
+        {
+          replyTo: attributes.replyTo,
+          ...contextOverrides,
+          attributes
+        },
+        message.$name
+      )
       const output = await handler.handle(message, workflowState, context)
       return { output, context }
     }
@@ -103,13 +113,18 @@ const readFunctionWorkflow = <TWorkflowState extends WorkflowState>(
 
 const readClassWorkflow = <TWorkflowState extends WorkflowState>(
   workflowType: ClassConstructor<Workflow<TWorkflowState>>,
-  createWorkflow: () => Workflow<TWorkflowState>,
+  createWorkflow: (() => Workflow<TWorkflowState>) | undefined,
   contextOverrides: Partial<HandlerContext>
 ): ScenarioWorkflow<TWorkflowState> => {
+  // Constructed with no arguments, its dependencies would be undefined and fail in a handler, far from the cause
+  if (!createWorkflow && workflowType.length > 0) {
+    throw new WorkflowFactoryMissing(workflowType.name)
+  }
+  const create = createWorkflow ?? (() => new workflowType())
   const mapper = new WorkflowMapper<TWorkflowState, Workflow<TWorkflowState>>(
     workflowType
   )
-  createWorkflow().configureWorkflow(mapper)
+  create().configureWorkflow(mapper)
   const workflowStateType = mapper.workflowStateCtor
   if (!workflowStateType) {
     throw new WorkflowStateNotProvided(workflowType.name)
@@ -119,11 +134,15 @@ const readClassWorkflow = <TWorkflowState extends WorkflowState>(
   const handlerOf =
     (handlerName: string): ScenarioHandler<TWorkflowState> =>
     async (message, workflowState, attributes) => {
-      const context = handlerContext({
-        correlationId: attributes.correlationId,
-        ...contextOverrides
-      })
-      const workflow = createWorkflow()
+      const context = createRecordingHandlerContext(
+        {
+          correlationId: attributes.correlationId,
+          replyTo: attributes.replyTo,
+          ...contextOverrides
+        },
+        message.$name
+      )
+      const workflow = create()
       const handler = (
         workflow as unknown as Record<
           string,
@@ -176,11 +195,13 @@ const mapsToInstance = (
 ): boolean => {
   if (!mapping) {
     const workflowId: unknown = attributes.stickyAttributes.workflowId
-    return !!workflowId && workflowId === workflowState.$workflowId
+    return (
+      hasLookupValue(workflowId) && workflowId === workflowState.$workflowId
+    )
   }
   const lookupValue = mapping.lookup(message, attributes)
   return (
-    !!lookupValue &&
+    hasLookupValue(lookupValue) &&
     (workflowState as unknown as Record<string, unknown>)[mapping.mapsTo] ===
       lookupValue
   )
@@ -203,6 +224,35 @@ const dueAtOf = (
 }
 
 /**
+ * The attributes the bus sends a message from a workflow handler with: a correlation id, the handled message's own
+ * or a new one, its sticky attributes with the workflow's id, and the bus' return address
+ */
+const outgoingAttributes = (
+  { options }: RecordedMessage,
+  handled: MessageAttributes,
+  workflowId: string
+): MessageAttributes => {
+  const attributes: MessageAttributes = {
+    correlationId:
+      options.correlationId || handled.correlationId || randomUUID(),
+    attributes: options.attributes ?? {},
+    stickyAttributes: {
+      ...handled.stickyAttributes,
+      workflowId,
+      ...options.stickyAttributes
+    }
+  }
+  // Passing replyTo, even as undefined, replaces the bus' return address
+  const replyTo = Object.hasOwn(options, 'replyTo')
+    ? options.replyTo
+    : TEST_RETURN_ADDRESS
+  if (replyTo) {
+    attributes.replyTo = replyTo
+  }
+  return attributes
+}
+
+/**
  * Creates a scenario that runs a workflow in a unit test, without a bus, transport or persistence. It works with
  * class workflows and workflows declared with `defineWorkflow`.
  *
@@ -214,16 +264,18 @@ const dueAtOf = (
  *
  * It applies the bus' rules: handlers get a frozen copy of the state, the changes they return are merged over it
  * with `$workflowId`, `$version` and `$name` kept, `complete()` ends the workflow, `discard()` saves nothing, and a
- * handler that fails or returns the message saves and sends nothing. The state isn't serialized, so it doesn't
+ * handler that fails or returns the message saves and sends nothing. Handlers get recording contexts that check the
+ * options of sends, publishes and replies as `handlerContext()` does. The state isn't serialized, so it doesn't
  * check that the workflow state's message types are generated.
  * @param workflow a class that extends `Workflow`, or a workflow declared with `defineWorkflow`
  * @param options how to create a class workflow, members of every handler's context, and when the clock starts
  * @returns the scenario, with no workflow instance yet
  * @throws WorkflowStateNotProvided if a class workflow doesn't declare its state with `mapper.withState()`
+ * @throws WorkflowFactoryMissing if a class workflow's constructor takes arguments and `createWorkflow` isn't given
  * @example
  * const scenario = testWorkflow(orderWorkflow)
  * const started = await scenario.when(OrderPlaced({ orderId: '1' }))
- * deepStrictEqual(started.sent, [{ message: new ChargeCard('1'), options: {} }])
+ * strictEqual(started.sentOf(ChargeCard)[0].message.orderId, '1')
  *
  * const charged = await scenario.when(new CardCharged('1'))
  * strictEqual(charged.status, WorkflowStatus.Complete)
@@ -246,9 +298,7 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       )
     : readClassWorkflow(
         workflow as ClassConstructor<Workflow<TWorkflowState>>,
-        options.createWorkflow ??
-          (() =>
-            new (workflow as ClassConstructor<Workflow<TWorkflowState>>)()),
+        options.createWorkflow,
         contextOverrides
       )
   const { workflowStateType } = scenarioWorkflow
@@ -261,35 +311,30 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
     scenarioWorkflow.startedBy.has(messageName) ||
     scenarioWorkflow.when.has(messageName)
 
+  const enqueue = (messages: PendingMessage[]): void => {
+    pending.push(...messages)
+    // A stable sort, so messages due at the same time are delivered in the order they were sent
+    pending.sort(
+      (a, b) => a.scheduled.dueAt.getTime() - b.scheduled.dueAt.getTime()
+    )
+  }
+
   const schedule = (
     recorded: RecordedMessage[],
     attributes: MessageAttributes,
     workflowId: string
   ): void => {
+    const scheduled: PendingMessage[] = []
     for (const message of recorded) {
       const dueAt = dueAtOf(message, now)
-      if (dueAt === undefined) {
-        continue
+      if (dueAt !== undefined) {
+        scheduled.push({
+          scheduled: { ...message, dueAt: new Date(dueAt) },
+          attributes: outgoingAttributes(message, attributes, workflowId)
+        })
       }
-      pending.push({
-        scheduled: { ...message, dueAt: new Date(dueAt) },
-        // What the bus sends it with: the handled message's correlation and sticky attributes, with the workflow's id
-        attributes: {
-          correlationId:
-            message.options.correlationId ?? attributes.correlationId,
-          attributes: message.options.attributes ?? {},
-          stickyAttributes: {
-            ...attributes.stickyAttributes,
-            workflowId,
-            ...message.options.stickyAttributes
-          }
-        }
-      })
     }
-    // A stable sort, so messages due at the same time are delivered in the order they were sent
-    pending.sort(
-      (a, b) => a.scheduled.dueAt.getTime() - b.scheduled.dueAt.getTime()
-    )
+    enqueue(scheduled)
   }
 
   const run = async (
@@ -325,7 +370,7 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       )
     }
 
-    return {
+    return withTypedAccess({
       message,
       handled: true,
       discarded: !!output && output.$status === WorkflowStatus.Discard,
@@ -336,7 +381,7 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       replied: isFailedOrReturned ? [] : [...context.replied],
       messageFailed: context.messageFailed,
       messageReturned: context.messageReturned
-    }
+    })
   }
 
   const deliver = async (
@@ -366,7 +411,7 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       return run(when.handle, message, instance, attributes)
     }
     // The bus ignores a message that finds no running instance, such as a timeout for a completed workflow
-    return {
+    return withTypedAccess({
       message,
       handled: false,
       discarded: false,
@@ -377,7 +422,7 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       replied: [],
       messageFailed: false,
       messageReturned: false
-    }
+    })
   }
 
   const scenario: WorkflowScenario<TWorkflowState> = {
@@ -415,13 +460,18 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
         !!instance &&
         !scenarioWorkflow.startedBy.has(message.$name) &&
         !('workflowId' in stickyAttributes)
-      return deliver(message, {
+      const deliveredAttributes: MessageAttributes = {
         ...attributes,
         attributes: attributes.attributes ?? {},
         stickyAttributes: isForInstance
           ? { ...stickyAttributes, workflowId: instance!.$workflowId }
           : stickyAttributes
-      })
+      }
+      // Messages from a bus that receives carry a return address. Passing replyTo, even as undefined, replaces it.
+      if (!Object.hasOwn(attributes, 'replyTo')) {
+        deliveredAttributes.replyTo = TEST_RETURN_ADDRESS
+      }
+      return deliver(message, deliveredAttributes)
     },
 
     advanceTime: async milliseconds => {
@@ -430,16 +480,37 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       }
       const until = now + milliseconds
       const results: WorkflowScenarioResult<TWorkflowState>[] = []
-      // Handlers that run may schedule more messages that are due in time, so take the next due one each time
-      while (pending.length && pending[0].scheduled.dueAt.getTime() <= until) {
-        const [next, ...rest] = pending
-        pending = rest
-        now = Math.max(now, next.scheduled.dueAt.getTime())
-        if (handles(next.scheduled.message.$name)) {
-          results.push(await deliver(next.scheduled.message, next.attributes))
+      // Returned messages are retried, so they're scheduled again, but not delivered again until the clock next moves
+      const returned: PendingMessage[] = []
+      try {
+        // Handlers that run may schedule more messages that are due in time, so take the next due one each time
+        while (
+          pending.length &&
+          pending[0].scheduled.dueAt.getTime() <= until
+        ) {
+          const [next, ...rest] = pending
+          pending = rest
+          now = Math.max(now, next.scheduled.dueAt.getTime())
+          if (!handles(next.scheduled.message.$name)) {
+            continue
+          }
+          let result: WorkflowScenarioResult<TWorkflowState>
+          try {
+            result = await deliver(next.scheduled.message, next.attributes)
+          } catch (error) {
+            // The bus retries a message whose handler throws, so it stays scheduled
+            returned.push(next)
+            throw error
+          }
+          if (result.messageReturned) {
+            returned.push(next)
+          }
+          results.push(result)
         }
+        now = until
+      } finally {
+        enqueue(returned)
       }
-      now = until
       return results
     }
   }
