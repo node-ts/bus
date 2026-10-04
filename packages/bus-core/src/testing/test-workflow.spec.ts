@@ -560,6 +560,32 @@ describe('testWorkflow', () => {
     })
   })
 
+  describe('when a timeout handler fails the message and then throws', () => {
+    let sut: WorkflowScenario<TestScenarioState>
+    let error: unknown
+    let later: WorkflowScenarioResult<TestScenarioState>[]
+
+    beforeAll(async () => {
+      sut = testWorkflow(testScenarioWorkflow)
+      await sut.when(
+        StartTestScenario({ orderNumber: 1, timeoutOutcome: 'failThenThrow' })
+      )
+      error = await sut.advanceTime(1_000).catch((e: unknown) => e)
+      later = await sut.advanceTime(1_000)
+    })
+
+    it('should reject with its error', () => {
+      expect(error).toMatchObject({
+        message: 'The timeout was failed, then threw'
+      })
+    })
+
+    it('should not schedule it again, since the bus dead-letters it', () => {
+      expect(sut.scheduled).toEqual([])
+      expect(later).toEqual([])
+    })
+  })
+
   describe('when a timeout handler returns the message', () => {
     let sut: WorkflowScenario<TestScenarioState>
     let first: WorkflowScenarioResult<TestScenarioState>[]

@@ -76,7 +76,8 @@ export interface WorkflowScenario<TWorkflowState extends WorkflowState> {
    * Messages scheduled by the handlers that run, and due in the same time, are delivered too.
    *
    * A message whose handler throws or calls `returnMessage()` stays scheduled, as the bus would retry it, and is
-   * delivered again the next time the clock moves. One whose handler calls `failMessage()` is dropped.
+   * delivered again the next time the clock moves. One whose handler calls `failMessage()` is dropped, even if the
+   * handler then throws, as the bus dead-letters it.
    * @param milliseconds how far to move the clock on
    * @returns what happened for each message that was delivered, in order
    * @throws InvalidTimeAdvance if `milliseconds` isn't a finite number of 0 or more

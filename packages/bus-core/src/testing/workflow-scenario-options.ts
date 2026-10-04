@@ -8,6 +8,10 @@ export interface WorkflowScenarioOptions<TWorkflowState extends WorkflowState> {
   /**
    * Creates the class workflow that handles each message, such as with fake dependencies. Only used for class
    * workflows.
+   *
+   * Without it, a class whose constructor declares arguments throws `WorkflowFactoryMissing`. That check reads the
+   * constructor's `length`, so it misses a subclass that declares no constructor, such as `class Derived extends Base
+   * {}` whose `Base` takes dependencies. Give such a class `createWorkflow` too.
    * @default the workflow class constructed with no arguments, as on a bus without a container
    */
   createWorkflow?: () => Workflow<TWorkflowState>

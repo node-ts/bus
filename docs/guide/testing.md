@@ -65,7 +65,7 @@ Messages a handler sends with `deliverAfter` or `deliverAt`, such as [timeouts](
 
 <<< @/snippets/testing.ts#timeout
 
-Each delivered message has the attributes the bus would give it: those it was sent with, the instance's `workflowId`, the correlation id of the message that sent it (or a new one), and `TEST_RETURN_ADDRESS` as its return address. A message whose handler throws or calls `returnMessage()` stays scheduled, as the bus would retry it, and is delivered again the next time the clock moves. A handler that throws also rejects `advanceTime()`, with the clock stopped when that message was due.
+Each delivered message has the attributes the bus would give it: those it was sent with, the instance's `workflowId`, the correlation id of the message that sent it (or a new one), and `TEST_RETURN_ADDRESS` as its return address. A message whose handler throws or calls `returnMessage()` stays scheduled, as the bus would retry it, and is delivered again the next time the clock moves. One whose handler calls `failMessage()` is dropped, even if the handler then throws, as the bus dead-letters it. A handler that throws also rejects `advanceTime()`, with the clock stopped when that message was due.
 
 The clock starts at the current time, or at the `now` option, such as `testWorkflow(orderPaymentWorkflow, { now: new Date('2030-01-01') })`. `scenario.scheduled` lists the messages that aren't due yet. Messages sent without a delay aren't delivered, even to the workflow itself: pass them to `when()` to continue with them.
 
@@ -77,11 +77,11 @@ The clock starts at the current time, or at the `now` option, such as `testWorkf
 
 ### Options
 
-| Option           | Default                 | Description                                                                                                                                                                                           |
-| ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createWorkflow` | `new` with no arguments | Creates a class workflow for each message, such as `() => new OrderWorkflow(fakeRepository)`. Required for a class whose constructor takes arguments, which otherwise throws `WorkflowFactoryMissing` |
-| `context`        | none                    | Members of every handler's context, such as a fake for a field a persistence adds. The `correlationId` is the message's                                                                               |
-| `now`            | the current time        | When the scenario's clock starts                                                                                                                                                                      |
+| Option           | Default                 | Description                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `createWorkflow` | `new` with no arguments | Creates a class workflow for each message, such as `() => new OrderWorkflow(fakeRepository)`. Required for a class whose constructor takes arguments, which otherwise throws `WorkflowFactoryMissing`. The check reads the constructor's `length`, so a `class Derived extends Base {}` whose `Base` takes dependencies isn't caught: give it `createWorkflow` too |
+| `context`        | none                    | Members of every handler's context, such as a fake for a field a persistence adds. The `correlationId` is the message's                                                                                                                                                                                                                                            |
+| `now`            | the current time        | When the scenario's clock starts                                                                                                                                                                                                                                                                                                                                   |
 
 The scenario doesn't serialize the state, so it doesn't check that the workflow state is in your [message types](/guide/serializers/message-types). An integration test with a bus covers that.
 

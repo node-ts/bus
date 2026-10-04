@@ -37,16 +37,24 @@ import { WorkflowScenarioOptions } from './workflow-scenario-options'
 import { WorkflowScenarioResult } from './workflow-scenario-result'
 
 /**
- * Calls one handler of the workflow under test with a recording context
+ * Prepares a call of one handler of the workflow under test: the recording context it's called with, which can be
+ * read even when the handler throws, and the call itself
  */
 type ScenarioHandler<TWorkflowState extends WorkflowState> = (
   message: Message,
   workflowState: Readonly<TWorkflowState>,
   attributes: MessageAttributes
-) => Promise<{
-  output: WorkflowHandlerResult<TWorkflowState>
+) => {
   context: RecordingHandlerContext
-}>
+  invoke: () => Promise<WorkflowHandlerResult<TWorkflowState>>
+}
+
+/**
+ * How a delivered message whose handler threw was settled, which `advanceTime()` reads to decide whether to retry it
+ */
+interface ThrownSettlement {
+  messageFailed: boolean
+}
 
 /**
  * The handlers of the workflow under test by message name, whichever way it was declared
@@ -80,7 +88,7 @@ const readFunctionWorkflow = <TWorkflowState extends WorkflowState>(
     (
       handler: FunctionWorkflowDefinition<TWorkflowState>['startedByHandlers'][number]
     ): ScenarioHandler<TWorkflowState> =>
-    async (message, workflowState, attributes) => {
+    (message, workflowState, attributes) => {
       const context = createRecordingWorkflowContext<TWorkflowState>(
         {
           replyTo: attributes.replyTo,
@@ -89,8 +97,10 @@ const readFunctionWorkflow = <TWorkflowState extends WorkflowState>(
         },
         message.$name
       )
-      const output = await handler.handle(message, workflowState, context)
-      return { output, context }
+      return {
+        context,
+        invoke: async () => handler.handle(message, workflowState, context)
+      }
     }
 
   return {
@@ -133,7 +143,7 @@ const readClassWorkflow = <TWorkflowState extends WorkflowState>(
   // A new workflow handles each message, as on a bus
   const handlerOf =
     (handlerName: string): ScenarioHandler<TWorkflowState> =>
-    async (message, workflowState, attributes) => {
+    (message, workflowState, attributes) => {
       const context = createRecordingHandlerContext(
         {
           correlationId: attributes.correlationId,
@@ -142,25 +152,29 @@ const readClassWorkflow = <TWorkflowState extends WorkflowState>(
         },
         message.$name
       )
-      const workflow = create()
-      const handler = (
-        workflow as unknown as Record<
-          string,
-          (
-            ...args: unknown[]
-          ) =>
-            | WorkflowHandlerResult<TWorkflowState>
-            | Promise<WorkflowHandlerResult<TWorkflowState>>
-        >
-      )[handlerName]
-      const output = await handler.call(
-        workflow,
-        message,
-        workflowState,
-        attributes,
-        context
-      )
-      return { output, context }
+      return {
+        context,
+        invoke: async () => {
+          const workflow = create()
+          const handler = (
+            workflow as unknown as Record<
+              string,
+              (
+                ...args: unknown[]
+              ) =>
+                | WorkflowHandlerResult<TWorkflowState>
+                | Promise<WorkflowHandlerResult<TWorkflowState>>
+            >
+          )[handlerName]
+          return handler.call(
+            workflow,
+            message,
+            workflowState,
+            attributes,
+            context
+          )
+        }
+      }
     }
 
   return {
@@ -341,15 +355,24 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
     handle: ScenarioHandler<TWorkflowState>,
     message: Message,
     workflowState: TWorkflowState,
-    attributes: MessageAttributes
+    attributes: MessageAttributes,
+    thrownSettlement: ThrownSettlement
   ): Promise<WorkflowScenarioResult<TWorkflowState>> => {
     // A copy, as the bus passes handlers, so a handler that changes the state instead of returning changes throws
     const immutableWorkflowState = Object.freeze({ ...workflowState })
-    const { output, context } = await handle(
+    const { context, invoke } = handle(
       message,
       immutableWorkflowState,
       attributes
     )
+    let output: WorkflowHandlerResult<TWorkflowState>
+    try {
+      output = await invoke()
+    } catch (error) {
+      // The bus dead-letters a message whose handler failed it, even if the handler then throws
+      thrownSettlement.messageFailed = context.messageFailed
+      throw error
+    }
 
     const isFailedOrReturned = context.messageFailed || context.messageReturned
     if (!isFailedOrReturned) {
@@ -386,7 +409,8 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
 
   const deliver = async (
     message: Message,
-    attributes: MessageAttributes
+    attributes: MessageAttributes,
+    thrownSettlement: ThrownSettlement = { messageFailed: false }
   ): Promise<WorkflowScenarioResult<TWorkflowState>> => {
     const startedBy = scenarioWorkflow.startedBy.get(message.$name)
     if (startedBy) {
@@ -394,7 +418,13 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       workflowState.$version = 0
       workflowState.$status = WorkflowStatus.Running
       workflowState.$workflowId = randomUUID()
-      return run(startedBy, message, workflowState, attributes)
+      return run(
+        startedBy,
+        message,
+        workflowState,
+        attributes,
+        thrownSettlement
+      )
     }
 
     const when = scenarioWorkflow.when.get(message.$name)
@@ -408,7 +438,7 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
       instance?.$status === WorkflowStatus.Running &&
       mapsToInstance(when.mapping, message, attributes, instance)
     ) {
-      return run(when.handle, message, instance, attributes)
+      return run(when.handle, message, instance, attributes, thrownSettlement)
     }
     // The bus ignores a message that finds no running instance, such as a timeout for a completed workflow
     return withTypedAccess({
@@ -495,11 +525,18 @@ export const testWorkflow = <TWorkflowState extends WorkflowState>(
             continue
           }
           let result: WorkflowScenarioResult<TWorkflowState>
+          const thrownSettlement: ThrownSettlement = { messageFailed: false }
           try {
-            result = await deliver(next.scheduled.message, next.attributes)
+            result = await deliver(
+              next.scheduled.message,
+              next.attributes,
+              thrownSettlement
+            )
           } catch (error) {
-            // The bus retries a message whose handler throws, so it stays scheduled
-            returned.push(next)
+            // The bus retries a message whose handler throws, so it stays scheduled, unless the handler failed it
+            if (!thrownSettlement.messageFailed) {
+              returned.push(next)
+            }
             throw error
           }
           if (result.messageReturned) {

@@ -10,9 +10,11 @@ import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowState } from '../workflow-state'
 
 /**
- * What a scenario workflow's timeout handler does: throw, return the message, or complete the workflow
+ * What a scenario workflow's timeout handler does: throw, fail the message and then throw, return the message, or
+ * complete the workflow
  */
-export type TestScenarioTimeoutOutcome = 'throw' | 'return' | 'complete'
+export type TestScenarioTimeoutOutcome =
+  'throw' | 'failThenThrow' | 'return' | 'complete'
 
 /**
  * Starts a scenario workflow, which replies to it and schedules a timeout that does what `timeoutOutcome` says
@@ -89,6 +91,10 @@ export const testScenarioWorkflow = defineWorkflow(TestScenarioState)
   .when(TestScenarioTimedOut, async ({ outcome }, _state, ctx) => {
     if (outcome === 'throw') {
       throw new Error('The timeout failed')
+    }
+    if (outcome === 'failThenThrow') {
+      await ctx.failMessage()
+      throw new Error('The timeout was failed, then threw')
     }
     if (outcome === 'return') {
       await ctx.returnMessage()
