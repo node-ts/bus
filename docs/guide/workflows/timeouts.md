@@ -38,7 +38,11 @@ A timeout can't be cancelled. It arrives whether or not the step it guards has h
 - **The workflow has completed.** The timeout finds no running instance, so the bus ignores it and logs it at `debug`. Here, an order that was shipped before its timeout arrived has completed, so nothing runs.
 - **The workflow is still running.** The timeout handler is called, so it checks the state and returns nothing if there's nothing to do. Here, an order that was paid for but not yet shipped has the status `paid`, so the timeout leaves it alone.
 
-A message that matches no instance at all, completed or running, is ignored too, but the bus logs a warning, since it may have been sent to the wrong service or mapped by the wrong field.
+A message that matches no instance at all, completed or running, is ignored too, but the bus logs a warning, since it may have been sent to the wrong service or mapped by the wrong field. The warning names the message, the workflow, the state field it's mapped to and the value it looked up.
+
+::: warning Discarding a workflow that sent a timeout
+A start handler that [discards](/guide/workflows/state#discarding-state) the workflow saves no state, but the messages it sent are still sent. A timeout it sent finds no instance when it arrives, so the bus logs a warning. Send the timeout only on the path that starts the workflow.
+:::
 
 ## Testing a timeout
 

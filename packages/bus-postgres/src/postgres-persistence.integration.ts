@@ -187,6 +187,56 @@ describe('PostgresPersistence', () => {
     })
   })
 
+  describe('when getting the state of a completed workflow', () => {
+    const workflowState = Object.assign(new TestWorkflowState(), {
+      $workflowId: randomUUID(),
+      $status: WorkflowStatus.Complete,
+      $version: 0,
+      property1: randomUUID()
+    })
+    const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
+      lookup: message => message.property1,
+      mapsTo: 'property1'
+    }
+    const testCommand = new TestCommand(workflowState.property1)
+    const messageOptions: MessageAttributes = {
+      attributes: {},
+      stickyAttributes: {}
+    }
+    let runningOnly: TestWorkflowState[]
+    let includingCompleted: TestWorkflowState[]
+
+    beforeAll(async () => {
+      await sut.saveWorkflowState(workflowState)
+      runningOnly = await sut.getWorkflowState(
+        TestWorkflowState,
+        mapping,
+        testCommand,
+        messageOptions,
+        false
+      )
+      includingCompleted = await sut.getWorkflowState(
+        TestWorkflowState,
+        mapping,
+        testCommand,
+        messageOptions,
+        true
+      )
+    })
+
+    it('should not find it without includeCompleted', () => {
+      expect(runningOnly).toHaveLength(0)
+    })
+
+    it('should find it with includeCompleted', () => {
+      expect(includingCompleted).toHaveLength(1)
+      expect(includingCompleted[0]).toMatchObject({
+        $workflowId: workflowState.$workflowId,
+        $status: WorkflowStatus.Complete
+      })
+    })
+  })
+
   describe('when initialized', () => {
     it('should not hold a pool client', () => {
       expect(postgres.totalCount).toEqual(postgres.idleCount)

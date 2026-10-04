@@ -28,19 +28,21 @@ jest.setTimeout(10_000)
  */
 const TIMEOUT_MS = 50
 /**
- * Long enough for the payment to be handled before the timeout arrives
+ * Long enough that the scheduled timeout never arrives during the test, which sends it by hand instead
  */
-const LATE_TIMEOUT_MS = 500
+const NEVER_DUE_TIMEOUT_MS = 10 * 60 * 1_000
 const COMPLETED_LOG =
   'Workflow instance for message has already completed. Ignoring.'
 const NOT_FOUND_LOG = 'No workflow instance found for message. Ignoring.'
 
 /**
- * Matches a log context whose message is for `orderId`
+ * Matches a log context for the message named `messageName` for `orderId`
  */
-const forOrder = (orderId: string) =>
-  It.is<{ busMessage?: { orderId?: string } }>(
-    context => context?.busMessage?.orderId === orderId
+const forMessage = (messageName: string, orderId: string) =>
+  It.is<{ messageName?: string; busMessage?: { orderId?: string } }>(
+    context =>
+      context?.messageName === messageName &&
+      context?.busMessage?.orderId === orderId
   )
 
 describe('Workflow', () => {
@@ -81,6 +83,18 @@ describe('Workflow', () => {
           }
           handled.on('handled', listener)
         })
+
+      /**
+       * Sends `message` and resolves once the bus has handled it
+       */
+      const sendAndHandle = async (
+        message: Message & { orderId: string },
+        options?: Parameters<BusInstance['send']>[1]
+      ): Promise<void> => {
+        const messageHandled = handledMessage(message.$name, message.orderId)
+        await bus.send(message, options)
+        await messageHandled
+      }
 
       const getWorkflowState = async (
         orderId: string
@@ -159,21 +173,19 @@ describe('Workflow', () => {
         let state: TestTimeoutWorkflowState
 
         beforeAll(async () => {
-          const timeoutHandled = handledMessage(
-            TestPaymentTimedOut.NAME,
-            orderId
+          await sendAndHandle(
+            StartTestTimeoutWorkflow({
+              orderId,
+              timeoutMs: NEVER_DUE_TIMEOUT_MS
+            })
           )
-          const started = handledMessage(StartTestTimeoutWorkflow.NAME, orderId)
-          await bus.send(
-            StartTestTimeoutWorkflow({ orderId, timeoutMs: LATE_TIMEOUT_MS })
-          )
-          await started
+          const { $workflowId } = await getWorkflowState(orderId)
+          await sendAndHandle(TestPaymentReceived({ orderId }))
 
-          const paid = handledMessage(TestPaymentReceived.NAME, orderId)
-          await bus.send(TestPaymentReceived({ orderId }))
-          await paid
-
-          await timeoutHandled
+          // The timeout as it would arrive from the workflow, without waiting for it to be due
+          await sendAndHandle(TestPaymentTimedOut({ orderId }), {
+            stickyAttributes: { workflowId: $workflowId }
+          })
           state = await getWorkflowState(orderId)
         })
 
@@ -187,20 +199,57 @@ describe('Workflow', () => {
 
         it('should log the ignored timeout at debug', () => {
           registryLogger.verify(
-            l => l.debug(COMPLETED_LOG, forOrder(orderId)),
+            l =>
+              l.debug(
+                COMPLETED_LOG,
+                forMessage(TestPaymentTimedOut.NAME, orderId)
+              ),
             Times.once()
           )
         })
 
         it('should not log a warning or an error for it', () => {
           registryLogger.verify(
-            l => l.warn(It.isAny(), forOrder(orderId)),
+            l =>
+              l.warn(It.isAny(), forMessage(TestPaymentTimedOut.NAME, orderId)),
             Times.never()
           )
           registryLogger.verify(
-            l => l.error(It.isAny(), forOrder(orderId)),
+            l =>
+              l.error(
+                It.isAny(),
+                forMessage(TestPaymentTimedOut.NAME, orderId)
+              ),
             Times.never()
           )
+        })
+
+        describe('and a message mapped by a field arrives for it', () => {
+          beforeAll(async () => {
+            await sendAndHandle(TestPaymentReceived({ orderId }))
+          })
+
+          it('should log it at debug', () => {
+            registryLogger.verify(
+              l =>
+                l.debug(
+                  COMPLETED_LOG,
+                  forMessage(TestPaymentReceived.NAME, orderId)
+                ),
+              Times.once()
+            )
+          })
+
+          it('should not log a warning for it', () => {
+            registryLogger.verify(
+              l =>
+                l.warn(
+                  It.isAny(),
+                  forMessage(TestPaymentReceived.NAME, orderId)
+                ),
+              Times.never()
+            )
+          })
         })
       })
 
@@ -208,19 +257,37 @@ describe('Workflow', () => {
         const orderId = 'unknown-order'
 
         beforeAll(async () => {
-          const timeoutHandled = handledMessage(
-            TestPaymentTimedOut.NAME,
-            orderId
-          )
-          await bus.send(TestPaymentTimedOut({ orderId }), {
+          await sendAndHandle(TestPaymentTimedOut({ orderId }), {
             stickyAttributes: { workflowId: randomUUID() }
           })
-          await timeoutHandled
         })
 
         it('should log a warning', () => {
           registryLogger.verify(
-            l => l.warn(NOT_FOUND_LOG, forOrder(orderId)),
+            l =>
+              l.warn(
+                NOT_FOUND_LOG,
+                forMessage(TestPaymentTimedOut.NAME, orderId)
+              ),
+            Times.once()
+          )
+        })
+      })
+
+      describe('and a message mapped by a field arrives for an order with no instance', () => {
+        const orderId = 'unknown-paid-order'
+
+        beforeAll(async () => {
+          await sendAndHandle(TestPaymentReceived({ orderId }))
+        })
+
+        it('should log a warning', () => {
+          registryLogger.verify(
+            l =>
+              l.warn(
+                NOT_FOUND_LOG,
+                forMessage(TestPaymentReceived.NAME, orderId)
+              ),
             Times.once()
           )
         })
