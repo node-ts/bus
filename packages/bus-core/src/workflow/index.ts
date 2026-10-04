@@ -1,5 +1,6 @@
 export * from './define-workflow'
 export * from './error'
+export * from './has-lookup-value'
 export * from './message-workflow-mapping'
 export {
   InMemoryPersistence,

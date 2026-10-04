@@ -1,6 +1,7 @@
 import {
   ClassConstructor,
   CoreDependencies,
+  hasLookupValue,
   Logger,
   MessageWorkflowMapping,
   OutgoingMessage,
@@ -275,6 +276,10 @@ export class PostgresPersistence implements Persistence {
       this.configuration.schemaName
     )
     const matcherValue = messageMap.lookup(message, attributes)
+    // A query for an empty string would match every instance whose mapped field is empty
+    if (!hasLookupValue(matcherValue)) {
+      return []
+    }
 
     // The field is inlined as a literal rather than bound so the expression matches the secondary index
     const workflowStateField = resolveWorkflowStateField(messageMap.mapsTo)

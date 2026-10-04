@@ -1,6 +1,7 @@
 import {
   ClassConstructor,
   CoreDependencies,
+  hasLookupValue,
   Logger,
   MessageWorkflowMapping,
   OutgoingMessage,
@@ -115,6 +116,10 @@ export class MongodbPersistence implements Persistence {
     const workflowStateName = new workflowStateConstructor().$name
     const tableName = resolveQualifiedTableName(workflowStateName)
     const matcherValue = messageMap.lookup(message, attributes)
+    // A query for no value would match every instance whose mapped field is missing, null or empty
+    if (!hasLookupValue(matcherValue)) {
+      return []
+    }
     const collection = this.database.collection(tableName)
     const findObject = {
       [resolveWorkflowStateFieldPath(messageMap.mapsTo)]: matcherValue
