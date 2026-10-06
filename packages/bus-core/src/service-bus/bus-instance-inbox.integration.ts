@@ -2,6 +2,7 @@ import { EventEmitter, once } from 'node:events'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
+import { RequestedSettlement } from '../middleware'
 import { OutboxNotSupported } from '../outbox'
 import { INBOX_RETENTION_MS } from '../outbox/inbox-retention'
 import { deadLetter, retry } from '../recoverability'
@@ -392,6 +393,71 @@ describe('BusInstance inbox', () => {
             It.isObjectWith({ messageId })
           ),
         Times.once()
+      )
+    })
+  })
+
+  describe('when a handler calls returnMessage() and incoming middleware then calls failMessage() after next()', () => {
+    let bus: BusInstance
+    let logger: IMock<Logger>
+    const persistence = new InboxPersistence()
+    const queue = new InMemoryQueue({ receiveTimeoutMs: 100 })
+    const messageId = 'returned-then-failed-message-id'
+    let attempts = 0
+
+    beforeAll(async () => {
+      logger = Mock.ofType<Logger>()
+      bus = Bus.configure()
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => logger.object)
+        .withTransport(queue)
+        .withPersistence(persistence)
+        .withOutbox()
+        .withMiddleware({
+          incoming: async (context, next) => {
+            await next()
+            if (
+              context.requestedSettlement() === RequestedSettlement.Returned
+            ) {
+              await bus.failMessage()
+            }
+          }
+        })
+        .withHandler(
+          handlerFor(TestCommand, async (_m, _a, ctx) => {
+            if (++attempts === 1) {
+              await ctx.returnMessage()
+            }
+          })
+        )
+        .build()
+      await bus.initialize()
+      await bus.start()
+      await bus.send(new TestCommand(), { messageId })
+      await queue.idle()
+      // Replayed from the dead letter queue with the same messageId
+      await bus.send(new TestCommand(), { messageId })
+      await queue.idle()
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should dead-letter the message', () => {
+      expect(queue.deadLetterQueueDepth).toEqual(1)
+    })
+
+    it('should roll back its inbox record, so the replay is handled', () => {
+      expect(attempts).toEqual(2)
+    })
+
+    it('should not warn that the replay will be skipped', () => {
+      logger.verify(
+        l =>
+          l.warn(
+            It.is<string>(m => m.includes('skipped as already handled')),
+            It.isAny()
+          ),
+        Times.never()
       )
     })
   })

@@ -1454,8 +1454,12 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       }
       return true
     })
-    if (isRecordedInInbox) {
-      // runInOutbox resolved, so the transaction was committed
+    // runInOutbox also resolves when a handler failed or returned the message, after rolling the transaction back, so
+    // the record was only committed if neither was requested
+    if (
+      isRecordedInInbox &&
+      !this.messageLifecycleContext.isFailedOrReturned()
+    ) {
       this.messageLifecycleContext.set({
         ...this.messageLifecycleContext.get(),
         inboxRecordCommitted: true
