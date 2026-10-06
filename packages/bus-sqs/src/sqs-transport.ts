@@ -50,6 +50,7 @@ import {
   MessageAttributeMap,
   MessageAttributes
 } from '@node-ts/bus-messages'
+import { serializeError } from 'serialize-error'
 import { generatePolicy } from './generate-policy'
 import {
   resolveTopicArn as defaultResolveTopicArn,
@@ -1013,26 +1014,36 @@ export class SqsTransport implements Transport<SQSMessage> {
   /**
    * Finds the fixed prefix `resolveTopicName` adds to the default topic name, such as an environment, so a scheduler
    * can be allowed to publish to just the topics that start with it. A resolver that does anything else, such as
-   * adding a suffix, can't be summed up by a prefix, so it gets none.
+   * adding a suffix, can't be summed up by a prefix, so it gets none. Neither does a resolver that throws for the
+   * made-up names it's probed with, such as one that only knows the bus' own messages.
    * @returns the prefix, or `''` when there's none or it can't be told
    */
   private topicNamePrefix(): string {
     const probes = ['node-ts-bus-probe-a', 'node-ts-bus-probe-b']
     const [firstProbe] = probes
-    const firstTopicName = this.resolveTopicName(firstProbe)
-    const firstDefault = defaultResolveTopicName(firstProbe)
-    if (!firstTopicName.endsWith(firstDefault)) {
+    try {
+      const firstTopicName = this.resolveTopicName(firstProbe)
+      const firstDefault = defaultResolveTopicName(firstProbe)
+      if (!firstTopicName.endsWith(firstDefault)) {
+        return ''
+      }
+      const prefix = firstTopicName.slice(
+        0,
+        firstTopicName.length - firstDefault.length
+      )
+      const isFixedPrefix = probes.every(
+        probe =>
+          this.resolveTopicName(probe) ===
+          prefix + defaultResolveTopicName(probe)
+      )
+      return isFixedPrefix ? prefix : ''
+    } catch (error) {
+      this.logger.warn(
+        "Couldn't find a topic name prefix for the scheduler's publish permission, since resolveTopicName threw for a made-up message name. The runtime policy allows publishing to every topic in the account and region; narrow it by hand if that's too broad.",
+        { probes, error: serializeError(error) }
+      )
       return ''
     }
-    const prefix = firstTopicName.slice(
-      0,
-      firstTopicName.length - firstDefault.length
-    )
-    const isFixedPrefix = probes.every(
-      probe =>
-        this.resolveTopicName(probe) === prefix + defaultResolveTopicName(probe)
-    )
-    return isFixedPrefix ? prefix : ''
   }
 
   /**
