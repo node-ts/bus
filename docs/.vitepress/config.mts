@@ -85,6 +85,7 @@ const guide: DefaultTheme.SidebarItem[] = [
   {
     text: 'Running in production',
     items: [
+      { text: 'Provisioning', link: '/guide/provisioning' },
       { text: 'Recoverability', link: '/guide/recoverability' },
       { text: 'Middleware', link: '/guide/middleware' },
       { text: 'Delayed delivery', link: '/guide/delayed-delivery' },

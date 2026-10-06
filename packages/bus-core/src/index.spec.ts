@@ -18,6 +18,7 @@ describe('index', () => {
         TransactionNotActive: expect.any(Function),
         TransactionRolledBack: expect.any(Function),
         OutgoingMessageStoredConcurrently: expect.any(Function),
+        ResourcesNotProvisioned: expect.any(Function),
         TransportHeaderReserved: expect.any(Function),
         WorkflowHandlerFailed: expect.any(Function),
         WorkflowStateNotInitialized: expect.any(Function)

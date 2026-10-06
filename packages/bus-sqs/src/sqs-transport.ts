@@ -2,7 +2,6 @@ import { AssertionError } from 'assert'
 
 import {
   CreateTopicCommand,
-  GetTopicAttributesCommand,
   ListSubscriptionsByTopicCommand,
   ListSubscriptionsByTopicResponse,
   MessageAttributeValue,
@@ -30,14 +29,18 @@ import {
   createMessageFailure,
   EndpointNotFound,
   FAILURE_HEADER,
+  JsonValue,
   Logger,
   MessageFailure,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   toFailureHeader,
   Transport,
   TransportHeaderReserved,
   TransportHeaders,
   TransportInitializationOptions,
   TransportMessage,
+  TransportProvisionOptions,
   TransportSendOptions
 } from '@node-ts/bus-core'
 import {
@@ -85,6 +88,88 @@ interface MessageRegistry {
   [key: string]: string
 }
 
+interface SqsTopic {
+  topicName: string
+  topicArn: string
+}
+
+interface SqsQueue {
+  queueName: string
+  queueArn: string
+  /**
+   * The attributes the queue is created with and kept in step with
+   */
+  attributes: Record<string, string>
+}
+
+/**
+ * Everything the transport provisions
+ */
+interface SqsResources {
+  /**
+   * The bus' own topics: one for each message it handles or has message types for
+   */
+  topics: SqsTopic[]
+  /**
+   * The dead letter queue then the service queue, unless the transport only sends
+   */
+  queues: SqsQueue[]
+  /**
+   * A subscription of the service queue to each topic it handles. `external` ones are to the topics of custom
+   * handlers, which are managed outside the bus, so the bus only subscribes to them.
+   */
+  subscriptions: { topicArn: string; queueArn: string; external: boolean }[]
+  /**
+   * The access policy of the service queue, unless the transport only sends
+   */
+  queuePolicy?: string
+  /**
+   * Whether the bus may publish any message, such as a scheduler
+   */
+  sendsAnyMessage: boolean
+}
+
+/**
+ * The most SNS and SQS calls `initialize()` makes at once when it checks resources exist, to stay clear of
+ * throttling
+ */
+const VERIFY_CONCURRENCY = 10
+
+/**
+ * Maps items with an async function, running at most `concurrency` at once, keeping their order
+ */
+const mapWithConcurrency = async <TItem, TResult>(
+  items: TItem[],
+  concurrency: number,
+  map: (item: TItem) => Promise<TResult>
+): Promise<TResult[]> => {
+  const results: TResult[] = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await map(items[index])
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker)
+  )
+  return results
+}
+
+/**
+ * What checking a subscription found
+ */
+enum SubscriptionCheck {
+  Exists = 'exists',
+  TopicMissing = 'topic-missing',
+  SubscriptionMissing = 'subscription-missing',
+  /**
+   * The transport isn't allowed to read the topic's subscriptions, such as a topic in another account
+   */
+  Unknown = 'unknown'
+}
+
 /**
  * This is the actual message attribute structure returned by SQS. It doesn't exist in the aws-sdk
  */
@@ -124,7 +209,11 @@ export class SqsTransport implements Transport<SQSMessage> {
   private deadLetterQueueArn: string
   private readonly sqs: SQSClient
   private readonly sns: SNSClient
-  private autoProvision = true
+  /**
+   * Whether the bus provisioned at startup, so topics of messages that weren't provisioned are created as they're
+   * sent
+   */
+  private autoProvision = false
   /**
    * Clients for the regions of queues this transport has sent replies to, other than its own client's region
    */
@@ -146,7 +235,6 @@ export class SqsTransport implements Transport<SQSMessage> {
   ) {
     this.sqs = sqs || new SQSClient({ region: sqsConfiguration.awsRegion })
     this.sns = sns || new SNSClient({ region: sqsConfiguration.awsRegion })
-    this.autoProvision = sqsConfiguration.autoProvision ?? true
   }
 
   /**
@@ -515,9 +603,186 @@ export class SqsTransport implements Transport<SQSMessage> {
     await this.makeMessageVisible(message.raw, delay)
   }
 
-  async initialize({
-    sendOnly
-  }: TransportInitializationOptions): Promise<void> {
+  /**
+   * Resolves the queues and topics from the configuration, and, unless `verifyResources` is off or the transport only
+   * sends, checks what it receives through exists, with read-only calls, at most 10 at once: `GetQueueUrl` for the
+   * service and dead letter queues, and `ListSubscriptionsByTopic` for each topic it handles, which finds the topic
+   * and its subscription to the service queue. With `verifyQueuePolicy`, it also checks the service queue has an
+   * access policy. It creates nothing, and doesn't check the topics of messages it only sends: SNS rejects a publish
+   * to a topic that doesn't exist.
+   *
+   * The topics of custom handlers are managed outside the bus, so when it isn't allowed to read their subscriptions,
+   * such as for a topic in another account, it logs a warning instead of failing.
+   * @param options the messages the bus handles and sends, and whether to check its resources
+   * @throws ResourcesNotProvisioned if a queue, topic, subscription or the policy doesn't exist
+   */
+  async initialize(options: TransportInitializationOptions): Promise<void> {
+    this.resolveResourceNames(options.sendOnly)
+    this.autoProvision = options.autoProvision
+    if (!options.verifyResources || options.sendOnly) {
+      return
+    }
+
+    const resources = this.planResources(options)
+    this.logger.info('Checking SQS and SNS resources exist', {
+      queues: resources.queues.length,
+      subscriptions: resources.subscriptions.length
+    })
+    const queueChecks = await mapWithConcurrency(
+      resources.queues,
+      VERIFY_CONCURRENCY,
+      async queue =>
+        (await this.queueExists(queue.queueArn))
+          ? []
+          : [`SQS queue ${queue.queueArn}`]
+    )
+    const subscriptionChecks = await mapWithConcurrency(
+      resources.subscriptions,
+      VERIFY_CONCURRENCY,
+      async ({ topicArn, queueArn, external }) => {
+        const check = await this.checkSubscription(topicArn, queueArn, external)
+        switch (check) {
+          case SubscriptionCheck.TopicMissing:
+            return [
+              `SNS topic ${topicArn}`,
+              `SNS subscription of ${queueArn} to ${topicArn}`
+            ]
+          case SubscriptionCheck.SubscriptionMissing:
+            return [`SNS subscription of ${queueArn} to ${topicArn}`]
+          default:
+            return []
+        }
+      }
+    )
+    const policyCheck =
+      this.sqsConfiguration.verifyQueuePolicy &&
+      !(await this.queueHasPolicy(this.queueUrl))
+        ? [`SQS queue policy of ${this.queueArn}`]
+        : []
+    const missingResources = [
+      ...queueChecks.flat(),
+      ...subscriptionChecks.flat(),
+      ...policyCheck
+    ]
+    if (missingResources.length) {
+      throw new ResourcesNotProvisioned('SqsTransport', missingResources)
+    }
+  }
+
+  /**
+   * Creates an SNS topic for each message, and unless the transport only sends, the dead letter queue, the service
+   * queue with its `VisibilityTimeout` and `RedrivePolicy`, a subscription of the service queue to each topic it
+   * handles (including the topics of custom handlers, which it doesn't create), and the queue's access policy (`queuePolicy`, or one that lets any SNS topic in the account send to
+   * it). The policy is set each time, and the attributes of an existing queue are updated when they differ.
+   *
+   * Every call is idempotent. It needs `sqs:CreateQueue`, `sqs:GetQueueAttributes`, `sqs:SetQueueAttributes`,
+   * `sns:CreateTopic` and `sns:Subscribe`.
+   * @param options the messages the bus handles and sends, and whether it's a dry run
+   * @returns the topics, queues, subscriptions and policy, and an IAM policy of the permissions the transport needs
+   * at runtime
+   */
+  async provision(
+    options: TransportProvisionOptions
+  ): Promise<ProvisioningPlan> {
+    this.resolveResourceNames(options.sendOnly)
+    const resources = this.planResources(options)
+    const plan: ProvisioningPlan = {
+      adapter: 'SqsTransport',
+      resources: [
+        ...resources.topics.map(({ topicName, topicArn }) => ({
+          type: 'sns-topic',
+          name: topicArn,
+          properties: { topicName }
+        })),
+        ...resources.queues.map(({ queueName, queueArn, attributes }) => ({
+          type: 'sqs-queue',
+          name: queueArn,
+          properties: { queueName, ...attributes }
+        })),
+        ...resources.subscriptions.map(({ topicArn, queueArn, external }) => ({
+          type: 'sns-subscription',
+          name: `${topicArn} -> ${queueArn}`,
+          properties: {
+            topicArn,
+            protocol: 'sqs',
+            endpoint: queueArn,
+            ...(external ? { externalTopic: true } : {})
+          }
+        })),
+        ...(resources.queuePolicy
+          ? [
+              {
+                type: 'sqs-queue-policy',
+                name: this.queueArn,
+                properties: {
+                  policy: JSON.parse(resources.queuePolicy) as JsonValue
+                }
+              }
+            ]
+          : [])
+      ],
+      runtimePermissions: {
+        format: 'iam-policy',
+        document: this.runtimePolicy(resources)
+      }
+    }
+    if (options.dryRun) {
+      return plan
+    }
+
+    this.logger.info('Provisioning SQS and SNS resources', {
+      resources: plan.resources.length
+    })
+    await Promise.all(
+      resources.topics.map(async ({ topicName }) =>
+        this.createSnsTopic(topicName)
+      )
+    )
+    // Publishing these messages doesn't create their topics again when the bus provisions at startup
+    for (const messageName of [
+      ...options.messageNames,
+      ...options.handlerRegistry.getMessageNames()
+    ]) {
+      this.registeredMessages[messageName] = this.resolveTopicArn(
+        this.sqsConfiguration.awsAccountId!,
+        this.sqsConfiguration.awsRegion!,
+        this.resolveTopicName(messageName)
+      )
+    }
+    if (options.sendOnly) {
+      return plan
+    }
+    for (const queue of resources.queues) {
+      await this.createSqsQueue(queue.queueName, queue.attributes)
+    }
+    await Promise.all(
+      resources.subscriptions.map(async ({ topicArn, queueArn }) =>
+        this.subscribeToTopic(queueArn, topicArn)
+      )
+    )
+    const serviceQueue = resources.queues.find(
+      queue => queue.queueArn === this.queueArn
+    )!
+    this.logger.info('Setting the access policy of the queue', {
+      policy: resources.queuePolicy,
+      serviceQueueUrl: this.queueUrl
+    })
+    await this.sqs.send(
+      new SetQueueAttributesCommand({
+        QueueUrl: this.queueUrl,
+        Attributes: { Policy: resources.queuePolicy! }
+      })
+    )
+    await this.syncQueueAttributes(this.queueUrl, serviceQueue.attributes)
+    return plan
+  }
+
+  /**
+   * Resolves the names, ARNs and URLs of the queues and topics from the configuration
+   * @throws AssertionError if a transport that receives has neither `queueArn`, nor `awsAccountId`, `awsRegion` and
+   * `queueName`
+   */
+  private resolveResourceNames(sendOnly: boolean): void {
     this.resolveTopicName =
       this.sqsConfiguration.resolveTopicName ?? defaultResolveTopicName
     this.resolveTopicArn =
@@ -579,8 +844,6 @@ export class SqsTransport implements Transport<SQSMessage> {
         this.sqsConfiguration,
         this.deadLetterQueueName
       )
-
-      await this.assertServiceQueue()
     }
 
     if (!(
@@ -592,41 +855,189 @@ export class SqsTransport implements Transport<SQSMessage> {
     }
   }
 
-  private async assertServiceQueue(): Promise<void> {
-    await this.assertSqsQueue(this.deadLetterQueueName, {
-      MessageRetentionPeriod: (
-        this.sqsConfiguration.messageRetentionPeriod ??
-        DEFAULT_MESSAGE_RETENTION
-      ).toString()
-    })
-
-    const serviceQueueAttributes: Record<string, string> = {
-      VisibilityTimeout: `${
-        this.sqsConfiguration.visibilityTimeout ?? DEFAULT_VISIBILITY_TIMEOUT
-      }`,
-      RedrivePolicy: JSON.stringify({
-        maxReceiveCount:
-          this.sqsConfiguration.maxReceiveCount ?? DEFAULT_MAX_RECEIVE_COUNT,
-        deadLetterTargetArn: this.deadLetterQueueArn
-      })
+  /**
+   * Works out every queue, topic, subscription and policy the bus needs, from the names resolved by
+   * `resolveResourceNames()`
+   */
+  private planResources({
+    handlerRegistry,
+    sendOnly,
+    messageNames,
+    sendsAnyMessage = false
+  }: Pick<
+    TransportProvisionOptions,
+    'handlerRegistry' | 'sendOnly' | 'messageNames'
+  > &
+    Partial<Pick<TransportProvisionOptions, 'sendsAnyMessage'>>): SqsResources {
+    const { awsAccountId, awsRegion } = this.sqsConfiguration
+    const busManagedTopics = new Map<string, SqsTopic>()
+    const addTopic = (messageName: string): string => {
+      const topicName = this.resolveTopicName(messageName)
+      const topicArn = this.resolveTopicArn(
+        awsAccountId!,
+        awsRegion!,
+        topicName
+      )
+      busManagedTopics.set(topicName, { topicName, topicArn })
+      return topicArn
+    }
+    messageNames.forEach(addTopic)
+    if (sendOnly) {
+      return {
+        topics: [...busManagedTopics.values()],
+        queues: [],
+        subscriptions: [],
+        sendsAnyMessage
+      }
     }
 
-    await this.assertSqsQueue(
-      this.sqsConfiguration.queueName!,
-      serviceQueueAttributes
+    const handledTopicArns = new Set(
+      handlerRegistry.getMessageNames().map(addTopic)
     )
+    // The topics of custom handlers are managed outside the bus, so they're only subscribed to, by their ARN
+    const externalTopicArns = handlerRegistry
+      .getExternallyManagedTopicIdentifiers()
+      .filter(topicArn => !handledTopicArns.has(topicArn))
 
-    await this.subscribeQueueToMessages()
-    await this.attachPolicyToQueue(
-      this.queueUrl,
-      this.sqsConfiguration.awsAccountId!,
-      this.sqsConfiguration.awsRegion!
-    )
-    await this.syncQueueAttributes(this.queueUrl, serviceQueueAttributes)
+    return {
+      topics: [...busManagedTopics.values()],
+      queues: [
+        {
+          queueName: this.deadLetterQueueName,
+          queueArn: this.deadLetterQueueArn,
+          attributes: {
+            MessageRetentionPeriod: (
+              this.sqsConfiguration.messageRetentionPeriod ??
+              DEFAULT_MESSAGE_RETENTION
+            ).toString()
+          }
+        },
+        {
+          queueName: this.sqsConfiguration.queueName!,
+          queueArn: this.queueArn,
+          attributes: {
+            VisibilityTimeout: `${
+              this.sqsConfiguration.visibilityTimeout ??
+              DEFAULT_VISIBILITY_TIMEOUT
+            }`,
+            RedrivePolicy: JSON.stringify({
+              maxReceiveCount:
+                this.sqsConfiguration.maxReceiveCount ??
+                DEFAULT_MAX_RECEIVE_COUNT,
+              deadLetterTargetArn: this.deadLetterQueueArn
+            })
+          }
+        }
+      ],
+      subscriptions: [
+        ...[...handledTopicArns].map(topicArn => ({
+          topicArn,
+          queueArn: this.queueArn,
+          external: false
+        })),
+        ...[...new Set(externalTopicArns)].map(topicArn => ({
+          topicArn,
+          queueArn: this.queueArn,
+          external: true
+        }))
+      ],
+      queuePolicy: (
+        this.sqsConfiguration.queuePolicy ||
+        generatePolicy(awsAccountId!, awsRegion!)
+      ).trim(),
+      sendsAnyMessage
+    }
   }
 
   /**
-   * Checks if the SNS topic for a message exists, and creates it if it doesn't
+   * The IAM policy of the least the transport needs at runtime, once its resources are provisioned. Each topic is
+   * listed once, for publishing, or every topic in the account and region when the bus may publish any message.
+   */
+  private runtimePolicy(resources: SqsResources): JsonValue {
+    const { awsAccountId, awsRegion } = this.sqsConfiguration
+    const publishTargets = resources.sendsAnyMessage
+      ? [
+          this.resolveTopicArn(
+            awsAccountId!,
+            awsRegion!,
+            `${this.topicNamePrefix()}*`
+          )
+        ]
+      : resources.topics.map(({ topicArn }) => topicArn)
+    const statements: JsonValue[] = []
+    if (publishTargets.length) {
+      statements.push({
+        Sid: 'PublishMessages',
+        Effect: 'Allow',
+        Action: ['sns:Publish'],
+        Resource: publishTargets
+      })
+    }
+    if (resources.queues.length) {
+      statements.push({
+        Sid: 'ReceiveMessages',
+        Effect: 'Allow',
+        Action: [
+          'sqs:ReceiveMessage',
+          'sqs:DeleteMessage',
+          'sqs:ChangeMessageVisibility'
+        ],
+        Resource: [this.queueArn]
+      })
+      statements.push({
+        Sid: 'DeadLetterMessages',
+        Effect: 'Allow',
+        Action: ['sqs:SendMessage'],
+        Resource: [this.deadLetterQueueArn]
+      })
+      statements.push({
+        Sid: 'VerifyQueues',
+        Effect: 'Allow',
+        Action: this.sqsConfiguration.verifyQueuePolicy
+          ? ['sqs:GetQueueUrl', 'sqs:GetQueueAttributes']
+          : ['sqs:GetQueueUrl'],
+        Resource: resources.queues.map(({ queueArn }) => queueArn)
+      })
+    }
+    if (resources.subscriptions.length) {
+      statements.push({
+        Sid: 'VerifySubscriptions',
+        Effect: 'Allow',
+        Action: ['sns:ListSubscriptionsByTopic'],
+        Resource: resources.subscriptions.map(({ topicArn }) => topicArn)
+      })
+    }
+    return { Version: '2012-10-17', Statement: statements }
+  }
+
+  /**
+   * Finds the fixed prefix `resolveTopicName` adds to the default topic name, such as an environment, so a scheduler
+   * can be allowed to publish to just the topics that start with it. A resolver that does anything else, such as
+   * adding a suffix, can't be summed up by a prefix, so it gets none.
+   * @returns the prefix, or `''` when there's none or it can't be told
+   */
+  private topicNamePrefix(): string {
+    const probes = ['node-ts-bus-probe-a', 'node-ts-bus-probe-b']
+    const [firstProbe] = probes
+    const firstTopicName = this.resolveTopicName(firstProbe)
+    const firstDefault = defaultResolveTopicName(firstProbe)
+    if (!firstTopicName.endsWith(firstDefault)) {
+      return ''
+    }
+    const prefix = firstTopicName.slice(
+      0,
+      firstTopicName.length - firstDefault.length
+    )
+    const isFixedPrefix = probes.every(
+      probe =>
+        this.resolveTopicName(probe) === prefix + defaultResolveTopicName(probe)
+    )
+    return isFixedPrefix ? prefix : ''
+  }
+
+  /**
+   * Creates the SNS topic for a message the first time it's sent, when the bus provisioned at startup and the
+   * message wasn't in its message types
    * @param message A message that should have a corresponding SNS topic
    */
   private async assertSnsTopic(message: Message): Promise<void> {
@@ -644,25 +1055,21 @@ export class SqsTransport implements Transport<SQSMessage> {
   }
 
   /**
-   * Asserts that an SQS queue exists
+   * Creates an SQS queue, or leaves it as it is if it exists
    */
-  private async assertSqsQueue(
+  private async createSqsQueue(
     queueName: string,
-    queueAttributes?: Record<string, string>
+    queueAttributes: Record<string, string>
   ): Promise<void> {
-    this.logger.info('Asserting sqs queue...', { queueName, queueAttributes })
+    this.logger.info('Creating sqs queue', { queueName, queueAttributes })
 
     try {
-      if (this.autoProvision) {
-        const command = new CreateQueueCommand({
+      await this.sqs.send(
+        new CreateQueueCommand({
           QueueName: queueName,
           Attributes: queueAttributes
         })
-
-        await this.sqs.send(command)
-      } else {
-        await this.assertQueueExistsByName(queueName)
-      }
+      )
     } catch (err) {
       const error = err as { code?: string; Error?: { Code: string } }
       const code = error.code ?? error.Error?.Code
@@ -689,7 +1096,9 @@ export class SqsTransport implements Transport<SQSMessage> {
     sendOptions: TransportSendOptions = {}
   ): Promise<void> {
     const headerMap = toHeaderAttributeMap(sendOptions.headers ?? {})
-    await this.assertSnsTopic(message)
+    if (this.autoProvision) {
+      await this.assertSnsTopic(message)
+    }
 
     const topicName = this.resolveTopicName(message.$name)
     const topicArn = this.resolveTopicArn(
@@ -717,81 +1126,39 @@ export class SqsTransport implements Transport<SQSMessage> {
     await this.sns.send(command)
   }
 
-  private async subscribeQueueToMessages(): Promise<void> {
-    const busManagedTopicArns = await Promise.all(
-      this.coreDependencies.handlerRegistry
-        .getMessageNames()
-        .map(messageName => this.resolveTopicName(messageName))
-        .map(topicName => this.createSnsTopic(topicName))
-    )
-
-    // Bus managed topics were created or checked above, so only external topics need it here
-    const externallyManagedTopicArns = await Promise.all(
-      this.coreDependencies.handlerRegistry
-        .getExternallyManagedTopicIdentifiers()
-        .map(async topicArn => {
-          await this.createSnsTopic(topicArn.split(':').pop()!)
-          return topicArn
-        })
-    )
-
-    await Promise.all(
-      [...busManagedTopicArns, ...externallyManagedTopicArns].map(
-        async topicArn => {
-          await this.subscribeToTopic(this.queueArn, topicArn)
-        }
-      )
-    )
-  }
-
   /**
-   * Deterministically creates an SNS topic
+   * Creates an SNS topic. `CreateTopic` is idempotent, so an existing topic is left as it is.
    * @param topicName Name of the topic to create
    * @returns Target topic arn
    */
   private async createSnsTopic(topicName: string): Promise<string> {
-    this.logger.debug("Attempting to create SNS topic if it doesn't exist", {
+    this.logger.debug("Creating SNS topic if it doesn't exist", {
       topicName
     })
-    /*
-      This action is idempotent, so if the topic exists then this will just return. This
-      is preferable to checking `sns.listTopics` first as it can't be run in a transaction.
-    */
-    if (this.autoProvision) {
-      const command = new CreateTopicCommand({ Name: topicName })
-      const result = await this.sns.send(command)
-      return result.TopicArn!
-    }
-
-    const topicArn = this.resolveTopicArn(
-      this.sqsConfiguration.awsAccountId!,
-      this.sqsConfiguration.awsRegion!,
-      topicName
+    const result = await this.sns.send(
+      new CreateTopicCommand({ Name: topicName })
     )
-    await this.assertTopicExistsByArn(topicArn)
-    return topicArn
+    return result.TopicArn!
   }
 
+  /**
+   * Subscribes a queue to a topic. `Subscribe` is idempotent, so an existing subscription is left as it is.
+   */
   private async subscribeToTopic(
     queueArn: string,
     topicArn: string
   ): Promise<void> {
-    if (this.autoProvision) {
-      const command = new SubscribeCommand({
+    this.logger.info('Subscribing sqs queue to sns topic', {
+      serviceQueueArn: queueArn,
+      topicArn
+    })
+    await this.sns.send(
+      new SubscribeCommand({
         TopicArn: topicArn,
         Protocol: 'sqs',
         Endpoint: queueArn
       })
-
-      this.logger.info('Subscribing sqs queue to sns topic', {
-        serviceQueueArn: queueArn,
-        topicArn
-      })
-
-      await this.sns.send(command)
-    } else {
-      await this.assertSnsSqsSubscriptionByArn(topicArn, queueArn)
-    }
+    )
   }
 
   private async makeMessageVisible(
@@ -819,48 +1186,14 @@ export class SqsTransport implements Transport<SQSMessage> {
     await this.sqs.send(command)
   }
 
-  private async attachPolicyToQueue(
-    queueUrl: string,
-    awsAccountId: string,
-    awsRegion: string
-  ): Promise<void> {
-    if (!this.autoProvision) {
-      this.logger.info(
-        'Bypass IAM policy attachment when autoProvision is disabled',
-        { queueUrl }
-      )
-      return
-    }
-
-    const policy =
-      this.sqsConfiguration.queuePolicy ||
-      generatePolicy(awsAccountId, awsRegion)
-    const command = new SetQueueAttributesCommand({
-      QueueUrl: queueUrl,
-      Attributes: {
-        Policy: policy
-      }
-    })
-
-    this.logger.info('Attaching IAM policy to queue', {
-      policy,
-      serviceQueueUrl: queueUrl
-    })
-    await this.sqs.send(command)
-  }
-
+  /**
+   * Sets the attributes of a queue that differ from those given. Each is read first, so a queue that's already in
+   * step isn't updated.
+   */
   private async syncQueueAttributes(
     queueUrl: string,
     attributes: Record<string, string>
   ): Promise<void> {
-    if (!this.autoProvision) {
-      this.logger.info(
-        'Bypass syncing queue attributes when autoProvision is disabled',
-        { queueUrl, attributes }
-      )
-      return
-    }
-
     // Check equality first to avoid potential API rate limit
     const existing = await this.sqs.send(
       new GetQueueAttributesCommand({
@@ -899,68 +1232,81 @@ export class SqsTransport implements Transport<SQSMessage> {
     )
   }
 
-  private async assertSnsSqsSubscriptionByArn(
-    topicArn: string,
-    sqsQueueArn: string
-  ): Promise<void> {
-    let nextToken = undefined
+  /**
+   * Checks a queue exists with `GetQueueUrl`
+   * @returns false if SQS reports that it doesn't
+   */
+  private async queueExists(queueArn: string): Promise<boolean> {
+    const { accountId, resource } = parse(queueArn)
     try {
-      let isQueueSubscribed = false
-      do {
-        const command = new ListSubscriptionsByTopicCommand({
-          TopicArn: topicArn,
-          NextToken: nextToken
+      await this.sqs.send(
+        new GetQueueUrlCommand({
+          QueueName: resource,
+          QueueOwnerAWSAccountId: accountId
         })
-
-        const response: ListSubscriptionsByTopicResponse =
-          await this.sns.send(command)
-        const subscriptions = response.Subscriptions
-        isQueueSubscribed = !!subscriptions?.some(
-          sub => sub.Protocol === 'sqs' && sub.Endpoint === sqsQueueArn
-        )
-        if (isQueueSubscribed) {
-          break
-        }
-
-        nextToken = response.NextToken
-      } while (nextToken)
-
-      if (!isQueueSubscribed) {
-        throw new Error(
-          `SNS-SQS subscription not found topic ${topicArn} and queue ${sqsQueueArn}`
-        )
-      }
-    } catch (err) {
-      this.logger.error('Error checking SNS-SQS subscription', {
-        err,
-        topicArn,
-        sqsQueueArn
-      })
-      throw err
-    }
-  }
-
-  private async assertTopicExistsByArn(topicArn: string): Promise<void> {
-    const command = new GetTopicAttributesCommand({ TopicArn: topicArn })
-
-    try {
-      await this.sns.send(command)
+      )
+      return true
     } catch (error) {
-      this.logger.error('Error checking topic attributes:', { topicArn, error })
+      if (isQueueMissing(error)) {
+        return false
+      }
       throw error
     }
   }
 
-  private async assertQueueExistsByName(queueName: string): Promise<void> {
-    const params = {
-      QueueName: queueName
-    }
+  /**
+   * Checks the service queue has an access policy with `GetQueueAttributes`
+   */
+  private async queueHasPolicy(queueUrl: string): Promise<boolean> {
+    const { Attributes } = await this.sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: queueUrl,
+        AttributeNames: ['Policy']
+      })
+    )
+    return !!Attributes?.Policy
+  }
 
+  /**
+   * Checks a queue is subscribed to a topic, reading every page of `ListSubscriptionsByTopic`
+   * @param external whether the topic is managed outside the bus, so a refusal to read it is only logged
+   */
+  private async checkSubscription(
+    topicArn: string,
+    queueArn: string,
+    external: boolean
+  ): Promise<SubscriptionCheck> {
+    let nextToken: string | undefined = undefined
     try {
-      const command = new GetQueueUrlCommand(params)
-      await this.sqs.send(command)
+      do {
+        const response: ListSubscriptionsByTopicResponse = await this.sns.send(
+          new ListSubscriptionsByTopicCommand({
+            TopicArn: topicArn,
+            NextToken: nextToken
+          })
+        )
+        const isSubscribed = !!response.Subscriptions?.some(
+          subscription =>
+            subscription.Protocol === 'sqs' &&
+            subscription.Endpoint === queueArn
+        )
+        if (isSubscribed) {
+          return SubscriptionCheck.Exists
+        }
+        nextToken = response.NextToken
+      } while (nextToken)
+      return SubscriptionCheck.SubscriptionMissing
     } catch (error) {
-      this.logger.error('Error checking queue existence:', { queueName, error })
+      if (isTopicMissing(error)) {
+        return SubscriptionCheck.TopicMissing
+      }
+      if (external && isAccessDenied(error)) {
+        this.logger.warn(
+          "Couldn't check the subscription to a topic managed outside the bus, since reading its subscriptions isn't allowed",
+          { topicArn, queueArn, error }
+        )
+        return SubscriptionCheck.Unknown
+      }
       throw error
     }
   }
@@ -1197,6 +1543,25 @@ export const regionOfQueueUrl = (queueUrl: string): string | undefined => {
 const isQueueMissing = (error: unknown): boolean =>
   error instanceof QueueDoesNotExist ||
   ['QueueDoesNotExist', 'AWS.SimpleQueueService.NonExistentQueue'].includes(
+    (error as { name?: string } | undefined)?.name ?? ''
+  )
+
+/**
+ * Whether SNS refused a request because the caller isn't allowed to make it
+ */
+const isAccessDenied = (error: unknown): boolean =>
+  [
+    'AuthorizationErrorException',
+    'AuthorizationError',
+    'AccessDenied',
+    'AccessDeniedException'
+  ].includes((error as { name?: string } | undefined)?.name ?? '')
+
+/**
+ * Whether SNS rejected a request because its topic doesn't exist
+ */
+const isTopicMissing = (error: unknown): boolean =>
+  ['NotFoundException', 'NotFound'].includes(
     (error as { name?: string } | undefined)?.name ?? ''
   )
 

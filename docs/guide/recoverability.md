@@ -97,7 +97,7 @@ A [receiver](/transports/sqs-lambda) such as AWS Lambda applies the same policy.
 
 ## The SQS redrive policy
 
-The SQS transport still creates its queue with a redrive policy, which moves a message to the dead letter queue after `maxReceiveCount` receives, 15 by default. It's a backstop for messages that crash the process before the bus can settle them, which the bus can't count. Those reach the dead letter queue without failure metadata. Keep `maxReceiveCount` above your policy's `maxAttempts`, or SQS dead-letters messages before the bus does.
+The SQS transport still [provisions](/guide/provisioning) its queue with a redrive policy, which moves a message to the dead letter queue after `maxReceiveCount` receives, 15 by default. It's a backstop for messages that crash the process before the bus can settle them, which the bus can't count. Those reach the dead letter queue without failure metadata. Keep `maxReceiveCount` above your policy's `maxAttempts`, or SQS dead-letters messages before the bus does.
 
 ## See also
 

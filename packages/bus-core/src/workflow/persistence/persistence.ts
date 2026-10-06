@@ -1,9 +1,53 @@
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
+import { ProvisioningPlan } from '../../provisioning'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState } from '../workflow-state'
 import { PersistenceTransaction } from './persistence-transaction'
+
+/**
+ * A workflow state a persistence stores, and the fields of it that messages look it up by
+ */
+export interface PersistedWorkflow {
+  /**
+   * The class of the workflow state
+   */
+  workflowStateType: ClassConstructor<WorkflowState>
+
+  /**
+   * How each message the workflow handles is mapped to its state. Each `mapsTo` field is looked up by
+   * `getWorkflowState`, so a database typically indexes it.
+   */
+  messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
+}
+
+export interface PersistenceInitializationOptions {
+  /**
+   * The workflow state the bus stores in the persistence. A persistence shared by several buses is initialized by
+   * each of them, with its own workflows.
+   */
+  workflows: PersistedWorkflow[]
+
+  /**
+   * Whether to check that everything the persistence needs exists, such as its tables and indexes, and throw
+   * `ResourcesNotProvisioned` if anything doesn't. Use read-only calls, and create nothing. It's `false` when the
+   * bus was configured with `withResourceVerification(false)`, or has just provisioned.
+   */
+  verifyResources: boolean
+}
+
+export interface PersistenceProvisionOptions {
+  /**
+   * The workflow state the bus stores in the persistence
+   */
+  workflows: PersistedWorkflow[]
+
+  /**
+   * Only work out the plan, without connecting to the database or changing anything
+   */
+  dryRun: boolean
+}
 
 /**
  * Infrastructure that provides the ability to persist workflow state for long running processes, and optionally
@@ -31,26 +75,33 @@ export interface Persistence {
   prepare(coreDependencies: CoreDependencies): void
 
   /**
-   * If provided, initializes the persistence implementation. This is where database connections are
-   * started.
+   * If provided, initializes the persistence implementation. This is where database connections are started. It
+   * must not create anything: when `verifyResources` is set, it checks the tables, collections and indexes of the
+   * workflows, and of outgoing messages if it stores them, exist, with read-only calls, and throws
+   * `ResourcesNotProvisioned` naming each one that's missing.
+   * @param options the workflow state the bus stores, and whether to check its storage exists
+   * @throws ResourcesNotProvisioned if `verifyResources` is set and something the bus needs doesn't exist
    */
-  initialize?(): Promise<void>
+  initialize?(options: PersistenceInitializationOptions): Promise<void>
+
+  /**
+   * If provided, creates everything the persistence needs, such as a schema, a table for each workflow state with
+   * indexes on the fields its messages look it up by, and a table of outgoing messages. It's run with deploy
+   * credentials by `bus.provision()` (and `bus provision` from @node-ts/bus-cli), or when the bus initializes if
+   * it's configured with `withAutoProvision()`. It connects to the database itself, unless it's a dry run.
+   *
+   * It must be idempotent: running it again, or from several processes at once, leaves what exists as it is and
+   * creates what's missing.
+   * @param options the workflow state the bus stores, and whether it's a dry run
+   * @returns what the persistence provisions, and the permissions it needs at runtime
+   */
+  provision?(options: PersistenceProvisionOptions): Promise<ProvisioningPlan>
 
   /**
    * If provided, will dispose any resources related to the persistence. This is where things like
    * closing database connections should occur.
    */
   dispose?(): Promise<void>
-
-  /**
-   * Allows the persistence implementation to set up its internal structure to support the workflow state
-   * that it will be persisting. Typically for a database this could mean setting up the internal table
-   * schema to support persisting of each of the workflow state models.
-   */
-  initializeWorkflow<TWorkflowState extends WorkflowState>(
-    workflowStateConstructor: ClassConstructor<TWorkflowState>,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
-  ): Promise<void>
 
   /**
    * Retrieves all workflow state models that match the given `messageMap` criteria. When the lookup returns no

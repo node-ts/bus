@@ -5,12 +5,15 @@ import {
   Logger,
   MessageFailure,
   Milliseconds,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   toFailureHeader,
   Transport,
   TransportConfiguration,
   TransportHeaderReserved,
   TransportInitializationOptions,
   TransportMessage,
+  TransportProvisionOptions,
   TransportSendOptions
 } from '@node-ts/bus-core'
 import {
@@ -64,24 +67,63 @@ export class MyTransport implements Transport<BrokerMessage> {
     await this.client.close()
   }
 
-  // Create the service queue, and subscribe it to every message the bus handles
-  async initialize({
+  // Create the service queue, and subscribe it to every message the bus handles. Run at deploy time by
+  // `bus provision`, or at startup with withAutoProvision(). It must be safe to run again.
+  async provision({
     handlerRegistry,
-    sendOnly
-  }: TransportInitializationOptions): Promise<void> {
-    if (sendOnly) {
-      return
-    }
+    sendOnly,
+    dryRun
+  }: TransportProvisionOptions): Promise<ProvisioningPlan> {
     const { queueName } = this.configuration
-    await this.client.createQueue(queueName)
-    await this.client.createQueue(this.deadLetterQueueName)
-    const topics = [
-      ...handlerRegistry.getMessageNames(),
-      // Topics of the messages handled by withCustomHandler
-      ...handlerRegistry.getExternallyManagedTopicIdentifiers()
-    ]
+    const queues = sendOnly ? [] : [queueName, this.deadLetterQueueName]
+    const topics = sendOnly
+      ? []
+      : [
+          ...handlerRegistry.getMessageNames(),
+          // Topics of the messages handled by withCustomHandler
+          ...handlerRegistry.getExternallyManagedTopicIdentifiers()
+        ]
+    const plan: ProvisioningPlan = {
+      adapter: 'MyTransport',
+      resources: [
+        ...queues.map(name => ({ type: 'queue', name })),
+        ...topics.map(topic => ({
+          type: 'subscription',
+          name: `${topic} -> ${queueName}`
+        }))
+      ]
+    }
+    if (dryRun) {
+      return plan
+    }
+    for (const queue of queues) {
+      await this.client.createQueue(queue)
+    }
     for (const topic of topics) {
       await this.client.subscribe(queueName, topic)
+    }
+    return plan
+  }
+
+  // Create nothing at startup: only check that what provision() creates exists
+  async initialize({
+    sendOnly,
+    verifyResources
+  }: TransportInitializationOptions): Promise<void> {
+    if (sendOnly || !verifyResources) {
+      return
+    }
+    const missing: string[] = []
+    for (const queue of [
+      this.configuration.queueName,
+      this.deadLetterQueueName
+    ]) {
+      if (!(await this.client.queueExists(queue))) {
+        missing.push(`queue ${queue}`)
+      }
+    }
+    if (missing.length) {
+      throw new ResourcesNotProvisioned('MyTransport', missing)
     }
   }
 

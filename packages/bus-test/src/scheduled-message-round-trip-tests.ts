@@ -84,7 +84,8 @@ interface ReceivedRoundTrip {
  * A suite that checks a persistence stores messages sent with `deliverAfter` or `deliverAt`: it calls
  * `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and `releaseOutgoingMessages` directly, then schedules
  * messages through buses that use the persistence, and checks each arrives once, when it's due, with its attributes,
- * headers and nested types.
+ * headers and nested types. The first bus provisions with `bus.provision()`, and every bus then initializes without
+ * provisioning, so `initialize()` only checks that what `provision()` created exists.
  *
  * The suite stores messages due in the year 2900, and deletes them as it goes. Give it a persistence on its own
  * database or schema, since a running bus that shares the store with it could send its scheduled messages.
@@ -162,6 +163,8 @@ export const scheduledMessageRoundTripTests = (
           })
         )
         .build()
+      // Provisioned as a deploy would, so initialize() only checks the outgoing messages are stored somewhere
+      await bus.provision()
       await bus.initialize()
       await bus.start()
     })

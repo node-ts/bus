@@ -24,7 +24,6 @@ import {
   WorkflowRegisteredAfterInitialization,
   WorkflowStateNotProvided
 } from '../error'
-import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { InMemoryPersistence, Persistence } from '../persistence'
 import {
   TaskRan,
@@ -247,18 +246,14 @@ describe('WorkflowRegistry', () => {
       )
     })
 
-    it('should initialize its state in the persistence with its lookups', () => {
-      functionPersistence.verify(
-        p =>
-          p.initializeWorkflow(
-            TestFunctionWorkflowState,
-            It.is<MessageWorkflowMapping[]>(
-              mappings =>
-                mappings.map(m => m.mapsTo).join() === 'property1,$workflowId'
-            )
-          ),
-        Times.once()
+    it('should record how its state is stored, with its lookups', () => {
+      const [persistedWorkflow] = sut.getPersistedWorkflows()
+      expect(persistedWorkflow.workflowStateType).toEqual(
+        TestFunctionWorkflowState
       )
+      expect(
+        persistedWorkflow.messageWorkflowMappings.map(m => m.mapsTo)
+      ).toEqual(['property1', '$workflowId'])
     })
 
     it('should report the $name of its state', () => {

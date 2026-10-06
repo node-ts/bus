@@ -115,6 +115,7 @@ describe('postgresTransaction', () => {
           events.emit('task-ran', value)
         })
       )
+      .withAutoProvision()
       .build()
     await bus.initialize()
     await pool.query(`create table ${ordersTable} (id text primary key)`)
@@ -260,6 +261,7 @@ describe('PostgresPersistence', () => {
         )
         .withOutbox()
         .withWorkflow(TestWorkflow)
+        .withAutoProvision()
         .withMiddleware({
           incoming: async (_context, next) => {
             await next()

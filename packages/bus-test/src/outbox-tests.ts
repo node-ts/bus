@@ -86,7 +86,9 @@ class OutboxTestQueue extends InMemoryQueue {
  * a message or reply the transport fails to send after the transaction is committed is still sent, and
  * `bus.transaction()` sends its messages only once it's committed.
  *
- * It runs a bus with an in-memory queue, a workflow and handlers that fail on purpose.
+ * It runs a bus with an in-memory queue, a workflow and handlers that fail on purpose. The bus provisions with
+ * `bus.provision()`, then initializes without provisioning, so `initialize()` only checks that what `provision()`
+ * created exists.
  * @param persistence A fully configured persistence that supports `withOutbox()`, on its own database or schema,
  * since the suite's bus sends the outgoing messages it finds in it. It's disposed when the suite's bus is disposed,
  * unless another bus that uses it is still running.
@@ -190,6 +192,8 @@ export const outboxTests = (persistence: Persistence): void => {
           })
         )
         .build()
+      // Provisioned as a deploy would, so initialize() only checks the persistence's storage exists
+      await bus.provision()
       await bus.initialize()
       await bus.start()
     })

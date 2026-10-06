@@ -11,7 +11,7 @@ description: Handle Amazon SQS messages in AWS Lambda with @node-ts/bus-sqs-lamb
 
 ## Installation
 
-It's used with the [Amazon SQS](/transports/amazon-sqs) transport, which sends and publishes messages and creates the queues and topics.
+It's used with the [Amazon SQS](/transports/amazon-sqs) transport, which sends and publishes messages. Create the queue, topics and subscriptions at deploy time with [`bus provision`](/guide/provisioning), and give the function's role the transport's [runtime permissions](/transports/amazon-sqs#runtime-permissions).
 
 ::: code-group
 
@@ -34,7 +34,7 @@ yarn add -D @types/aws-lambda
 
 ## Configuration
 
-Configure the bus with the SQS transport and a `BusSqsLambdaReceiver`, initialize it when the module loads, and pass each event to `bus.receive()`. Don't call `bus.start()`: Lambda reads the queue instead.
+Configure the bus with the SQS transport and a `BusSqsLambdaReceiver`, initialize it when the module loads, and pass each event to `bus.receive()`. Don't call `bus.start()`: Lambda reads the queue instead. `initialize()` checks that the queue, topics and subscriptions exist on each cold start. To save those calls, turn the check off with `withResourceVerification(false)` once your deploys provision reliably.
 
 <<< @/snippets/sqs-lambda.ts
 

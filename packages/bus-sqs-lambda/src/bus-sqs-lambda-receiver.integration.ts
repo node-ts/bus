@@ -174,6 +174,7 @@ const buildBus = async (
   const bus: BusInstance = Bus.configure()
     .withMessageTypes(messageTypes)
     .withTransport(transport)
+    .withAutoProvision()
     .withReceiver(new BusSqsLambdaReceiver(configuration))
     .withRecoverability(recoverability)
     .withMiddleware(...middleware)

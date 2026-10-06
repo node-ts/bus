@@ -6,8 +6,14 @@ import {
   MessageWorkflowMapping,
   OutgoingMessage,
   OutgoingMessageClaim,
+  PersistedWorkflow,
   Persistence,
+  PersistenceInitializationOptions,
+  PersistenceProvisionOptions,
   PersistenceTransaction,
+  ProvisionedResource,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -48,6 +54,16 @@ const DUPLICATE_OBJECT_ERROR_CODES = new Set([
  * The table, in the configured schema, that stores messages sent with `deliverAfter` or `deliverAt`
  */
 const OUTGOING_MESSAGES_TABLE_NAME = 'outgoing_messages'
+
+/**
+ * The index on `available_at` of the outgoing messages table
+ */
+const OUTGOING_MESSAGES_INDEX_NAME = `${OUTGOING_MESSAGES_TABLE_NAME}_available_at_idx`
+
+/**
+ * Stands for the role the service runs as in the grants of the runtime permissions
+ */
+const RUNTIME_ROLE = '<runtime_role>'
 
 /**
  * A row of the outgoing messages table, as `pg` parses it
@@ -250,35 +266,122 @@ export class PostgresPersistence implements Persistence {
     )
   }
 
-  async initialize(): Promise<void> {
+  /**
+   * Checks, unless `verifyResources` is off, that the schema, the outgoing messages table and the table and indexes
+   * of each workflow exist, by looking their names up with `to_regclass`. It creates nothing.
+   * @param options the workflows of the bus, and whether to check their tables exist
+   * @throws InvalidSchemaName if `schemaName` is empty
+   * @throws ResourcesNotProvisioned if the schema, a table or an index doesn't exist
+   */
+  async initialize(options: PersistenceInitializationOptions): Promise<void> {
     this.logger.info('Initializing postgres persistence...')
     assertValidSchemaName(this.configuration.schemaName)
-    await this.ensureSchemaExists(this.configuration.schemaName)
-    await this.ensureOutgoingMessagesTableExists()
+    if (options.verifyResources) {
+      const missingResources = await this.findMissingResources(
+        options.workflows
+      )
+      if (missingResources.length) {
+        throw new ResourcesNotProvisioned(
+          'PostgresPersistence',
+          missingResources
+        )
+      }
+    }
     this.logger.info('Postgres persistence initialized')
+  }
+
+  /**
+   * Creates the schema, the outgoing messages table with an index on when each message is next available, and for
+   * each workflow state a table with an `(id, version)` index and a partial index on each field its messages look it
+   * up by. Each is only created if it doesn't exist, and it's safe to run from several processes at once.
+   *
+   * It needs permission to create the schema (or to create in it, if it exists) and tables in it.
+   * @param options the workflows of the bus, and whether it's a dry run
+   * @returns the schema, tables and indexes, and the grants the persistence needs at runtime
+   * @throws InvalidSchemaName if `schemaName` is empty
+   */
+  async provision(
+    options: PersistenceProvisionOptions
+  ): Promise<ProvisioningPlan> {
+    const { schemaName } = this.configuration
+    assertValidSchemaName(schemaName)
+    const workflowTables = options.workflows.map(workflow => ({
+      table: resolveWorkflowTable(
+        new workflow.workflowStateType().$name,
+        schemaName
+      ),
+      indexes: resolveWorkflowIndexes(workflow.messageWorkflowMappings)
+    }))
+    const plan: ProvisioningPlan = {
+      adapter: 'PostgresPersistence',
+      resources: [
+        { type: 'postgres-schema', name: schemaName },
+        {
+          type: 'postgres-table',
+          name: this.outgoingMessagesTable(),
+          properties: { stores: 'outgoing messages' }
+        },
+        {
+          type: 'postgres-index',
+          name: OUTGOING_MESSAGES_INDEX_NAME,
+          properties: {
+            table: this.outgoingMessagesTable(),
+            keys: 'available_at'
+          }
+        },
+        ...workflowTables.flatMap(({ table, indexes }) => [
+          {
+            type: 'postgres-table',
+            name: table.qualifiedName,
+            properties: { stores: 'workflow state' }
+          },
+          ...indexes.map((index): ProvisionedResource => ({
+            type: 'postgres-index',
+            name: resolveIndexName(table, ...index.nameFields),
+            properties: {
+              table: table.qualifiedName,
+              keys: index.keys,
+              ...(index.predicate ? { predicate: index.predicate } : {})
+            }
+          }))
+        ])
+      ],
+      runtimePermissions: {
+        format: 'sql',
+        document: [
+          `GRANT USAGE ON SCHEMA ${escapeIdentifier(schemaName)} TO ${RUNTIME_ROLE};`,
+          `GRANT SELECT, INSERT, UPDATE, DELETE ON ${this.outgoingMessagesTable()} TO ${RUNTIME_ROLE};`,
+          ...[
+            ...new Set(workflowTables.map(({ table }) => table.qualifiedName))
+          ].map(
+            qualifiedName =>
+              `GRANT SELECT, INSERT, UPDATE ON ${qualifiedName} TO ${RUNTIME_ROLE};`
+          )
+        ]
+      }
+    }
+    if (options.dryRun) {
+      return plan
+    }
+
+    this.logger.info('Provisioning postgres persistence', {
+      resources: plan.resources.length
+    })
+    await this.ensureSchemaExists(schemaName)
+    await this.ensureOutgoingMessagesTableExists()
+    for (const { table, indexes } of workflowTables) {
+      await this.ensureTableExists(table)
+      await Promise.all(
+        indexes.map(async index => this.ensureIndexExists(table, index))
+      )
+    }
+    return plan
   }
 
   async dispose(): Promise<void> {
     this.logger.info('Disposing postgres persistence...')
     await this.postgres.end()
     this.logger.info('Postgres persistence disposed')
-  }
-
-  async initializeWorkflow<WorkflowStateType extends WorkflowState>(
-    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
-  ): Promise<void> {
-    const workflowStateName = new workflowStateConstructor().$name
-    this.logger.info('Initializing workflow', {
-      workflowState: workflowStateName
-    })
-
-    const table = resolveWorkflowTable(
-      workflowStateName,
-      this.configuration.schemaName
-    )
-    await this.ensureTableExists(table)
-    await this.ensureIndexesExist(table, messageWorkflowMappings)
   }
 
   async getWorkflowState<
@@ -519,7 +622,7 @@ export class PostgresPersistence implements Persistence {
 
   private async ensureOutgoingMessagesTableExists(): Promise<void> {
     const table = this.outgoingMessagesTable()
-    const indexName = `${OUTGOING_MESSAGES_TABLE_NAME}_available_at_idx`
+    const indexName = OUTGOING_MESSAGES_INDEX_NAME
     const tableSql = `
       create table if not exists ${table} (
         id text not null primary key,
@@ -573,36 +676,86 @@ export class PostgresPersistence implements Persistence {
     await this.createIfMissing(sql)
   }
 
-  private async ensureIndexesExist(
-    table: WorkflowTable,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
-  ): Promise<void> {
-    const primaryIndex: WorkflowIndex = {
-      nameFields: ['id', 'version'],
-      keys: 'id, version',
-      deparsedKeys: ['id', 'version']
+  /**
+   * Finds what the bus needs that doesn't exist: the schema, the outgoing messages table and its index, and the
+   * table and indexes of each workflow. An index made by an earlier version under its legacy name counts.
+   * @returns a description of each one that's missing
+   */
+  private async findMissingResources(
+    workflows: PersistedWorkflow[]
+  ): Promise<string[]> {
+    const { schemaName } = this.configuration
+    const schema = await this.postgres.query(
+      'select 1 from pg_namespace where nspname = $1;',
+      [schemaName]
+    )
+    if (schema.rowCount === 0) {
+      return [`Postgres schema ${escapeIdentifier(schemaName)}`]
     }
 
-    const distinctWorkflowFields = new Set(
-      messageWorkflowMappings.map(mapping => mapping.mapsTo)
+    const qualify = (name: string) =>
+      `${escapeIdentifier(schemaName)}.${escapeIdentifier(name)}`
+    // A relation is found by its name, or for an index, also by an index earlier versions created under its legacy
+    // name with the same keys, which provisioning reuses
+    const relations: {
+      description: string
+      name: string
+      legacyIndexMatches?: string
+    }[] = [
+      {
+        description: `Postgres table ${this.outgoingMessagesTable()}`,
+        name: this.outgoingMessagesTable()
+      },
+      {
+        description: `Postgres index ${qualify(OUTGOING_MESSAGES_INDEX_NAME)}`,
+        name: qualify(OUTGOING_MESSAGES_INDEX_NAME)
+      },
+      ...workflows.flatMap(({ workflowStateType, messageWorkflowMappings }) => {
+        const table = resolveWorkflowTable(
+          new workflowStateType().$name,
+          schemaName
+        )
+        return [
+          {
+            description: `Postgres table ${table.qualifiedName}`,
+            name: table.qualifiedName
+          },
+          ...resolveWorkflowIndexes(messageWorkflowMappings).map(index => {
+            const indexName = qualify(
+              resolveIndexName(table, ...index.nameFields)
+            )
+            return {
+              description: `Postgres index ${indexName}`,
+              name: indexName,
+              legacyIndexMatches: resolveLegacyIndexMatches(table, index)
+            }
+          })
+        ]
+      })
+    ]
+    const result = await this.postgres.query(
+      'select name from unnest($1::text[]) as name where to_regclass(name) is not null;',
+      [relations.map(({ name }) => name)]
     )
-    const secondaryIndexes = [...distinctWorkflowFields].map(
-      (workflowField): WorkflowIndex => {
-        const workflowStateField = resolveWorkflowStateField(workflowField)
-        return {
-          nameFields: [workflowField],
-          keys: `(${workflowStateField})`,
-          predicate: `(${workflowStateField}) is not null`,
-          deparsedKeys: [deparseWorkflowStateField(workflowField)]
+    const existing = new Set(
+      (result.rows as { name: string }[]).map(({ name }) => name)
+    )
+    const missing: string[] = []
+    for (const relation of relations) {
+      if (existing.has(relation.name)) {
+        continue
+      }
+      if (relation.legacyIndexMatches) {
+        const legacy = await this.postgres.query(
+          `select ${relation.legacyIndexMatches} as matches;`
+        )
+        if ((legacy.rows as { matches: boolean }[])[0]?.matches) {
+          continue
         }
       }
-    )
-
-    await Promise.all(
-      [primaryIndex, ...secondaryIndexes].map(async index =>
-        this.ensureIndexExists(table, index)
-      )
-    )
+      missing.push(relation.description)
+    }
+    return [...new Set(missing)]
   }
 
   private async ensureIndexExists(
@@ -610,26 +763,12 @@ export class PostgresPersistence implements Persistence {
     index: WorkflowIndex
   ): Promise<void> {
     const indexName = resolveIndexName(table, ...index.nameFields)
-    const legacyIndexName = resolveLegacyIndexName(table, ...index.nameFields)
     // Earlier versions gave every index its legacy name, which postgres truncated to 63 bytes.
     // An index with the same keys under that truncated name is reused rather than duplicated.
-    const legacyIndexCheck =
-      indexName === legacyIndexName
-        ? ''
-        : `AND NOT EXISTS (
-            SELECT 1 FROM pg_index
-            WHERE
-              indexrelid = to_regclass(${resolveQualifiedIndexLiteral(table, legacyIndexName)})
-              AND indrelid = to_regclass(${escapeLiteral(table.qualifiedName)})
-              AND indisvalid
-              AND indnatts = ${index.deparsedKeys.length}
-              ${index.deparsedKeys
-                .map(
-                  (deparsedKey, i) =>
-                    `AND pg_get_indexdef(indexrelid, ${i + 1}, false) = ${escapeLiteral(deparsedKey)}`
-                )
-                .join('\n')}
-          )`
+    const legacyIndexMatches = resolveLegacyIndexMatches(table, index)
+    const legacyIndexCheck = legacyIndexMatches
+      ? `AND NOT ${legacyIndexMatches}`
+      : ''
     const predicate = index.predicate ? `WHERE ${index.predicate}` : ''
     // Support Postgres 9.4+
     const sql = `
@@ -743,6 +882,65 @@ const assertValidSchemaName = (schemaName: string): void => {
   ) {
     throw new InvalidSchemaName(schemaName)
   }
+}
+
+/**
+ * Resolves the indexes of a workflow table: its `(id, version)` index, and a partial index on each distinct field
+ * its messages look it up by
+ */
+const resolveWorkflowIndexes = (
+  messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
+): WorkflowIndex[] => {
+  const primaryIndex: WorkflowIndex = {
+    nameFields: ['id', 'version'],
+    keys: 'id, version',
+    deparsedKeys: ['id', 'version']
+  }
+
+  const distinctWorkflowFields = new Set(
+    messageWorkflowMappings.map(mapping => mapping.mapsTo)
+  )
+  const secondaryIndexes = [...distinctWorkflowFields].map(
+    (workflowField): WorkflowIndex => {
+      const workflowStateField = resolveWorkflowStateField(workflowField)
+      return {
+        nameFields: [workflowField],
+        keys: `(${workflowStateField})`,
+        predicate: `(${workflowStateField}) is not null`,
+        deparsedKeys: [deparseWorkflowStateField(workflowField)]
+      }
+    }
+  )
+  return [primaryIndex, ...secondaryIndexes]
+}
+
+/**
+ * Resolves a SQL expression that's true when an index earlier versions created under its legacy name, which
+ * postgres truncated to 63 bytes, exists on the table with the same keys, so it's reused rather than duplicated
+ * @returns the expression, or `undefined` when the index' name is its legacy name
+ */
+const resolveLegacyIndexMatches = (
+  table: WorkflowTable,
+  index: WorkflowIndex
+): string | undefined => {
+  const legacyIndexName = resolveLegacyIndexName(table, ...index.nameFields)
+  if (resolveIndexName(table, ...index.nameFields) === legacyIndexName) {
+    return undefined
+  }
+  return `EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE
+      indexrelid = to_regclass(${resolveQualifiedIndexLiteral(table, legacyIndexName)})
+      AND indrelid = to_regclass(${escapeLiteral(table.qualifiedName)})
+      AND indisvalid
+      AND indnatts = ${index.deparsedKeys.length}
+      ${index.deparsedKeys
+        .map(
+          (deparsedKey, i) =>
+            `AND pg_get_indexdef(indexrelid, ${i + 1}, false) = ${escapeLiteral(deparsedKey)}`
+        )
+        .join('\n')}
+  )`
 }
 
 /**

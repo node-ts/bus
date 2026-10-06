@@ -1,6 +1,5 @@
 import {
   CreateTopicCommand,
-  GetTopicAttributesCommand,
   ListSubscriptionsByTopicCommand,
   SNSClient,
   SubscribeCommand
@@ -29,10 +28,18 @@ import {
   Logger,
   MessageFailure,
   MessageSerializer,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   TransportHeaderReserved,
-  TransportMessage
+  TransportInitializationOptions,
+  TransportMessage,
+  TransportProvisionOptions
 } from '@node-ts/bus-core'
-import { Message as BusMessage, MessageAttributes } from '@node-ts/bus-messages'
+import {
+  Message as BusMessage,
+  Event,
+  MessageAttributes
+} from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { IMock, It, Mock, Times } from 'typemoq'
 import {
@@ -47,6 +54,20 @@ import {
   toMessageAttributeMap
 } from './sqs-transport'
 import { SqsTransportConfiguration } from './sqs-transport-configuration'
+
+/**
+ * The handler registry of a bus that handles `test-message`
+ */
+const testHandlerRegistry = {
+  getMessageNames: () => ['test-message'],
+  getExternallyManagedTopicIdentifiers: () => []
+} as any as TransportProvisionOptions['handlerRegistry']
+
+class TestUnprovisionedEvent extends Event {
+  static NAME = 'test-unprovisioned-event'
+  $name = TestUnprovisionedEvent.NAME
+  $version = 0
+}
 
 describe('sqs-transport', () => {
   describe('when converting SNS attribute values to message attributes', () => {
@@ -825,429 +846,6 @@ describe('sqs-transport', () => {
     })
   })
 
-  describe('autoProvision configuration', () => {
-    it('should default to true when not specified', () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2'
-      }
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      expect(sut['autoProvision']).toBe(true)
-    })
-
-    it('should use the configured value when set to false', () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: false
-      }
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      expect(sut['autoProvision']).toBe(false)
-    })
-  })
-
-  describe('when autoProvision is true', () => {
-    it('should create the queue when initializing', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: true
-      }
-
-      sqs
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof CreateQueueCommand &&
-                cmd.input.QueueName === 'test-queue'
-            )
-          )
-        )
-        .returns(() =>
-          Promise.resolve({
-            QueueUrl:
-              'https://sqs.us-west-2.amazonaws.com/123456789012/test-queue'
-          } as any)
-        )
-        .verifiable(Times.once())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-
-      await sut['assertSqsQueue']('test-queue')
-      sqs.verifyAll()
-    })
-
-    it('should create the topic when initializing', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: true
-      }
-
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof CreateTopicCommand &&
-                cmd.input.Name === 'test-topic'
-            )
-          )
-        )
-        .returns(() =>
-          Promise.resolve({
-            TopicArn: 'arn:aws:sns:us-west-2:123456789012:test-topic'
-          } as any)
-        )
-        .verifiable(Times.once())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-
-      await sut['createSnsTopic']('test-topic')
-      sns.verifyAll()
-    })
-
-    it('should subscribe queue to topic', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: true
-      }
-
-      // Mock create topic call
-      sns
-        .setup(s =>
-          s.send(It.is((cmd: any) => cmd instanceof CreateTopicCommand))
-        )
-        .returns(() =>
-          Promise.resolve({
-            TopicArn: 'arn:aws:sns:us-west-2:123456789012:test-topic'
-          } as any)
-        )
-
-      // Mock subscribe call
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof SubscribeCommand &&
-                cmd.input.Protocol === 'sqs' &&
-                cmd.input.TopicArn ===
-                  'arn:aws:sns:us-west-2:123456789012:test-topic' &&
-                cmd.input.Endpoint ===
-                  'arn:aws:sqs:us-west-2:123456789012:test-queue'
-            )
-          )
-        )
-        .returns(() => Promise.resolve({} as any))
-        .verifiable(Times.once())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-
-      await sut['subscribeToTopic'](
-        'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        'arn:aws:sns:us-west-2:123456789012:test-topic'
-      )
-      sns.verifyAll()
-    })
-  })
-
-  describe('when autoProvision is false', () => {
-    it('should assert queue exists instead of creating it', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: false
-      }
-
-      // Should NOT call CreateQueueCommand
-      sqs
-        .setup(s =>
-          s.send(It.is((cmd: any) => cmd instanceof CreateQueueCommand))
-        )
-        .verifiable(Times.never())
-
-      // Should call GetQueueUrlCommand to verify existence
-      sqs
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof GetQueueUrlCommand &&
-                cmd.input.QueueName === 'test-queue'
-            )
-          )
-        )
-        .returns(() =>
-          Promise.resolve({
-            QueueUrl:
-              'https://sqs.us-west-2.amazonaws.com/123456789012/test-queue'
-          } as any)
-        )
-        .verifiable(Times.once())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-
-      await sut['assertSqsQueue']('test-queue')
-      sqs.verifyAll()
-    })
-
-    it('should assert topic exists instead of creating it', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: false,
-        resolveTopicArn: (
-          awsAccountId: string,
-          awsRegion: string,
-          topicName: string
-        ) => `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
-      }
-
-      // Should NOT call CreateTopicCommand
-      sns
-        .setup(s =>
-          s.send(It.is((cmd: any) => cmd instanceof CreateTopicCommand))
-        )
-        .verifiable(Times.never())
-
-      // Should call GetTopicAttributesCommand to verify existence
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof GetTopicAttributesCommand &&
-                cmd.input.TopicArn ===
-                  'arn:aws:sns:us-west-2:123456789012:test-topic'
-            )
-          )
-        )
-        .returns(() => Promise.resolve({ Attributes: {} } as any))
-        .verifiable(Times.once())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-      await sut.initialize({
-        sendOnly: true,
-        handlerRegistry: {} as any
-      })
-
-      await sut['createSnsTopic']('test-topic')
-      sns.verifyAll()
-    })
-
-    it('should assert subscription exists instead of creating it', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: false,
-        resolveTopicArn: (
-          awsAccountId: string,
-          awsRegion: string,
-          topicName: string
-        ) => `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
-      }
-
-      const topicArn = 'arn:aws:sns:us-west-2:123456789012:test-topic'
-      const queueArn = 'arn:aws:sqs:us-west-2:123456789012:test-queue'
-
-      // Mock create topic call for GetTopicAttributesCommand
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof GetTopicAttributesCommand &&
-                cmd.input.TopicArn === topicArn
-            )
-          )
-        )
-        .returns(() => Promise.resolve({ Attributes: {} } as any))
-
-      // Should NOT call CreateTopicCommand
-      sns
-        .setup(s =>
-          s.send(It.is((cmd: any) => cmd instanceof CreateTopicCommand))
-        )
-        .verifiable(Times.never())
-
-      // Should NOT call SubscribeCommand
-      sns
-        .setup(s =>
-          s.send(It.is((cmd: any) => cmd instanceof SubscribeCommand))
-        )
-        .verifiable(Times.never())
-
-      // Should call ListSubscriptionsByTopicCommand to verify subscription
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof ListSubscriptionsByTopicCommand &&
-                cmd.input.TopicArn === topicArn
-            )
-          )
-        )
-        .returns(() =>
-          Promise.resolve({
-            Subscriptions: [
-              {
-                Protocol: 'sqs',
-                Endpoint: queueArn,
-                SubscriptionArn:
-                  'arn:aws:sns:us-west-2:123456789012:test-topic:subscription-id'
-              }
-            ]
-          } as any)
-        )
-        .verifiable(Times.once())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-      await sut.initialize({
-        sendOnly: true,
-        handlerRegistry: {} as any
-      })
-
-      await sut['subscribeToTopic'](queueArn, topicArn)
-      sns.verifyAll()
-    })
-
-    it('should throw error when subscription does not exist', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: false,
-        resolveTopicArn: (
-          awsAccountId: string,
-          awsRegion: string,
-          topicName: string
-        ) => `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
-      }
-
-      const topicArn = 'arn:aws:sns:us-west-2:123456789012:test-topic'
-      const queueArn = 'arn:aws:sqs:us-west-2:123456789012:test-queue'
-
-      // Mock create topic call for GetTopicAttributesCommand
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof GetTopicAttributesCommand &&
-                cmd.input.TopicArn === topicArn
-            )
-          )
-        )
-        .returns(() => Promise.resolve({ Attributes: {} } as any))
-
-      // Mock subscription list returning no matching subscription
-      sns
-        .setup(s =>
-          s.send(
-            It.is(
-              (cmd: any) =>
-                cmd instanceof ListSubscriptionsByTopicCommand &&
-                cmd.input.TopicArn === topicArn
-            )
-          )
-        )
-        .returns(() =>
-          Promise.resolve({
-            Subscriptions: []
-          } as any)
-        )
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-      await sut.initialize({
-        sendOnly: true,
-        handlerRegistry: {} as any
-      })
-
-      await expect(sut['subscribeToTopic'](queueArn, topicArn)).rejects.toThrow(
-        'SNS-SQS subscription not found'
-      )
-    })
-
-    it('should not attach IAM policy when autoProvision is false', async () => {
-      const sqs = Mock.ofType<SQSClient>()
-      const sns = Mock.ofType<SNSClient>()
-      const config: SqsTransportConfiguration = {
-        queueArn: 'arn:aws:sqs:us-west-2:123456789012:test-queue',
-        awsAccountId: '123456789012',
-        awsRegion: 'us-west-2',
-        autoProvision: false
-      }
-
-      // SetQueueAttributesCommand should NOT be called
-      sqs.setup(s => s.send(It.isAny())).verifiable(Times.never())
-
-      const sut = new SqsTransport(config, sqs.object, sns.object)
-      sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name)
-      } as any as CoreDependencies)
-
-      await sut['attachPolicyToQueue'](
-        'https://sqs.us-west-2.amazonaws.com/123456789012/test-queue',
-        '123456789012',
-        'us-west-2'
-      )
-      sqs.verifyAll()
-    })
-  })
-
   describe('when reading the endpoint name', () => {
     describe('with a queue name', () => {
       let sut: string
@@ -1317,19 +915,20 @@ describe('sqs-transport', () => {
     })
   })
 
-  describe('when initializing', () => {
+  describe('when provisioning', () => {
     const queueArn = 'arn:aws:sqs:us-west-2:123456789012:test-queue'
     const deadLetterQueueArn = 'arn:aws:sqs:us-west-2:123456789012:dlq'
     const topicArn = 'arn:aws:sns:us-west-2:123456789012:test-message'
+    const sentTopicArn = 'arn:aws:sns:us-west-2:123456789012:sent-message'
 
     /**
-     * Builds and initializes a transport against mocked SQS and SNS clients that
-     * handle a single `test-message` and report `existingAttributes` for the
-     * service queue
+     * Builds and provisions a transport against mocked SQS and SNS clients for a bus that handles `test-message`,
+     * sends `sent-message` and reports `existingAttributes` for the service queue
      */
-    const initializeTransport = async (
+    const provisionTransport = async (
       configuration: Partial<SqsTransportConfiguration>,
-      existingAttributes?: Record<string, string>
+      existingAttributes?: Record<string, string>,
+      options: Partial<TransportProvisionOptions> = {}
     ) => {
       const sqs = Mock.ofType<SQSClient>()
       const sns = Mock.ofType<SNSClient>()
@@ -1350,9 +949,6 @@ describe('sqs-transport', () => {
               TopicArn: `arn:aws:sns:us-west-2:123456789012:${command.input.Name}`
             }
           }
-          if (command instanceof ListSubscriptionsByTopicCommand) {
-            return { Subscriptions: [{ Protocol: 'sqs', Endpoint: queueArn }] }
-          }
           return {}
         })
 
@@ -1368,21 +964,31 @@ describe('sqs-transport', () => {
       )
       sut.prepare({
         loggerFactory: (name: string) => new DebugLogger(name),
-        handlerRegistry: {
-          getMessageNames: () => ['test-message'],
-          getExternallyManagedTopicIdentifiers: () => []
-        }
+        messageSerializer: new MessageSerializer(
+          new JsonSerializer(),
+          new DefaultHandlerRegistry(),
+          { messages: {}, types: {} }
+        )
       } as any as CoreDependencies)
-      await sut.initialize({ sendOnly: false, handlerRegistry: {} as any })
+      const plan = await sut.provision({
+        sendOnly: false,
+        handlerRegistry: testHandlerRegistry,
+        messageNames: ['test-message', 'sent-message'],
+        sendsAnyMessage: false,
+        dryRun: false,
+        ...options
+      })
 
-      return { sut, sqs, sns }
+      return { sut, sqs, sns, plan }
     }
 
     describe('with queue attributes that match the configuration', () => {
       let sqs: IMock<SQSClient>
+      let sns: IMock<SNSClient>
+      let plan: ProvisioningPlan
 
       beforeAll(async () => {
-        ;({ sqs } = await initializeTransport(
+        ;({ sqs, sns, plan } = await provisionTransport(
           {},
           {
             VisibilityTimeout: '30',
@@ -1393,6 +999,81 @@ describe('sqs-transport', () => {
             })
           }
         ))
+      })
+
+      it('should create each topic once', () => {
+        for (const name of ['test-message', 'sent-message']) {
+          sns.verify(
+            s =>
+              s.send(
+                It.is(
+                  (command: any) =>
+                    command instanceof CreateTopicCommand &&
+                    command.input.Name === name
+                )
+              ),
+            Times.once()
+          )
+        }
+      })
+
+      it('should create the dead letter queue and the service queue', () => {
+        for (const name of ['dlq', 'test-queue']) {
+          sqs.verify(
+            s =>
+              s.send(
+                It.is(
+                  (command: any) =>
+                    command instanceof CreateQueueCommand &&
+                    command.input.QueueName === name
+                )
+              ),
+            Times.once()
+          )
+        }
+      })
+
+      it('should only subscribe the queue to the topics it handles', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SubscribeCommand &&
+                  command.input.TopicArn === topicArn &&
+                  command.input.Endpoint === queueArn
+              )
+            ),
+          Times.once()
+        )
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SubscribeCommand &&
+                  command.input.TopicArn === sentTopicArn
+              )
+            ),
+          Times.never()
+        )
+      })
+
+      it('should set the generated queue policy', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SetQueueAttributesCommand &&
+                  JSON.parse(command.input.Attributes?.Policy ?? '{}')
+                    .Statement?.[0]?.Condition?.StringLike?.[
+                    'aws:SourceArn'
+                  ] === 'arn:aws:sns:us-west-2:123456789012:*'
+              )
+            ),
+          Times.once()
+        )
       })
 
       it('should request the configured attributes', () => {
@@ -1425,13 +1106,61 @@ describe('sqs-transport', () => {
           Times.never()
         )
       })
+
+      it('should return each resource it provisions', () => {
+        expect(
+          plan.resources.map(({ type, name }) => `${type} ${name}`)
+        ).toEqual([
+          `sns-topic ${topicArn}`,
+          `sns-topic ${sentTopicArn}`,
+          `sqs-queue ${deadLetterQueueArn}`,
+          `sqs-queue ${queueArn}`,
+          `sns-subscription ${topicArn} -> ${queueArn}`,
+          `sqs-queue-policy ${queueArn}`
+        ])
+      })
+
+      it('should return the IAM policy it needs at runtime', () => {
+        expect(plan.runtimePermissions).toMatchObject({
+          format: 'iam-policy',
+          document: {
+            Version: '2012-10-17',
+            Statement: expect.arrayContaining([
+              expect.objectContaining({
+                Action: ['sns:Publish'],
+                Resource: [topicArn, sentTopicArn]
+              }),
+              expect.objectContaining({
+                Action: [
+                  'sqs:ReceiveMessage',
+                  'sqs:DeleteMessage',
+                  'sqs:ChangeMessageVisibility'
+                ],
+                Resource: [queueArn]
+              }),
+              expect.objectContaining({
+                Action: ['sqs:SendMessage'],
+                Resource: [deadLetterQueueArn]
+              }),
+              expect.objectContaining({
+                Action: ['sqs:GetQueueUrl'],
+                Resource: [deadLetterQueueArn, queueArn]
+              }),
+              expect.objectContaining({
+                Action: ['sns:ListSubscriptionsByTopic'],
+                Resource: [topicArn]
+              })
+            ])
+          }
+        })
+      })
     })
 
     describe('with queue attributes that differ from the configuration', () => {
       let sqs: IMock<SQSClient>
 
       beforeAll(async () => {
-        ;({ sqs } = await initializeTransport(
+        ;({ sqs } = await provisionTransport(
           {},
           {
             VisibilityTimeout: '60',
@@ -1464,7 +1193,7 @@ describe('sqs-transport', () => {
       let sut: SqsTransport
 
       beforeAll(async () => {
-        ;({ sut, sqs } = await initializeTransport({
+        ;({ sut, sqs } = await provisionTransport({
           visibilityTimeout: 0,
           waitTimeSeconds: 0
         }))
@@ -1505,7 +1234,7 @@ describe('sqs-transport', () => {
       let sqs: IMock<SQSClient>
 
       beforeAll(async () => {
-        ;({ sqs } = await initializeTransport({ messageRetentionPeriod: 60 }))
+        ;({ sqs } = await provisionTransport({ messageRetentionPeriod: 60 }))
       })
 
       it('should create the dead letter queue with that retention period', () => {
@@ -1524,47 +1253,597 @@ describe('sqs-transport', () => {
       })
     })
 
-    describe('and autoProvision is true', () => {
-      let sns: IMock<SNSClient>
+    describe('with a queue policy configured', () => {
+      const queuePolicy = '{"Version":"2012-10-17","Statement":[]}'
+      let sqs: IMock<SQSClient>
+      let plan: ProvisioningPlan
 
       beforeAll(async () => {
-        ;({ sns } = await initializeTransport({ autoProvision: true }))
+        ;({ sqs, plan } = await provisionTransport({ queuePolicy }))
       })
 
-      it('should create each topic once', () => {
+      it('should set that policy', () => {
+        sqs.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SetQueueAttributesCommand &&
+                  command.input.Attributes?.Policy === queuePolicy
+              )
+            ),
+          Times.once()
+        )
+      })
+
+      it('should return that policy in the plan', () => {
+        expect(
+          plan.resources.find(({ type }) => type === 'sqs-queue-policy')
+            ?.properties
+        ).toEqual({ policy: JSON.parse(queuePolicy) })
+      })
+    })
+
+    describe('and it is a dry run', () => {
+      let sqs: IMock<SQSClient>
+      let sns: IMock<SNSClient>
+      let plan: ProvisioningPlan
+
+      beforeAll(async () => {
+        ;({ sqs, sns, plan } = await provisionTransport({}, undefined, {
+          dryRun: true
+        }))
+      })
+
+      it('should not call SQS or SNS', () => {
+        sqs.verify(s => s.send(It.isAny()), Times.never())
+        sns.verify(s => s.send(It.isAny()), Times.never())
+      })
+
+      it('should return the plan', () => {
+        expect(plan.resources).toHaveLength(6)
+      })
+    })
+
+    describe('and the transport only sends', () => {
+      let sqs: IMock<SQSClient>
+      let sns: IMock<SNSClient>
+      let plan: ProvisioningPlan
+
+      beforeAll(async () => {
+        ;({ sqs, sns, plan } = await provisionTransport(
+          { queueArn: undefined },
+          undefined,
+          { sendOnly: true }
+        ))
+      })
+
+      it('should create a topic for each message', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is((command: any) => command instanceof CreateTopicCommand)
+            ),
+          Times.exactly(2)
+        )
+      })
+
+      it('should create no queue or subscription', () => {
+        sqs.verify(s => s.send(It.isAny()), Times.never())
+        sns.verify(
+          s =>
+            s.send(
+              It.is((command: any) => command instanceof SubscribeCommand)
+            ),
+          Times.never()
+        )
+      })
+
+      it('should only need permission to publish to its topics', () => {
+        expect(plan.runtimePermissions?.document).toEqual({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Sid: 'PublishMessages',
+              Effect: 'Allow',
+              Action: ['sns:Publish'],
+              Resource: [topicArn, sentTopicArn]
+            }
+          ]
+        })
+      })
+    })
+
+    describe('and the bus is a scheduler', () => {
+      let plan: ProvisioningPlan
+
+      beforeAll(async () => {
+        ;({ plan } = await provisionTransport(
+          { queueArn: undefined },
+          undefined,
+          {
+            sendOnly: true,
+            messageNames: [],
+            sendsAnyMessage: true,
+            dryRun: true
+          }
+        ))
+      })
+
+      it('should need permission to publish to any topic, since it sends any stored message', () => {
+        expect(plan.runtimePermissions?.document).toEqual({
+          Version: '2012-10-17',
+          Statement: [
+            expect.objectContaining({
+              Action: ['sns:Publish'],
+              Resource: ['arn:aws:sns:us-west-2:123456789012:*']
+            })
+          ]
+        })
+      })
+    })
+
+    describe.each([
+      [
+        'adds a fixed prefix',
+        (name: string) => `production-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+        'arn:aws:sns:us-west-2:123456789012:production-*'
+      ],
+      [
+        'adds a suffix',
+        (name: string) => `${name.replace(/[^a-zA-Z0-9_-]/g, '-')}-production`,
+        'arn:aws:sns:us-west-2:123456789012:*'
+      ]
+    ])(
+      'and the bus is a scheduler whose resolveTopicName %s',
+      (_, resolveTopicName, publishTarget) => {
+        let plan: ProvisioningPlan
+
+        beforeAll(async () => {
+          ;({ plan } = await provisionTransport(
+            { queueArn: undefined, resolveTopicName },
+            undefined,
+            {
+              sendOnly: true,
+              messageNames: [],
+              sendsAnyMessage: true,
+              dryRun: true
+            }
+          ))
+        })
+
+        it(`should need permission to publish to ${publishTarget}`, () => {
+          expect(plan.runtimePermissions?.document).toMatchObject({
+            Statement: [{ Action: ['sns:Publish'], Resource: [publishTarget] }]
+          })
+        })
+      }
+    )
+
+    describe('and a custom handler subscribes to a topic managed outside the bus', () => {
+      const externalTopicArn =
+        'arn:aws:sns:us-west-2:999999999999:partner-events'
+      let sns: IMock<SNSClient>
+      let plan: ProvisioningPlan
+
+      beforeAll(async () => {
+        ;({ sns, plan } = await provisionTransport({}, undefined, {
+          handlerRegistry: {
+            getMessageNames: () => ['test-message'],
+            getExternallyManagedTopicIdentifiers: () => [externalTopicArn]
+          } as any as TransportProvisionOptions['handlerRegistry']
+        }))
+      })
+
+      it('should subscribe to it', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof SubscribeCommand &&
+                  command.input.TopicArn === externalTopicArn
+              )
+            ),
+          Times.once()
+        )
+      })
+
+      it('should not create it', () => {
         sns.verify(
           s =>
             s.send(
               It.is(
                 (command: any) =>
                   command instanceof CreateTopicCommand &&
-                  command.input.Name === 'test-message'
+                  command.input.Name === 'partner-events'
+              )
+            ),
+          Times.never()
+        )
+      })
+
+      it('should only plan its subscription', () => {
+        expect(
+          plan.resources.filter(({ name }) => name.includes(externalTopicArn))
+        ).toEqual([
+          {
+            type: 'sns-subscription',
+            name: `${externalTopicArn} -> ${queueArn}`,
+            properties: {
+              topicArn: externalTopicArn,
+              protocol: 'sqs',
+              endpoint: queueArn,
+              externalTopic: true
+            }
+          }
+        ])
+      })
+
+      it('should not need permission to publish to it', () => {
+        const statements = (
+          plan.runtimePermissions?.document as {
+            Statement: { Action: string[]; Resource: string[] }[]
+          }
+        ).Statement
+        expect(
+          statements.find(({ Action }) => Action.includes('sns:Publish'))
+            ?.Resource
+        ).not.toContain(externalTopicArn)
+      })
+    })
+
+    describe('and a message is published with auto provisioning', () => {
+      let sns: IMock<SNSClient>
+
+      beforeAll(async () => {
+        let sut: SqsTransport
+        ;({ sut, sns } = await provisionTransport({}))
+        await sut.initialize({
+          sendOnly: false,
+          handlerRegistry: testHandlerRegistry,
+          messageNames: ['test-message', 'sent-message'],
+          verifyResources: false,
+          autoProvision: true
+        })
+        await sut.publish(
+          Object.assign(new TestUnprovisionedEvent(), { $name: 'sent-message' })
+        )
+      })
+
+      it('should not create a topic it has already provisioned', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command instanceof CreateTopicCommand &&
+                  command.input.Name === 'sent-message'
               )
             ),
           Times.once()
         )
       })
     })
+  })
 
-    describe('and autoProvision is false', () => {
+  describe('when initializing', () => {
+    const queueArn = 'arn:aws:sqs:us-west-2:123456789012:test-queue'
+    const topicArn = 'arn:aws:sns:us-west-2:123456789012:test-message'
+
+    const externalTopicArn = 'arn:aws:sns:us-west-2:999999999999:partner-events'
+
+    /**
+     * Builds and initializes a transport against mocked SQS and SNS clients for a bus that handles `test-message`
+     * and a custom handler's external topic. Each queue, topic or subscription named in `missing` doesn't exist, and
+     * reading the external topic's subscriptions is refused unless `external-allowed` is in it.
+     */
+    const initializeTransport = async (
+      options: Partial<TransportInitializationOptions>,
+      missing: string[] = [],
+      configuration: Partial<SqsTransportConfiguration> = {},
+      queueAttributes: Record<string, string> = {}
+    ) => {
+      const sqs = Mock.ofType<SQSClient>()
+      const sns = Mock.ofType<SNSClient>()
+
+      sqs
+        .setup(s => s.send(It.isAny()))
+        .returns(async (command: any): Promise<any> => {
+          if (
+            command instanceof GetQueueUrlCommand &&
+            missing.includes(command.input.QueueName!)
+          ) {
+            throw new QueueDoesNotExist({ message: 'missing', $metadata: {} })
+          }
+          if (command instanceof GetQueueAttributesCommand) {
+            return { Attributes: queueAttributes }
+          }
+          return {}
+        })
+      sns
+        .setup(s => s.send(It.isAny()))
+        .returns(async (command: any): Promise<any> => {
+          if (command instanceof ListSubscriptionsByTopicCommand) {
+            if (missing.includes(command.input.TopicArn!)) {
+              throw Object.assign(new Error('Topic does not exist'), {
+                name: 'NotFoundException'
+              })
+            }
+            if (
+              command.input.TopicArn === externalTopicArn &&
+              !missing.includes('external-allowed')
+            ) {
+              throw Object.assign(new Error('Not authorized'), {
+                name: 'AuthorizationErrorException'
+              })
+            }
+            return {
+              Subscriptions: missing.includes('subscription')
+                ? []
+                : [{ Protocol: 'sqs', Endpoint: queueArn }]
+            }
+          }
+          return {}
+        })
+
+      const sut = new SqsTransport(
+        {
+          queueArn,
+          awsAccountId: '123456789012',
+          awsRegion: 'us-west-2',
+          ...configuration
+        },
+        sqs.object,
+        sns.object
+      )
+      sut.prepare({
+        loggerFactory: (name: string) => new DebugLogger(name),
+        messageSerializer: new MessageSerializer(
+          new JsonSerializer(),
+          new DefaultHandlerRegistry(),
+          { messages: {}, types: {} }
+        )
+      } as any as CoreDependencies)
+      const error = await sut
+        .initialize({
+          sendOnly: false,
+          handlerRegistry: {
+            getMessageNames: () => ['test-message'],
+            getExternallyManagedTopicIdentifiers: () => [externalTopicArn]
+          } as any as TransportInitializationOptions['handlerRegistry'],
+          messageNames: ['test-message', 'sent-message'],
+          verifyResources: true,
+          autoProvision: false,
+          ...options
+        })
+        .then(() => undefined)
+        .catch((e: unknown) => e)
+
+      return { sut, sqs, sns, error }
+    }
+
+    /**
+     * Whether any command that creates or changes a resource was sent
+     */
+    const isProvisioningCommand = (command: unknown): boolean =>
+      command instanceof CreateQueueCommand ||
+      command instanceof SetQueueAttributesCommand ||
+      command instanceof CreateTopicCommand ||
+      command instanceof SubscribeCommand
+
+    describe('and every resource exists', () => {
+      let sqs: IMock<SQSClient>
       let sns: IMock<SNSClient>
+      let error: unknown
 
       beforeAll(async () => {
-        ;({ sns } = await initializeTransport({ autoProvision: false }))
+        ;({ sqs, sns, error } = await initializeTransport({}))
       })
 
-      it('should check each topic exists once', () => {
+      it('should succeed', () => {
+        expect(error).toBeUndefined()
+      })
+
+      it('should check each queue and subscription exists', () => {
+        for (const queueName of ['test-queue', 'dlq']) {
+          sqs.verify(
+            s =>
+              s.send(
+                It.is(
+                  (command: any) =>
+                    command instanceof GetQueueUrlCommand &&
+                    command.input.QueueName === queueName &&
+                    command.input.QueueOwnerAWSAccountId === '123456789012'
+                )
+              ),
+            Times.once()
+          )
+        }
         sns.verify(
           s =>
             s.send(
               It.is(
                 (command: any) =>
-                  command instanceof GetTopicAttributesCommand &&
+                  command instanceof ListSubscriptionsByTopicCommand &&
                   command.input.TopicArn === topicArn
               )
             ),
           Times.once()
         )
+      })
+
+      it('should not check the topics of messages it only sends', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is(
+                (command: any) =>
+                  command.input?.TopicArn ===
+                  'arn:aws:sns:us-west-2:123456789012:sent-message'
+              )
+            ),
+          Times.never()
+        )
+      })
+
+      it('should create or change nothing', () => {
+        sqs.verify(
+          s => s.send(It.is((command: any) => isProvisioningCommand(command))),
+          Times.never()
+        )
+        sns.verify(
+          s => s.send(It.is((command: any) => isProvisioningCommand(command))),
+          Times.never()
+        )
+      })
+    })
+
+    describe('and resources are missing', () => {
+      let error: unknown
+
+      beforeAll(async () => {
+        ;({ error } = await initializeTransport({}, [
+          'dlq',
+          topicArn,
+          'external-allowed',
+          'subscription'
+        ]))
+      })
+
+      it('should throw ResourcesNotProvisioned naming each of them', () => {
+        expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+        expect(error).toMatchObject({
+          adapterName: 'SqsTransport',
+          missingResources: [
+            'SQS queue arn:aws:sqs:us-west-2:123456789012:dlq',
+            `SNS topic ${topicArn}`,
+            `SNS subscription of ${queueArn} to ${topicArn}`,
+            `SNS subscription of ${queueArn} to ${externalTopicArn}`
+          ]
+        })
+      })
+    })
+
+    describe('and the transport only sends', () => {
+      let sqs: IMock<SQSClient>
+      let sns: IMock<SNSClient>
+      let error: unknown
+
+      beforeAll(async () => {
+        ;({ sqs, sns, error } = await initializeTransport({ sendOnly: true }, [
+          topicArn
+        ]))
+      })
+
+      it('should check nothing', () => {
+        expect(error).toBeUndefined()
+        sqs.verify(s => s.send(It.isAny()), Times.never())
+        sns.verify(s => s.send(It.isAny()), Times.never())
+      })
+    })
+
+    describe('and the queue policy is checked', () => {
+      describe('without a policy', () => {
+        let error: unknown
+
+        beforeAll(async () => {
+          ;({ error } = await initializeTransport({}, [], {
+            verifyQueuePolicy: true
+          }))
+        })
+
+        it('should throw ResourcesNotProvisioned naming the policy', () => {
+          expect(error).toMatchObject({
+            missingResources: [`SQS queue policy of ${queueArn}`]
+          })
+        })
+      })
+
+      describe('with a policy', () => {
+        let error: unknown
+
+        beforeAll(async () => {
+          ;({ error } = await initializeTransport(
+            {},
+            [],
+            { verifyQueuePolicy: true },
+            { Policy: '{}' }
+          ))
+        })
+
+        it('should succeed', () => {
+          expect(error).toBeUndefined()
+        })
+      })
+    })
+
+    describe('and resources are not verified', () => {
+      let sqs: IMock<SQSClient>
+      let sns: IMock<SNSClient>
+      let error: unknown
+
+      beforeAll(async () => {
+        ;({ sqs, sns, error } = await initializeTransport(
+          { verifyResources: false },
+          ['dlq', topicArn]
+        ))
+      })
+
+      it('should not call SQS or SNS', () => {
+        expect(error).toBeUndefined()
+        sqs.verify(s => s.send(It.isAny()), Times.never())
+        sns.verify(s => s.send(It.isAny()), Times.never())
+      })
+    })
+
+    describe('and a message is published', () => {
+      describe('without auto provisioning', () => {
+        let sns: IMock<SNSClient>
+
+        beforeAll(async () => {
+          let sut: SqsTransport
+          ;({ sut, sns } = await initializeTransport({}))
+          await sut.publish(new TestUnprovisionedEvent())
+        })
+
+        it('should not create its topic', () => {
+          sns.verify(
+            s =>
+              s.send(
+                It.is((command: any) => command instanceof CreateTopicCommand)
+              ),
+            Times.never()
+          )
+        })
+      })
+
+      describe('with auto provisioning', () => {
+        let sns: IMock<SNSClient>
+
+        beforeAll(async () => {
+          let sut: SqsTransport
+          ;({ sut, sns } = await initializeTransport({
+            verifyResources: false,
+            autoProvision: true
+          }))
+          await sut.publish(new TestUnprovisionedEvent())
+          await sut.publish(new TestUnprovisionedEvent())
+        })
+
+        it('should create its topic the first time', () => {
+          sns.verify(
+            s =>
+              s.send(
+                It.is(
+                  (command: any) =>
+                    command instanceof CreateTopicCommand &&
+                    command.input.Name === 'test-unprovisioned-event'
+                )
+              ),
+            Times.once()
+          )
+        })
       })
     })
   })

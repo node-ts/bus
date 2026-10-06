@@ -30,6 +30,8 @@ import { createTestRoundTripCommand } from './message-round-trip-cases'
  * nested types (Dates, class instances several levels deep and arrays of Dates), then checks the state the next
  * handler of each reads back from the persistence has its types restored. It also checks that a lookup that returns
  * no value (`undefined`, `null` or `''`) finds no workflow state, even state whose mapped field is missing or empty.
+ * The bus provisions with `bus.provision()`, then initializes without provisioning, so `initialize()` only checks
+ * that what `provision()` created exists.
  * @param persistence A fully configured persistence that's the subject under test. It's disposed when
  * the suite's bus is disposed, unless another bus that uses it is still running.
  */
@@ -110,6 +112,8 @@ export const workflowStateRoundTripTests = (persistence: Persistence): void => {
         .withWorkflow(TestRoundTripWorkflow)
         .withWorkflow(testFunctionRoundTripWorkflow)
         .build()
+      // Provisioned as a deploy would, so initialize() only checks the tables or collections exist
+      await bus.provision()
       await bus.initialize()
       await bus.start()
 

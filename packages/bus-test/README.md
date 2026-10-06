@@ -82,7 +82,7 @@ describe('MyTransport', () => {
 })
 ```
 
-The suite builds its own bus around the transport and disposes it when it's done. Create any broker resources before the suite runs, and remove them afterwards.
+The suite builds its own bus around the transport, provisions it with `bus.provision()`, then initializes it without provisioning, so your transport's `initialize()` checks what its `provision()` created. It disposes the bus when it's done. Create anything else the suite needs, such as the system message topic, before it runs, and remove what it creates afterwards. The other suites provision their buses the same way.
 
 Your transport has to retry a returned message at least 10 times before it dead-letters it, because the suite waits for 10 delivery attempts.
 

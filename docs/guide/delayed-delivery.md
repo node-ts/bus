@@ -66,7 +66,7 @@ A [custom persistence](/persistence/custom) stores them if it implements `storeO
 
 ## Sharing a persistence
 
-Any started bus that uses a persistence sends the due messages in it through its own transport, whichever bus scheduled them. Every bus that shares a persistence, in any service, must therefore use the same broker, such as the same RabbitMQ server or the same AWS account and region for SQS. Give buses on different brokers persistences of their own, such as a schema each on Postgres.
+Any started bus that uses a persistence sends the due messages in it through its own transport, whichever bus scheduled them. Every bus that shares a persistence, in any service, must therefore use the same broker, such as the same RabbitMQ server or the same AWS account and region for SQS. Give buses on different brokers persistences of their own, such as a schema each on Postgres. Each of these buses also needs permission to publish the others' scheduled messages, which their own [runtime permissions](/guide/provisioning#schedulers-and-shared-stores) don't include.
 
 ## Running a dedicated scheduler
 
@@ -78,7 +78,7 @@ The scheduler is a bus configured with `asScheduler()`, the same persistence and
 
 <<< @/snippets/delayed-delivery.ts#scheduler
 
-It doesn't need the message types of the messages it sends, since it sends each one as it was stored.
+It doesn't need the message types of the messages it sends, since it sends each one as it was stored. For the same reason, its [runtime permissions](/guide/provisioning#schedulers-and-shared-stores) allow publishing to any topic or exchange.
 
 This suits AWS Lambda: a function is frozen between invocations, so it can't check for due messages. Turn dispatching off in the functions, and run the scheduler somewhere that's always on.
 

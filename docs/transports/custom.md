@@ -12,7 +12,8 @@ To use a message broker that doesn't have a transport yet, write an adapter that
 A transport sends commands, publishes events, and reads, deletes, returns and fails messages on the service queue. These methods are optional, and called during the bus' lifecycle:
 
 - `connect(options)` at `initialize()`, to connect to the broker. `options.concurrency` is the number of messages the bus handles at once.
-- `initialize({ handlerRegistry, sendOnly })` next, to create the queues and subscribe the service queue to every message the bus handles.
+- `initialize({ handlerRegistry, sendOnly, messageNames, verifyResources, autoProvision })` next. It creates nothing: when `verifyResources` is set, it checks that what `provision()` creates exists, and throws `ResourcesNotProvisioned` naming anything that's missing. Only when `autoProvision` is set may the transport create what it finds it needs later, such as the topic of a message that wasn't provisioned.
+- `provision({ handlerRegistry, sendOnly, messageNames, sendsAnyMessage, dryRun })`, to create the service queue, a topic for each of `messageNames`, and the service queue's subscriptions to the topics of every message the bus handles. It's run by [`bus provision`](/guide/provisioning) at deploy time, after `connect()` unless it's a dry run, or at `initialize()` with `withAutoProvision()`, and must be idempotent. It returns a `ProvisioningPlan` of what it provisions and, optionally, the permissions it needs at runtime, which allow publishing to any topic when `sendsAnyMessage` is set, as for a scheduler.
 - `start()` and `stop()`, when the bus starts and stops reading.
 - `disconnect()` and `dispose()`, at `dispose()`.
 
@@ -70,7 +71,7 @@ Call `transportTests()` inside a `describe()` in your transport's integration te
 
 <<< @/snippets/transports/my-transport.integration.ts#suite
 
-The suite builds its own bus around the transport and disposes it when it's done. Create the broker resources it needs before it runs, and remove them afterwards. It uses jest's globals, so run it with jest 29 or later, or a runner with jest-compatible globals.
+The suite builds its own bus around the transport, provisions it with `bus.provision()`, then initializes it without provisioning, so `initialize()` checks what `provision()` created. It disposes the bus when it's done. Create anything the suite needs that the transport doesn't provision, such as the system message topic, before it runs, and remove what it creates afterwards. It uses jest's globals, so run it with jest 29 or later, or a runner with jest-compatible globals.
 
 `messageRoundTripTests(transport)` runs only the round trip tests, for a transport that can't run the full suite. For complete examples, see the [RabbitMQ](https://github.com/node-ts/bus/blob/master/packages/bus-rabbitmq/src/rabbitmq-transport.integration.ts) and [SQS](https://github.com/node-ts/bus/blob/master/packages/bus-sqs/src/sqs-transport.integration.ts) transports' tests.
 

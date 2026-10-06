@@ -28,12 +28,13 @@ An interface with JSDoc on every field. The README repeats these docs.
 `export class <Name>Persistence implements Persistence`. The constructor takes the configuration and an optional pre-built client or pool for tests.
 
 - `prepare(coreDependencies)`: create the logger with `loggerFactory('@node-ts/bus-persistence:<name>-persistence')` (existing persistence packages use this shared prefix).
-- `initialize?()` and `dispose?()`: open and close connections.
-- `initializeWorkflow(workflowStateCtor, messageWorkflowMappings)`:
-  - Create one table or collection per workflow state, named from `new workflowStateCtor().$name`, normalised the same way as bus-postgres.
-  - Index `(id, version)`, plus each distinct `mapping.mapsTo`.
-  - Running it more than once must be safe.
-  - Don't drop indexes it didn't create (bus-mongodb does this, and it's a bug to avoid).
+- `provision?({ workflows, dryRun })` (deploy time, `bus provision`, or `withAutoProvision()`; see `docs/guide/provisioning.md`): returns a `ProvisioningPlan` (`adapter`, `resources` of `{ type, name, properties? }` with kebab `<database>-<kind>` types, and `runtimePermissions` in the database's native form). Unless `dryRun`, connect and:
+  - Create one table or collection per workflow state (`workflows[].workflowStateType`), named from `new workflowStateType().$name`, normalised the same way as bus-postgres.
+  - Index `(id, version)`, plus each distinct `workflows[].messageWorkflowMappings[].mapsTo`.
+  - Create the outgoing messages storage if it stores outgoing messages.
+  - Running it more than once, and from several processes at once, must be safe.
+  - Don't drop indexes it didn't create.
+- `initialize?({ workflows, verifyResources })` and `dispose?()`: open and close connections. `initialize()` creates nothing: when `verifyResources` is set, check with read-only calls that everything `provision()` creates exists and throw `ResourcesNotProvisioned('<Name>Persistence', missing)` naming each missing resource (`bus-postgres`'s `findMissingResources`).
 - `getWorkflowState(ctor, mapping, message, attributes, includeCompleted = false)`:
   - Match the value from `mapping.lookup(message, attributes)` against the stored state property `mapping.mapsTo`.
   - Return only `$status === 'running'` unless `includeCompleted` is true.
@@ -46,7 +47,7 @@ An interface with JSDoc on every field. The README repeats these docs.
   - If nothing matched, throw `WorkflowStateNotFound` so the registry fails the handler and the message is retried.
 - `readonly durable = true` for a database that survives a restart.
 - `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and `releaseOutgoingMessages` (delayed delivery, see `docs/guide/delayed-delivery.md`):
-  - Create the table or collection in `initialize()`, with an index on an "available at" field: the due time (or, with a `leaseMs`, the store's clock plus `leaseMs` if that's later) when stored, and the end of the lease once claimed.
+  - Create the table or collection in `provision()`, with an index on an "available at" field: the due time (or, with a `leaseMs`, the store's clock plus `leaseMs` if that's later) when stored, and the end of the lease once claimed.
   - Storing an `id` that's already stored keeps the stored message (`on conflict do nothing`, `$setOnInsert`), and returns the skipped ids.
   - Claim atomically with the database's clock (or the `now` argument): rows available by then, up to `limit`, adding one to `attempts` and leasing for `leaseMs * attempts`, capped at `maxLeaseMs`; never delete in a claim (Postgres: `for update skip locked`; MongoDB: one `findOneAndUpdate` per message).
   - Release takes `{ id, attempts }` claims, and only where `attempts` still match puts `available_at` back to the due time and takes one off `attempts`.
@@ -67,7 +68,8 @@ An interface with JSDoc on every field. The README repeats these docs.
 - Copy `packages/bus-postgres/test/` (the `TestWorkflowState`, `TestCommand`, `RunTask`, `TaskRan` and `TestWorkflow` fixtures plus `index.ts`), renaming the `$name`s to `@node-ts/bus-<name>/...`. Copy bus-postgres' `generate:message-types`/`check:message-types` scripts and its `@node-ts/bus-cli` devDependency, and run the script, since every bus that receives messages needs message types for them. Export the generated file from `test/index.ts`.
 - `src/<name>-persistence.integration.ts`, mirroring `postgres-persistence.integration.ts`:
   - Start with a top-level `configuration` constant.
-  - In `beforeAll`: `Bus.configure().withLogger(() => Mock.ofType<Logger>().object).withMessageTypes(messageTypes).withPersistence(sut).withWorkflow(TestWorkflow).build()`, then `initialize()` and `start()`.
+  - In `beforeAll`: `Bus.configure().withLogger(() => Mock.ofType<Logger>().object).withMessageTypes(messageTypes).withPersistence(sut).withWorkflow(TestWorkflow).withAutoProvision().build()`, then `initialize()` and `start()`.
+  - Test that `initialize()` without provisioning throws `ResourcesNotProvisioned` naming what's missing, and that a dry run creates nothing.
   - In nested `when` blocks, assert that:
     - the storage was created
     - an insert gives `$version` 1

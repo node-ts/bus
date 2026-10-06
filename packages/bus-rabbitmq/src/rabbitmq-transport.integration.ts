@@ -9,11 +9,14 @@ import {
   JsonSerializer,
   Logger,
   MessageSerializer,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   retry,
   sleep,
   TransportHeaderReserved
 } from '@node-ts/bus-core'
 import {
+  Command,
   Message,
   MessageAttributeMap,
   MessageAttributes
@@ -45,6 +48,15 @@ const configuration: RabbitMqTransportConfiguration = {
   queueName: '@node-ts/bus-rabbitmq-test',
   deadLetterQueueName: '@node-ts/bus-rabbitmq-test-dead-letter',
   connectionString: process.env.RABBITMQ_URL || 'amqp://guest:guest@0.0.0.0'
+}
+
+/**
+ * A command whose exchange is never declared
+ */
+class TestUnprovisionedCommand extends Command {
+  static NAME = '@node-ts/bus-rabbitmq/test-unprovisioned-command'
+  $name = TestUnprovisionedCommand.NAME
+  $version = 0
 }
 
 describe('RabbitMqTransport', () => {
@@ -190,6 +202,7 @@ describe('RabbitMqTransport', () => {
       ) => {
         const bus = configure(
           Bus.configure()
+            .withAutoProvision()
             .withLogger(() => Mock.ofType<Logger>().object)
             .withMessageTypes(busTestMessageTypes)
             .withTransport(
@@ -266,6 +279,7 @@ describe('RabbitMqTransport', () => {
     beforeAll(async () => {
       const replies = new EventEmitter()
       requester = Bus.configure()
+        .withAutoProvision()
         .withLogger(() => Mock.ofType<Logger>().object)
         .withMessageTypes(busTestMessageTypes)
         .withTransport(
@@ -290,6 +304,7 @@ describe('RabbitMqTransport', () => {
         connectionString: configuration.connectionString
       })
       sender = Bus.configure()
+        .withAutoProvision()
         .withLogger(() => Mock.ofType<Logger>().object)
         .withTransport(senderTransport)
         .asSendOnly()
@@ -368,6 +383,7 @@ describe('RabbitMqTransport', () => {
         .catch(() => undefined)
 
       bus = Bus.configure()
+        .withAutoProvision()
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => logger.object)
@@ -531,6 +547,7 @@ describe('RabbitMqTransport', () => {
 
       // A concurrency of 1 gives a prefetch of 1, so an unsettled poison message would block every message after it
       bus = Bus.configure()
+        .withAutoProvision()
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
@@ -666,6 +683,7 @@ describe('RabbitMqTransport', () => {
       }
 
       bus = Bus.configure()
+        .withAutoProvision()
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
@@ -900,6 +918,7 @@ describe('RabbitMqTransport', () => {
 
       let attempts = 0
       bus = Bus.configure()
+        .withAutoProvision()
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
@@ -1024,6 +1043,7 @@ describe('RabbitMqTransport', () => {
 
     beforeAll(async () => {
       bus = Bus.configure()
+        .withAutoProvision()
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
         .asSendOnly()
@@ -1048,6 +1068,186 @@ describe('RabbitMqTransport', () => {
           RabbitMqConnectionRecoveryFailed
         )
       })
+    })
+  })
+
+  describe('when a bus initializes before its resources are provisioned', () => {
+    const unprovisionedConfiguration: RabbitMqTransportConfiguration = {
+      queueName: `@node-ts/bus-rabbitmq-unprovisioned-${randomUUID()}`,
+      connectionString: configuration.connectionString
+    }
+    let bus: BusInstance
+    let error: unknown
+    let queueDeclared: boolean
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withTransport(new RabbitMqTransport(unprovisionedConfiguration))
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(handlerFor(TestCommand, () => undefined))
+        .build()
+      error = await bus.initialize().catch((e: unknown) => e)
+      const checkChannel = await connection.createChannel()
+      checkChannel.on('error', () => undefined)
+      queueDeclared = await checkChannel
+        .checkQueue(unprovisionedConfiguration.queueName)
+        .then(() => true)
+        .catch(() => false)
+      await checkChannel.close().catch(() => undefined)
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should fail with ResourcesNotProvisioned, naming the missing queue', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect((error as ResourcesNotProvisioned).missingResources).toContain(
+        `RabbitMQ queue ${unprovisionedConfiguration.queueName}`
+      )
+    })
+
+    it('should not declare the queue', () => {
+      expect(queueDeclared).toEqual(false)
+    })
+  })
+
+  describe('when a send-only bus that did not provision sends a message without an exchange', () => {
+    const sut = new RabbitMqTransport({
+      queueName: '',
+      connectionString: configuration.connectionString
+    })
+    let bus: BusInstance
+    let error: unknown
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withTransport(sut)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .asSendOnly()
+        .build()
+      await bus.initialize()
+      await channel.assertExchange(TestCommand.NAME, 'fanout', {
+        durable: true
+      })
+      error = await bus
+        .send(new TestUnprovisionedCommand())
+        .catch((e: unknown) => e)
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      await channel.deleteExchange(TestCommand.NAME)
+    })
+
+    it('should throw ResourcesNotProvisioned naming the exchange', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect((error as ResourcesNotProvisioned).missingResources).toEqual([
+        `RabbitMQ exchange ${TestUnprovisionedCommand.NAME}`
+      ])
+    })
+
+    it('should keep sending to exchanges that exist', async () => {
+      await expect(
+        bus.send(new TestCommand('provisioned'))
+      ).resolves.toBeUndefined()
+    })
+  })
+
+  describe('when the topology is declared from the plan by other tooling', () => {
+    const planConfiguration: RabbitMqTransportConfiguration = {
+      queueName: `@node-ts/bus-rabbitmq-planned-${randomUUID()}`,
+      deadLetterQueueName: `@node-ts/bus-rabbitmq-planned-dead-letter-${randomUUID()}`,
+      connectionString: configuration.connectionString
+    }
+    const configureBus = () =>
+      Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withTransport(new RabbitMqTransport(planConfiguration))
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withRecoverability(() => retry(10))
+    let plan: ProvisioningPlan
+    let bus: BusInstance
+    const attempts: string[] = []
+    let autoProvisionError: unknown
+
+    beforeAll(async () => {
+      const handled = new EventEmitter()
+      const handler = handlerFor(TestRetryCommand, async command => {
+        attempts.push(command.value)
+        if (attempts.length <= command.failures) {
+          throw new Error('Fails until retried')
+        }
+        handled.emit('handled')
+      })
+
+      const planningBus = configureBus().withHandler(handler).build()
+      ;[plan] = await planningBus.provision({ dryRun: true })
+      await planningBus.dispose()
+
+      // Declare everything as infrastructure-as-code would, from the plan alone
+      const declareChannel = await connection.createChannel()
+      for (const { type, name, properties } of plan.resources) {
+        if (type === 'rabbitmq-exchange') {
+          await declareChannel.assertExchange(
+            name,
+            properties!.type as string,
+            { durable: properties!.durable as boolean }
+          )
+        } else if (type === 'rabbitmq-queue') {
+          await declareChannel.assertQueue(name, {
+            durable: properties!.durable as boolean,
+            arguments: properties!.arguments as Record<string, unknown>
+          })
+        } else if (type === 'rabbitmq-binding') {
+          await declareChannel.bindQueue(
+            properties!.queue as string,
+            properties!.exchange as string,
+            properties!.routingKey as string
+          )
+        }
+      }
+      await declareChannel.close()
+
+      bus = configureBus().withHandler(handler).build()
+      await bus.initialize()
+      await bus.start()
+      const retried = once(handled, 'handled')
+      await bus.send(new TestRetryCommand(randomUUID(), 1))
+      await retried
+
+      // Provisioning at startup declares the same queues, so the broker accepts it
+      const autoProvisionedBus = configureBus()
+        .withHandler(handler)
+        .withAutoProvision()
+        .build()
+      autoProvisionError = await autoProvisionedBus
+        .initialize()
+        .then(() => undefined)
+        .catch((e: unknown) => e)
+      await autoProvisionedBus.dispose()
+    })
+
+    afterAll(async () => {
+      await bus.dispose()
+      const cleanupChannel = await connection.createChannel()
+      for (const { type, name } of plan.resources) {
+        if (type === 'rabbitmq-queue') {
+          await cleanupChannel.deleteQueue(name)
+        }
+      }
+      await cleanupChannel.deleteExchange(planConfiguration.queueName)
+      await cleanupChannel.deleteExchange(
+        `${planConfiguration.queueName}-retry`
+      )
+      await cleanupChannel.close()
+    })
+
+    it('should retry a failed message through the planned retry queues', () => {
+      expect(attempts).toHaveLength(2)
+    })
+
+    it('should let a bus that provisions at startup declare the same queues', () => {
+      expect(autoProvisionError).toBeUndefined()
     })
   })
 

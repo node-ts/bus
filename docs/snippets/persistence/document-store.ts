@@ -11,6 +11,7 @@ export interface DocumentStore {
   connect(): Promise<void>
   close(): Promise<void>
   createCollection(name: string, indexedFields: string[]): Promise<void>
+  collectionExists(name: string): Promise<boolean>
   find(
     collection: string,
     filter: Record<string, unknown>

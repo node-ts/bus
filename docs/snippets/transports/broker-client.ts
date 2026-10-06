@@ -18,6 +18,7 @@ export interface BrokerClient {
   connect(): Promise<void>
   close(): Promise<void>
   createQueue(queue: string): Promise<void>
+  queueExists(queue: string): Promise<boolean>
   subscribe(queue: string, topic: string): Promise<void>
   publish(
     topic: string,

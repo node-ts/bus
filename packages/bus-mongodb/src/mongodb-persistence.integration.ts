@@ -4,6 +4,8 @@ import {
   CoreDependencies,
   Logger,
   MessageWorkflowMapping,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -84,6 +86,7 @@ describe('MongodbPersistence', () => {
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
+      .withAutoProvision()
       .build()
 
     await bus.initialize()
@@ -97,7 +100,7 @@ describe('MongodbPersistence', () => {
     await client.close()
   })
 
-  describe('when initializing the persistence', () => {
+  describe('when the bus provisions at startup', () => {
     let indexes: Document[]
 
     beforeAll(async () => {
@@ -150,7 +153,7 @@ describe('MongodbPersistence', () => {
     })
   })
 
-  describe('when initializing a workflow again', () => {
+  describe('when provisioning a workflow again', () => {
     const userIndexName = 'user_event_value_idx'
     let indexes: Document[]
 
@@ -165,10 +168,16 @@ describe('MongodbPersistence', () => {
           { lookup: message => message.property1, mapsTo: 'property1' },
           { lookup: () => undefined, mapsTo: '$workflowId' }
         ]
-      await sut.initializeWorkflow(
-        TestWorkflowState,
-        mappings as unknown as MessageWorkflowMapping[]
-      )
+      await sut.provision({
+        workflows: [
+          {
+            workflowStateType: TestWorkflowState,
+            messageWorkflowMappings:
+              mappings as unknown as MessageWorkflowMapping[]
+          }
+        ],
+        dryRun: false
+      })
       indexes = await collection.listIndexes().toArray()
     })
 
@@ -191,7 +200,7 @@ describe('MongodbPersistence', () => {
     })
   })
 
-  describe('when several processes initialize the same workflow at once', () => {
+  describe('when several processes provision the same workflow at once', () => {
     const databaseName = 'workflows_concurrent'
     // Longer than the 63 byte identifier limit that truncates postgres index names
     const longField = 'a'.repeat(100)
@@ -216,7 +225,15 @@ describe('MongodbPersistence', () => {
       try {
         await Promise.all(
           persistences.map(async p =>
-            p.initializeWorkflow(TestWorkflowState, mappings)
+            p.provision({
+              workflows: [
+                {
+                  workflowStateType: TestWorkflowState,
+                  messageWorkflowMappings: mappings
+                }
+              ],
+              dryRun: false
+            })
           )
         )
       } finally {
@@ -242,6 +259,114 @@ describe('MongodbPersistence', () => {
           `"testworkflowstate_${longField}_idx"`
         ].sort()
       )
+    })
+  })
+
+  describe('when initializing before provisioning', () => {
+    const databaseName = 'workflows_unprovisioned'
+    let error: unknown
+
+    beforeAll(async () => {
+      await client.db(databaseName).dropDatabase()
+      const persistence = new MongodbPersistence({
+        ...configuration,
+        databaseName
+      })
+      persistence.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      try {
+        error = await persistence
+          .initialize({
+            workflows: [
+              {
+                workflowStateType: TestWorkflowState,
+                messageWorkflowMappings: []
+              }
+            ],
+            verifyResources: true
+          })
+          .catch((e: unknown) => e)
+      } finally {
+        await persistence.dispose()
+      }
+    })
+
+    it('should fail naming each missing collection', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect(error).toMatchObject({
+        missingResources: [
+          `MongoDB collection ${databaseName}.outgoingmessages`,
+          `MongoDB collection ${databaseName}.testworkflowstate`
+        ]
+      })
+    })
+  })
+
+  describe('when a dry run is provisioned', () => {
+    const databaseName = 'workflows_dry_run'
+    let plan: ProvisioningPlan
+    let collectionNames: string[]
+
+    beforeAll(async () => {
+      const persistence = new MongodbPersistence({
+        ...configuration,
+        databaseName
+      })
+      persistence.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      plan = await persistence.provision({
+        workflows: [
+          {
+            workflowStateType: TestWorkflowState,
+            messageWorkflowMappings: [
+              { lookup: () => undefined, mapsTo: 'property1' }
+            ] as unknown as MessageWorkflowMapping[]
+          }
+        ],
+        dryRun: true
+      })
+      await persistence.dispose()
+      collectionNames = (
+        await client.db(databaseName).listCollections().toArray()
+      ).map(({ name }) => name)
+    })
+
+    it('should plan the collections and indexes', () => {
+      expect(plan.resources.map(({ type, name }) => `${type} ${name}`)).toEqual(
+        [
+          `mongodb-collection ${databaseName}.outgoingmessages`,
+          'mongodb-index "outgoingmessages_availableAt_idx"',
+          `mongodb-collection ${databaseName}.testworkflowstate`,
+          `mongodb-index ${PRIMARY_INDEX_NAME}`,
+          `mongodb-index ${PROPERTY1_INDEX_NAME}`
+        ]
+      )
+    })
+
+    it('should return the privileges it needs at runtime', () => {
+      expect(plan.runtimePermissions).toEqual({
+        format: 'mongodb-privileges',
+        document: [
+          {
+            resource: { db: databaseName, collection: '' },
+            actions: ['listCollections']
+          },
+          {
+            resource: { db: databaseName, collection: 'outgoingmessages' },
+            actions: ['find', 'insert', 'update', 'remove', 'listIndexes']
+          },
+          {
+            resource: { db: databaseName, collection: 'testworkflowstate' },
+            actions: ['find', 'insert', 'update', 'listIndexes']
+          }
+        ]
+      })
+    })
+
+    it('should create nothing', () => {
+      expect(collectionNames).toEqual([])
     })
   })
 
