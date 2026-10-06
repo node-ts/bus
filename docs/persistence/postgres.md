@@ -44,7 +44,15 @@ To share a pool with the rest of your application, pass your `Pool` as the secon
 
 Each workflow state has a table in the schema, named after its `$name` with invalid characters removed. It has the state's id, its version for optimistic concurrency, and the state itself as `jsonb`. `initialize()` creates the tables, and an index for each field that messages are looked up by. It's safe to run from several instances at once.
 
-`initialize()` also creates an `outgoing_messages` table in the schema, which holds messages sent with [delayed delivery](/guide/delayed-delivery) until they're due. Buses claim them with `for update skip locked`, which needs Postgres 9.5 or later.
+`initialize()` also creates an `outgoing_messages` table in the schema, which holds messages sent with [delayed delivery](/guide/delayed-delivery) until they're due, and those of the [transactional outbox](/guide/outbox) until they're sent. Buses claim them with `for update skip locked`, which needs Postgres 9.5 or later.
+
+## Transactions
+
+With [`withOutbox()`](/guide/outbox), each message is handled in a transaction on a client checked out of the pool, which it holds until the transaction is committed or rolled back. Give the pool's `max` more connections than the bus' concurrency, and don't query the pool from handlers, which can deadlock once every connection is held. Handlers write their own data in the transaction with `postgresTransaction(ctx)`:
+
+<<< @/snippets/outbox.ts#handler
+
+It returns the client's `query`, which throws once the transaction has ended. Don't use savepoints, `begin`, `commit` or `rollback` with it. A statement that fails rolls the transaction back, even if the error is caught, and the message then fails with `TransactionRolledBack`. To unit test such a handler, put `postgresTestTransaction(client)` on a fake context, as shown in [Transactional outbox](/guide/outbox#testing-handlers).
 
 ## Running Postgres locally
 
@@ -55,4 +63,5 @@ docker run -d -e POSTGRES_PASSWORD=password -p 5432:5432 postgres
 ## See also
 
 - [Workflows](/guide/workflows)
-- [`PostgresConfiguration`](/api/bus-postgres/interfaces/PostgresConfiguration) in the API reference
+- [Transactional outbox](/guide/outbox)
+- [`PostgresConfiguration`](/api/bus-postgres/interfaces/PostgresConfiguration), [`postgresTransaction`](/api/bus-postgres/functions/postgresTransaction) and [`postgresTestTransaction`](/api/bus-postgres/functions/postgresTestTransaction) in the API reference

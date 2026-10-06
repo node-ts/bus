@@ -8,6 +8,7 @@ import {
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import {
+  outboxTests,
   scheduledMessageRoundTripTests,
   workflowStateRoundTripTests
 } from '@node-ts/bus-test'
@@ -35,6 +36,8 @@ const configuration: PostgresConfiguration = {
 const roundTripSchemaName = 'workflows_round_trip'
 
 const scheduledRoundTripSchemaName = 'outgoing_round_trip'
+
+const outboxSchemaName = 'outbox'
 
 interface WorkflowIndex {
   name: string
@@ -99,6 +102,7 @@ describe('PostgresPersistence', () => {
     await postgres.query(
       `drop schema if exists ${scheduledRoundTripSchemaName} cascade`
     )
+    await postgres.query(`drop schema if exists ${outboxSchemaName} cascade`)
     await bus.dispose()
   })
 
@@ -234,6 +238,38 @@ describe('PostgresPersistence', () => {
         $workflowId: workflowState.$workflowId,
         $status: WorkflowStatus.Complete
       })
+    })
+  })
+
+  describe('when a message whose lookup has no value is looked up in a transaction', () => {
+    const mapping: MessageWorkflowMapping<TestCommand, TestWorkflowState> = {
+      lookup: message => message.property1,
+      mapsTo: 'property1'
+    }
+    let result: TestWorkflowState[]
+
+    beforeAll(async () => {
+      const transaction = await sut.beginTransaction()
+      try {
+        const workflowState = new TestWorkflowState()
+        workflowState.$workflowId = randomUUID()
+        workflowState.$status = WorkflowStatus.Running
+        workflowState.$version = 0
+        workflowState.property1 = ''
+        await transaction.saveWorkflowState({ ...workflowState })
+        result = await transaction.getWorkflowState(
+          TestWorkflowState,
+          mapping,
+          new TestCommand(''),
+          { attributes: {}, stickyAttributes: {} }
+        )
+      } finally {
+        await transaction.rollback()
+      }
+    })
+
+    it('should return no workflow state, even one whose mapped field is empty', () => {
+      expect(result).toEqual([])
     })
   })
 
@@ -655,6 +691,13 @@ describe('PostgresPersistence', () => {
     new PostgresPersistence({
       ...configuration,
       schemaName: scheduledRoundTripSchemaName
+    })
+  )
+
+  outboxTests(
+    new PostgresPersistence({
+      ...configuration,
+      schemaName: outboxSchemaName
     })
   )
 })

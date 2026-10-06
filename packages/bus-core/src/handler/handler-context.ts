@@ -6,11 +6,11 @@ import { BusSender } from './bus-sender'
  * bus that received the message, so a handler can send, publish, fail or return the message without capturing
  * the bus in a closure or resolving it from a container.
  *
- * `send` and `publish` behave like `bus.send` and `bus.publish` inside a handler: messages are buffered until the
- * handler resolves and dropped if it fails, and they carry the `correlationId` and `stickyAttributes` of the
- * message being handled. Inside a workflow handler they also carry the workflow id, so replies route back to the
- * same workflow instance. `reply` sends a message straight back to the endpoint that sent the message being
- * handled, the same way.
+ * `send` and `publish` behave like `bus.send` and `bus.publish` inside a handler: messages are buffered until every
+ * handler of the message resolves and dropped if any fails, and they carry the `correlationId` and
+ * `stickyAttributes` of the message being handled. Inside a workflow handler they also carry the workflow id, so
+ * replies route back to the same workflow instance. `reply` sends a message straight back to the endpoint that sent
+ * the message being handled, the same way.
  *
  * It's an interface so a handler can be unit tested by calling it with a fake, such as the recording one from
  * `handlerContext()`.
@@ -40,7 +40,7 @@ export interface HandlerContext extends BusSender {
    * The reply can be a command or an event. It carries the `correlationId` and `stickyAttributes` of the message
    * being handled as they arrived, so a reply from a workflow handler carries the requester's `workflowId`, not its
    * own, and the requesting workflow's default mapping finds it. Like a send, it runs the outgoing middleware, is
-   * buffered until the handler resolves, and is dropped if the handler fails.
+   * buffered until the message's handlers resolve, and is dropped if any of them fails.
    * @param message The command or event to reply with
    * @param messageAttributes Attributes to attach to the reply. Given values replace the inherited ones, and
    * `stickyAttributes` are merged over those of the message being handled. A new `messageId` and `sentAt` are set
@@ -59,6 +59,15 @@ export interface HandlerContext extends BusSender {
     message: TMessage,
     messageAttributes?: Partial<MessageAttributes>
   ): Promise<void>
+
+  /**
+   * The persistence transaction the message is handled in, on a bus configured with `withOutbox()`. Every handler of
+   * the message shares it, and it's committed with their workflow state and the messages they send once they all
+   * resolve, or rolled back if any fails. It's `unknown` because each persistence has its own kind: read it with the
+   * persistence's accessor, such as `postgresTransaction(ctx)` from `@node-ts/bus-postgres`, to save your own data in
+   * the same transaction. `undefined` without `withOutbox()`, and in incoming middleware, which runs outside it.
+   */
+  readonly transaction?: unknown
 
   /**
    * Moves the message being handled to the dead letter queue once handling finishes, without retrying it, even if a

@@ -50,6 +50,7 @@ describe('Bus', () => {
       ['withLogger', config => config.withLogger(() => ({}) as Logger)],
       ['withSerializer', config => config.withSerializer({} as Serializer)],
       ['withPersistence', config => config.withPersistence({} as Persistence)],
+      ['withOutbox', config => config.withOutbox()],
       ['withConcurrency', config => config.withConcurrency(2)],
       ['withContainer', config => config.withContainer({} as ContainerAdapter)],
       [

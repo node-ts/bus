@@ -10,6 +10,9 @@ import { TestFailMessage } from './test-fail-message.js'
 import { TestFunctionRoundTripWorkflowState } from './test-function-round-trip-workflow-state.js'
 import { TestGeoPoint } from './test-geo-point.js'
 import { TestOrderLine } from './test-order-line.js'
+import { TestOutboxCommand } from './test-outbox-command.js'
+import { TestOutboxEvent } from './test-outbox-event.js'
+import { TestOutboxWorkflowState } from './test-outbox-workflow-state.js'
 import { TestPoisonedMessage } from './test-poisoned-message.js'
 import { TestReplyRequest } from './test-reply-request.js'
 import { TestReply } from './test-reply.js'
@@ -34,6 +37,12 @@ export const messageTypes: MessageTypes = {
       '@node-ts/bus-test/src/helpers/test-continue-round-trip-workflow#TestContinueRoundTripWorkflow',
     '@node-ts/bus-test/test-function-round-trip-workflow-state':
       '@node-ts/bus-test/src/helpers/test-function-round-trip-workflow-state#TestFunctionRoundTripWorkflowState',
+    '@node-ts/bus-test/test-outbox-command':
+      '@node-ts/bus-test/src/helpers/test-outbox-command#TestOutboxCommand',
+    '@node-ts/bus-test/test-outbox-event':
+      '@node-ts/bus-test/src/helpers/test-outbox-event#TestOutboxEvent',
+    '@node-ts/bus-test/test-outbox-workflow-state':
+      '@node-ts/bus-test/src/helpers/test-outbox-workflow-state#TestOutboxWorkflowState',
     '@node-ts/bus-test/test-poisoned-message':
       '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage',
     '@node-ts/bus-test/test-reply':
@@ -120,6 +129,19 @@ export const messageTypes: MessageTypes = {
         addedAt: 'Date'
       }
     },
+    '@node-ts/bus-test/src/helpers/test-outbox-command#TestOutboxCommand': {
+      class: TestOutboxCommand,
+      fields: {}
+    },
+    '@node-ts/bus-test/src/helpers/test-outbox-event#TestOutboxEvent': {
+      class: TestOutboxEvent,
+      fields: {}
+    },
+    '@node-ts/bus-test/src/helpers/test-outbox-workflow-state#TestOutboxWorkflowState':
+      {
+        class: TestOutboxWorkflowState,
+        fields: {}
+      },
     '@node-ts/bus-test/src/helpers/test-poisoned-message#TestPoisonedMessage': {
       class: TestPoisonedMessage,
       fields: {}

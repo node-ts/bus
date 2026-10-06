@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 // #region suite
 import {
+  outboxTests,
   scheduledMessageRoundTripTests,
   workflowStateRoundTripTests
 } from '@node-ts/bus-test'
@@ -14,5 +15,7 @@ describe('MyPersistence', () => {
   workflowStateRoundTripTests(new MyPersistence(documentStore))
   // Only if MyPersistence stores outgoing messages, ideally on a database of its own
   scheduledMessageRoundTripTests(new MyPersistence(documentStore))
+  // Only if MyPersistence implements beginTransaction(), for withOutbox()
+  outboxTests(new MyPersistence(documentStore))
 })
 // #endregion suite

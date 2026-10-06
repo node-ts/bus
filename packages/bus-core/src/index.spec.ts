@@ -11,7 +11,13 @@ describe('index', () => {
         InvalidBusState: expect.any(Function),
         InvalidOperation: expect.any(Function),
         MiddlewareNextCalledTwice: expect.any(Function),
+        OutboxNotEnabled: expect.any(Function),
+        OutboxNotSupported: expect.any(Function),
+        OutgoingMessageDestinationMissing: expect.any(Function),
         PersistenceNotConfigured: expect.any(Function),
+        TransactionNotActive: expect.any(Function),
+        TransactionRolledBack: expect.any(Function),
+        OutgoingMessageStoredConcurrently: expect.any(Function),
         TransportHeaderReserved: expect.any(Function),
         WorkflowHandlerFailed: expect.any(Function),
         WorkflowStateNotInitialized: expect.any(Function)

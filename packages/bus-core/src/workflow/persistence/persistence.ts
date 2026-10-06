@@ -3,6 +3,7 @@ import { OutgoingMessage, OutgoingMessageClaim } from '../../outgoing-message'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { WorkflowState } from '../workflow-state'
+import { PersistenceTransaction } from './persistence-transaction'
 
 /**
  * Infrastructure that provides the ability to persist workflow state for long running processes, and optionally
@@ -16,6 +17,9 @@ import { WorkflowState } from '../workflow-state'
  * A persistence that implements `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and
  * `releaseOutgoingMessages` also stores messages sent with `deliverAfter` or `deliverAt`, until a started bus sends
  * them.
+ *
+ * A persistence that also implements `beginTransaction` can be used with `withOutbox()`, which saves the workflow state
+ * and outgoing messages of each message handled in one transaction.
  */
 export interface Persistence {
   /**
@@ -96,7 +100,7 @@ export interface Persistence {
    * a store must use the same broker.
    *
    * Storing a message whose `id` is already stored leaves the stored message as it is, so storing the same messages
-   * again doesn't send them twice. A message stored with a `leaseUntil` isn't claimed until then.
+   * again doesn't send them twice. A message stored with a `leaseMs` isn't claimed until that long after it's stored, by the store's clock, unless it's released.
    * @param outgoingMessages the messages to store. `message`, `attributes` and `headers` are plain JSON, to store as
    * they are.
    * @returns the ids of the messages that weren't stored, because a message with the same id already was
@@ -137,7 +141,9 @@ export interface Persistence {
   /**
    * If provided, makes claimed messages claimable again straight away, and takes back the attempt their claim
    * counted, so they're claimed as if that claim hadn't happened. The bus calls it for messages it claimed but didn't
-   * try to send, such as the rest of a batch when sending pauses.
+   * try to send, such as the rest of a batch when sending pauses, and with `attempts` of 0 for messages it stored with
+   * a `leaseMs` but couldn't send straight away, so they're claimed on the next check rather than when the lease
+   * ends.
    *
    * Only a message whose `attempts` still match its claim is released. If its lease ended and another process
    * claimed it since, that claim counted another attempt, so the release leaves it alone. A message that isn't
@@ -145,4 +151,13 @@ export interface Persistence {
    * @param claims the `id` of each message to release, and its `attempts` as the claim returned it
    */
   releaseOutgoingMessages?(claims: OutgoingMessageClaim[]): Promise<void>
+
+  /**
+   * If provided, begins a transaction that workflow state is saved in, and outgoing messages stored in, until it's
+   * committed. A bus configured with `withOutbox()` needs it, together with the methods that store outgoing
+   * messages, and begins one for each message it handles and each `bus.transaction()`.
+   * @returns the transaction, which holds what it needs, such as a database connection, until the bus commits it or
+   * rolls it back
+   */
+  beginTransaction?(): Promise<PersistenceTransaction>
 }

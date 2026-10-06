@@ -60,7 +60,7 @@ A handler that knows a message will never succeed can send it straight to the de
 Both act when handling finishes, not when they're called, and the handler keeps running. Like a handler that throws, a handler that calls either has the messages it sent dropped, even if it then resolves, and a workflow handler's state changes aren't saved: the message will be dead-lettered or handled again, so they'd be wrong or sent twice. [Incoming middleware](/guide/middleware#validating-messages) can call them too.
 
 ::: warning Other handlers of the same message
-Each handler's sends are dispatched when that handler resolves. If a message has several handlers, one that resolved before another called `failMessage()` or `returnMessage()`, or threw, has already sent its messages and saved its workflow state. Until a message's handlers share a unit of work, make handlers that send messages idempotent, or give a message that can fail only one handler.
+The handlers of a message share one outbox, so when one of them throws or calls `failMessage()` or `returnMessage()`, the workflow state the others saved and the messages they sent are dropped too, and aren't saved or sent twice when the message is retried. What a handler writes to your own database is kept, though, unless it's written in the [transactional outbox](/guide/outbox)'s transaction.
 :::
 
 ## Failure metadata

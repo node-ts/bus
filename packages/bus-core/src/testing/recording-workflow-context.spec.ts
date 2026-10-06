@@ -150,4 +150,17 @@ describe('workflowContext', () => {
       expect(error).toBeInstanceOf(InvalidDeliveryOptions)
     })
   })
+
+  describe("when created with a persistence's transaction", () => {
+    const transaction = { fake: 'transaction' }
+    let transactionSeen: unknown
+
+    beforeEach(() => {
+      transactionSeen = workflowContext({ transaction }).transaction
+    })
+
+    it("should give handlers the transaction, as the persistence's accessor reads it", () => {
+      expect(transactionSeen).toBe(transaction)
+    })
+  })
 })

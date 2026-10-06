@@ -18,7 +18,7 @@ Within each stage, middleware runs in the order it's registered, with the first 
 | Stage      | Wraps                                                                                | Not calling `next()`                           | Throwing                                                                             |
 | ---------- | ------------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `incoming` | each message received, around all its handlers, including messages without a handler | skips the handlers, and the message is deleted | hands the message to the recoverability policy, as a failing handler does            |
-| `handler`  | each call of a handler or workflow handler, inside its outbox                        | skips that handler, which counts as succeeded  | fails that handler only, and drops its sends. The message is retried                 |
+| `handler`  | each call of a handler or workflow handler, inside the message's outbox              | skips that handler, which counts as succeeded  | fails the message, and drops what every handler sent. It's retried                   |
 | `outgoing` | each `send()`, `publish()` and `reply()`, before the message is buffered or sent     | drops the message                              | rejects the `send()`, `publish()` or `reply()`. See below for a throw after `next()` |
 
 `next()` can be called at most once. Calling it again throws `MiddlewareNextCalledTwice`. An incoming middleware that catches an error from `next()` without rethrowing it marks the message handled, and it's deleted.
@@ -71,7 +71,7 @@ To keep a record of every message a service handled, write it to an audit store 
 
 Handler middleware wraps each handler on its own, so a message with three handlers runs it three times. Its context is the incoming context plus `handlerName`: the class name of a class handler, the name of a workflow, or the name of a function handler (`'anonymous'` for an unnamed arrow function). For a workflow, it wraps loading the state, calling the handler and saving the state.
 
-It runs inside the handler's outbox, so its sends are buffered with the handler's and dropped if the handler fails. That makes it the place for anything scoped to one handler, such as a database transaction or a tracing span.
+It runs inside the outbox the message's handlers share, so its sends are buffered with theirs and dropped if any of them fails. With the [transactional outbox](/guide/outbox), its context's `transaction` is the message's transaction too. That makes it the place for anything scoped to one handler, such as a tracing span.
 
 <<< @/snippets/middleware.ts#handler-timing
 
@@ -81,7 +81,7 @@ Outgoing middleware runs each time `send()` or `publish()` is called, on the bus
 
 <<< @/snippets/middleware.ts#stamp-attribute
 
-It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the handler's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the handler resolves without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport. A message sent with [`deliverAfter` or `deliverAt`](/guide/delayed-delivery) is stored in the persistence instead, and sent as the middleware left it once it's due, without running the middleware again.
+It runs when the message is sent, not when it reaches the transport. Inside a handler the message is then buffered in the message's outbox, so `await next()` resolves once it's buffered, and the outbox sends it once the message's handlers resolve without running the middleware again. Outside a handler, `await next()` resolves once the transport has sent it. Either way, the message is sent as the middleware left it when it called `next()`, so changes made after `next()` don't reach the transport. A message sent with [`deliverAfter` or `deliverAt`](/guide/delayed-delivery) is stored in the persistence instead, and sent as the middleware left it once it's due, without running the middleware again.
 
 ### Knowing when a message is sent
 

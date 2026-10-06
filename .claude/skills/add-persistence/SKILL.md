@@ -46,11 +46,16 @@ An interface with JSDoc on every field. The README repeats these docs.
   - If nothing matched, throw `WorkflowStateNotFound` so the registry fails the handler and the message is retried.
 - `readonly durable = true` for a database that survives a restart.
 - `storeOutgoingMessages`, `claimDueOutgoingMessages`, `deleteOutgoingMessages` and `releaseOutgoingMessages` (delayed delivery, see `docs/guide/delayed-delivery.md`):
-  - Create the table or collection in `initialize()`, with an index on an "available at" field: the due time (or `leaseUntil` if later) when stored, and the end of the lease once claimed.
+  - Create the table or collection in `initialize()`, with an index on an "available at" field: the due time (or, with a `leaseMs`, the store's clock plus `leaseMs` if that's later) when stored, and the end of the lease once claimed.
   - Storing an `id` that's already stored keeps the stored message (`on conflict do nothing`, `$setOnInsert`), and returns the skipped ids.
   - Claim atomically with the database's clock (or the `now` argument): rows available by then, up to `limit`, adding one to `attempts` and leasing for `leaseMs * attempts`, capped at `maxLeaseMs`; never delete in a claim (Postgres: `for update skip locked`; MongoDB: one `findOneAndUpdate` per message).
   - Release takes `{ id, attempts }` claims, and only where `attempts` still match puts `available_at` back to the due time and takes one off `attempts`.
   - Return every field as it was stored, with `dueAt` as a `Date` and the new `attempts`, ordered by `dueAt`.
+- `beginTransaction()` (the transactional outbox, `withOutbox()`, see `docs/guide/outbox.md`), returning a `PersistenceTransaction` class of its own that isn't exported (like bus-postgres' `PostgresPersistenceTransaction`):
+  - `getWorkflowState`, `saveWorkflowState` and `storeOutgoingMessages` run in the transaction, with the same semantics as the persistence's own (share the query code, taking the session or client as an argument). Handlers share it, so accept calls while another runs.
+  - `commit()` and `rollback()` both end it and release the connection or session, even when they throw. Every call after that throws `TransactionNotActive` from bus-core.
+  - `commit()` must throw (`TransactionRolledBack`) when the database rolled back instead of committing.
+  - Export an accessor like `postgresTransaction(ctx: Pick<HandlerContext, 'transaction'>)` that checks `ctx.transaction` is an instance of the class and returns a client limited to running queries that checks the transaction is still active on each call, throwing `TransactionNotActive` with the matching `reason` otherwise, and a test helper like `postgresTestTransaction(fakeClient)` for unit tests (design principle 5).
 
 ## 4. Errors and exports
 
@@ -73,6 +78,7 @@ An interface with JSDoc on every field. The README repeats these docs.
   - In `afterAll`, drop what the test created and `dispose()` the bus.
   - At the end of the top-level `describe`, call `workflowStateRoundTripTests(new <Name>Persistence(configuration))` from `@node-ts/bus-test`, with an instance of its own, to check workflow state with Dates and nested classes survives the round trip.
   - Then call `scheduledMessageRoundTripTests(...)` with an instance on its own schema or database (the test's own running bus would otherwise send the suite's messages), and drop it in `afterAll`.
+  - If it implements `beginTransaction()`, call `outboxTests(...)` the same way, and test the accessor writing business data in a handler's transaction (`bus-postgres/src/postgres-transaction.integration.ts`).
 
 ## 6. Docs and wiring
 

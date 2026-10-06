@@ -32,6 +32,10 @@ const OUTGOING_MESSAGES_COLLECTION_NAME = 'outgoingmessages'
 interface OutgoingMessageDocument {
   _id: string
   kind: OutgoingMessage['kind']
+  /**
+   * Where a reply is sent. Other messages have none.
+   */
+  destination?: string
   message: object
   attributes: object
   headers: object
@@ -179,18 +183,33 @@ export class MongodbPersistence implements Persistence {
     // An upsert that only sets fields on insert leaves a message that's already stored as it is
     const operations: AnyBulkWriteOperation<OutgoingMessageDocument>[] =
       outgoingMessages.map(
-        ({ id, kind, message, attributes, headers, dueAt, leaseUntil }) => ({
+        ({
+          id,
+          kind,
+          destination,
+          message,
+          attributes,
+          headers,
+          dueAt,
+          leaseMs
+        }) => ({
           updateOne: {
             filter: { _id: id },
             update: {
               $setOnInsert: {
                 kind,
+                ...(destination === undefined ? {} : { destination }),
                 message: encodeKeys(message),
                 attributes: encodeKeys(attributes),
                 headers: encodeKeys(headers),
                 dueAt,
                 availableAt: new Date(
-                  Math.max(dueAt.getTime(), leaseUntil?.getTime() ?? 0)
+                  // Only the transactional outbox, which MongoDB doesn't support yet (#323), stores a lease, so
+                  // this process' clock is close enough
+                  Math.max(
+                    dueAt.getTime(),
+                    leaseMs === undefined ? 0 : Date.now() + leaseMs
+                  )
                 ),
                 attempts: 0
               }
@@ -251,6 +270,9 @@ export class MongodbPersistence implements Persistence {
       claimed.push({
         id: document._id,
         kind: document.kind,
+        ...(document.destination === undefined
+          ? {}
+          : { destination: document.destination }),
         message: decodeKeys(document.message),
         attributes: decodeKeys(
           document.attributes

@@ -1,3 +1,4 @@
+import { EventEmitter, once } from 'node:events'
 import { IMock, Mock, Times } from 'typemoq'
 import { handlerFor } from '../handler'
 import { testMessageTypes } from '../test'
@@ -16,6 +17,8 @@ describe('BusInstance - Concurrency', () => {
   let callback: IMock<Callback>
   let handleCount = 0
   const resolutions: ((_: unknown) => void)[] = []
+  const commandsHandled = new EventEmitter()
+  let commandHandleCount = 0
   const CONCURRENCY = 2
   let bus: BusInstance
 
@@ -30,6 +33,7 @@ describe('BusInstance - Concurrency', () => {
 
   const commandHandler = handlerFor(TestCommand, async (_, attributes) => {
     callback.object(attributes.correlationId!)
+    commandsHandled.emit('handled', ++commandHandleCount)
   })
 
   beforeAll(async () => {
@@ -76,6 +80,12 @@ describe('BusInstance - Concurrency', () => {
     })
 
     describe('when the command handlers are run', () => {
+      beforeAll(async () => {
+        while (commandHandleCount < 3) {
+          await once(commandsHandled, 'handled')
+        }
+      })
+
       it('the message handling context should have propagated all sticky attributes', () => {
         callback.verify(x => x('first'), Times.once())
         callback.verify(x => x('second'), Times.once())

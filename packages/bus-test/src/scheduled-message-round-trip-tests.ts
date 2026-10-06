@@ -35,6 +35,11 @@ const LEASE_MS = 10_000
 const MAX_LEASE_MS = 3 * LEASE_MS
 
 /**
+ * How long a message stored with a lease is held for. Long enough that the suite's running bus never claims it.
+ */
+const STORED_LEASE_MS = 60_000
+
+/**
  * How long a test waits for scheduled messages to be sent
  */
 const TIMEOUT_MS = 20_000
@@ -204,6 +209,26 @@ export const scheduledMessageRoundTripTests = (
       })
     })
 
+    describe('and a stored reply is due', () => {
+      const outgoingMessage: OutgoingMessage = {
+        ...createOutgoingMessage(at(0)),
+        kind: 'reply',
+        destination: 'requester-queue'
+      }
+      let claimed: OutgoingMessage | undefined
+
+      beforeAll(async () => {
+        await store().storeOutgoingMessages([outgoingMessage])
+        claimed = (await claimAt(at(0))).find(m => m.id === outgoingMessage.id)
+      })
+
+      afterAll(async () => store().deleteOutgoingMessages([outgoingMessage.id]))
+
+      it('should claim it with its destination', () => {
+        expect(claimed).toEqual({ ...outgoingMessage, attempts: 1 })
+      })
+    })
+
     describe('and a claimed message is claimed again while its lease holds', () => {
       const outgoingMessage = createOutgoingMessage(at(0))
       let claimedAgain: OutgoingMessage[]
@@ -297,18 +322,22 @@ export const scheduledMessageRoundTripTests = (
     })
 
     describe('and a message is stored with a lease', () => {
-      const outgoingMessage = createOutgoingMessage(at(0))
+      // A lease runs from when it's stored, by the store's clock, so this message is due now rather than in 2900.
+      // The suite's bus claims at the current time, so it doesn't claim it while the lease holds.
+      const outgoingMessage = createOutgoingMessage(
+        new Date(Date.now() - 1_000)
+      )
       let claimedWhileLeased: OutgoingMessage[]
       let claimedAfterLease: OutgoingMessage | undefined
 
       beforeAll(async () => {
         await store().storeOutgoingMessages([
-          { ...outgoingMessage, leaseUntil: at(LEASE_MS) }
+          { ...outgoingMessage, leaseMs: STORED_LEASE_MS }
         ])
-        claimedWhileLeased = await claimAt(at(LEASE_MS - 1))
-        claimedAfterLease = (await claimAt(at(LEASE_MS))).find(
-          m => m.id === outgoingMessage.id
-        )
+        claimedWhileLeased = await claimAt(new Date(Date.now() + 1_000))
+        claimedAfterLease = (
+          await claimAt(new Date(Date.now() + 2 * STORED_LEASE_MS))
+        ).find(m => m.id === outgoingMessage.id)
       })
 
       afterAll(async () => store().deleteOutgoingMessages([outgoingMessage.id]))
@@ -321,6 +350,31 @@ export const scheduledMessageRoundTripTests = (
 
       it('should claim it once the lease ends, without the lease', () => {
         expect(claimedAfterLease).toEqual({ ...outgoingMessage, attempts: 1 })
+      })
+    })
+
+    describe('and a message stored with a lease is released with no attempts', () => {
+      const outgoingMessage = createOutgoingMessage(
+        new Date(Date.now() - 1_000)
+      )
+      let claimed: OutgoingMessage | undefined
+
+      beforeAll(async () => {
+        await store().storeOutgoingMessages([
+          { ...outgoingMessage, leaseMs: STORED_LEASE_MS }
+        ])
+        await store().releaseOutgoingMessages([
+          { id: outgoingMessage.id, attempts: 0 }
+        ])
+        claimed = (await claimAt(new Date(Date.now() + 1_000))).find(
+          m => m.id === outgoingMessage.id
+        )
+      })
+
+      afterAll(async () => store().deleteOutgoingMessages([outgoingMessage.id]))
+
+      it('should be claimable straight away, on its first attempt', () => {
+        expect(claimed).toEqual({ ...outgoingMessage, attempts: 1 })
       })
     })
 

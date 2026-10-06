@@ -1,6 +1,6 @@
 import { ReturnAddressMissing } from '../error'
 import { InvalidDeliveryOptions } from '../outgoing-message'
-import { WorkflowStateNotProvided } from '../workflow'
+import { defineWorkflow, WorkflowStateNotProvided } from '../workflow'
 import { TestCommand } from '../workflow/test/test-command'
 import { TestDiscardedWorkflow } from '../workflow/test/test-discarded-workflow'
 import {
@@ -645,6 +645,33 @@ describe('testWorkflow', () => {
           StartTestTimeoutWorkflow({ orderId: '1', timeoutMs: -1 })
         )
       ).rejects.toBeInstanceOf(InvalidDeliveryOptions)
+    })
+  })
+
+  describe("with a persistence's transaction in the context", () => {
+    class TransactionTestState extends WorkflowState {
+      static NAME = 'TransactionTestState'
+      $name = TransactionTestState.NAME
+    }
+    const transaction = { fake: 'transaction' }
+    const transactionsSeen: unknown[] = []
+
+    beforeEach(async () => {
+      const sut = testWorkflow(
+        defineWorkflow(TransactionTestState).startedBy(
+          TestCommand,
+          (_message, _state, ctx) => {
+            transactionsSeen.push(ctx.transaction)
+            return {}
+          }
+        ),
+        { context: { transaction } }
+      )
+      await sut.when(new TestCommand('1'))
+    })
+
+    it('should call the handlers with it', () => {
+      expect(transactionsSeen).toEqual([transaction])
     })
   })
 })
