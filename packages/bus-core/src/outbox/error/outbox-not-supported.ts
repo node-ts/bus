@@ -4,8 +4,8 @@
 const MONGODB_PERSISTENCE_NAME = 'MongodbPersistence'
 
 /**
- * Thrown by `build()` when the bus is configured with `withOutbox()`, but its persistence can't run transactions or
- * store outgoing messages
+ * Thrown by `build()` when the bus is configured with `withOutbox()`, but its persistence can't run transactions, store
+ * outgoing messages or remove old inbox records
  */
 export class OutboxNotSupported extends Error {
   readonly help: string
@@ -20,7 +20,7 @@ export class OutboxNotSupported extends Error {
     this.help =
       persistenceName === MONGODB_PERSISTENCE_NAME
         ? `MongodbPersistence doesn't support the outbox yet: that's https://github.com/node-ts/bus/issues/323. Until then, use PostgresPersistence from @node-ts/bus-postgres with withOutbox(), or leave withOutbox() off.`
-        : `Configure a persistence that supports the outbox with withPersistence(), such as PostgresPersistence from @node-ts/bus-postgres, or implement beginTransaction(), storeOutgoingMessages(), claimDueOutgoingMessages(), deleteOutgoingMessages() and releaseOutgoingMessages() in ${persistenceName}.`
+        : `Configure a persistence that supports the outbox with withPersistence(), such as PostgresPersistence from @node-ts/bus-postgres, or implement beginTransaction(), removeIncomingMessagesBefore(), storeOutgoingMessages(), claimDueOutgoingMessages(), deleteOutgoingMessages() and releaseOutgoingMessages() in ${persistenceName}.`
 
     Object.setPrototypeOf(this, new.target.prototype)
   }

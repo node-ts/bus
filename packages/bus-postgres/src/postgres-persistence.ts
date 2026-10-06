@@ -18,7 +18,13 @@ import {
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { createHash } from 'node:crypto'
-import { escapeIdentifier, escapeLiteral, Pool, PoolClient } from 'pg'
+import {
+  escapeIdentifier,
+  escapeLiteral,
+  Pool,
+  PoolClient,
+  QueryResult
+} from 'pg'
 import { InvalidSchemaName, WorkflowStateNotFound } from './error'
 import { PostgresConfiguration } from './postgres-configuration'
 import { PostgresPersistenceTransaction } from './postgres-persistence-transaction'
@@ -59,6 +65,16 @@ const OUTGOING_MESSAGES_TABLE_NAME = 'outgoing_messages'
  * The index on `available_at` of the outgoing messages table
  */
 const OUTGOING_MESSAGES_INDEX_NAME = `${OUTGOING_MESSAGES_TABLE_NAME}_available_at_idx`
+
+/**
+ * The table, in the configured schema, that records the messages each endpoint has handled with `withOutbox()`
+ */
+const INBOX_TABLE_NAME = 'inbox'
+
+/**
+ * The index on `processed_at` of the inbox table, which old records are removed by
+ */
+const INBOX_INDEX_NAME = `${INBOX_TABLE_NAME}_processed_at_idx`
 
 /**
  * Stands for the role the service runs as in the grants of the runtime permissions
@@ -201,6 +217,28 @@ const claimOutgoingMessages = async (
 }
 
 /**
+ * Records that an endpoint handled a message. While another transaction that hasn't ended has recorded it, the insert
+ * waits on the primary key until that transaction ends, then does nothing if it was committed.
+ * @returns false if the endpoint had already handled the message
+ */
+const insertIncomingMessage = async (
+  postgres: Queryable,
+  table: string,
+  endpoint: string,
+  messageId: string
+): Promise<boolean> => {
+  // on conflict do nothing, since a unique violation would fail the statement and roll back the transaction
+  const result = await postgres.query(
+    `
+    insert into ${table} (endpoint, message_id, processed_at)
+    values ($1, $2, clock_timestamp())
+    on conflict (endpoint, message_id) do nothing;`,
+    [endpoint, messageId]
+  )
+  return result.rowCount === 1
+}
+
+/**
  * An index this persistence creates on a workflow table
  */
 interface WorkflowIndex {
@@ -267,8 +305,8 @@ export class PostgresPersistence implements Persistence {
   }
 
   /**
-   * Checks, unless `verifyResources` is off, that the schema, the outgoing messages table and the table and indexes
-   * of each workflow exist, by looking their names up with `to_regclass`. It creates nothing.
+   * Checks, unless `verifyResources` is off, that the schema, the outgoing messages and inbox tables and their
+   * indexes, and the table and indexes of each workflow exist, by looking their names up with `to_regclass`. It creates nothing.
    * @param options the workflows of the bus, and whether to check their tables exist
    * @throws InvalidSchemaName if `schemaName` is empty
    * @throws ResourcesNotProvisioned if the schema, a table or an index doesn't exist
@@ -291,7 +329,9 @@ export class PostgresPersistence implements Persistence {
   }
 
   /**
-   * Creates the schema, the outgoing messages table with an index on when each message is next available, and for
+   * Creates the schema, the outgoing messages table with an index on when each message is next available, the inbox
+   * table that records the messages each endpoint has handled with `withOutbox()`, with an index on when each was
+   * recorded, and for
    * each workflow state a table with an `(id, version)` index and a partial index on each field its messages look it
    * up by. Each is only created if it doesn't exist, and it's safe to run from several processes at once.
    *
@@ -329,6 +369,16 @@ export class PostgresPersistence implements Persistence {
             keys: 'available_at'
           }
         },
+        {
+          type: 'postgres-table',
+          name: this.inboxTable(),
+          properties: { stores: 'inbox records of handled messages' }
+        },
+        {
+          type: 'postgres-index',
+          name: INBOX_INDEX_NAME,
+          properties: { table: this.inboxTable(), keys: 'processed_at' }
+        },
         ...workflowTables.flatMap(({ table, indexes }) => [
           {
             type: 'postgres-table',
@@ -351,6 +401,7 @@ export class PostgresPersistence implements Persistence {
         document: [
           `GRANT USAGE ON SCHEMA ${escapeIdentifier(schemaName)} TO ${RUNTIME_ROLE};`,
           `GRANT SELECT, INSERT, UPDATE, DELETE ON ${this.outgoingMessagesTable()} TO ${RUNTIME_ROLE};`,
+          `GRANT SELECT, INSERT, DELETE ON ${this.inboxTable()} TO ${RUNTIME_ROLE};`,
           ...[
             ...new Set(workflowTables.map(({ table }) => table.qualifiedName))
           ].map(
@@ -369,6 +420,7 @@ export class PostgresPersistence implements Persistence {
     })
     await this.ensureSchemaExists(schemaName)
     await this.ensureOutgoingMessagesTableExists()
+    await this.ensureInboxTableExists()
     for (const { table, indexes } of workflowTables) {
       await this.ensureTableExists(table)
       await Promise.all(
@@ -481,6 +533,41 @@ export class PostgresPersistence implements Persistence {
   }
 
   /**
+   * Removes up to `limit` inbox records made before a time, comparing it with when the database recorded them. There's
+   * nothing to remove when the inbox table doesn't exist.
+   */
+  async removeIncomingMessagesBefore(
+    before: Date,
+    limit: number
+  ): Promise<number> {
+    const table = this.inboxTable()
+    let result: QueryResult
+    try {
+      // One batch through the processed_at index, so each statement is short and holds few locks
+      result = await this.postgres.query(
+        `
+        delete from ${table}
+        where ctid in (
+          select ctid from ${table} where processed_at < $1 limit $2
+        );`,
+        [before, limit]
+      )
+    } catch (error) {
+      if (!isUndefinedTableError(error)) {
+        throw error
+      }
+      this.logger.debug(
+        'The inbox table does not exist, so there are no inbox records to remove',
+        { table }
+      )
+      return 0
+    }
+    const removed = result.rowCount ?? 0
+    this.logger.debug('Removed old inbox records', { numRecords: removed })
+    return removed
+  }
+
+  /**
    * Checks a client out of the pool and begins a transaction on it, which holds the client until it's committed or
    * rolled back. Handlers read the client with `postgresTransaction(ctx)`.
    * @returns the transaction
@@ -488,7 +575,9 @@ export class PostgresPersistence implements Persistence {
   async beginTransaction(): Promise<PersistenceTransaction> {
     const client = await this.postgres.connect()
     try {
-      await client.query('begin')
+      // Read committed, whatever the database's default, so the inbox's insert waits for another copy's transaction
+      // and then skips it, where a stricter level fails it with a serialization error
+      await client.query('begin isolation level read committed')
     } catch (error) {
       // Destroys the client rather than returning a broken connection to the pool
       client.release(error as Error)
@@ -518,7 +607,9 @@ export class PostgresPersistence implements Persistence {
           client,
           this.outgoingMessagesTable(),
           outgoingMessages
-        )
+        ),
+      recordIncomingMessage: async (endpoint, messageId) =>
+        insertIncomingMessage(client, this.inboxTable(), endpoint, messageId)
     })
   }
 
@@ -656,6 +747,37 @@ export class PostgresPersistence implements Persistence {
     await this.createIfMissing(indexSql)
   }
 
+  private inboxTable(): string {
+    return `${escapeIdentifier(this.configuration.schemaName)}.${escapeIdentifier(INBOX_TABLE_NAME)}`
+  }
+
+  private async ensureInboxTableExists(): Promise<void> {
+    const table = this.inboxTable()
+    const indexName = INBOX_INDEX_NAME
+    const tableSql = `
+      create table if not exists ${table} (
+        endpoint text not null,
+        message_id text not null,
+        processed_at timestamptz not null,
+        primary key (endpoint, message_id)
+      );
+    `
+    this.logger.debug('Ensuring inbox table exists', { sql: tableSql })
+    await this.createIfMissing(tableSql)
+    const indexSql = `
+      DO
+      $$
+      BEGIN
+        IF to_regclass(${escapeLiteral(`${escapeIdentifier(this.configuration.schemaName)}.${escapeIdentifier(indexName)}`)}) IS NULL THEN
+          CREATE INDEX ${escapeIdentifier(indexName)} ON ${table} (processed_at);
+        END IF;
+      END
+      $$;
+    `
+    this.logger.debug('Ensuring inbox index exists', { sql: indexSql })
+    await this.createIfMissing(indexSql)
+  }
+
   private async ensureSchemaExists(schema: string): Promise<void> {
     const sql = `create schema if not exists ${escapeIdentifier(schema)};`
     this.logger.debug('Ensuring workflow schema exists', { sql })
@@ -677,7 +799,8 @@ export class PostgresPersistence implements Persistence {
   }
 
   /**
-   * Finds what the bus needs that doesn't exist: the schema, the outgoing messages table and its index, and the
+   * Finds what the bus needs that doesn't exist: the schema, the outgoing messages and inbox tables and their indexes,
+   * and the
    * table and indexes of each workflow. An index made by an earlier version under its legacy name counts.
    * @returns a description of each one that's missing
    */
@@ -709,6 +832,14 @@ export class PostgresPersistence implements Persistence {
       {
         description: `Postgres index ${qualify(OUTGOING_MESSAGES_INDEX_NAME)}`,
         name: qualify(OUTGOING_MESSAGES_INDEX_NAME)
+      },
+      {
+        description: `Postgres table ${this.inboxTable()}`,
+        name: this.inboxTable()
+      },
+      {
+        description: `Postgres index ${qualify(INBOX_INDEX_NAME)}`,
+        name: qualify(INBOX_INDEX_NAME)
       },
       ...workflows.flatMap(({ workflowStateType, messageWorkflowMappings }) => {
         const table = resolveWorkflowTable(
@@ -1041,6 +1172,17 @@ const resolveWorkflowStateField = (field: string): string =>
  */
 const deparseWorkflowStateField = (field: string): string =>
   `((${WORKFLOW_DATA_FIELD_NAME} ->> '${field.replace(/'/g, "''")}'::text))`
+
+/**
+ * Postgres' undefined_table error code
+ */
+const UNDEFINED_TABLE_ERROR_CODE = '42P01'
+
+/**
+ * Whether an error is postgres reporting that a table doesn't exist
+ */
+const isUndefinedTableError = (error: unknown): boolean =>
+  (error as { code?: unknown } | undefined)?.code === UNDEFINED_TABLE_ERROR_CODE
 
 /**
  * Whether an error is postgres reporting that an object being created already exists

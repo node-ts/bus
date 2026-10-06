@@ -13,7 +13,10 @@ import { PoolClient } from 'pg'
  */
 type TransactionOperations = Pick<
   PersistenceTransaction,
-  'getWorkflowState' | 'saveWorkflowState' | 'storeOutgoingMessages'
+  | 'getWorkflowState'
+  | 'saveWorkflowState'
+  | 'storeOutgoingMessages'
+  | 'recordIncomingMessage'
 >
 
 /**
@@ -85,6 +88,13 @@ export class PostgresPersistenceTransaction implements PersistenceTransaction {
   ): Promise<string[]> {
     this.assertActive('storeOutgoingMessages')
     return this.operations.storeOutgoingMessages(...args)
+  }
+
+  async recordIncomingMessage(
+    ...args: Parameters<PersistenceTransaction['recordIncomingMessage']>
+  ): Promise<boolean> {
+    this.assertActive('recordIncomingMessage')
+    return this.operations.recordIncomingMessage(...args)
   }
 
   /**

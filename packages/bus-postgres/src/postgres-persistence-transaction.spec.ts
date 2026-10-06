@@ -16,7 +16,10 @@ import { postgresTransaction } from './postgres-transaction'
 
 type TransactionOperations = Pick<
   PersistenceTransaction,
-  'getWorkflowState' | 'saveWorkflowState' | 'storeOutgoingMessages'
+  | 'getWorkflowState'
+  | 'saveWorkflowState'
+  | 'storeOutgoingMessages'
+  | 'recordIncomingMessage'
 >
 
 const resultOf = (command: string) =>
@@ -57,6 +60,44 @@ describe('PostgresPersistenceTransaction', () => {
 
     it('should only give out query', () => {
       expect(Object.keys(result)).toEqual(['query'])
+    })
+  })
+
+  describe('when a message is recorded in the inbox', () => {
+    let recorded: boolean
+
+    beforeEach(async () => {
+      operations
+        .setup(async o => o.recordIncomingMessage('endpoint', 'message-id'))
+        .returns(async () => false)
+      recorded = await sut.recordIncomingMessage('endpoint', 'message-id')
+    })
+
+    it('should return whether it was recorded', () => {
+      expect(recorded).toEqual(false)
+    })
+  })
+
+  describe('when a message is recorded in the inbox after it is rolled back', () => {
+    let error: unknown
+
+    beforeEach(async () => {
+      await sut.rollback()
+      error = await sut
+        .recordIncomingMessage('endpoint', 'message-id')
+        .catch((e: unknown) => e)
+    })
+
+    it('should reject it with TransactionNotActive', () => {
+      expect(error).toBeInstanceOf(TransactionNotActive)
+      expect(error).toMatchObject({ operation: 'recordIncomingMessage' })
+    })
+
+    it('should not record it', () => {
+      operations.verify(
+        async o => o.recordIncomingMessage(It.isAny(), It.isAny()),
+        Times.never()
+      )
     })
   })
 

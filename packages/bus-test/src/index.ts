@@ -1,4 +1,5 @@
 export * from './helpers'
+export * from './inbox-tests'
 export * from './message-round-trip-tests'
 export * from './outbox-tests'
 export * from './scheduled-message-round-trip-tests'

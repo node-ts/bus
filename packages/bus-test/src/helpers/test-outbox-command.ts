@@ -1,7 +1,7 @@
 import { Command } from '@node-ts/bus-messages'
 
 /**
- * Handled by the `outboxTests` suite, whose handlers do what its `scenario` says
+ * Handled by the `outboxTests` and `inboxTests` suites, whose handlers do what its `scenario` says
  */
 export class TestOutboxCommand extends Command {
   static NAME = '@node-ts/bus-test/test-outbox-command'

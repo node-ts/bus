@@ -46,9 +46,15 @@ Each workflow state has a table in the schema, named after its `$name` with inva
 
 An `outgoing_messages` table in the schema holds messages sent with [delayed delivery](/guide/delayed-delivery) until they're due, and those of the [transactional outbox](/guide/outbox) until they're sent, with an index on when each is next available. Buses claim them with `for update skip locked`, which needs Postgres 9.5 or later.
 
+It creates an `inbox` table too, which records the messages each endpoint has handled with `withOutbox()`, keyed by endpoint and message id, so the [inbox](/guide/outbox#the-inbox) skips a copy of one. Records are removed after 7 days, through an index on when they were recorded.
+
 ## Transactions
 
-With [`withOutbox()`](/guide/outbox), each message is handled in a transaction on a client checked out of the pool, which it holds until the transaction is committed or rolled back. Give the pool's `max` more connections than the bus' concurrency, and don't query the pool from handlers, which can deadlock once every connection is held. Handlers write their own data in the transaction with `postgresTransaction(ctx)`:
+With [`withOutbox()`](/guide/outbox), each message is handled in a transaction on a client checked out of the pool, which it holds until the transaction is committed or rolled back. Give the pool's `max` more connections than the bus' concurrency, and don't query the pool from handlers, which can deadlock once every connection is held. A copy of a message that's being handled, waiting on the [inbox](/guide/outbox#the-inbox) for the first copy's transaction to end, holds a connection and one of the bus' concurrency slots while it waits.
+
+Transactions are begun with `begin isolation level read committed`, whatever the database's default. At repeatable read or serializable, a copy that waited on the inbox would fail with a serialization error rather than being skipped, and the message would be retried.
+
+Handlers write their own data in the transaction with `postgresTransaction(ctx)`:
 
 <<< @/snippets/outbox.ts#handler
 

@@ -489,6 +489,78 @@ describe('InMemoryPersistence', () => {
       })
     })
 
+    describe('and a message is recorded in its inbox', () => {
+      let recorded: boolean
+
+      beforeEach(async () => {
+        recorded = await transaction.recordIncomingMessage('endpoint', 'id')
+      })
+
+      it('should record it', () => {
+        expect(recorded).toEqual(true)
+      })
+
+      describe('and its commit fails while another transaction waits to record it', () => {
+        let error: unknown
+        let recordedByOther: boolean
+
+        beforeEach(async () => {
+          await transaction.saveWorkflowState(createWorkflowState('conflict'))
+          await sut.saveWorkflowState(createWorkflowState('conflict'))
+          const other = await sut.beginTransaction()
+          const recording = other.recordIncomingMessage('endpoint', 'id')
+          error = await transaction.commit().catch((e: unknown) => e)
+          recordedByOther = await recording
+          await other.rollback()
+        })
+
+        it('should throw the commit error', () => {
+          expect(error).toBeInstanceOf(WorkflowStateVersionConflict)
+        })
+
+        it('should let the other transaction record it', () => {
+          expect(recordedByOther).toEqual(true)
+        })
+      })
+
+      describe('and old records are removed after it is committed', () => {
+        let recordedAfterOlderRemoved: boolean
+        let recordedAfterAllRemoved: boolean
+
+        beforeEach(async () => {
+          await transaction.commit()
+          await sut.removeIncomingMessagesBefore(
+            new Date(Date.now() - 1_000),
+            100
+          )
+          const keeps = await sut.beginTransaction()
+          recordedAfterOlderRemoved = await keeps.recordIncomingMessage(
+            'endpoint',
+            'id'
+          )
+          await keeps.rollback()
+          await sut.removeIncomingMessagesBefore(
+            new Date(Date.now() + 1_000),
+            100
+          )
+          const removes = await sut.beginTransaction()
+          recordedAfterAllRemoved = await removes.recordIncomingMessage(
+            'endpoint',
+            'id'
+          )
+          await removes.rollback()
+        })
+
+        it('should keep records made after the time', () => {
+          expect(recordedAfterOlderRemoved).toEqual(false)
+        })
+
+        it('should remove records made before the time', () => {
+          expect(recordedAfterAllRemoved).toEqual(true)
+        })
+      })
+    })
+
     describe('and it is used after it is committed', () => {
       let error: unknown
 

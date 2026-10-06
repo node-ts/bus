@@ -268,7 +268,7 @@ describe('PostgresPersistence', () => {
         .setup(c => (c as unknown as { then: unknown }).then)
         .returns(() => undefined)
       client
-        .setup(async c => c.query('begin'))
+        .setup(async c => c.query('begin isolation level read committed'))
         .returns(async () => Promise.reject(beginError))
       pool = Mock.ofType<Pool>()
       pool.setup(async p => p.connect()).returns(async () => client.object)

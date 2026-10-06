@@ -10,6 +10,7 @@ import {
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import {
+  inboxTests,
   outboxTests,
   scheduledMessageRoundTripTests,
   workflowStateRoundTripTests
@@ -40,6 +41,8 @@ const roundTripSchemaName = 'workflows_round_trip'
 const scheduledRoundTripSchemaName = 'outgoing_round_trip'
 
 const outboxSchemaName = 'outbox'
+
+const inboxSchemaName = 'inbox_tests'
 
 interface WorkflowIndex {
   name: string
@@ -120,12 +123,14 @@ describe('PostgresPersistence', () => {
   afterAll(async () => {
     await postgres.query('drop table if exists "workflows"."testworkflowstate"')
     await postgres.query('drop table if exists "workflows"."outgoing_messages"')
+    await postgres.query('drop table if exists "workflows"."inbox"')
     await postgres.query('drop schema if exists ' + configuration.schemaName)
     await postgres.query(`drop schema if exists ${roundTripSchemaName} cascade`)
     await postgres.query(
       `drop schema if exists ${scheduledRoundTripSchemaName} cascade`
     )
     await postgres.query(`drop schema if exists ${outboxSchemaName} cascade`)
+    await postgres.query(`drop schema if exists ${inboxSchemaName} cascade`)
     await bus.dispose()
   })
 
@@ -136,6 +141,20 @@ describe('PostgresPersistence', () => {
       )
       const { count } = result.rows[0] as { count: string }
       expect(count).toEqual('0')
+    })
+
+    it('should create an inbox table keyed by endpoint and message id', async () => {
+      const result = await postgres.query(
+        `select indexdef from pg_indexes where schemaname = 'workflows' and tablename = 'inbox' order by indexname`
+      )
+      expect(
+        (result.rows as { indexdef: string }[]).map(({ indexdef }) =>
+          indexdef.substring(indexdef.indexOf('inbox USING'))
+        )
+      ).toEqual([
+        'inbox USING btree (endpoint, message_id)',
+        'inbox USING btree (processed_at)'
+      ])
     })
   })
 
@@ -831,6 +850,13 @@ describe('PostgresPersistence', () => {
     new PostgresPersistence({
       ...configuration,
       schemaName: outboxSchemaName
+    })
+  )
+
+  inboxTests(
+    new PostgresPersistence({
+      ...configuration,
+      schemaName: inboxSchemaName
     })
   )
 })

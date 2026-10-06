@@ -128,8 +128,9 @@ Two things behave differently:
 
 ## @node-ts/bus-postgres
 
-- **The schema, tables and indexes are created by `bus provision`, not `initialize()`.** The service now needs only `USAGE` on the schema and `SELECT`, `INSERT` and `UPDATE` on its tables (and `DELETE` on `outgoing_messages`).
+- **The schema, tables and indexes are created by `bus provision`, not `initialize()`.** The service now needs only `USAGE` on the schema and `SELECT`, `INSERT` and `UPDATE` on its tables (and `DELETE` on `outgoing_messages` and `inbox`).
 - **An `outgoing_messages` table is provisioned** in the configured schema, which holds messages sent with `deliverAfter` or `deliverAt`. Delayed delivery needs Postgres 9.5 or later. If you drop the schema without `cascade`, for example in tests, drop this table first.
+- **An `inbox` table is provisioned** in the configured schema, which records the messages each endpoint has handled with `withOutbox()`, so a copy of one is skipped. The service needs `SELECT`, `INSERT` and `DELETE` on it. `initialize()` checks it exists, like the other tables, so run `bus provision` before starting a service on this version. If you drop the schema without `cascade`, drop it too.
 
 - **Index names longer than 63 bytes are shortened with a hash**, so they no longer truncate to the same name. Nothing is dropped or renamed: names that fit are unchanged, and an index 1.x created under its truncated name is reused. If 1.x skipped an index because its truncated name collided with another, provisioning creates it. That `CREATE INDEX` blocks writes to the table while it builds, so on a large table you may want to create it yourself first with `CREATE INDEX CONCURRENTLY`, using the name and definition that `bus provision --dry-run --json` lists.
 

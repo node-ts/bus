@@ -54,6 +54,7 @@ An interface with JSDoc on every field. The README repeats these docs.
   - Return every field as it was stored, with `dueAt` as a `Date` and the new `attempts`, ordered by `dueAt`.
 - `beginTransaction()` (the transactional outbox, `withOutbox()`, see `docs/guide/outbox.md`), returning a `PersistenceTransaction` class of its own that isn't exported (like bus-postgres' `PostgresPersistenceTransaction`):
   - `getWorkflowState`, `saveWorkflowState` and `storeOutgoingMessages` run in the transaction, with the same semantics as the persistence's own (share the query code, taking the session or client as an argument). Handlers share it, so accept calls while another runs.
+  - `recordIncomingMessage(endpoint, messageId)` is the inbox: insert into a store keyed by `(endpoint, messageId)` with the record time, returning `false` for a duplicate without failing the transaction (Postgres: `insert ... on conflict do nothing`, `rowCount === 1`). A record held by another open transaction must block until it ends, then count as a duplicate only if that transaction committed. Implement `removeIncomingMessagesBefore(date)` on the persistence too (outside the transaction, with an index on the record time); `withOutbox()` needs both.
   - `commit()` and `rollback()` both end it and release the connection or session, even when they throw. Every call after that throws `TransactionNotActive` from bus-core.
   - `commit()` must throw (`TransactionRolledBack`) when the database rolled back instead of committing.
   - Export an accessor like `postgresTransaction(ctx: Pick<HandlerContext, 'transaction'>)` that checks `ctx.transaction` is an instance of the class and returns a client limited to running queries that checks the transaction is still active on each call, throwing `TransactionNotActive` with the matching `reason` otherwise, and a test helper like `postgresTestTransaction(fakeClient)` for unit tests (design principle 5).
@@ -80,7 +81,7 @@ An interface with JSDoc on every field. The README repeats these docs.
   - In `afterAll`, drop what the test created and `dispose()` the bus.
   - At the end of the top-level `describe`, call `workflowStateRoundTripTests(new <Name>Persistence(configuration))` from `@node-ts/bus-test`, with an instance of its own, to check workflow state with Dates and nested classes survives the round trip.
   - Then call `scheduledMessageRoundTripTests(...)` with an instance on its own schema or database (the test's own running bus would otherwise send the suite's messages), and drop it in `afterAll`.
-  - If it implements `beginTransaction()`, call `outboxTests(...)` the same way, and test the accessor writing business data in a handler's transaction (`bus-postgres/src/postgres-transaction.integration.ts`).
+  - If it implements `beginTransaction()`, call `outboxTests(...)` and `inboxTests(...)` the same way, and test the accessor writing business data in a handler's transaction (`bus-postgres/src/postgres-transaction.integration.ts`).
 
 ## 6. Docs and wiring
 

@@ -1,7 +1,7 @@
 import { Event } from '@node-ts/bus-messages'
 
 /**
- * Published by the `outboxTests` suite, so it can count what reaches the transport
+ * Published by the `outboxTests` and `inboxTests` suites, so they can count what reaches the transport
  */
 export class TestOutboxEvent extends Event {
   static NAME = '@node-ts/bus-test/test-outbox-event'

@@ -25,6 +25,7 @@ export const postgresTestTransaction = (client: {
     {
       getWorkflowState: async () => [],
       saveWorkflowState: async () => undefined,
-      storeOutgoingMessages: async () => []
+      storeOutgoingMessages: async () => [],
+      recordIncomingMessage: async () => true
     }
   )

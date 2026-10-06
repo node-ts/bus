@@ -50,6 +50,12 @@ import {
 } from '../outbox'
 import { BufferedWorkflowStateStore } from '../outbox/buffered-workflow-state-store'
 import {
+  INBOX_CLEANUP_BATCH_SIZE,
+  INBOX_CLEANUP_INTERVAL_MS,
+  INBOX_CLEANUP_JITTER_MS,
+  INBOX_RETENTION_MS
+} from '../outbox/inbox-retention'
+import {
   isOutboxPersistence,
   OutboxPersistence
 } from '../outbox/outbox-persistence'
@@ -70,7 +76,8 @@ import { assertDeliveryOptions } from '../outgoing-message/assert-delivery-optio
 import {
   DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS,
   isOutgoingMessageStore,
-  OutgoingMessageDispatcher
+  OutgoingMessageDispatcher,
+  PeriodicTask
 } from '../outgoing-message/outgoing-message-dispatcher'
 import { ProvisioningPlan, ProvisionOptions } from '../provisioning'
 import {
@@ -371,6 +378,37 @@ const dropOutgoing = (
   )
 
 /**
+ * What recording a received message in the inbox found
+ */
+enum InboxResult {
+  Recorded = 'recorded',
+  AlreadyHandled = 'already-handled',
+  NoMessageId = 'no-message-id'
+}
+
+/**
+ * Removes the inbox records older than `INBOX_RETENTION_MS`, a batch at a time until none are left or the dispatcher
+ * stops. The dispatcher of a started bus configured with `withOutbox()`, or of a scheduler, runs it.
+ */
+const inboxCleanup = (persistence: OutboxPersistence): PeriodicTask => ({
+  name: 'the removal of old inbox records',
+  intervalMs: INBOX_CLEANUP_INTERVAL_MS,
+  jitterMs: INBOX_CLEANUP_JITTER_MS,
+  run: async signal => {
+    const before = new Date(Date.now() - INBOX_RETENTION_MS)
+    while (!signal.aborted) {
+      const removed = await persistence.removeIncomingMessagesBefore(
+        before,
+        INBOX_CLEANUP_BATCH_SIZE
+      )
+      if (removed < INBOX_CLEANUP_BATCH_SIZE) {
+        return
+      }
+    }
+  }
+})
+
+/**
  * A bus built by `Bus.configure().build()`. It sends and publishes messages, and unless it's send-only, receives
  * them and dispatches them to handlers.
  */
@@ -439,9 +477,27 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         async outgoingMessage => this.sendStoredMessage(outgoingMessage),
         coreDependencies.loggerFactory(
           '@node-ts/bus-core:outgoing-message-dispatcher'
-        )
+        ),
+        DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS,
+        this.inboxCleanupFor(persistence, scheduler)
       )
     }
+  }
+
+  /**
+   * The inbox cleanup this bus' dispatcher runs: on a bus configured with `withOutbox()`, and on a scheduler, which
+   * cleans up for buses that record messages but don't dispatch, such as those a receiver passes messages to
+   */
+  private inboxCleanupFor(
+    persistence: Persistence,
+    scheduler: boolean
+  ): PeriodicTask | undefined {
+    if (this.outboxPersistence) {
+      return inboxCleanup(this.outboxPersistence)
+    }
+    return scheduler && isOutboxPersistence(persistence)
+      ? inboxCleanup(persistence)
+      : undefined
   }
 
   /**
@@ -805,6 +861,11 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     if (!context || !message) {
       throw new FailMessageOutsideHandlingContext()
     }
+    this.warnIfInboxRecordCommitted(
+      'failMessage()',
+      context.inboxRecordCommitted,
+      message
+    )
     this.messageLifecycleContext.set({ ...context, messageFailed: true })
     this.logger.debug(
       'Message will be moved to the dead letter queue once handled',
@@ -827,6 +888,11 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     if (!context || !message) {
       throw new ReturnMessageOutsideHandlingContext()
     }
+    this.warnIfInboxRecordCommitted(
+      'returnMessage()',
+      context.inboxRecordCommitted,
+      message
+    )
     this.messageLifecycleContext.set({
       ...context,
       messageReturnedToQueue: true
@@ -1361,7 +1427,19 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
 
     // The handlers share one outbox, so a handler that fails drops what the others sent too, rather than leaving it
     // to be sent again when the message is retried
-    await this.runInOutbox(message, async () => {
+    let isRecordedInInbox = false
+    const handled = await this.runInOutbox(message, async outbox => {
+      // The inbox, first in the message's transaction, so the record is committed or rolled back with the handlers' work
+      if (outbox.transaction) {
+        const inbox = await this.recordInInbox(
+          transportMessage,
+          outbox.transaction
+        )
+        if (inbox === InboxResult.AlreadyHandled) {
+          return false
+        }
+        isRecordedInInbox = inbox === InboxResult.Recorded
+      }
       const handlerResults = await Promise.allSettled(
         handlers.map(async handler =>
           this.dispatchMessageToHandler(transportMessage, handler)
@@ -1374,12 +1452,79 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
         )
         throw new HandlerDispatchRejected(reasons)
       }
+      return true
     })
+    if (isRecordedInInbox) {
+      // runInOutbox resolved, so the transaction was committed
+      this.messageLifecycleContext.set({
+        ...this.messageLifecycleContext.get(),
+        inboxRecordCommitted: true
+      })
+    }
+    if (!handled) {
+      return
+    }
 
     this.logger.debug('Message dispatched to all handlers', {
       message,
       numHandlers: handlers.length
     })
+  }
+
+  /**
+   * Records a received message in the inbox, in the message's transaction, so a copy of it isn't handled again by
+   * this endpoint. While another copy is being handled, it waits for that copy's transaction to end. A message with no
+   * `messageId`, such as one sent from outside the bus, can't be recognised, so it's always handled.
+   * @returns whether it was recorded, or this endpoint has already handled it, so its handlers are skipped and it's
+   * deleted, or it has no `messageId`
+   * @throws the persistence's error if the message can't be recorded, in which case it's retried
+   */
+  private async recordInInbox(
+    transportMessage: TransportMessage<TTransportMessage>,
+    transaction: PersistenceTransaction
+  ): Promise<InboxResult> {
+    const messageName = transportMessage.domainMessage.$name
+    const { messageId } = transportMessage.attributes
+    if (!messageId) {
+      this.logger.debug(
+        'Message has no messageId, so it is handled without checking the inbox for a copy that was handled before',
+        { messageName }
+      )
+      return InboxResult.NoMessageId
+    }
+    const recorded = await transaction.recordIncomingMessage(
+      this.transport.endpointName,
+      messageId
+    )
+    if (!recorded) {
+      this.logger.info(
+        'Message was already handled by this endpoint, so its handlers are skipped and it is deleted',
+        { messageName, messageId, endpoint: this.transport.endpointName }
+      )
+    }
+    return recorded ? InboxResult.Recorded : InboxResult.AlreadyHandled
+  }
+
+  /**
+   * Warns when `failMessage()` or `returnMessage()` is called after the message's transaction was committed with its
+   * inbox record, such as from incoming middleware after `next()`: its work is kept, and a retry, or a replay from the
+   * dead letter queue, is skipped as already handled
+   */
+  private warnIfInboxRecordCommitted(
+    requested: 'failMessage()' | 'returnMessage()',
+    inboxRecordCommitted: boolean | undefined,
+    message: TransportMessage<unknown>
+  ): void {
+    if (!inboxRecordCommitted) {
+      return
+    }
+    this.logger.warn(
+      `${requested} was called after the message's transaction was committed, such as from incoming middleware after next(). Its handlers' work and its inbox record are kept, so ${requested === 'failMessage()' ? 'replaying it from the dead letter queue' : 'its retry'} with the same messageId is skipped as already handled. Call ${requested} from a handler, handler middleware, or incoming middleware before next().`,
+      {
+        messageName: message.domainMessage.$name,
+        messageId: message.attributes.messageId
+      }
+    )
   }
 
   /**

@@ -31,7 +31,7 @@ The failure is logged at error level as a [`WorkflowHandlerFailed`](/api/bus-cor
 The persistence uses optimistic concurrency: the state has a `$version`, and saving fails if another handler saved the same instance since it was read. The message is then retried with the latest state, so there's no need for locks.
 
 ::: warning Retried startedBy messages
-Messages are delivered at least once, and a message that starts a workflow isn't deduplicated. If it's delivered twice, such as when the broker redelivers it after the new state was saved, a second instance is started. A message retried because another of its handlers failed doesn't start one: the state is only saved once every handler resolves. If only one instance may exist per message, make the start step idempotent, such as by checking your own store for an instance with the same business key and [discarding](/guide/workflows/state#discarding-state) the new one.
+Messages are delivered at least once. Without [`withOutbox()`](/guide/outbox), a message that starts a workflow isn't deduplicated: if it's delivered twice, such as when the broker redelivers it after the new state was saved, a second instance is started. With it, the [inbox](/guide/outbox#the-inbox) skips a copy of a message the endpoint has already handled, within 7 days. A message retried because another of its handlers failed doesn't start one: the state is only saved once every handler resolves. If only one instance may exist per message, make the start step idempotent, such as by checking your own store for an instance with the same business key and [discarding](/guide/workflows/state#discarding-state) the new one.
 :::
 
 ## See also

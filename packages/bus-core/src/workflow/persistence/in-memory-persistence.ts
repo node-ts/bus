@@ -57,10 +57,17 @@ interface PendingChanges {
    */
   workflowStates: Map<string, PendingWorkflowState>
   outgoingMessages: OutgoingMessage[]
+  /**
+   * The inbox records made, by `inboxKey`, which the transaction holds until it ends
+   */
+  incomingMessages: Set<string>
 }
 
 const pendingKey = (workflowStateName: string, workflowId: string): string =>
   JSON.stringify([workflowStateName, workflowId])
+
+const inboxKey = (endpoint: string, messageId: string): string =>
+  JSON.stringify([endpoint, messageId])
 
 /**
  * A non-durable in-memory persistence for storage and retrieval of workflow state, and of messages sent with
@@ -69,7 +76,9 @@ const pendingKey = (workflowStateName: string, workflowId: string): string =>
  * workflows.
  *
  * It supports `withOutbox()`. A transaction holds its changes until it's committed, then checks the workflow state it
- * saved hasn't been saved elsewhere since and applies them all at once.
+ * saved hasn't been saved elsewhere since and applies them all at once. Its inbox records are held by the transaction
+ * that made them until it ends, so another transaction that records the same message waits for it, as it would on a
+ * database's unique key.
  */
 export class InMemoryPersistence implements Persistence {
   /**
@@ -78,6 +87,15 @@ export class InMemoryPersistence implements Persistence {
   readonly durable = false
   private workflowState: WorkflowStorage = {}
   private outgoingMessages = new Map<string, StoredOutgoingMessage>()
+  /**
+   * When each committed inbox record was made, by `inboxKey`
+   */
+  private incomingMessages = new Map<string, Date>()
+  /**
+   * The inbox records made by transactions that haven't ended, by `inboxKey`, each with a promise that resolves when
+   * its transaction ends
+   */
+  private heldIncomingMessages = new Map<string, Promise<void>>()
   private logger: Logger
 
   prepare(coreDependencies: CoreDependencies): void {
@@ -198,16 +216,43 @@ export class InMemoryPersistence implements Persistence {
     }
   }
 
+  async removeIncomingMessagesBefore(
+    before: Date,
+    limit: number
+  ): Promise<number> {
+    let removed = 0
+    for (const [key, recordedAt] of this.incomingMessages) {
+      if (removed >= limit) {
+        break
+      }
+      if (recordedAt < before) {
+        this.incomingMessages.delete(key)
+        removed++
+      }
+    }
+    return removed
+  }
+
   /**
-   * Begins a transaction that holds the workflow state saved and the outgoing messages stored in it until it's
-   * committed. Reads in it see what it has saved.
+   * Begins a transaction that holds the workflow state saved, the outgoing messages stored and the inbox records made
+   * in it until it's committed. Reads in it see what it has saved.
    * @returns the transaction
    */
   async beginTransaction(): Promise<PersistenceTransaction> {
     const pending: PendingChanges = {
       workflowStates: new Map(),
-      outgoingMessages: []
+      outgoingMessages: [],
+      incomingMessages: new Set()
     }
+    let endHeldIncomingMessages: () => void = () => undefined
+    const transactionEnded = new Promise<void>(resolve => {
+      endHeldIncomingMessages = () => {
+        pending.incomingMessages.forEach(key =>
+          this.heldIncomingMessages.delete(key)
+        )
+        resolve()
+      }
+    })
     let isActive = true
     const assertActive = (operation: string): void => {
       if (!isActive) {
@@ -243,14 +288,27 @@ export class InMemoryPersistence implements Persistence {
         assertActive('storeOutgoingMessages')
         return this.storeInTransaction(pending, outgoingMessages)
       },
+      recordIncomingMessage: async (endpoint, messageId) => {
+        assertActive('recordIncomingMessage')
+        return this.recordInTransaction(
+          pending,
+          inboxKey(endpoint, messageId),
+          transactionEnded
+        )
+      },
       commit: async () => {
         assertActive('commit')
         isActive = false
-        this.applyPendingChanges(pending)
+        try {
+          this.applyPendingChanges(pending)
+        } finally {
+          endHeldIncomingMessages()
+        }
       },
       rollback: async () => {
         assertActive('rollback')
         isActive = false
+        endHeldIncomingMessages()
       }
     }
   }
@@ -376,6 +434,33 @@ export class InMemoryPersistence implements Persistence {
   }
 
   /**
+   * Records a message in the inbox in a transaction, waiting for any other transaction that holds the same record to
+   * end first, as a database's unique key would
+   * @param transactionEnded resolves when this transaction ends, for other transactions that wait on its records
+   * @returns false if the record was committed, or is already held by this transaction
+   */
+  private async recordInTransaction(
+    pending: PendingChanges,
+    key: string,
+    transactionEnded: Promise<void>
+  ): Promise<boolean> {
+    while (true) {
+      if (pending.incomingMessages.has(key) || this.incomingMessages.has(key)) {
+        return false
+      }
+      const heldByAnother = this.heldIncomingMessages.get(key)
+      if (!heldByAnother) {
+        break
+      }
+      // Recorded when it was committed, or released when it was rolled back
+      await heldByAnother
+    }
+    pending.incomingMessages.add(key)
+    this.heldIncomingMessages.set(key, transactionEnded)
+    return true
+  }
+
+  /**
    * Applies what a transaction changed, all at once
    * @throws WorkflowStateVersionConflict if workflow state the transaction saved has been saved elsewhere since, in
    * which case nothing is applied
@@ -423,6 +508,10 @@ export class InMemoryPersistence implements Persistence {
       }
     }
     this.storeOutgoing(pending.outgoingMessages)
+    const recordedAt = new Date()
+    pending.incomingMessages.forEach(key =>
+      this.incomingMessages.set(key, recordedAt)
+    )
   }
 
   /**
