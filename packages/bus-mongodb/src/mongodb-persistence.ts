@@ -6,7 +6,13 @@ import {
   MessageWorkflowMapping,
   OutgoingMessage,
   OutgoingMessageClaim,
+  PersistedWorkflow,
   Persistence,
+  PersistenceInitializationOptions,
+  PersistenceProvisionOptions,
+  ProvisionedResource,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -24,6 +30,18 @@ const WORKFLOW_DATA_FIELD_NAME = 'data'
  * The collection that stores messages sent with `deliverAfter` or `deliverAt`
  */
 const OUTGOING_MESSAGES_COLLECTION_NAME = 'outgoingmessages'
+
+/**
+ * A collection this persistence stores documents in, with the indexes it creates on it
+ */
+interface MongodbCollection {
+  name: string
+  /**
+   * What the collection stores
+   */
+  stores: 'outgoing messages' | 'workflow state'
+  indexes: { name: string; keys: { [field: string]: 1 } }[]
+}
 
 /**
  * A document of the outgoing messages collection. The message, attributes and headers are stored with their keys
@@ -69,39 +87,96 @@ export class MongodbPersistence implements Persistence {
     )
   }
 
-  async initialize(): Promise<void> {
+  /**
+   * Connects, and checks, unless `verifyResources` is off, that the outgoing messages collection and the collection of
+   * each workflow exist with their indexes, with `listCollections` and `listIndexes`. It creates nothing.
+   * @param options the workflows of the bus, and whether to check their collections exist
+   * @throws ResourcesNotProvisioned if a collection or an index doesn't exist
+   */
+  async initialize(options: PersistenceInitializationOptions): Promise<void> {
     this.logger.info('Initializing mongodb persistence...')
-    await this.client.connect()
-    this.database = this.client.db(this.configuration.databaseName)
-    await this.outgoingMessages().createIndex(
-      { availableAt: 1 },
-      {
-        name: resolveIndexName(OUTGOING_MESSAGES_COLLECTION_NAME, 'availableAt')
+    await this.connect()
+    if (options.verifyResources) {
+      const missingResources = await this.findMissingResources(
+        resolveCollections(options.workflows)
+      )
+      if (missingResources.length) {
+        throw new ResourcesNotProvisioned(
+          'MongodbPersistence',
+          missingResources
+        )
       }
-    )
+    }
     this.logger.info('Mongodb persistence initialized')
+  }
+
+  /**
+   * Creates the outgoing messages collection with an index on when each message is next available, and for each
+   * workflow state a collection with an `{ id, version }` index and an index on each field its messages look it up
+   * by. What exists is left as it is, and no index is ever dropped.
+   *
+   * It needs the `createCollection`, `createIndex` and `listCollections` actions on the database.
+   * @param options the workflows of the bus, and whether it's a dry run
+   * @returns the collections and indexes, and the privileges the persistence needs at runtime
+   */
+  async provision(
+    options: PersistenceProvisionOptions
+  ): Promise<ProvisioningPlan> {
+    const { databaseName } = this.configuration
+    const collections = resolveCollections(options.workflows)
+    const plan: ProvisioningPlan = {
+      adapter: 'MongodbPersistence',
+      resources: collections.flatMap(({ name, stores, indexes }) => [
+        {
+          type: 'mongodb-collection',
+          name: `${databaseName}.${name}`,
+          properties: { stores }
+        },
+        ...indexes.map((index): ProvisionedResource => ({
+          type: 'mongodb-index',
+          name: index.name,
+          properties: {
+            collection: `${databaseName}.${name}`,
+            keys: index.keys as { [field: string]: number }
+          }
+        }))
+      ]),
+      runtimePermissions: {
+        format: 'mongodb-privileges',
+        document: [
+          {
+            resource: { db: databaseName, collection: '' },
+            actions: ['listCollections']
+          },
+          ...collections.map(({ name, stores }) => ({
+            resource: { db: databaseName, collection: name },
+            actions:
+              stores === 'outgoing messages'
+                ? ['find', 'insert', 'update', 'remove', 'listIndexes']
+                : ['find', 'insert', 'update', 'listIndexes']
+          }))
+        ]
+      }
+    }
+    if (options.dryRun) {
+      return plan
+    }
+
+    this.logger.info('Provisioning mongodb persistence', {
+      resources: plan.resources.length
+    })
+    await this.connect()
+    for (const { name, indexes } of collections) {
+      await this.ensureCollectionExists(name)
+      await this.ensureIndexesExist(name, indexes)
+    }
+    return plan
   }
 
   async dispose(): Promise<void> {
     this.logger.info('Disposing Mongodb persistence...')
     await this.client.close()
     this.logger.info('Mongodb persistence disposed')
-  }
-
-  async initializeWorkflow<WorkflowStateType extends WorkflowState>(
-    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
-  ): Promise<void> {
-    await this.client.connect()
-    this.database = this.client.db(this.configuration.databaseName)
-    const workflowStateName = new workflowStateConstructor().$name
-    this.logger.info('Initializing workflow', {
-      workflowState: workflowStateName
-    })
-
-    const collectionName = resolveQualifiedTableName(workflowStateName)
-    await this.ensureCollectionExists(collectionName)
-    await this.ensureIndexesExist(collectionName, messageWorkflowMappings)
   }
 
   async getWorkflowState<
@@ -341,8 +416,51 @@ export class MongodbPersistence implements Persistence {
     )
   }
 
+  /**
+   * Connects the client, which is a no-op once it's connected
+   */
+  private async connect(): Promise<void> {
+    await this.client.connect()
+    this.database = this.client.db(this.configuration.databaseName)
+  }
+
+  /**
+   * Finds the collections and indexes that don't exist
+   * @returns a description of each one that's missing
+   */
+  private async findMissingResources(
+    collections: MongodbCollection[]
+  ): Promise<string[]> {
+    const { databaseName } = this.configuration
+    const existingCollections = new Set(
+      (
+        await this.database.listCollections({}, { nameOnly: true }).toArray()
+      ).map(({ name }) => name)
+    )
+    const missing: string[] = []
+    for (const { name, indexes } of collections) {
+      if (!existingCollections.has(name)) {
+        missing.push(`MongoDB collection ${databaseName}.${name}`)
+        continue
+      }
+      const existingIndexes = new Set(
+        (await this.database.collection(name).listIndexes().toArray()).map(
+          index => index.name as string
+        )
+      )
+      missing.push(
+        ...indexes
+          .filter(index => !existingIndexes.has(index.name))
+          .map(
+            index => `MongoDB index ${index.name} on ${databaseName}.${name}`
+          )
+      )
+    }
+    return missing
+  }
+
   private async ensureCollectionExists(collectionName: string): Promise<void> {
-    this.logger.debug('Ensuring mongodb collection for workflow state exists', {
+    this.logger.debug('Ensuring mongodb collection exists', {
       collectionName
     })
     const collectionExists = await this.database
@@ -360,29 +478,18 @@ export class MongodbPersistence implements Persistence {
    */
   private async ensureIndexesExist(
     collectionName: string,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
+    indexes: MongodbCollection['indexes']
   ): Promise<void> {
     const collection = this.database.collection(collectionName)
-    const distinctWorkflowFields = new Set(
-      messageWorkflowMappings.map(mapping => mapping.mapsTo)
-    )
-
     this.logger.debug('Ensuring indexes exist', {
       collectionName,
-      workflowFields: [...distinctWorkflowFields]
+      indexes: indexes.map(({ name }) => name)
     })
-    await Promise.all([
-      collection.createIndex(
-        { id: 1, version: 1 },
-        { name: resolveIndexName(collectionName, 'id', 'version') }
-      ),
-      ...[...distinctWorkflowFields].map(workflowField =>
-        collection.createIndex(
-          { [resolveWorkflowStateFieldPath(workflowField)]: 1 },
-          { name: resolveIndexName(collectionName, workflowField) }
-        )
+    await Promise.all(
+      indexes.map(async ({ name, keys }) =>
+        collection.createIndex(keys, { name })
       )
-    ])
+    )
   }
 
   private async upsertWorkflowState(
@@ -434,6 +541,53 @@ export class MongodbPersistence implements Persistence {
       }
     }
   }
+}
+
+/**
+ * Resolves the collections the persistence stores documents in, with their indexes: one for outgoing messages, and
+ * one for each workflow state
+ */
+function resolveCollections(
+  workflows: PersistedWorkflow[]
+): MongodbCollection[] {
+  const collections = new Map<string, MongodbCollection>()
+  collections.set(OUTGOING_MESSAGES_COLLECTION_NAME, {
+    name: OUTGOING_MESSAGES_COLLECTION_NAME,
+    stores: 'outgoing messages',
+    indexes: [
+      {
+        name: resolveIndexName(
+          OUTGOING_MESSAGES_COLLECTION_NAME,
+          'availableAt'
+        ),
+        keys: { availableAt: 1 }
+      }
+    ]
+  })
+  for (const { workflowStateType, messageWorkflowMappings } of workflows) {
+    const name = resolveQualifiedTableName(new workflowStateType().$name)
+    const collection: MongodbCollection = collections.get(name) ?? {
+      name,
+      stores: 'workflow state',
+      indexes: [
+        {
+          name: resolveIndexName(name, 'id', 'version'),
+          keys: { id: 1, version: 1 }
+        }
+      ]
+    }
+    collections.set(name, collection)
+    for (const { mapsTo } of messageWorkflowMappings) {
+      const indexName = resolveIndexName(name, mapsTo)
+      if (!collection.indexes.some(index => index.name === indexName)) {
+        collection.indexes.push({
+          name: indexName,
+          keys: { [resolveWorkflowStateFieldPath(mapsTo)]: 1 }
+        })
+      }
+    }
+  }
+  return [...collections.values()]
 }
 
 /**

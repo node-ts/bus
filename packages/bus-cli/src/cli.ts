@@ -2,6 +2,7 @@ import {
   CommandOutput,
   runGenerateMessageTypes
 } from './generate-message-types/run-generate-message-types'
+import { runProvision } from './provision/run-provision'
 
 type Command = (
   args: string[],
@@ -10,13 +11,15 @@ type Command = (
 ) => Promise<number>
 
 const COMMANDS: { [name: string]: Command } = {
-  'generate-message-types': runGenerateMessageTypes
+  'generate-message-types': runGenerateMessageTypes,
+  provision: runProvision
 }
 
 const USAGE = `Usage: bus <command> [options]
 
 Commands:
   generate-message-types  Generate the runtime types of messages, so Dates and class instances are restored
+  provision               Create the queues, topics, tables and indexes a bus needs, at deploy time
 
 Run \`bus <command> --help\` for a command's options.`
 

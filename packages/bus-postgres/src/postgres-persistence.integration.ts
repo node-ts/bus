@@ -4,6 +4,8 @@ import {
   CoreDependencies,
   Logger,
   MessageWorkflowMapping,
+  PersistedWorkflow,
+  ResourcesNotProvisioned,
   WorkflowStatus
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
@@ -57,6 +59,26 @@ const expectedIndexDefinitions = [
   'testworkflowstate USING btree (id, version)'
 ]
 
+/**
+ * The test workflow state, looked up by the given mappings
+ */
+const testWorkflow = (
+  messageWorkflowMappings: MessageWorkflowMapping[]
+): PersistedWorkflow => ({
+  workflowStateType: TestWorkflowState,
+  messageWorkflowMappings
+})
+
+/**
+ * Provisions the given workflows, as a deploy would
+ */
+const provision = async (
+  persistence: PostgresPersistence,
+  ...workflows: PersistedWorkflow[]
+): Promise<void> => {
+  await persistence.provision({ workflows, dryRun: false })
+}
+
 const getWorkflowIndexes = async (
   pool: Pool,
   schemaName: string
@@ -88,6 +110,7 @@ describe('PostgresPersistence', () => {
       .withLogger(() => Mock.ofType<Logger>().object)
       .withPersistence(sut)
       .withWorkflow(TestWorkflow)
+      .withAutoProvision()
       .build()
 
     await bus.initialize()
@@ -106,7 +129,7 @@ describe('PostgresPersistence', () => {
     await bus.dispose()
   })
 
-  describe('when initializing the transport', () => {
+  describe('when the bus provisions at startup', () => {
     it('should create a workflow table', async () => {
       const result = await postgres.query(
         'select count(*) from "workflows"."testworkflowstate"'
@@ -309,14 +332,19 @@ describe('PostgresPersistence', () => {
         .withLogger(() => Mock.ofType<Logger>().object)
         .withPersistence(quotedSut)
         .withWorkflow(TestWorkflow)
+        .withAutoProvision()
         .build()
       await quotedBus.initialize()
 
-      // A second startup must be a no-op, including the index checks
-      await quotedSut.initialize()
-      await quotedSut.initializeWorkflow(TestWorkflowState, [
+      // Provisioning again must be a no-op, including the index checks, and finds everything it created
+      const workflow = testWorkflow([
         mapping as unknown as MessageWorkflowMapping
       ])
+      await provision(quotedSut, workflow)
+      await quotedSut.initialize({
+        workflows: [workflow],
+        verifyResources: true
+      })
 
       const schemaResult = await quotedPool.query(
         'select schema_name from information_schema.schemata where schema_name = $1',
@@ -382,12 +410,13 @@ describe('PostgresPersistence', () => {
         .withLogger(() => Mock.ofType<Logger>().object)
         .withPersistence(quotedSut)
         .withWorkflow(TestWorkflow)
+        .withAutoProvision()
         .build()
       await quotedBus.initialize()
 
       const mappings = [mapping] as unknown as MessageWorkflowMapping[]
-      await quotedSut.initializeWorkflow(TestWorkflowState, mappings)
-      await quotedSut.initializeWorkflow(TestWorkflowState, mappings)
+      await provision(quotedSut, testWorkflow(mappings))
+      await provision(quotedSut, testWorkflow(mappings))
 
       const indexResult = await quotedPool.query(
         'select count(*) from pg_indexes where schemaname = $1 and indexname = $2',
@@ -452,14 +481,13 @@ describe('PostgresPersistence', () => {
       await longPool.end()
     })
 
-    describe('when initializing a workflow', () => {
+    describe('when provisioning a workflow', () => {
       let indexes: WorkflowIndex[]
 
       beforeAll(async () => {
         await longPool.query(`drop schema if exists "${schemaName}" cascade`)
-        await longSut.initialize()
-        await longSut.initializeWorkflow(TestWorkflowState, mappings)
-        await longSut.initializeWorkflow(TestWorkflowState, mappings)
+        await provision(longSut, testWorkflow(mappings))
+        await provision(longSut, testWorkflow(mappings))
         indexes = await getWorkflowIndexes(longPool, schemaName)
       })
 
@@ -476,17 +504,15 @@ describe('PostgresPersistence', () => {
       })
     })
 
-    describe('when several processes initialize the same workflow at once', () => {
+    describe('when several processes provision the same workflow at once', () => {
       let indexes: WorkflowIndex[]
 
       beforeAll(async () => {
         await longPool.query(`drop schema if exists "${schemaName}" cascade`)
         const persistences = Array.from({ length: 5 }, createLongSut)
-        await longSut.initialize()
+        await provision(longSut)
         await Promise.all(
-          persistences.map(async p =>
-            p.initializeWorkflow(TestWorkflowState, mappings)
-          )
+          persistences.map(async p => provision(p, testWorkflow(mappings)))
         )
         indexes = await getWorkflowIndexes(longPool, schemaName)
       })
@@ -495,6 +521,40 @@ describe('PostgresPersistence', () => {
         expect(indexes.map(index => index.definition).sort()).toEqual(
           expectedIndexDefinitions
         )
+      })
+    })
+
+    describe('when an index with other keys exists under a legacy name', () => {
+      let verificationError: unknown
+
+      beforeAll(async () => {
+        await longPool.query(`drop schema if exists "${schemaName}" cascade`)
+        await provision(longSut)
+        await longPool.query(`
+          create table "${schemaName}"."testworkflowstate" (
+            id uuid not null primary key,
+            version integer not null,
+            data jsonb not null
+          );
+          create index "${legacyPrimaryIndexName}"
+            on "${schemaName}"."testworkflowstate" (version);
+        `)
+        verificationError = await longSut
+          .initialize({
+            workflows: [testWorkflow([])],
+            verifyResources: true
+          })
+          .catch((e: unknown) => e)
+      })
+
+      it('should report the index missing when verifying', () => {
+        expect(verificationError).toBeInstanceOf(ResourcesNotProvisioned)
+        expect(
+          (verificationError as ResourcesNotProvisioned).missingResources
+        ).toHaveLength(1)
+        expect(
+          (verificationError as ResourcesNotProvisioned).missingResources[0]
+        ).toMatch(/^Postgres index .*_idx"$/)
       })
     })
 
@@ -509,10 +569,11 @@ describe('PostgresPersistence', () => {
       'when a %s index exists under its truncated legacy name',
       (_, legacyIndexName, legacyIndexColumns) => {
         let indexes: WorkflowIndex[]
+        let verificationError: unknown
 
         beforeAll(async () => {
           await longPool.query(`drop schema if exists "${schemaName}" cascade`)
-          await longSut.initialize()
+          await provision(longSut)
           // The table and the one index earlier versions created before the truncated names collided
           await longPool.query(`
             create table "${schemaName}"."testworkflowstate" (
@@ -523,8 +584,18 @@ describe('PostgresPersistence', () => {
             create index "${legacyIndexName}"
               on "${schemaName}"."testworkflowstate" ${legacyIndexColumns};
           `)
-          await longSut.initializeWorkflow(TestWorkflowState, mappings)
+          await provision(longSut, testWorkflow(mappings))
           indexes = await getWorkflowIndexes(longPool, schemaName)
+          verificationError = await longSut
+            .initialize({
+              workflows: [testWorkflow(mappings)],
+              verifyResources: true
+            })
+            .catch((e: unknown) => e)
+        })
+
+        it('should find the legacy index when verifying', () => {
+          expect(verificationError).toBeUndefined()
         })
 
         it('should keep the legacy index instead of creating a duplicate', () => {
@@ -539,7 +610,7 @@ describe('PostgresPersistence', () => {
     )
   })
 
-  describe('when several processes initialize the same workflow at once', () => {
+  describe('when several processes provision the same workflow at once', () => {
     const schemaName = 'workflows_concurrent'
     let concurrentPool: Pool
     let indexes: WorkflowIndex[]
@@ -564,11 +635,8 @@ describe('PostgresPersistence', () => {
         { lookup: () => undefined, mapsTo: 'eventValue' }
       ] as unknown as MessageWorkflowMapping[]
       try {
-        await Promise.all(persistences.map(async p => p.initialize()))
         await Promise.all(
-          persistences.map(async p =>
-            p.initializeWorkflow(TestWorkflowState, mappings)
-          )
+          persistences.map(async p => provision(p, testWorkflow(mappings)))
         )
       } finally {
         await Promise.all(persistences.map(async p => p.dispose()))
@@ -642,10 +710,18 @@ describe('PostgresPersistence', () => {
         sharedSut.prepare({
           loggerFactory: () => Mock.ofType<Logger>().object
         } as unknown as CoreDependencies)
-        await sharedSut.initialize()
         const mappings = [mapping] as unknown as MessageWorkflowMapping[]
-        await sharedSut.initializeWorkflow(FirstWorkflowState, mappings)
-        await sharedSut.initializeWorkflow(SecondWorkflowState, mappings)
+        await provision(
+          sharedSut,
+          {
+            workflowStateType: FirstWorkflowState,
+            messageWorkflowMappings: mappings
+          },
+          {
+            workflowStateType: SecondWorkflowState,
+            messageWorkflowMappings: mappings
+          }
+        )
 
         await sharedSut.saveWorkflowState({ ...firstState })
         const lookup = async (
@@ -679,6 +755,63 @@ describe('PostgresPersistence', () => {
       })
     }
   )
+
+  describe('when initializing before provisioning', () => {
+    const schemaName = 'workflows_unprovisioned'
+    const workflow = testWorkflow([
+      { lookup: () => undefined, mapsTo: 'property1' }
+    ] as unknown as MessageWorkflowMapping[])
+    let unprovisionedPool: Pool
+    let missingSchemaError: unknown
+    let missingTableError: unknown
+
+    beforeAll(async () => {
+      unprovisionedPool = new Pool(configuration.connection)
+      await unprovisionedPool.query(
+        `drop schema if exists "${schemaName}" cascade`
+      )
+      const unprovisionedSut = new PostgresPersistence(
+        { ...configuration, schemaName },
+        unprovisionedPool
+      )
+      unprovisionedSut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      const initialize = async () =>
+        unprovisionedSut
+          .initialize({ workflows: [workflow], verifyResources: true })
+          .catch((e: unknown) => e)
+
+      missingSchemaError = await initialize()
+      // Provisioned without the workflow, so only its table and indexes are missing
+      await provision(unprovisionedSut)
+      missingTableError = await initialize()
+    })
+
+    afterAll(async () => {
+      await unprovisionedPool.query(
+        `drop schema if exists "${schemaName}" cascade`
+      )
+      await unprovisionedPool.end()
+    })
+
+    it('should fail naming the missing schema', () => {
+      expect(missingSchemaError).toBeInstanceOf(ResourcesNotProvisioned)
+      expect(missingSchemaError).toMatchObject({
+        missingResources: [`Postgres schema "${schemaName}"`]
+      })
+    })
+
+    it('should fail naming the missing workflow table and indexes', () => {
+      expect(missingTableError).toMatchObject({
+        missingResources: [
+          `Postgres table "${schemaName}"."testworkflowstate"`,
+          `Postgres index "${schemaName}"."${schemaName}_testworkflowstate_id_version_idx"`,
+          `Postgres index "${schemaName}"."${schemaName}_testworkflowstate_property1_idx"`
+        ]
+      })
+    })
+  })
 
   workflowStateRoundTripTests(
     new PostgresPersistence({

@@ -26,6 +26,7 @@ export const messageRoundTripTests = (transport: Transport): void => {
         .withTransport(transport)
         .withLogger(() => Mock.ofType<Logger>().object)
         .build()
+      await bus.provision()
       await bus.initialize()
       await bus.start()
     })

@@ -36,9 +36,11 @@ const bus = Bus.configure()
   .withMessageTypes(messageTypes)
   .withPersistence(mongodbPersistence)
   .withWorkflow(fulfilmentWorkflow)
+  // For local development: creates a collection, and indexes for its lookups, for each workflow state when the bus
+  // initializes. In production, create them at deploy time with `bus provision` instead.
+  .withAutoProvision()
   .build()
 
-// Creates a collection, and indexes for its lookups, for each workflow state
 await bus.initialize()
 await bus.start()
 ```
@@ -52,12 +54,12 @@ The example uses top-level `await`, so it runs as an ES module. In CommonJS, wra
 | Option         | Default | Description                                                                           |
 | -------------- | ------- | ------------------------------------------------------------------------------------- |
 | `connection`   |         | The connection string: a single server, a replica set, or a `mongodb+srv` connection. |
-| `databaseName` |         | The database to create the workflow collections in.                                   |
+| `databaseName` |         | The database of the workflow collections.                                             |
 
 To share a client with the rest of your application, pass your `MongoClient`, from `mongodb` 7, as the second constructor argument.
 
 ## Learn more
 
-- [MongoDB](https://node-ts.github.io/bus/persistence/mongodb): the collections and indexes it creates, and how keys are stored
+- [MongoDB](https://node-ts.github.io/bus/persistence/mongodb): the collections and indexes `bus provision` creates, the privileges it needs at runtime, and how keys are stored
 - [Workflows](https://node-ts.github.io/bus/guide/workflows)
 - [Delayed delivery](https://node-ts.github.io/bus/guide/delayed-delivery): messages sent with `deliverAfter` or `deliverAt` are kept in an `outgoingmessages` collection until they're due

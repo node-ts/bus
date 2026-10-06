@@ -6,6 +6,7 @@ import {
 import {
   DeleteMessageCommand,
   DeleteQueueCommand,
+  GetQueueUrlCommand,
   PurgeQueueCommand,
   ReceiveMessageCommand,
   SetQueueAttributesCommandInput,
@@ -19,6 +20,8 @@ import {
   fromFailureHeader,
   handlerFor,
   Logger,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   TransportHeaderReserved
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
@@ -155,7 +158,7 @@ describe('SqsTransport', () => {
     readAllFromDeadLetterQueue
   )
 
-  describe('when initializing against a queue that is already configured', () => {
+  describe('when provisioning a queue that is already configured', () => {
     const configuration: SqsTransportConfiguration = {
       awsRegion: AWS_REGION,
       awsAccountId: AWS_ACCOUNT_ID,
@@ -166,17 +169,17 @@ describe('SqsTransport', () => {
     const setQueueAttributeNames: string[][] = []
     let sut: SqsTransport
 
-    const initializeBus = async (transport: SqsTransport) => {
+    const provisionBus = async (transport: SqsTransport) => {
       const bus: BusInstance = Bus.configure()
         .withTransport(transport)
         .withLogger(() => Mock.ofType<Logger>().object)
         .build()
-      await bus.initialize()
+      await bus.provision()
       await bus.dispose()
     }
 
     beforeAll(async () => {
-      await initializeBus(new SqsTransport({ ...configuration }, sqs, sns))
+      await provisionBus(new SqsTransport({ ...configuration }, sqs, sns))
 
       const recordingSqs = new SQSClient({
         endpoint: LOCALSTACK_ENDPOINT,
@@ -193,7 +196,7 @@ describe('SqsTransport', () => {
         { step: 'initialize' }
       )
       sut = new SqsTransport({ ...configuration }, recordingSqs, sns)
-      await initializeBus(sut)
+      await provisionBus(sut)
     })
 
     afterAll(async () => {
@@ -229,6 +232,7 @@ describe('SqsTransport', () => {
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withAutoProvision()
         .withHandler(
           handlerFor(AttributeRoundTripCommand, (_, attributes) => {
             handled.emit('received', attributes)
@@ -297,6 +301,7 @@ describe('SqsTransport', () => {
             .withLogger(() => Mock.ofType<Logger>().object)
             .withMessageTypes(busTestMessageTypes)
             .withTransport(transport)
+            .withAutoProvision()
         ).build()
         endpoints.push({ bus, transport })
         await bus.initialize()
@@ -387,6 +392,7 @@ describe('SqsTransport', () => {
         .withMessageTypes(messageTypes)
         .withTransport(sut)
         .withLogger(() => Mock.ofType<Logger>().object)
+        .withAutoProvision()
         .withMiddleware({
           outgoing: async (context, next) => {
             if (sendReservedHeader) {
@@ -467,6 +473,84 @@ describe('SqsTransport', () => {
         headerName: 'correlationId',
         transportName: 'SqsTransport'
       })
+    })
+  })
+
+  describe('when a bus initializes before its resources are provisioned', () => {
+    const configuration: SqsTransportConfiguration = {
+      awsRegion: AWS_REGION,
+      awsAccountId: AWS_ACCOUNT_ID,
+      queueName: `${resourcePrefix}-unprovisioned-${randomUUID()}`,
+      deadLetterQueueName: `${resourcePrefix}-unprovisioned-dead-letter`
+    }
+    let bus: BusInstance
+    let error: unknown
+    let queueCreated: boolean
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withTransport(new SqsTransport({ ...configuration }, sqs, sns))
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(handlerFor(AttributeRoundTripCommand, () => undefined))
+        .build()
+      error = await bus.initialize().catch((e: unknown) => e)
+      queueCreated = await sqs
+        .send(new GetQueueUrlCommand({ QueueName: configuration.queueName }))
+        .then(() => true)
+        .catch(() => false)
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should fail with ResourcesNotProvisioned, naming the missing queue', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect((error as ResourcesNotProvisioned).missingResources).toContain(
+        `SQS queue arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${configuration.queueName}`
+      )
+    })
+
+    it('should not create the queue', () => {
+      expect(queueCreated).toEqual(false)
+    })
+  })
+
+  describe('when a dry run is provisioned', () => {
+    const configuration: SqsTransportConfiguration = {
+      awsRegion: AWS_REGION,
+      awsAccountId: AWS_ACCOUNT_ID,
+      queueName: `${resourcePrefix}-dry-run-${randomUUID()}`,
+      deadLetterQueueName: `${resourcePrefix}-dry-run-dead-letter`
+    }
+    let plans: ProvisioningPlan[]
+    let queueCreated: boolean
+
+    beforeAll(async () => {
+      const bus = Bus.configure()
+        .withMessageTypes(messageTypes)
+        .withTransport(new SqsTransport({ ...configuration }, sqs, sns))
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withHandler(handlerFor(AttributeRoundTripCommand, () => undefined))
+        .build()
+      plans = await bus.provision({ dryRun: true })
+      await bus.dispose()
+      queueCreated = await sqs
+        .send(new GetQueueUrlCommand({ QueueName: configuration.queueName }))
+        .then(() => true)
+        .catch(() => false)
+    })
+
+    it('should plan the queue', () => {
+      expect(plans[0].resources).toContainEqual(
+        expect.objectContaining({
+          type: 'sqs-queue',
+          name: `arn:aws:sqs:${AWS_REGION}:${AWS_ACCOUNT_ID}:${configuration.queueName}`
+        })
+      )
+    })
+
+    it('should not create it', () => {
+      expect(queueCreated).toEqual(false)
     })
   })
 })

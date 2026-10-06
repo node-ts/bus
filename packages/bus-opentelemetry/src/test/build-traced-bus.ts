@@ -98,6 +98,8 @@ export const buildTracedBus = ({
   const configuration = Bus.configure()
     .withMessageTypes(messageTypes)
     .withLogger(() => Mock.ofType<Logger>().object)
+    // Creates the broker's queues and topics, for the tests over RabbitMQ and SQS
+    .withAutoProvision()
     .withRecoverability(() => retry(0))
     .withHandler(handlerFor(TracedCommand, reserveRoom))
     .withHandler(handlerFor(TracedEvent, sendConfirmation))

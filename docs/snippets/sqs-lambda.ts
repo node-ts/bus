@@ -22,7 +22,8 @@ const bus = Bus.configure()
   .withInterruptSignals([])
   .build()
 
-// Runs once per Lambda instance, when the module is loaded
+// Runs once per Lambda instance, when the module is loaded. It creates nothing, and checks the queue, topics and
+// subscriptions that `bus provision` created at deploy time exist.
 await bus.initialize()
 
 // Pass a function, rather than bus.receive itself, so it keeps its `this`

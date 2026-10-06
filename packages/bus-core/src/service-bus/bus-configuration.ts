@@ -80,6 +80,8 @@ export class BusConfiguration {
   private delayedDelivery: Required<DelayedDeliveryOptions> = { dispatch: true }
   private scheduler = false
   private outbox = false
+  private autoProvision = false
+  private verifyResources = true
   private sendOnly = false
   private interruptSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
   private receiver: Receiver | undefined
@@ -176,9 +178,62 @@ export class BusConfiguration {
       this.delayedDelivery,
       this.scheduler,
       this.outbox,
-      unitOfWorkContext
+      unitOfWorkContext,
+      {
+        autoProvision: this.autoProvision,
+        verifyResources: this.verifyResources
+      }
     )
     return this.busInstance
+  }
+
+  /**
+   * Provisions everything the bus needs, such as its queue, topics, subscriptions, tables and indexes, when it
+   * initializes, as `bus.provision()` would. Meant for local development and tests: in production, provision at
+   * deploy time with `bus provision` from @node-ts/bus-cli, so the service runs without permission to create
+   * anything.
+   *
+   * Without it, `initialize()` creates nothing, and checks that what the bus needs exists (see
+   * `withResourceVerification()`).
+   * @default off
+   * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * const bus = Bus.configure()
+   *   .withTransport(transport)
+   *   .withHandler(orderPlacedHandler)
+   *   .withAutoProvision()
+   *   .build()
+   * await bus.initialize() // creates the queue, topics and subscriptions
+   */
+  withAutoProvision(): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.autoProvision = true
+    return this
+  }
+
+  /**
+   * Sets whether `initialize()` checks that everything the bus needs exists, such as its queue, topics,
+   * subscriptions, tables and indexes, and throws `ResourcesNotProvisioned` naming anything that doesn't. The check
+   * only uses read-only calls, such as SQS's `GetQueueUrl`, but each adapter documents the permissions they need.
+   * Turn it off when the service's credentials can't be given those permissions.
+   *
+   * It's skipped when the bus is configured with `withAutoProvision()`, which has just created everything.
+   * @param verify whether to check
+   * @default true
+   * @throws BusAlreadyInitialized if called after the bus has been built
+   * @example
+   * Bus.configure().withResourceVerification(false)
+   */
+  withResourceVerification(verify: boolean): this {
+    if (!!this.busInstance) {
+      throw new BusAlreadyInitialized()
+    }
+
+    this.verifyResources = verify
+    return this
   }
 
   /**
@@ -264,8 +319,8 @@ export class BusConfiguration {
   }
 
   /**
-   * Configure the bus to only send messages and not receive them. No queues or subscriptions will be created for
-   * this service.
+   * Configure the bus to only send messages and not receive them. No queues or subscriptions are provisioned for
+   * this service, only a topic or exchange for each message in its message types (see `withMessageTypes()`).
    * @throws BusAlreadyInitialized if called after the bus has been built
    */
   asSendOnly(): this {

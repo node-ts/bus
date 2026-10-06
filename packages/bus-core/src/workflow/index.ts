@@ -5,9 +5,12 @@ export * from './message-workflow-mapping'
 export {
   InMemoryPersistence,
   OutgoingMessageStoredConcurrently,
+  PersistedWorkflow,
   Persistence,
+  PersistenceInitializationOptions,
   PersistenceNotConfigured,
   PersistenceTransaction,
+  PersistenceProvisionOptions,
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './persistence'

@@ -5,6 +5,7 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
+import { ProvisioningPlan } from '../provisioning'
 import { MessageFailure } from '../recoverability'
 import { CoreDependencies, Milliseconds } from '../util'
 import { TransportMessage } from './transport-message'
@@ -21,6 +22,58 @@ export interface TransportInitializationOptions {
    * If the transport is being initialized in send-only mode
    */
   sendOnly: boolean
+
+  /**
+   * The `$name` of every message the bus handles or has message types for (see `withMessageTypes()`), without
+   * workflow state. A transport that routes each message through its own topic or exchange provisions one for
+   * each of these, and checks they exist.
+   */
+  messageNames: string[]
+
+  /**
+   * Whether to check that every resource the transport needs exists, such as its queue, topics and
+   * subscriptions, and throw `ResourcesNotProvisioned` if any don't. Use read-only calls, and create nothing.
+   * It's `false` when the bus was configured with `withResourceVerification(false)`, or has just provisioned.
+   */
+  verifyResources: boolean
+
+  /**
+   * Whether the bus was configured with `withAutoProvision()`, and so has just called `provision()`. Only then may
+   * the transport create resources it finds it needs later, such as the topic of a message sent that isn't in the
+   * bus' message types. Otherwise it must create nothing at runtime.
+   */
+  autoProvision: boolean
+}
+
+export interface TransportProvisionOptions {
+  /**
+   * The handler registry that contains all of the message handlers that the transport needs to subscribe to
+   */
+  handlerRegistry: HandlerRegistry
+
+  /**
+   * If the bus only sends, so it needs no queue or subscriptions
+   */
+  sendOnly: boolean
+
+  /**
+   * The `$name` of every message the bus handles or has message types for, without workflow state. A transport
+   * that routes each message through its own topic or exchange provisions one for each of these, so senders and
+   * receivers can be deployed in any order.
+   */
+  messageNames: string[]
+
+  /**
+   * Whether the bus may send messages of any type, not only those in `messageNames`, such as a scheduler
+   * (`asScheduler()`), which sends the scheduled messages of every service that shares its persistence. Its runtime
+   * permissions then allow publishing to any topic or exchange.
+   */
+  sendsAnyMessage: boolean
+
+  /**
+   * Only work out the plan, without connecting to the broker or changing anything
+   */
+  dryRun: boolean
 }
 
 export interface TransportConnectionOptions {
@@ -196,12 +249,28 @@ export interface Transport<TransportMessageType = {}> {
   stop?(): Promise<void>
 
   /**
-   * An optional function that will be called when the service bus is starting. This is an
-   * opportunity for the transport to see what messages need to be handled so that subscriptions
-   * to the topics can be created.
-   * @param handlerRegistry The list of messages being handled by the bus that the transport needs to subscribe to.
+   * An optional function that will be called when the service bus is starting, after `connect()`. It must not
+   * create anything: when `verifyResources` is set, it checks the queues, topics and subscriptions the bus needs
+   * exist, with read-only calls, and throws `ResourcesNotProvisioned` naming each one that's missing.
+   * @param options the messages the bus handles and sends, and whether to check its resources
+   * @throws ResourcesNotProvisioned if `verifyResources` is set and a resource the bus needs doesn't exist
    */
   initialize?(options: TransportInitializationOptions): Promise<void>
+
+  /**
+   * Creates everything the bus needs on the broker, such as its queue, dead letter queue, a topic or exchange for
+   * each message, the subscriptions of its queue and the queue's access policy. It's run with deploy credentials
+   * by `bus.provision()` (and `bus provision` from @node-ts/bus-cli), or when the bus initializes if it's
+   * configured with `withAutoProvision()`, after `connect()` unless it's a dry run.
+   *
+   * It must be idempotent: running it again, or from several processes at once, leaves what exists as it is
+   * and creates what's missing.
+   * @param options the messages the bus handles and sends, and whether it's a dry run
+   * @returns what the transport provisions, and the permissions it needs at runtime
+   * @example
+   * const plan = await transport.provision({ handlerRegistry, sendOnly: false, messageNames, dryRun: true })
+   */
+  provision?(options: TransportProvisionOptions): Promise<ProvisioningPlan>
 
   /**
    * An optional function that will be called when the service bus is shutting down. This is an

@@ -37,7 +37,7 @@ import {
 } from '../function-workflow-definition'
 import { hasLookupValue } from '../has-lookup-value'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
-import { Persistence } from '../persistence'
+import { PersistedWorkflow, Persistence } from '../persistence'
 import { Workflow, WorkflowMapper } from '../workflow'
 import { WorkflowContext } from '../workflow-context'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
@@ -126,6 +126,7 @@ const workflowNameOf = (workflow: RegisteredWorkflow): string =>
 export class WorkflowRegistry {
   private workflowRegistry: RegisteredWorkflow[] = []
   private workflowStateNames: string[] = []
+  private persistedWorkflows: PersistedWorkflow[] = []
   private isInitialized = false
   private isInitializing = false
   private logger: Logger
@@ -194,10 +195,10 @@ export class WorkflowRegistry {
 
   /**
    * Initialize all services that are used to support workflows. This registers all messages subscribed to
-   * in workflows as handlers with the bus, and initializes the storage of each workflow state in the persistence,
-   * which the bus has already initialized.
+   * in workflows as handlers with the bus, and records how each workflow state is stored (see
+   * `getPersistedWorkflows()`), which the bus passes to its persistence to provision and initialize.
    *
-   * This should be called once as the application is starting.
+   * This should be called once, before the bus provisions or initializes.
    */
   async initialize(
     handlerRegistry: HandlerRegistry,
@@ -239,10 +240,10 @@ export class WorkflowRegistry {
         workflowHandlers.when.values(),
         ({ customLookup }) => customLookup || workflowLookup
       )
-      await this.persistence.initializeWorkflow(
-        workflowHandlers.workflowStateType,
+      this.persistedWorkflows.push({
+        workflowStateType: workflowHandlers.workflowStateType,
         messageWorkflowMappings
-      )
+      })
       this.logger.debug('Workflow initialized', {
         workflowName: workflowHandlers.workflowName
       })
@@ -261,6 +262,14 @@ export class WorkflowRegistry {
    */
   hasWorkflowsToInitialize(): boolean {
     return this.workflowRegistry.length > 0
+  }
+
+  /**
+   * Gets each workflow state that's been initialized, and the fields its messages look it up by
+   * @returns how each workflow state is stored
+   */
+  getPersistedWorkflows(): PersistedWorkflow[] {
+    return [...this.persistedWorkflows]
   }
 
   /**

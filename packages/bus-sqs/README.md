@@ -1,6 +1,6 @@
 # @node-ts/bus-sqs
 
-An [Amazon SQS](https://aws.amazon.com/sqs/) transport for [@node-ts/bus](https://node-ts.github.io/bus). It publishes each message to an SNS topic, and subscribes your service queue to the topics of the messages it handles. It creates the topics, queues and subscriptions for you, or uses ones you manage.
+An [Amazon SQS](https://aws.amazon.com/sqs/) transport for [@node-ts/bus](https://node-ts.github.io/bus). It publishes each message to an SNS topic, and subscribes your service queue to the topics of the messages it handles. `bus provision` creates the topics, queues and subscriptions at deploy time, or you can manage them yourself.
 
 [![npm](https://img.shields.io/npm/v/@node-ts/bus-sqs)](https://www.npmjs.com/package/@node-ts/bus-sqs)
 
@@ -38,9 +38,11 @@ const bus = Bus.configure()
   .withMessageTypes(messageTypes)
   .withTransport(sqsTransport)
   .withHandler(reserveRoomHandler)
+  // For local development: creates the queues, topics and subscriptions when the bus initializes. In production,
+  // create them at deploy time with `bus provision` instead.
+  .withAutoProvision()
   .build()
 
-// Creates the queues and topics, and subscribes the queue to each handled message's topic
 await bus.initialize()
 await bus.start()
 ```
@@ -55,8 +57,8 @@ Give either `queueArn`, or `awsAccountId`, `awsRegion` and `queueName`. `awsAcco
 
 | Option                   | Default                                    | Description                                                                                                                        |
 | ------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `awsAccountId`           |                                            | The account that queues and topics are created in.                                                                                 |
-| `awsRegion`              |                                            | The region that queues and topics are created in.                                                                                  |
+| `awsAccountId`           |                                            | The account of the queues and topics.                                                                                              |
+| `awsRegion`              |                                            | The region of the queues and topics.                                                                                               |
 | `queueName`              |                                            | The queue that receives this service's messages.                                                                                   |
 | `queueArn`               |                                            | The ARN of the service queue, instead of `queueName`. The account, region and name are read from it.                               |
 | `deadLetterQueueName`    | `dlq`                                      | The name of the dead letter queue.                                                                                                 |
@@ -65,15 +67,16 @@ Give either `queueArn`, or `awsAccountId`, `awsRegion` and `queueName`. `awsAcco
 | `visibilityTimeout`      | `30`                                       | The service queue's visibility timeout in seconds (0 to 43200), which is how long a handler has before the message is redelivered. |
 | `waitTimeSeconds`        | `10`                                       | The long polling wait when receiving. `0` turns on short polling. Longer waits make shutdown slower.                               |
 | `messageRetentionPeriod` | `1209600` (14 days)                        | How long the dead letter queue keeps messages, in seconds.                                                                         |
-| `queuePolicy`            | allows SNS topics in the same account      | A policy to attach to the service queue.                                                                                           |
+| `queuePolicy`            | allows SNS topics in the same account      | The access policy `bus provision` sets on the service queue. It's never set at runtime.                                            |
 | `resolveTopicName`       | the `$name` with invalid characters as `-` | Maps a message's `$name` to its SNS topic name, for example to add an environment prefix.                                          |
 | `resolveTopicArn`        | `arn:aws:sns:<region>:<account>:<topic>`   | Maps a topic name to its ARN.                                                                                                      |
-| `autoProvision`          | `true`                                     | Whether the transport creates queues, topics, subscriptions and the queue policy, and keeps the queue's attributes in sync.        |
+| `verifyQueuePolicy`      | `false`                                    | Whether `initialize()` also checks the service queue has an access policy. Needs `sqs:GetQueueAttributes`.                         |
 
-Set `autoProvision: false` when the queues and topics are created elsewhere, such as with CDK, CloudFormation or Terraform. The transport then only checks at `initialize()` that they exist.
+The transport creates nothing when the service starts: `initialize()` checks the queues, topics and subscriptions exist. Create them at deploy time with `bus provision` from [@node-ts/bus-cli](https://www.npmjs.com/package/@node-ts/bus-cli), or yourself, such as with CDK, CloudFormation or Terraform.
 
 ## Learn more
 
-- [Amazon SQS](https://node-ts.github.io/bus/transports/amazon-sqs): managing resources yourself, and how message attributes are sent
+- [Amazon SQS](https://node-ts.github.io/bus/transports/amazon-sqs): provisioning, the IAM permissions it needs, and how message attributes are sent
+- [Provisioning](https://node-ts.github.io/bus/guide/provisioning) with `bus provision`
 - [SQS and Lambda](https://node-ts.github.io/bus/transports/sqs-lambda), with [@node-ts/bus-sqs-lambda](https://www.npmjs.com/package/@node-ts/bus-sqs-lambda)
 - [Recoverability](https://node-ts.github.io/bus/guide/recoverability)

@@ -72,6 +72,7 @@ import {
   isOutgoingMessageStore,
   OutgoingMessageDispatcher
 } from '../outgoing-message/outgoing-message-dispatcher'
+import { ProvisioningPlan, ProvisionOptions } from '../provisioning'
 import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
@@ -101,6 +102,7 @@ import {
   PersistenceTransaction
 } from '../workflow/persistence'
 import { WorkflowRegistry } from '../workflow/registry'
+import { WorkflowState } from '../workflow/workflow-state'
 import { BusState } from './bus-state'
 import { InvalidBusState, InvalidOperation } from './error'
 
@@ -109,6 +111,32 @@ import { InvalidBusState, InvalidOperation } from './error'
  * straight away when it has no messages doesn't spin
  */
 const EMPTY_QUEUE_SLEEP_MS = 500
+
+/**
+ * Whether the class of a message type is a workflow state, which is stored rather than sent. A class that extends
+ * the `WorkflowState` of another copy of @node-ts/bus-core isn't an `instanceof` this one, so the names of its base
+ * classes are checked too.
+ */
+const isWorkflowStateClass = (
+  messageTypeClass: (new (...args: any[]) => object) | undefined
+): boolean => {
+  if (!messageTypeClass) {
+    return false
+  }
+  if (messageTypeClass.prototype instanceof WorkflowState) {
+    return true
+  }
+  for (
+    let base: unknown = Object.getPrototypeOf(messageTypeClass);
+    typeof base === 'function';
+    base = Object.getPrototypeOf(base)
+  ) {
+    if ((base as { name?: string }).name === WorkflowState.name) {
+      return true
+    }
+  }
+  return false
+}
 
 /**
  * How many buses use each persistence instance, so a persistence shared by several buses is only disposed by the
@@ -357,6 +385,11 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   private readonly outgoingMessageDispatcher:
     OutgoingMessageDispatcher | undefined
   private hasWarnedOfNonDurableDelivery = false
+  /**
+   * Registers the workflows' handlers, started by the first `provision()` or `initialize()`
+   */
+  private workflowRegistration: Promise<void> | undefined
+  private isTransportConnected = false
   private hasReleasedPersistence = false
   /**
    * The messages this bus is handling right now, so a reply is only sent while its request is being handled
@@ -384,7 +417,11 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     private readonly delayedDelivery: Required<DelayedDeliveryOptions>,
     private readonly scheduler: boolean,
     outbox: boolean,
-    private readonly unitOfWorkContext: UnitOfWorkContext
+    private readonly unitOfWorkContext: UnitOfWorkContext,
+    private readonly provisioning: {
+      autoProvision: boolean
+      verifyResources: boolean
+    } = { autoProvision: false, verifyResources: true }
   ) {
     this.logger = coreDependencies.loggerFactory(
       '@node-ts/bus-core:service-bus'
@@ -480,9 +517,14 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Initializes the bus with the provided configuration. This must be called before `.start()`
    *
+   * It connects the transport and persistence, and checks that the queues, topics, subscriptions, tables and
+   * indexes the bus needs exist, without creating anything. Provision them first with `bus provision` from
+   * @node-ts/bus-cli or `bus.provision()`, or configure the bus with `withAutoProvision()` to provision them here.
    * @throws InvalidOperation if the bus has already been initialized
    * @throws MessageTypesMissing if the bus receives messages, but a handled message or a workflow state has no
    * entry in the message types passed to `withMessageTypes()`
+   * @throws ResourcesNotProvisioned if something the bus needs doesn't exist, unless it's configured with
+   * `withAutoProvision()` or `withResourceVerification(false)`
    */
   async initialize(): Promise<void> {
     this.logger.debug('Initializing bus')
@@ -491,35 +533,38 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       throw new InvalidOperation('Bus has already been initialized')
     }
 
-    const usesPersistence =
-      (!this.sendOnly && this.workflowRegistry.hasWorkflowsToInitialize()) ||
-      isOutgoingMessageStore(this.persistence)
-    if (usesPersistence && this.persistence.initialize) {
-      this.logger.info('Initializing persistence...')
-      await this.persistence.initialize()
-    }
-
+    await this.registerWorkflows()
     if (!this.sendOnly) {
-      await this.workflowRegistry.initialize(
-        this.handlerRegistry,
-        this.container
-      )
       this.assertMessageTypesConfigured()
     }
     if (this.scheduler && !this.outgoingMessageDispatcher) {
       throw new DelayedDeliveryNotSupported(this.persistence.constructor.name)
     }
 
-    if (this.transport.connect) {
-      await this.transport.connect({
-        concurrency: this.concurrency
+    const { autoProvision } = this.provisioning
+    if (autoProvision) {
+      await this.provision()
+    }
+    // There's no need to check what's just been provisioned
+    const verifyResources = this.provisioning.verifyResources && !autoProvision
+
+    if (this.usesPersistence() && this.persistence.initialize) {
+      this.logger.info('Initializing persistence...')
+      await this.persistence.initialize({
+        workflows: this.workflowRegistry.getPersistedWorkflows(),
+        verifyResources
       })
     }
+
+    await this.connectTransport()
     if (this.transport.initialize) {
       // A scheduler only sends, so its transport doesn't set up a queue to receive from
       await this.transport.initialize({
         handlerRegistry: this.handlerRegistry,
-        sendOnly: this.sendOnly || this.scheduler
+        sendOnly: this.sendOnly || this.scheduler,
+        messageNames: this.getMessageNames(),
+        verifyResources,
+        autoProvision
       })
     }
 
@@ -530,6 +575,142 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       sendOnly: this.sendOnly,
       registeredMessages: this.handlerRegistry.getMessageNames()
     })
+  }
+
+  /**
+   * Creates everything the bus needs on its transport and persistence, such as its queue, dead letter queue, a
+   * topic or exchange for each message, its subscriptions, tables and indexes. It's worked out from the bus'
+   * handlers, workflows, custom handlers and message types, and is idempotent, so it can run on every deploy.
+   *
+   * Run it with deploy credentials, usually through `bus provision` from @node-ts/bus-cli, so the service itself
+   * runs without permission to create anything. It doesn't initialize or start the bus, so call `dispose()` when
+   * it's done.
+   * @param options with `dryRun`, only works out the plan, without connecting to anything or changing anything
+   * @returns what each transport or persistence that provisions anything provisions, and the permissions it needs
+   * at runtime
+   * @throws the transport's or persistence's own error if it can't create something, such as when a permission
+   * is missing
+   * @example
+   * const bus = Bus.configure().withTransport(transport).withHandler(orderPlacedHandler).build()
+   * try {
+   *   await bus.provision()
+   * } finally {
+   *   await bus.dispose()
+   * }
+   */
+  async provision(options: ProvisionOptions = {}): Promise<ProvisioningPlan[]> {
+    const dryRun = options.dryRun ?? false
+    this.logger.info(
+      dryRun ? 'Planning provisioning' : 'Provisioning resources...'
+    )
+    await this.registerWorkflows()
+
+    const plans: ProvisioningPlan[] = []
+    if (this.usesPersistence() && this.persistence.provision) {
+      plans.push(
+        await this.persistence.provision({
+          workflows: this.workflowRegistry.getPersistedWorkflows(),
+          dryRun
+        })
+      )
+    }
+    if (this.transport.provision) {
+      const messageNames = this.getMessageNames()
+      if (this.sendOnly && messageNames.length === 0) {
+        this.logger.warn(
+          'The send-only bus has no message types, so no topic or exchange is provisioned for what it sends, and its runtime permissions allow sending nothing. Pass the message types it sends to withMessageTypes().'
+        )
+      }
+      if (!dryRun) {
+        await this.connectTransport()
+      }
+      plans.push(
+        await this.transport.provision({
+          handlerRegistry: this.handlerRegistry,
+          sendOnly: this.sendOnly || this.scheduler,
+          messageNames,
+          // A scheduler sends the stored messages of every service that shares its persistence
+          sendsAnyMessage: this.scheduler,
+          dryRun
+        })
+      )
+    }
+
+    this.logger.info(
+      dryRun ? 'Provisioning planned' : 'Resources provisioned',
+      {
+        resources: plans.reduce(
+          (count, plan) => count + plan.resources.length,
+          0
+        )
+      }
+    )
+    return plans
+  }
+
+  /**
+   * Registers the handlers of the bus' workflows, once, so provisioning and initializing know every message the
+   * bus handles and every workflow state it stores. A send-only bus has no workflows. Registering is only tried
+   * once: if it failed, calling this again rejects with the same error rather than skipping it.
+   */
+  private async registerWorkflows(): Promise<void> {
+    if (this.sendOnly) {
+      return
+    }
+    this.workflowRegistration ??= this.workflowRegistry.initialize(
+      this.handlerRegistry,
+      this.container
+    )
+    await this.workflowRegistration
+  }
+
+  /**
+   * Whether the bus stores anything in its persistence: workflow state, or messages sent later
+   */
+  private usesPersistence(): boolean {
+    return (
+      this.workflowRegistry.getPersistedWorkflows().length > 0 ||
+      isOutgoingMessageStore(this.persistence)
+    )
+  }
+
+  /**
+   * Connects the transport, once, whether the bus is provisioning or initializing first
+   */
+  private async connectTransport(): Promise<void> {
+    if (this.isTransportConnected) {
+      return
+    }
+    this.isTransportConnected = true
+    if (this.transport.connect) {
+      await this.transport.connect({
+        concurrency: this.concurrency
+      })
+    }
+  }
+
+  /**
+   * Gets the `$name` of every message the bus handles or has message types for, leaving out workflow state, which
+   * is never sent
+   */
+  private getMessageNames(): string[] {
+    const { messageTypes } = this.coreDependencies
+    const workflowStateNames = new Set(
+      this.workflowRegistry.getWorkflowStateNames()
+    )
+    const typedMessageNames = Object.entries(messageTypes.messages)
+      .filter(
+        ([name, typeKey]) =>
+          !workflowStateNames.has(name) &&
+          !isWorkflowStateClass(messageTypes.types[typeKey]?.class)
+      )
+      .map(([name]) => name)
+    return [
+      ...new Set([
+        ...this.handlerRegistry.getMessageNames(),
+        ...typedMessageNames
+      ])
+    ]
   }
 
   /**

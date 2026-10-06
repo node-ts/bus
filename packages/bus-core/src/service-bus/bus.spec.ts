@@ -65,7 +65,12 @@ describe('Bus', () => {
         'withInterruptSignals',
         config => config.withInterruptSignals(['SIGUSR2'])
       ],
-      ['withReceiver', config => config.withReceiver({} as Receiver)]
+      ['withReceiver', config => config.withReceiver({} as Receiver)],
+      ['withAutoProvision', config => config.withAutoProvision()],
+      [
+        'withResourceVerification',
+        config => config.withResourceVerification(false)
+      ]
     ]
 
     it.each(configurationCalls)(

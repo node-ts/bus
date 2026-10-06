@@ -12,7 +12,6 @@ const postgresConfiguration: PostgresConfiguration = {
     connectionString: 'postgres://postgres:password@localhost:5432/postgres',
     max: 10
   },
-  // Created if it doesn't exist
   schemaName: 'workflows'
 }
 const postgresPersistence = new PostgresPersistence(postgresConfiguration)
@@ -21,8 +20,10 @@ const bus = Bus.configure()
   .withMessageTypes(messageTypes)
   .withPersistence(postgresPersistence)
   .withWorkflow(fulfilmentWorkflow)
+  // For local development: creates a table, and indexes for its lookups, for each workflow state when the bus
+  // initializes. In production, create them at deploy time with `bus provision` instead.
+  .withAutoProvision()
   .build()
 
-// Creates a table, and indexes for its lookups, for each workflow state
 await bus.initialize()
 await bus.start()

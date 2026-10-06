@@ -35,7 +35,6 @@ jest.setTimeout(20_000)
  */
 class WorkflowOnlyPersistence implements Persistence {
   prepare(): void {}
-  async initializeWorkflow(): Promise<void> {}
   async getWorkflowState(): Promise<never[]> {
     return []
   }

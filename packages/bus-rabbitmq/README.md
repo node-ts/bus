@@ -42,9 +42,11 @@ const bus = Bus.configure()
   .withMessageTypes(messageTypes)
   .withTransport(rabbitMqTransport)
   .withHandler(reserveRoomHandler)
+  // For local development: declares the exchanges and queues, and binds them, when the bus initializes. In
+  // production, declare them at deploy time with `bus provision` instead.
+  .withAutoProvision()
   .build()
 
-// Declares the exchanges and queues, and binds them for each handled message
 await bus.initialize()
 await bus.start()
 ```
@@ -67,6 +69,6 @@ Retried messages wait in durable `<queue>-retry-<n>ms` queues until their delay 
 
 ## Learn more
 
-- [RabbitMQ](https://node-ts.github.io/bus/transports/rabbitmq): the topology the transport declares, persistent messages and connection recovery
+- [RabbitMQ](https://node-ts.github.io/bus/transports/rabbitmq): the topology `bus provision` declares, the permissions it needs at runtime, persistent messages and connection recovery
 - [Recoverability](https://node-ts.github.io/bus/guide/recoverability)
 - [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2#node-ts-bus-rabbitmq)

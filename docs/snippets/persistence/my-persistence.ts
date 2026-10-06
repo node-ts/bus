@@ -5,6 +5,10 @@ import {
   Logger,
   MessageWorkflowMapping,
   Persistence,
+  PersistenceInitializationOptions,
+  PersistenceProvisionOptions,
+  ProvisioningPlan,
+  ResourcesNotProvisioned,
   WorkflowState,
   WorkflowStateVersionConflict,
   WorkflowStatus
@@ -22,27 +26,59 @@ export class MyPersistence implements Persistence {
     this.logger = coreDependencies.loggerFactory('my-org:my-persistence')
   }
 
-  async initialize(): Promise<void> {
+  // Connect, and create nothing: only check that what provision() creates exists
+  async initialize({
+    workflows,
+    verifyResources
+  }: PersistenceInitializationOptions): Promise<void> {
     await this.store.connect()
+    if (!verifyResources) {
+      return
+    }
+    const missing: string[] = []
+    for (const { workflowStateType } of workflows) {
+      const name = collectionName(workflowStateType)
+      if (!(await this.store.collectionExists(name))) {
+        missing.push(`collection ${name}`)
+      }
+    }
+    if (missing.length) {
+      throw new ResourcesNotProvisioned('MyPersistence', missing)
+    }
   }
 
   async dispose(): Promise<void> {
     await this.store.close()
   }
 
-  // Create somewhere to store each workflow state, indexed by the fields
-  // its messages are looked up by
-  async initializeWorkflow<TWorkflowState extends WorkflowState>(
-    workflowStateConstructor: ClassConstructor<TWorkflowState>,
-    messageWorkflowMappings: MessageWorkflowMapping<Message, WorkflowState>[]
-  ): Promise<void> {
-    const indexedFields = [
-      ...new Set(messageWorkflowMappings.map(mapping => mapping.mapsTo))
-    ]
-    await this.store.createCollection(
-      collectionName(workflowStateConstructor),
-      indexedFields
+  // Create somewhere to store each workflow state, indexed by the fields its messages are looked up by. Run at
+  // deploy time by `bus provision`, or at startup with withAutoProvision(). It must be safe to run again.
+  async provision({
+    workflows,
+    dryRun
+  }: PersistenceProvisionOptions): Promise<ProvisioningPlan> {
+    const collections = workflows.map(
+      ({ workflowStateType, messageWorkflowMappings }) => ({
+        name: collectionName(workflowStateType),
+        indexedFields: [
+          ...new Set(messageWorkflowMappings.map(mapping => mapping.mapsTo))
+        ]
+      })
     )
+    if (!dryRun) {
+      await this.store.connect()
+      for (const { name, indexedFields } of collections) {
+        await this.store.createCollection(name, indexedFields)
+      }
+    }
+    return {
+      adapter: 'MyPersistence',
+      resources: collections.map(({ name, indexedFields }) => ({
+        type: 'collection',
+        name,
+        properties: { indexedFields }
+      }))
+    }
   }
 
   async getWorkflowState<

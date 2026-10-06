@@ -71,6 +71,9 @@ export interface DeadLetteredMessage {
  * @param readAllFromDeadLetterQueue A callback that waits for a message to be dead-lettered, then reads and deletes
  * all messages on the dead letter queue, with the failure metadata in each one's `bus-failure` header
  *
+ * The suite provisions with `bus.provision()`, then initializes without provisioning, so `initialize()` only checks
+ * that what `provision()` created exists. A transport that needs resources must implement `provision()`.
+ *
  * The transport must implement `sendToAddress`, so handlers can reply with `ctx.reply()`. The suite checks that a
  * message sent to the transport's own return address is received without a subscription to it, and that every
  * message the bus sends arrives with the transport's `returnAddress` (or `endpointName`) as its `replyTo`.
@@ -178,6 +181,8 @@ export const transportTests = (
         )
         .build()
 
+      // Provisioned as a deploy would, so initialize() only checks the resources exist and creates nothing
+      await bus.provision()
       await bus.initialize()
       await bus.start()
     })

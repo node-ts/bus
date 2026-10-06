@@ -17,20 +17,21 @@ const bus = Bus.configure()
   .withMessageTypes(messageTypes)
   .withTransport(sqsTransport)
   .withHandler(reserveRoomHandler)
+  // For local development: creates the queues, topics and subscriptions when the bus initializes. In production,
+  // create them at deploy time with `bus provision` instead.
+  .withAutoProvision()
   .build()
 
-// Creates the queues and topics, and subscribes the queue to each handled message's topic
 await bus.initialize()
 await bus.start()
 // #endregion configure
 // #endregion usage
 
 // #region existing-resources
-// Queues, topics and subscriptions are created elsewhere, e.g. with CDK or Terraform
+// Queues, topics and subscriptions created elsewhere, e.g. with CDK or Terraform. initialize() checks they exist.
 new SqsTransport({
   queueArn: 'arn:aws:sqs:us-east-1:000000000000:reservations-service',
   deadLetterQueueArn:
-    'arn:aws:sqs:us-east-1:000000000000:reservations-service-dead-letter',
-  autoProvision: false
+    'arn:aws:sqs:us-east-1:000000000000:reservations-service-dead-letter'
 })
 // #endregion existing-resources

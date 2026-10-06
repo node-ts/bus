@@ -37,9 +37,17 @@ describe('InMemoryPersistence', () => {
         lookup: message => message.property1,
         mapsTo: 'property1'
       }
-      await sut.initializeWorkflow(TestWorkflowState, [
-        mapping as MessageWorkflowMapping<Message, WorkflowState>
-      ])
+      await sut.initialize({
+        workflows: [
+          {
+            workflowStateType: TestWorkflowState,
+            messageWorkflowMappings: [
+              mapping as MessageWorkflowMapping<Message, WorkflowState>
+            ]
+          }
+        ],
+        verifyResources: true
+      })
     })
 
     describe("when the mapper doesn't resolve", () => {
@@ -92,9 +100,17 @@ describe('InMemoryPersistence', () => {
     }
 
     beforeEach(async () => {
-      await sut.initializeWorkflow(TestWorkflowState, [
-        propertyMapping as MessageWorkflowMapping<Message, WorkflowState>
-      ])
+      await sut.initialize({
+        workflows: [
+          {
+            workflowStateType: TestWorkflowState,
+            messageWorkflowMappings: [
+              propertyMapping as MessageWorkflowMapping<Message, WorkflowState>
+            ]
+          }
+        ],
+        verifyResources: true
+      })
     })
 
     describe('for a new workflow', () => {
@@ -233,7 +249,15 @@ describe('InMemoryPersistence', () => {
       }
 
       beforeEach(async () => {
-        await sut.initializeWorkflow(UnnamedWorkflowState, [])
+        await sut.initialize({
+          workflows: [
+            {
+              workflowStateType: UnnamedWorkflowState,
+              messageWorkflowMappings: []
+            }
+          ],
+          verifyResources: true
+        })
         const workflowState = new UnnamedWorkflowState()
         workflowState.$workflowId = 'unnamed'
         await sut.saveWorkflowState(workflowState)
@@ -275,9 +299,17 @@ describe('InMemoryPersistence', () => {
       sut.claimDueOutgoingMessages(100, 1_000, 1_000, new Date(1_000))
 
     beforeEach(async () => {
-      await sut.initializeWorkflow(TestWorkflowState, [
-        propertyMapping as MessageWorkflowMapping<Message, WorkflowState>
-      ])
+      await sut.initialize({
+        workflows: [
+          {
+            workflowStateType: TestWorkflowState,
+            messageWorkflowMappings: [
+              propertyMapping as MessageWorkflowMapping<Message, WorkflowState>
+            ]
+          }
+        ],
+        verifyResources: true
+      })
       transaction = await sut.beginTransaction()
     })
 

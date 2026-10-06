@@ -14,6 +14,6 @@ A `Receiver<SQSEvent, TransportMessage<SqsLambdaRecord>>` that feeds Lambda SQS 
 - A record whose body can't be parsed still fails the whole batch, because `receive()` throws before dispatch.
 - Only `@types/aws-lambda` is used (dev dependency, type-only imports). Don't add the `aws-lambda` npm package, which is an unrelated deploy CLI.
 - The return address (`replyTo`) stamped on messages the Lambda's bus sends is the URL of the `SqsTransport`'s queue (`queueArn`, or `queueName` + account + region), which must be the Lambda's source queue.
-- `SqsTransport` is still used for send/publish, and its `initialize()` still provisions resources unless `autoProvision: false` is set.
+- `SqsTransport` is still used for send/publish, and its `initialize()` checks the resources `bus provision` created on each cold start (the integration test uses `withAutoProvision()`).
 - Pass the handler as `event => bus.receive(event)`, not `bus.receive`, which loses its `this` binding.
 - Tests: `src/bus-sqs-lambda-receiver.spec.ts` (unit) and `src/bus-sqs-lambda-receiver.integration.ts`, which reads real messages from a LocalStack queue (`LOCALSTACK_ENDPOINT`, needs SQS and SNS), feeds them to `bus.receive()` as a Lambda event and simulates Lambda deleting the records it reports as successful. Fixtures are in `src/test`.

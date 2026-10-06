@@ -1,6 +1,6 @@
 # @node-ts/bus-cli
 
-The `bus` command line for [@node-ts/bus](https://node-ts.github.io/bus). Its `bus generate-message-types` command generates the message types that let the bus restore Dates, Maps, Sets, bigints and class instances at any depth of your messages, with no decorators or `reflect-metadata`.
+The `bus` command line for [@node-ts/bus](https://node-ts.github.io/bus). Its `bus generate-message-types` command generates the message types that let the bus restore Dates, Maps, Sets, bigints and class instances at any depth of your messages, with no decorators or `reflect-metadata`, and `bus provision` creates the queues, topics, tables and indexes a bus needs at deploy time.
 
 [![npm](https://img.shields.io/npm/v/@node-ts/bus-cli)](https://www.npmjs.com/package/@node-ts/bus-cli)
 
@@ -62,7 +62,23 @@ Generate the file before every build, and check it in CI:
 
 Paths and globs are relative to the current directory.
 
+## Provisioning
+
+The bus creates nothing when a service starts. `bus provision` builds the bus a module exports, before it's built, as a `BusConfiguration` or a function that returns one, and creates everything its transport and persistence need. Run it with deploy credentials, before the service starts:
+
+```sh
+npx bus provision dist/bus-configuration.js --export busConfiguration
+```
+
+| Option            | Default   | Description                                                                           |
+| ----------------- | --------- | ------------------------------------------------------------------------------------- |
+| `--export <name>` | `default` | The export to use                                                                     |
+| `--dry-run`       |           | Prints what would be provisioned, without connecting to anything or changing anything |
+| `--permissions`   |           | Also prints the permissions each adapter needs at runtime, such as an IAM policy      |
+| `--json`          |           | Prints a JSON report, described by the exported `ProvisionReport` type                |
+
 ## Learn more
 
 - [Generating message types](https://node-ts.github.io/bus/guide/serializers/message-types): what the generator reads, the types it supports, its known limits, and generating from code
 - [Serializers](https://node-ts.github.io/bus/guide/serializers), for how the bus uses the message types
+- [Provisioning](https://node-ts.github.io/bus/guide/provisioning): `bus provision`, its JSON report, and checking resources at startup

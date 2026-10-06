@@ -56,7 +56,6 @@ const outboxMessageTypes = [
  */
 class WorkflowOnlyPersistence implements Persistence {
   prepare(): void {}
-  async initializeWorkflow(): Promise<void> {}
   async getWorkflowState(): Promise<never[]> {
     return []
   }

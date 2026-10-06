@@ -35,7 +35,6 @@ const postgresConfiguration: PostgresConfiguration = {
     connectionString: 'postgres://postgres:password@localhost:5432/postgres',
     max: 10
   },
-  // Created if it doesn't exist
   schemaName: 'workflows'
 }
 const postgresPersistence = new PostgresPersistence(postgresConfiguration)
@@ -44,9 +43,11 @@ const bus = Bus.configure()
   .withMessageTypes(messageTypes)
   .withPersistence(postgresPersistence)
   .withWorkflow(fulfilmentWorkflow)
+  // For local development: creates a table, and indexes for its lookups, for each workflow state when the bus
+  // initializes. In production, create them at deploy time with `bus provision` instead.
+  .withAutoProvision()
   .build()
 
-// Creates a table, and indexes for its lookups, for each workflow state
 await bus.initialize()
 await bus.start()
 ```
@@ -55,16 +56,16 @@ The example uses top-level `await`, so it runs as an ES module. In CommonJS, wra
 
 ## Configuration
 
-| Option       | Default | Description                                                                                                                                                                               |
-| ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection` |         | The [pg `Pool`](https://node-postgres.com/apis/pool) settings, such as `connectionString` and `max`.                                                                                      |
-| `schemaName` |         | The schema to create workflow tables in, such as `workflows`. It's created if it doesn't exist. The name is quoted, so it's case-sensitive and used exactly as given. `public` works too. |
+| Option       | Default | Description                                                                                                                                                                                    |
+| ------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection` |         | The [pg `Pool`](https://node-postgres.com/apis/pool) settings, such as `connectionString` and `max`.                                                                                           |
+| `schemaName` |         | The schema of the workflow tables, such as `workflows`. Provisioning creates it if it doesn't exist. The name is quoted, so it's case-sensitive and used exactly as given. `public` works too. |
 
 To share a pool with the rest of your application, pass your `Pool` as the second constructor argument.
 
 ## Learn more
 
-- [Postgres](https://node-ts.github.io/bus/persistence/postgres): the tables and indexes it creates
+- [Postgres](https://node-ts.github.io/bus/persistence/postgres): the tables and indexes `bus provision` creates, and the grants it needs at runtime
 - [Workflows](https://node-ts.github.io/bus/guide/workflows)
 - [Delayed delivery](https://node-ts.github.io/bus/guide/delayed-delivery): messages sent with `deliverAfter` or `deliverAt` are kept in an `outgoing_messages` table until they're due
 - [Transactional outbox](https://node-ts.github.io/bus/guide/outbox): with `withOutbox()`, each message is handled in a transaction, which handlers write their own data in with `postgresTransaction(ctx)`

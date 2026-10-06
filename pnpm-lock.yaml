@@ -328,6 +328,8 @@ importers:
 
   packages/bus-cli/test/non-strict: {}
 
+  packages/bus-cli/test/provision: {}
+
   packages/bus-cli/test/same-names: {}
 
   packages/bus-cli/test/skipped: {}

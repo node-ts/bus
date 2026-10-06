@@ -14,7 +14,7 @@ import {
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './error'
-import { Persistence } from './persistence'
+import { Persistence, PersistenceInitializationOptions } from './persistence'
 import { PersistenceTransaction } from './persistence-transaction'
 
 interface WorkflowStorage {
@@ -86,12 +86,17 @@ export class InMemoryPersistence implements Persistence {
     )
   }
 
-  async initializeWorkflow<TWorkflowState extends WorkflowState>(
-    workflowStateConstructor: ClassConstructor<TWorkflowState>,
-    _: MessageWorkflowMapping<Message, WorkflowState>[]
-  ): Promise<void> {
-    const name = new workflowStateConstructor().$name
-    this.workflowState[name] = []
+  /**
+   * Sets up somewhere to store the state of each workflow. There's nothing to provision, so it never checks
+   * anything exists. State already stored for a workflow, such as by another bus that shares this persistence, is
+   * kept.
+   * @param options the workflows of the bus
+   */
+  async initialize(options: PersistenceInitializationOptions): Promise<void> {
+    for (const { workflowStateType } of options.workflows) {
+      const name = new workflowStateType().$name
+      this.workflowState[name] ??= []
+    }
   }
 
   async getWorkflowState<

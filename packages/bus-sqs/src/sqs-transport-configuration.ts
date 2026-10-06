@@ -9,12 +9,12 @@ export interface SqsTransportConfiguration extends Omit<
   'queueName'
 > {
   /**
-   * The AWS Account Id of the account where queues and topics will be created
+   * The AWS Account Id of the account where the queues and topics are
    */
   awsAccountId?: string
 
   /**
-   * The AWS region to create queues and topics in
+   * The AWS region of the queues and topics
    */
   awsRegion?: string
 
@@ -49,7 +49,7 @@ export interface SqsTransportConfiguration extends Omit<
   queueName?: string
 
   /**
-   * An optional custom queue policy to apply to any created SQS queues.
+   * The access policy `provision()` sets on the service queue. It's never set at runtime.
    * By default a generic policy will be added that grants send permissions to SNS
    * topics within the same AWS account. This can be further restricted or relaxed by
    * providing a custom policy.
@@ -76,6 +76,15 @@ export interface SqsTransportConfiguration extends Omit<
    * }
    */
   queuePolicy?: string
+
+  /**
+   * Whether `initialize()` also checks that the service queue has an access policy, with `GetQueueAttributes`. SNS
+   * can only deliver to a queue whose policy allows it, and a queue without one receives nothing, without any
+   * error, so turn this on when the queue is created by other tooling. The service then needs
+   * `sqs:GetQueueAttributes` on its queues.
+   * @default false
+   */
+  verifyQueuePolicy?: boolean
 
   /**
    * The visibility timeout for the queue, in seconds. Valid values: An integer from 0 to 43,200 (12 hours)
@@ -118,17 +127,4 @@ export interface SqsTransportConfiguration extends Omit<
    *   `arn:aws:sns:${awsRegion}:${awsAccountId}:${topicName}`
    */
   resolveTopicArn?: typeof defaultResolveTopicArn
-
-  /**
-   * Controls whether the library automatically provisions necessary AWS resources (SNS topics, SQS queues, and subscriptions).
-   *
-   * By default, this is set to 'true', meaning the library will attempt to create
-   * these resources on startup.
-   *
-   * Set this to 'false' if your application manages resource provisioning using
-   * separate tools (e.g., AWS CDK, CloudFormation, or IaC/IoC frameworks).
-   *
-   * @default true
-   */
-  autoProvision?: boolean
 }
