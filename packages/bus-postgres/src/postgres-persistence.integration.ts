@@ -832,6 +832,48 @@ describe('PostgresPersistence', () => {
     })
   })
 
+  describe('when initializing and the inbox table was dropped after provisioning', () => {
+    const schemaName = 'workflows_without_inbox'
+    let withoutInboxPool: Pool
+    let error: unknown
+
+    beforeAll(async () => {
+      withoutInboxPool = new Pool(configuration.connection)
+      await withoutInboxPool.query(
+        `drop schema if exists "${schemaName}" cascade`
+      )
+      const withoutInboxSut = new PostgresPersistence(
+        { ...configuration, schemaName },
+        withoutInboxPool
+      )
+      withoutInboxSut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      await provision(withoutInboxSut)
+      await withoutInboxPool.query(`drop table "${schemaName}"."inbox"`)
+      error = await withoutInboxSut
+        .initialize({ workflows: [], verifyResources: true })
+        .catch((e: unknown) => e)
+    })
+
+    afterAll(async () => {
+      await withoutInboxPool.query(
+        `drop schema if exists "${schemaName}" cascade`
+      )
+      await withoutInboxPool.end()
+    })
+
+    it('should fail at startup naming the inbox table and index', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect(error).toMatchObject({
+        missingResources: [
+          `Postgres table "${schemaName}"."inbox"`,
+          `Postgres index "${schemaName}"."inbox_processed_at_idx"`
+        ]
+      })
+    })
+  })
+
   workflowStateRoundTripTests(
     new PostgresPersistence({
       ...configuration,

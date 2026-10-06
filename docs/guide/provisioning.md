@@ -63,9 +63,12 @@ npx bus provision dist/bus-configuration.js --export busConfiguration --dry-run 
 ```txt
 Plan for the bus in dist/bus-configuration.js. Nothing was changed.
 
-PostgresPersistence (6 resources)
+PostgresPersistence (8 resources)
   postgres-schema  workflows
   postgres-table   "workflows"."outgoing_messages"
+  postgres-index   outgoing_messages_available_at_idx
+  postgres-table   "workflows"."inbox"
+  postgres-index   inbox_processed_at_idx
   ...
 
 SqsTransport (7 resources)

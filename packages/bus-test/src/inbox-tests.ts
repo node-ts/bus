@@ -58,7 +58,8 @@ const isBlocked = async (promise: Promise<unknown>): Promise<boolean> =>
  * no record so its retry or a replay from the dead letter queue is handled, and old records are removed.
  *
  * It records messages in the persistence's transactions directly, and runs two buses, on two endpoints, with
- * in-memory queues and handlers that fail on purpose.
+ * in-memory queues and handlers that fail on purpose. The buses provision with `bus.provision()`, then initialize
+ * without provisioning, so `initialize()` only checks that what `provision()` created exists.
  * @param persistence A fully configured persistence that supports `withOutbox()`, on its own database or schema,
  * since the suite removes every inbox record in it. It's disposed when the suite's buses are disposed, unless another
  * bus that uses it is still running.
@@ -219,6 +220,9 @@ export const inboxTests = (persistence: Persistence): void => {
       )
       .build()
     secondBus = buildBus(secondQueue, SECOND_ENDPOINT).build()
+    // Provisioned as a deploy would, so initialize() only checks the persistence's storage, inbox included, exists
+    await firstBus.provision()
+    await secondBus.provision()
     await firstBus.initialize()
     await secondBus.initialize()
     await firstBus.start()

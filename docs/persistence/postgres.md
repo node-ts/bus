@@ -46,7 +46,7 @@ Each workflow state has a table in the schema, named after its `$name` with inva
 
 An `outgoing_messages` table in the schema holds messages sent with [delayed delivery](/guide/delayed-delivery) until they're due, and those of the [transactional outbox](/guide/outbox) until they're sent, with an index on when each is next available. Buses claim them with `for update skip locked`, which needs Postgres 9.5 or later.
 
-It creates an `inbox` table too, which records the messages each endpoint has handled with `withOutbox()`, keyed by endpoint and message id, so the [inbox](/guide/outbox#the-inbox) skips a copy of one. Records are removed after 7 days, through an index on when they were recorded.
+An `inbox` table in the schema records the messages each endpoint has handled with `withOutbox()`, keyed by endpoint and message id, so the [inbox](/guide/outbox#the-inbox) skips a copy of one, with an index on when each was recorded, which old records are removed by after 7 days. It's provisioned whether or not the bus uses `withOutbox()`, so turning the outbox on later needs no new resources.
 
 ## Transactions
 
@@ -73,12 +73,13 @@ Once provisioned, the service only reads and writes rows, including in the trans
 ```sql
 GRANT USAGE ON SCHEMA "workflows" TO <runtime_role>;
 GRANT SELECT, INSERT, UPDATE, DELETE ON "workflows"."outgoing_messages" TO <runtime_role>;
+GRANT SELECT, INSERT, DELETE ON "workflows"."inbox" TO <runtime_role>;
 GRANT SELECT, INSERT, UPDATE ON "workflows"."my-appstorefulfilment-workflow-state" TO <runtime_role>;
 ```
 
 The outbox's transactions run the same statements, so they need nothing more. Tables your handlers write to with `postgresTransaction(ctx)` are yours, so grant those yourself.
 
-At `initialize()` the persistence checks the schema, the outgoing messages table and each workflow's table and indexes exist, by looking up their names in `pg_namespace` and with `to_regclass`, which needs no privileges beyond `USAGE` on the schema. It throws `ResourcesNotProvisioned` naming any that are missing.
+At `initialize()` the persistence checks the schema, the outgoing messages and inbox tables and their indexes, and each workflow's table and indexes exist, by looking up their names in `pg_namespace` and with `to_regclass`, which needs no privileges beyond `USAGE` on the schema. It throws `ResourcesNotProvisioned` naming any that are missing.
 
 ## Running Postgres locally
 
