@@ -9,8 +9,8 @@ export {
   Persistence,
   PersistenceInitializationOptions,
   PersistenceNotConfigured,
-  PersistenceTransaction,
   PersistenceProvisionOptions,
+  PersistenceTransaction,
   WorkflowStateNotInitialized,
   WorkflowStateVersionConflict
 } from './persistence'

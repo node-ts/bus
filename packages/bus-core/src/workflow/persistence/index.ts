@@ -6,5 +6,4 @@ export {
   PersistenceInitializationOptions,
   PersistenceProvisionOptions
 } from './persistence'
-export { Persistence } from './persistence'
 export { PersistenceTransaction } from './persistence-transaction'

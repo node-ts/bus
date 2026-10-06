@@ -70,6 +70,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON "workflows"."outgoing_messages" TO <runt
 GRANT SELECT, INSERT, UPDATE ON "workflows"."my-appstorefulfilment-workflow-state" TO <runtime_role>;
 ```
 
+The outbox's transactions run the same statements, so they need nothing more. Tables your handlers write to with `postgresTransaction(ctx)` are yours, so grant those yourself.
+
 At `initialize()` the persistence checks the schema, the outgoing messages table and each workflow's table and indexes exist, by looking up their names in `pg_namespace` and with `to_regclass`, which needs no privileges beyond `USAGE` on the schema. It throws `ResourcesNotProvisioned` naming any that are missing.
 
 ## Running Postgres locally
