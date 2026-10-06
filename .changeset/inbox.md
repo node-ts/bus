@@ -1,0 +1,11 @@
+---
+'@node-ts/bus-core': minor
+'@node-ts/bus-postgres': minor
+'@node-ts/bus-test': minor
+---
+
+Add an inbox to `withOutbox()` (#261), so a message is handled once by each endpoint however many times it's delivered. The first step in each received message's transaction, before any handler or handler middleware runs, records its `messageId` with the transport's `endpointName`. If the endpoint has already handled the message, its handlers are skipped and it's deleted. A copy being handled at the same time waits for the other's transaction to end, and is skipped if that's committed. The record is rolled back with a message that fails, so its retry, or a replay from the dead letter queue, is handled. A message without a `messageId` is handled as before. Records are kept for 7 days: every started bus with `withOutbox()` that dispatches stored messages, and every scheduler, removes older ones about once an hour, in batches, on a timer of its own so sending isn't held up. `failMessage()` or `returnMessage()` called from incoming middleware after `next()`, once the transaction is committed, logs a warning, since the retry or replay is then skipped.
+
+- `PersistenceTransaction` has a new `recordIncomingMessage(endpoint, messageId)`, which returns `false` for a message the endpoint has already handled, and `Persistence` a new optional `removeIncomingMessagesBefore(date, limit)`, which removes a batch and returns how many it removed. `withOutbox()` needs both, so `build()` throws `OutboxNotSupported` for a persistence without `removeIncomingMessagesBefore()`. `InMemoryPersistence` implements them.
+- `PostgresPersistence` begins its transactions with `begin isolation level read committed`, whatever the database's default, so a copy waiting on the inbox sees the other copy's commit rather than failing with a serialization error. It implements the inbox with an `inbox` table in the configured schema, keyed by `(endpoint, message_id)` with an index on `processed_at`. The table is always provisioned by `provision()` and listed in its plan, `initialize()` throws `ResourcesNotProvisioned` when it's missing, and the runtime grants include `SELECT, INSERT, DELETE` on it.
+- `@node-ts/bus-test` adds `inboxTests(persistence)`, which checks a persistence keeps the inbox's guarantees.

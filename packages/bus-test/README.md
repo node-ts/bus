@@ -96,11 +96,13 @@ The suite sends messages with Dates, class instances several levels deep, arrays
 - **`workflowStateRoundTripTests(persistence)`** starts a workflow whose state has Dates and nested class instances, and checks the next handler reads the state back with its types restored. Run it from a persistence adapter's integration test with a persistence instance of its own, since the suite disposes it.
 - **`scheduledMessageRoundTripTests(persistence)`** checks a persistence that stores messages sent with `deliverAfter` or `deliverAt`: how it stores, claims, leases and deletes them, and that several buses sharing it deliver each scheduled message once, when it's due, with its attributes, headers and types. Give it a persistence instance of its own, ideally on its own database or schema, since a running bus that shares the store could send the suite's messages.
 - **`outboxTests(persistence)`** checks a persistence that supports `withOutbox()`: that a handler that fails leaves no workflow state or sent messages behind, that a retry doesn't repeat what other handlers sent, that a message the transport fails to send after the commit is still sent, and that `bus.transaction()` only sends once it commits. Give it a persistence instance of its own, on its own database or schema.
+- **`inboxTests(persistence)`** checks the inbox of a persistence that supports `withOutbox()`: that a message delivered twice to an endpoint is handled once, that an event delivered to two endpoints is handled by both, that two copies handled at once are never both handled, that a message that failed leaves no record so its retry or a replay from the dead letter queue is handled, and that old records are removed. Give it a persistence instance of its own, on its own database or schema, since it removes every inbox record in it.
 
 <!-- <<< @/snippets/persistence/my-persistence.integration.ts#suite -->
 
 ```ts
 import {
+  inboxTests,
   outboxTests,
   scheduledMessageRoundTripTests,
   workflowStateRoundTripTests
@@ -117,6 +119,7 @@ describe('MyPersistence', () => {
   scheduledMessageRoundTripTests(new MyPersistence(documentStore))
   // Only if MyPersistence implements beginTransaction(), for withOutbox()
   outboxTests(new MyPersistence(documentStore))
+  inboxTests(new MyPersistence(documentStore))
 })
 ```
 

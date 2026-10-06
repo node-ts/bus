@@ -40,6 +40,24 @@ export interface PersistenceTransaction {
   storeOutgoingMessages(outgoingMessages: OutgoingMessage[]): Promise<string[]>
 
   /**
+   * Records that an endpoint has handled a message, for the inbox that `withOutbox()` runs: the bus calls it first in
+   * each received message's transaction, before any handler, and skips the handlers when it returns `false`. The
+   * record is kept when the transaction is committed, and dropped when it's rolled back, so a message that failed is
+   * handled again when it's retried or replayed from the dead letter queue.
+   *
+   * While another transaction that hasn't ended has recorded the same message, it waits for that transaction to end,
+   * then returns `false` if it was committed, or records the message if it was rolled back, so two copies of a
+   * message handled at once are never both handled. A database does this with a unique key on the endpoint and message
+   * id, such as with `insert ... on conflict do nothing`. A statement that fails on the duplicate would roll the
+   * transaction back.
+   * @param endpoint the `endpointName` of the transport the message was received from, since an event published to
+   * several endpoints is handled once by each
+   * @param messageId the `messageId` the message was received with
+   * @returns `true` if it was recorded, or `false` if the endpoint has already handled the message
+   */
+  recordIncomingMessage(endpoint: string, messageId: string): Promise<boolean>
+
+  /**
    * Keeps everything done in the transaction, and ends it
    * @throws the persistence's error if it couldn't be committed, in which case nothing was kept. A persistence whose
    * database rolls a transaction back on commit, such as after a statement in it failed, throws

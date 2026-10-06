@@ -62,8 +62,9 @@ export interface PersistenceProvisionOptions {
  * `releaseOutgoingMessages` also stores messages sent with `deliverAfter` or `deliverAt`, until a started bus sends
  * them.
  *
- * A persistence that also implements `beginTransaction` can be used with `withOutbox()`, which saves the workflow state
- * and outgoing messages of each message handled in one transaction.
+ * A persistence that also implements `beginTransaction` and `removeIncomingMessagesBefore` can be used with
+ * `withOutbox()`, which saves the workflow state and outgoing messages of each message handled in one transaction,
+ * and records each message in it so a copy of the message isn't handled again.
  */
 export interface Persistence {
   /**
@@ -206,9 +207,23 @@ export interface Persistence {
   /**
    * If provided, begins a transaction that workflow state is saved in, and outgoing messages stored in, until it's
    * committed. A bus configured with `withOutbox()` needs it, together with the methods that store outgoing
-   * messages, and begins one for each message it handles and each `bus.transaction()`.
+   * messages and `removeIncomingMessagesBefore`, and begins one for each message it handles and each
+   * `bus.transaction()`.
    * @returns the transaction, which holds what it needs, such as a database connection, until the bus commits it or
    * rolls it back
    */
   beginTransaction?(): Promise<PersistenceTransaction>
+
+  /**
+   * If provided, removes the inbox's records of handled messages, made by `PersistenceTransaction.recordIncomingMessage`,
+   * that were recorded before a time. A bus configured with `withOutbox()` needs it, together with `beginTransaction`.
+   * A started bus configured with `withOutbox()`, or a scheduler, calls it every hour, outside any transaction, to
+   * remove records older than the inbox keeps them, so a copy of a message delivered after that is handled again. It's
+   * called again while it removes `limit` records, so remove at most that many in one short statement. If the
+   * records' table or collection doesn't exist, there's nothing to remove.
+   * @param before records made before this time are removed
+   * @param limit the most records to remove
+   * @returns how many records were removed
+   */
+  removeIncomingMessagesBefore?(before: Date, limit: number): Promise<number>
 }

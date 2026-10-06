@@ -299,9 +299,13 @@ export class BusConfiguration {
    * Handlers can save their own data in the same transaction, through the persistence's accessor, such as
    * `postgresTransaction(ctx)` from `@node-ts/bus-postgres`, and `bus.transaction()` does the same outside a handler.
    *
+   * It also keeps an inbox: each message's `messageId` is recorded with the transport's `endpointName` first in its
+   * transaction, and a copy of a message this endpoint has already handled, such as one sent again because the process
+   * stopped after sending it and before deleting it from the persistence, or redelivered by the broker, is deleted
+   * without running its handlers. Records are kept for 7 days. A message without a `messageId` is always handled.
+   *
    * Each message holds a transaction, such as a database connection, while it's handled, so allow for as many as the
-   * bus' concurrency. Delivery is at least once: a message can be sent again if the process stops after sending it
-   * and before deleting it from the persistence, so give handlers a way to recognise a repeat.
+   * bus' concurrency.
    * @throws BusAlreadyInitialized if called after the bus has been built
    * @example
    * const bus = Bus.configure()

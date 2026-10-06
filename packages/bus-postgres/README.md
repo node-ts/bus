@@ -68,5 +68,5 @@ To share a pool with the rest of your application, pass your `Pool` as the secon
 - [Postgres](https://node-ts.github.io/bus/persistence/postgres): the tables and indexes `bus provision` creates, and the grants it needs at runtime
 - [Workflows](https://node-ts.github.io/bus/guide/workflows)
 - [Delayed delivery](https://node-ts.github.io/bus/guide/delayed-delivery): messages sent with `deliverAfter` or `deliverAt` are kept in an `outgoing_messages` table until they're due
-- [Transactional outbox](https://node-ts.github.io/bus/guide/outbox): with `withOutbox()`, each message is handled in a transaction, which handlers write their own data in with `postgresTransaction(ctx)`
+- [Transactional outbox](https://node-ts.github.io/bus/guide/outbox): with `withOutbox()`, each message is handled in a transaction, which handlers write their own data in with `postgresTransaction(ctx)`, and an `inbox` table records the messages handled, so a copy of one is skipped
 - [Upgrading to 2.0](https://node-ts.github.io/bus/upgrading/v2#node-ts-bus-postgres)

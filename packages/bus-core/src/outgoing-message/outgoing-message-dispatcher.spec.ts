@@ -9,7 +9,8 @@ import {
   isOutgoingMessageStore,
   OutgoingMessageDispatcher,
   OutgoingMessageDispatcherOptions,
-  OutgoingMessageStore
+  OutgoingMessageStore,
+  PeriodicTask
 } from './outgoing-message-dispatcher'
 
 interface Sender {
@@ -55,7 +56,8 @@ describe('OutgoingMessageDispatcher', () => {
   let claimLimits: number[]
 
   const createSut = (
-    options: Partial<OutgoingMessageDispatcherOptions> = {}
+    options: Partial<OutgoingMessageDispatcherOptions> = {},
+    periodicTask?: PeriodicTask
   ) => {
     store = Mock.ofType<OutgoingMessageStore>()
     sender = Mock.ofType<Sender>()
@@ -64,7 +66,8 @@ describe('OutgoingMessageDispatcher', () => {
       store.object,
       async message => sender.object.send(message),
       logger.object,
-      { ...DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS, ...options }
+      { ...DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS, ...options },
+      periodicTask
     )
   }
 
@@ -700,6 +703,132 @@ describe('OutgoingMessageDispatcher', () => {
 
     it('should stop checking the store', () => {
       expect(claimsAfterStop).toEqual(0)
+    })
+  })
+
+  describe('when it is started with a periodic task', () => {
+    let taskRuns: number[]
+    let startedAt: number
+
+    beforeAll(async () => {
+      taskRuns = []
+      createSut(
+        { pollIntervalMs: 10 },
+        {
+          name: 'test task',
+          intervalMs: 100,
+          jitterMs: 50,
+          run: async () => {
+            taskRuns.push(Date.now())
+          }
+        }
+      )
+      claims()
+      startedAt = Date.now()
+      sut.start()
+      await until(() => taskRuns.length >= 2)
+      await sut.stop()
+    })
+
+    it('should run it within its jitter of starting', () => {
+      expect(taskRuns[0] - startedAt).toBeLessThan(50 + 30)
+    })
+
+    it('should run it again once its interval has passed', () => {
+      expect(taskRuns[1] - taskRuns[0]).toBeGreaterThanOrEqual(100)
+    })
+  })
+
+  describe('when a periodic task runs for a long time', () => {
+    let claimsWhileRunning: number
+    let taskSignal: AbortSignal | undefined
+    let stopTookMs: number
+
+    beforeAll(async () => {
+      let claimCount = 0
+      createSut(
+        { pollIntervalMs: 10 },
+        {
+          name: 'test task',
+          intervalMs: 60_000,
+          jitterMs: 0,
+          // Runs until the dispatcher stops, like a cleanup with a large backlog that stops between batches
+          run: async signal => {
+            taskSignal = signal
+            while (!signal.aborted) {
+              await sleep(5)
+            }
+          }
+        }
+      )
+      store
+        .setup(async s =>
+          s.claimDueOutgoingMessages(It.isAny(), It.isAny(), It.isAny())
+        )
+        .returns(async () => {
+          claimCount++
+          return []
+        })
+      sut.start()
+      await until(() => taskSignal !== undefined)
+      const claimsAtTaskStart = claimCount
+      await until(() => claimCount >= claimsAtTaskStart + 3)
+      claimsWhileRunning = claimCount - claimsAtTaskStart
+      const stoppingAt = Date.now()
+      await sut.stop()
+      stopTookMs = Date.now() - stoppingAt
+    })
+
+    it('should keep checking the store while it runs', () => {
+      expect(claimsWhileRunning).toBeGreaterThanOrEqual(3)
+    })
+
+    it('should abort it when stopped', () => {
+      expect(taskSignal?.aborted).toEqual(true)
+    })
+
+    it('should stop without waiting for it to finish on its own', () => {
+      expect(stopTookMs).toBeLessThan(500)
+    })
+  })
+
+  describe('when a periodic task fails', () => {
+    const taskError = new Error('Task failed')
+    let taskRuns: number
+
+    beforeAll(async () => {
+      taskRuns = 0
+      createSut(
+        { pollIntervalMs: 10 },
+        {
+          name: 'test task',
+          intervalMs: 20,
+          jitterMs: 0,
+          run: async () => {
+            taskRuns++
+            throw taskError
+          }
+        }
+      )
+      claims()
+      sut.start()
+      await until(() => taskRuns >= 2)
+      await sut.stop()
+    })
+
+    it('should log a warning', () => {
+      logger.verify(
+        l =>
+          l.warn(
+            It.is<string>(message => message.includes('test task')),
+            It.isAny()
+          ),
+        Times.atLeastOnce()
+      )
+    })
+
+    it('should run it again', () => {
+      expect(taskRuns).toBeGreaterThanOrEqual(2)
     })
   })
 

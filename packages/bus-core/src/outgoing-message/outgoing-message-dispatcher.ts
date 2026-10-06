@@ -110,6 +110,32 @@ const hasFailedBefore = (outgoingMessage: OutgoingMessage): boolean =>
 type SendResult = { sent: true } | { sent: false; error: unknown }
 
 /**
+ * Upkeep of the store that the dispatcher runs on a timer of its own, such as removing old inbox records, so it never
+ * delays sending
+ */
+export interface PeriodicTask {
+  /**
+   * Names the task in logs
+   */
+  name: string
+  /**
+   * How long after the task last finished it runs again
+   */
+  intervalMs: number
+  /**
+   * Up to this long is added at random to each wait, including the wait for the first run after the dispatcher
+   * starts, so processes started together don't run it at once
+   */
+  jitterMs: number
+  /**
+   * Does the task. If it throws, the error is logged and it runs again after `intervalMs`.
+   * @param signal aborted when the dispatcher stops. `stop()` waits for the task, so stop at the next chance, such
+   * as between batches.
+   */
+  run: (signal: AbortSignal) => Promise<void>
+}
+
+/**
  * Sends the messages in a store once they're due. Each started bus runs one. It checks the store every
  * `pollIntervalMs`, and sooner when this process stores a message that's due before then.
  *
@@ -123,6 +149,9 @@ type SendResult = { sent: true } | { sent: false; error: unknown }
  * weren't tried are released, and nothing more is claimed. After `pauseMs`, doubling up to `maxPauseMs` while the
  * broker keeps failing, it claims and sends one due message as a probe, and resumes once one is sent. A broker that's
  * down or refusing credentials pauses scheduled sends until it's fixed.
+ *
+ * It can also run a periodic task on a timer of its own while it runs, such as removing the inbox records a bus
+ * configured with `withOutbox()` no longer needs.
  */
 export class OutgoingMessageDispatcher {
   private isRunning = false
@@ -148,18 +177,29 @@ export class OutgoingMessageDispatcher {
    * Sends that timed out but haven't finished, which `stop()` waits a while for
    */
   private readonly abandonedSends = new Set<Promise<unknown>>()
+  private periodicTaskTimer: NodeJS.Timeout | undefined
+  /**
+   * The run of the periodic task in progress, which `stop()` waits for
+   */
+  private periodicTaskRun: Promise<void> | undefined
+  /**
+   * Aborted by `stop()`, so the periodic task in progress stops early
+   */
+  private periodicTaskAbort = new AbortController()
 
   /**
    * @param store where the messages are stored
    * @param sendMessage sends one stored message on the transport
    * @param logger the logger of the bus that runs the dispatcher
    * @param options how the dispatcher paces itself
+   * @param periodicTask upkeep of the store to run on a timer while the dispatcher runs, if any
    */
   constructor(
     private readonly store: OutgoingMessageStore,
     private readonly sendMessage: OutgoingMessageSender,
     private readonly logger: Logger,
-    private readonly options: OutgoingMessageDispatcherOptions = DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS
+    private readonly options: OutgoingMessageDispatcherOptions = DEFAULT_OUTGOING_MESSAGE_DISPATCHER_OPTIONS,
+    private readonly periodicTask?: PeriodicTask
   ) {
     this.pauseMs = options.pauseMs
   }
@@ -181,6 +221,8 @@ export class OutgoingMessageDispatcher {
     this.isRunning = true
     this.isStopping = false
     this.loop = this.run()
+    this.periodicTaskAbort = new AbortController()
+    this.schedulePeriodicTask(0)
   }
 
   /**
@@ -194,6 +236,10 @@ export class OutgoingMessageDispatcher {
     this.isRunning = false
     this.isStopping = true
     this.wake?.()
+    clearTimeout(this.periodicTaskTimer)
+    this.periodicTaskTimer = undefined
+    this.periodicTaskAbort.abort()
+    await this.periodicTaskRun
     await this.loop
     this.loop = undefined
     await this.waitForAbandonedSends()
@@ -545,6 +591,46 @@ export class OutgoingMessageDispatcher {
         return
       }
       await this.waitForNextCheck()
+    }
+  }
+
+  /**
+   * Schedules the next run of the periodic task, if there is one
+   * @param delayMs how long to wait, before the jitter is added
+   */
+  private schedulePeriodicTask(delayMs: number): void {
+    const task = this.periodicTask
+    if (!task) {
+      return
+    }
+    this.periodicTaskTimer = setTimeout(
+      () => {
+        this.periodicTaskTimer = undefined
+        this.periodicTaskRun = this.runPeriodicTask(task)
+      },
+      delayMs + Math.random() * task.jitterMs
+    )
+  }
+
+  /**
+   * Runs the periodic task, then schedules the next run unless the dispatcher has stopped. It never throws.
+   */
+  private async runPeriodicTask(task: PeriodicTask): Promise<void> {
+    const signal = this.periodicTaskAbort.signal
+    try {
+      await task.run(signal)
+    } catch (error) {
+      if (!signal.aborted) {
+        this.logger.warn(
+          `Failed to run ${task.name}. It runs again in ${task.intervalMs}ms.`,
+          { task: task.name, error: serializeError(error) }
+        )
+      }
+    } finally {
+      this.periodicTaskRun = undefined
+      if (this.isRunning) {
+        this.schedulePeriodicTask(task.intervalMs)
+      }
     }
   }
 

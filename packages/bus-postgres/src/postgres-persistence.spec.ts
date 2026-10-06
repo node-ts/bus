@@ -75,11 +75,21 @@ describe('PostgresPersistence', () => {
           'postgres-schema workflows',
           'postgres-table "workflows"."outgoing_messages"',
           'postgres-index outgoing_messages_available_at_idx',
+          'postgres-table "workflows"."inbox"',
+          'postgres-index inbox_processed_at_idx',
           'postgres-table "workflows"."testworkflowstate"',
           'postgres-index workflows_testworkflowstate_id_version_idx',
           'postgres-index workflows_testworkflowstate_property1_idx'
         ]
       )
+    })
+
+    it('should plan the inbox index on when each record was made', () => {
+      expect(
+        plan.resources.find(({ name }) => name === 'inbox_processed_at_idx')
+      ).toMatchObject({
+        properties: { table: '"workflows"."inbox"', keys: 'processed_at' }
+      })
     })
 
     it('should return the grants it needs at runtime', () => {
@@ -88,6 +98,7 @@ describe('PostgresPersistence', () => {
         document: [
           'GRANT USAGE ON SCHEMA "workflows" TO <runtime_role>;',
           'GRANT SELECT, INSERT, UPDATE, DELETE ON "workflows"."outgoing_messages" TO <runtime_role>;',
+          'GRANT SELECT, INSERT, DELETE ON "workflows"."inbox" TO <runtime_role>;',
           'GRANT SELECT, INSERT, UPDATE ON "workflows"."testworkflowstate" TO <runtime_role>;'
         ]
       })
@@ -182,6 +193,70 @@ describe('PostgresPersistence', () => {
     })
   })
 
+  describe('when initializing and the inbox table does not exist', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      pool = Mock.ofType<Pool>()
+      pool
+        .setup(async p => p.query(It.isAny(), It.isAny()))
+        .returns(async (sql: string, [names]: string[][]) =>
+          sql.includes('pg_namespace')
+            ? ({ rowCount: 1, rows: [{}] } as any)
+            : ({
+                rows: names
+                  .filter(name => !name.includes('inbox'))
+                  .map(name => ({ name }))
+              } as any)
+        )
+      sut = new PostgresPersistence(
+        { connection: {}, schemaName: 'workflows' },
+        pool.object
+      )
+      sut.prepare(coreDependencies)
+      error = await sut
+        .initialize({ workflows: [], verifyResources: true })
+        .catch((e: unknown) => e)
+    })
+
+    it('should throw ResourcesNotProvisioned naming the inbox table and index', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect(error).toMatchObject({
+        missingResources: [
+          'Postgres table "workflows"."inbox"',
+          'Postgres index "workflows"."inbox_processed_at_idx"'
+        ]
+      })
+    })
+  })
+
+  describe('when old inbox records are removed and the inbox table does not exist', () => {
+    let removed: number
+
+    beforeAll(async () => {
+      pool = Mock.ofType<Pool>()
+      pool
+        .setup(async p => p.query(It.isAny(), It.isAny()))
+        .returns(async () =>
+          Promise.reject(
+            Object.assign(new Error('relation "inbox" does not exist'), {
+              code: '42P01'
+            })
+          )
+        )
+      sut = new PostgresPersistence(
+        { connection: {}, schemaName: 'workflows' },
+        pool.object
+      )
+      sut.prepare(coreDependencies)
+      removed = await sut.removeIncomingMessagesBefore(new Date(), 1_000)
+    })
+
+    it('should remove nothing, rather than fail', () => {
+      expect(removed).toEqual(0)
+    })
+  })
+
   describe('when initializing without verifying resources', () => {
     beforeAll(async () => {
       pool = Mock.ofType<Pool>()
@@ -268,7 +343,7 @@ describe('PostgresPersistence', () => {
         .setup(c => (c as unknown as { then: unknown }).then)
         .returns(() => undefined)
       client
-        .setup(async c => c.query('begin'))
+        .setup(async c => c.query('begin isolation level read committed'))
         .returns(async () => Promise.reject(beginError))
       pool = Mock.ofType<Pool>()
       pool.setup(async p => p.connect()).returns(async () => client.object)

@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 // #region suite
 import {
+  inboxTests,
   outboxTests,
   scheduledMessageRoundTripTests,
   workflowStateRoundTripTests
@@ -17,5 +18,6 @@ describe('MyPersistence', () => {
   scheduledMessageRoundTripTests(new MyPersistence(documentStore))
   // Only if MyPersistence implements beginTransaction(), for withOutbox()
   outboxTests(new MyPersistence(documentStore))
+  inboxTests(new MyPersistence(documentStore))
 })
 // #endregion suite

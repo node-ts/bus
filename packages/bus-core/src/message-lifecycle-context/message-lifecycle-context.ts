@@ -12,6 +12,11 @@ type Context = {
    * moved to the dead letter queue without retrying.
    */
   messageFailed: boolean
+  /**
+   * Flags that the message's transaction was committed with its inbox record, on a bus configured with
+   * `withOutbox()`, so its work is kept and a copy with the same `messageId` is skipped as already handled
+   */
+  inboxRecordCommitted?: boolean
 }
 
 interface Store {
