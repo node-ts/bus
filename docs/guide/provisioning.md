@@ -134,7 +134,7 @@ With it, the bus also creates what it finds it needs later, such as the topic of
 
 ## Schedulers and shared stores
 
-A [scheduler](/guide/delayed-delivery#running-a-dedicated-scheduler), configured with `asScheduler()`, sends the scheduled messages of every service that shares its persistence, so it can publish any message. Its runtime permissions allow publishing to any topic or exchange: every SNS topic in the account and region, or every exchange in the RabbitMQ vhost. When the SQS transport's `resolveTopicName` adds a fixed prefix, such as an environment name, the grant is narrowed to the topics that start with it. Narrow them further to your services' topics by hand if you need to.
+A [scheduler](/guide/delayed-delivery#running-a-dedicated-scheduler), configured with `asScheduler()`, sends the scheduled messages of every service that shares its persistence, so it can publish any message. Its runtime permissions allow publishing to any topic or exchange: every SNS topic in the account and region, or every exchange in the RabbitMQ vhost. When the SQS transport's `resolveTopicName` adds a fixed prefix, such as an environment name, the grant is narrowed to the topics that start with it. The transport finds that prefix by calling `resolveTopicName` with made-up message names, so a resolver that throws for names it doesn't know gets the grant for every topic, with a warning. Narrow them further to your services' topics by hand if you need to.
 
 Any other started bus also sends the due messages in its persistence, whichever bus stored them. When several services share a persistence, give each one permission to publish the others' scheduled messages too, or turn their sending off with `withDelayedDelivery({ dispatch: false })` and run a scheduler.
 

@@ -923,12 +923,13 @@ describe('sqs-transport', () => {
 
     /**
      * Builds and provisions a transport against mocked SQS and SNS clients for a bus that handles `test-message`,
-     * sends `sent-message` and reports `existingAttributes` for the service queue
+     * sends `sent-message` and reports `existingAttributes` for the service queue, logging to `logger` when given
      */
     const provisionTransport = async (
       configuration: Partial<SqsTransportConfiguration>,
       existingAttributes?: Record<string, string>,
-      options: Partial<TransportProvisionOptions> = {}
+      options: Partial<TransportProvisionOptions> = {},
+      logger?: Logger
     ) => {
       const sqs = Mock.ofType<SQSClient>()
       const sns = Mock.ofType<SNSClient>()
@@ -963,7 +964,7 @@ describe('sqs-transport', () => {
         sns.object
       )
       sut.prepare({
-        loggerFactory: (name: string) => new DebugLogger(name),
+        loggerFactory: (name: string) => logger ?? new DebugLogger(name),
         messageSerializer: new MessageSerializer(
           new JsonSerializer(),
           new DefaultHandlerRegistry(),
@@ -1419,6 +1420,60 @@ describe('sqs-transport', () => {
         })
       }
     )
+
+    describe('and the bus is a scheduler whose resolveTopicName throws for unknown message names', () => {
+      const knownTopicNames: Record<string, string> = {
+        'test-message': 'production-test-message'
+      }
+      const resolveTopicName = (name: string) => {
+        const topicName = knownTopicNames[name]
+        if (!topicName) {
+          throw new Error(`Unknown message ${name}`)
+        }
+        return topicName
+      }
+      let logger: IMock<Logger>
+      let plan: ProvisioningPlan
+
+      beforeAll(async () => {
+        logger = Mock.ofType<Logger>()
+        ;({ plan } = await provisionTransport(
+          { queueArn: undefined, resolveTopicName },
+          undefined,
+          {
+            sendOnly: true,
+            messageNames: [],
+            sendsAnyMessage: true,
+            dryRun: true
+          },
+          logger.object
+        ))
+      })
+
+      it('should need permission to publish to any topic', () => {
+        expect(plan.runtimePermissions?.document).toMatchObject({
+          Statement: [
+            {
+              Action: ['sns:Publish'],
+              Resource: ['arn:aws:sns:us-west-2:123456789012:*']
+            }
+          ]
+        })
+      })
+
+      it('should warn that the publish permission covers every topic', () => {
+        logger.verify(
+          l =>
+            l.warn(
+              It.is((message: string) =>
+                message.includes("Couldn't find a topic name prefix")
+              ),
+              It.isAny()
+            ),
+          Times.once()
+        )
+      })
+    })
 
     describe('and a custom handler subscribes to a topic managed outside the bus', () => {
       const externalTopicArn =
