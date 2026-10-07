@@ -5,7 +5,7 @@ description: Store workflow state in Postgres with @node-ts/bus-postgres.
 
 # Postgres
 
-`@node-ts/bus-postgres` stores workflow state, and messages sent with [delayed delivery](/guide/delayed-delivery), in [PostgreSQL](https://www.postgresql.org/). This page covers installing, configuring and provisioning it.
+`@node-ts/bus-postgres` stores workflow state, and messages sent with [delayed delivery](/guide/delayed-delivery), in [PostgreSQL](https://www.postgresql.org/). This page covers installing, configuring and provisioning it. The package also has a transport that keeps the bus' queues in Postgres: see [Postgres transport](/transports/postgres).
 
 <PackageBadge pkg="bus-postgres" />
 

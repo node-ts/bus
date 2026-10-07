@@ -18,16 +18,17 @@ import {
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { createHash } from 'node:crypto'
-import {
-  escapeIdentifier,
-  escapeLiteral,
-  Pool,
-  PoolClient,
-  QueryResult
-} from 'pg'
-import { InvalidSchemaName, WorkflowStateNotFound } from './error'
+import { escapeIdentifier, escapeLiteral, Pool, QueryResult } from 'pg'
+import { WorkflowStateNotFound } from './error'
 import { PostgresConfiguration } from './postgres-configuration'
 import { PostgresPersistenceTransaction } from './postgres-persistence-transaction'
+import {
+  assertValidSchemaName,
+  createIfMissing,
+  isUndefinedTableError,
+  Queryable,
+  RUNTIME_ROLE
+} from './postgres-sql'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
@@ -43,18 +44,6 @@ const IDENTIFIER_MAX_BYTES = 63
  * How many hex characters of the full name's hash a shortened index name keeps
  */
 const INDEX_NAME_HASH_LENGTH = 12
-
-/**
- * Postgres error codes raised when two processes create the same object at once: a unique
- * violation on a system catalog, duplicate_table, duplicate_schema and duplicate_object (the
- * row type of a table)
- */
-const DUPLICATE_OBJECT_ERROR_CODES = new Set([
-  '23505',
-  '42P07',
-  '42P06',
-  '42710'
-])
 
 /**
  * The table, in the configured schema, that stores messages sent with `deliverAfter` or `deliverAt`
@@ -77,11 +66,6 @@ const INBOX_TABLE_NAME = 'inbox'
 const INBOX_INDEX_NAME = `${INBOX_TABLE_NAME}_processed_at_idx`
 
 /**
- * Stands for the role the service runs as in the grants of the runtime permissions
- */
-const RUNTIME_ROLE = '<runtime_role>'
-
-/**
  * A row of the outgoing messages table, as `pg` parses it
  */
 interface OutgoingMessageRow {
@@ -94,11 +78,6 @@ interface OutgoingMessageRow {
   due_at: Date
   attempts: number
 }
-
-/**
- * Runs queries on the pool, or on a client checked out of it, such as one in a transaction
- */
-type Queryable = Pick<Pool | PoolClient, 'query'>
 
 /**
  * Stores outgoing messages in one statement, leaving any whose id is already stored as it is. A message is first
@@ -920,26 +899,8 @@ export class PostgresPersistence implements Persistence {
     await this.createIfMissing(sql)
   }
 
-  /**
-   * Runs a statement that creates a database object if it's missing. Checking for the object
-   * and creating it isn't atomic, so when another process creates it at the same time, postgres
-   * fails with a duplicate error once that process commits. The object exists by then, so the
-   * error is ignored.
-   */
   private async createIfMissing(sql: string): Promise<void> {
-    try {
-      await this.postgres.query(sql)
-    } catch (error) {
-      if (!isDuplicateObjectError(error)) {
-        throw error
-      }
-      this.logger.debug(
-        'Object was created at the same time by another process',
-        {
-          sql
-        }
-      )
-    }
+    await createIfMissing(this.postgres, this.logger, sql)
   }
 
   private async upsertWorkflowState(
@@ -998,20 +959,6 @@ export class PostgresPersistence implements Persistence {
         throw new WorkflowStateNotFound(workflowId, tableName, oldVersion)
       }
     }
-  }
-}
-
-/**
- * Throws if the schema name can't be used as a postgres identifier
- * @throws InvalidSchemaName
- */
-const assertValidSchemaName = (schemaName: string): void => {
-  if (
-    typeof schemaName !== 'string' ||
-    schemaName.length === 0 ||
-    schemaName.includes('\0')
-  ) {
-    throw new InvalidSchemaName(schemaName)
   }
 }
 
@@ -1172,22 +1119,3 @@ const resolveWorkflowStateField = (field: string): string =>
  */
 const deparseWorkflowStateField = (field: string): string =>
   `((${WORKFLOW_DATA_FIELD_NAME} ->> '${field.replace(/'/g, "''")}'::text))`
-
-/**
- * Postgres' undefined_table error code
- */
-const UNDEFINED_TABLE_ERROR_CODE = '42P01'
-
-/**
- * Whether an error is postgres reporting that a table doesn't exist
- */
-const isUndefinedTableError = (error: unknown): boolean =>
-  (error as { code?: unknown } | undefined)?.code === UNDEFINED_TABLE_ERROR_CODE
-
-/**
- * Whether an error is postgres reporting that an object being created already exists
- */
-const isDuplicateObjectError = (error: unknown): boolean => {
-  const code = (error as { code?: unknown } | undefined)?.code
-  return typeof code === 'string' && DUPLICATE_OBJECT_ERROR_CODES.has(code)
-}
