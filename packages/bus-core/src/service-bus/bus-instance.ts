@@ -52,9 +52,9 @@ import { BufferedWorkflowStateStore } from '../outbox/buffered-workflow-state-st
 import {
   INBOX_CLEANUP_BATCH_SIZE,
   INBOX_CLEANUP_INTERVAL_MS,
-  INBOX_CLEANUP_JITTER_MS,
-  INBOX_RETENTION_MS
-} from '../outbox/inbox-retention'
+  INBOX_CLEANUP_JITTER_MS
+} from '../outbox/inbox-cleanup'
+import { INBOX_RETENTION_MS } from '../outbox/inbox-retention'
 import {
   isOutboxPersistence,
   OutboxPersistence
@@ -608,7 +608,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       this.logger.info('Initializing persistence...')
       await this.persistence.initialize({
         workflows: this.workflowRegistry.getPersistedWorkflows(),
-        verifyResources
+        verifyResources,
+        outbox: !!this.outboxPersistence
       })
     }
 

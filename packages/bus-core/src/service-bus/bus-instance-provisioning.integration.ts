@@ -177,10 +177,29 @@ describe('BusInstance provisioning', () => {
       ).toEqual([TestFunctionWorkflowState])
     })
 
+    it('should tell the persistence the bus has no outbox', () => {
+      expect(persistence.initializationOptions?.outbox).toEqual(false)
+    })
+
     it('should pass the transport every message handled or typed, without the state of its workflows', () => {
       const messageNames = transport.initializationOptions!.messageNames
       expect(messageNames).toContain(TestEvent.NAME)
       expect(messageNames).not.toContain(TestFunctionWorkflowState.NAME)
+    })
+  })
+
+  describe('when the bus is configured with withOutbox()', () => {
+    let sut: BusInstance
+
+    beforeAll(async () => {
+      sut = configure().withOutbox().build()
+      await sut.initialize()
+    })
+
+    afterAll(async () => sut.dispose())
+
+    it('should tell the persistence, so it can check it supports transactions', () => {
+      expect(persistence.initializationOptions?.outbox).toEqual(true)
     })
   })
 

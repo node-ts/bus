@@ -24,5 +24,18 @@ services:
 
   mongo:
     image: mongo:7
+    # A single-node replica set, since the outbox's transactions need one. The
+    # healthcheck initiates it, and reports healthy once it's primary.
+    command: ['--replSet', 'rs0', '--bind_ip_all']
     ports:
       - '27017:27017'
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status() } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }) }; if (!db.hello().isWritablePrimary) quit(1)"
+      interval: 2s
+      timeout: 10s
+      retries: 30

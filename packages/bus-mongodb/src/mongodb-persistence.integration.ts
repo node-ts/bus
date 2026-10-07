@@ -2,6 +2,7 @@ import {
   Bus,
   BusInstance,
   CoreDependencies,
+  INBOX_RETENTION_MS,
   Logger,
   MessageWorkflowMapping,
   ProvisioningPlan,
@@ -10,6 +11,8 @@ import {
 } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import {
+  inboxTests,
+  outboxTests,
   scheduledMessageRoundTripTests,
   workflowStateRoundTripTests
 } from '@node-ts/bus-test'
@@ -27,7 +30,9 @@ import { MongodbConfiguration } from './mongodb-configuration'
 import { MongodbPersistence } from './mongodb-persistence'
 
 const configuration: MongodbConfiguration = {
-  connection: process.env.MONGODB_URL || 'mongodb://localhost:27017/workflows',
+  connection:
+    process.env.MONGODB_URL ||
+    'mongodb://localhost:27017/workflows?directConnection=true',
   databaseName: 'workflows'
 }
 
@@ -67,6 +72,8 @@ const collectIndexNames = (explain: Document): string[] => {
 }
 
 const scheduledRoundTripDatabaseName = 'outgoing_round_trip'
+const outboxDatabaseName = 'outbox_round_trip'
+const inboxDatabaseName = 'inbox_round_trip'
 
 describe('MongodbPersistence', () => {
   let sut: MongodbPersistence
@@ -96,6 +103,8 @@ describe('MongodbPersistence', () => {
   afterAll(async () => {
     await client.db(configuration.databaseName).dropDatabase()
     await client.db(scheduledRoundTripDatabaseName).dropDatabase()
+    await client.db(outboxDatabaseName).dropDatabase()
+    await client.db(inboxDatabaseName).dropDatabase()
     await bus.dispose()
     await client.close()
   })
@@ -126,6 +135,34 @@ describe('MongodbPersistence', () => {
         expect.objectContaining({
           name: PROPERTY1_INDEX_NAME,
           key: { 'data.property1': 1 }
+        })
+      )
+    })
+  })
+
+  describe('when the inbox is provisioned', () => {
+    let indexes: Document[]
+
+    beforeAll(async () => {
+      indexes = await database.collection('inbox').listIndexes().toArray()
+    })
+
+    it('should make each endpoint and message id unique', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: '"inbox_endpoint_messageId_idx"',
+          key: { endpoint: 1, messageId: 1 },
+          unique: true
+        })
+      )
+    })
+
+    it('should remove records once they are older than the inbox keeps them', () => {
+      expect(indexes).toContainEqual(
+        expect.objectContaining({
+          name: '"inbox_processedAt_idx"',
+          key: { processedAt: 1 },
+          expireAfterSeconds: INBOX_RETENTION_MS / 1000
         })
       )
     })
@@ -297,7 +334,49 @@ describe('MongodbPersistence', () => {
       expect(error).toMatchObject({
         missingResources: [
           `MongoDB collection ${databaseName}.outgoingmessages`,
+          `MongoDB collection ${databaseName}.inbox`,
           `MongoDB collection ${databaseName}.testworkflowstate`
+        ]
+      })
+    })
+  })
+
+  describe('when the inbox index has its name but not its options', () => {
+    const databaseName = 'workflows_inbox_options'
+    let error: unknown
+
+    beforeAll(async () => {
+      await client.db(databaseName).dropDatabase()
+      const persistence = new MongodbPersistence({
+        ...configuration,
+        databaseName
+      })
+      persistence.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      try {
+        await persistence.provision({ workflows: [], dryRun: false })
+        // Made by hand without the TTL, so records would never be removed
+        const inbox = client.db(databaseName).collection('inbox')
+        await inbox.dropIndex('"inbox_processedAt_idx"')
+        await inbox.createIndex(
+          { processedAt: 1 },
+          { name: '"inbox_processedAt_idx"' }
+        )
+        error = await persistence
+          .initialize({ workflows: [], verifyResources: true })
+          .catch((e: unknown) => e)
+      } finally {
+        await persistence.dispose()
+        await client.db(databaseName).dropDatabase()
+      }
+    })
+
+    it('should fail naming the index and the options it needs', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect(error).toMatchObject({
+        missingResources: [
+          `MongoDB index "inbox_processedAt_idx" on ${databaseName}.inbox (expireAfterSeconds ${INBOX_RETENTION_MS / 1000})`
         ]
       })
     })
@@ -338,6 +417,9 @@ describe('MongodbPersistence', () => {
         [
           `mongodb-collection ${databaseName}.outgoingmessages`,
           'mongodb-index "outgoingmessages_availableAt_idx"',
+          `mongodb-collection ${databaseName}.inbox`,
+          'mongodb-index "inbox_endpoint_messageId_idx"',
+          'mongodb-index "inbox_processedAt_idx"',
           `mongodb-collection ${databaseName}.testworkflowstate`,
           `mongodb-index ${PRIMARY_INDEX_NAME}`,
           `mongodb-index ${PROPERTY1_INDEX_NAME}`
@@ -355,6 +437,10 @@ describe('MongodbPersistence', () => {
           },
           {
             resource: { db: databaseName, collection: 'outgoingmessages' },
+            actions: ['find', 'insert', 'update', 'remove', 'listIndexes']
+          },
+          {
+            resource: { db: databaseName, collection: 'inbox' },
             actions: ['find', 'insert', 'update', 'remove', 'listIndexes']
           },
           {
@@ -613,6 +699,20 @@ describe('MongodbPersistence', () => {
     new MongodbPersistence({
       ...configuration,
       databaseName: scheduledRoundTripDatabaseName
+    })
+  )
+
+  outboxTests(
+    new MongodbPersistence({
+      ...configuration,
+      databaseName: outboxDatabaseName
+    })
+  )
+
+  inboxTests(
+    new MongodbPersistence({
+      ...configuration,
+      databaseName: inboxDatabaseName
     })
   )
 })

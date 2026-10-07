@@ -17,7 +17,7 @@ By default the bus keeps workflow state and scheduled messages in memory, with `
 
 Every persistence uses optimistic concurrency: saving fails if another handler saved the same workflow instance since it was read, and the message is retried with the latest state.
 
-Postgres and `InMemoryPersistence` can also handle each message in a transaction that covers its workflow state and the messages its handlers send, with the [transactional outbox](/guide/outbox).
+Postgres, MongoDB (on a replica set) and `InMemoryPersistence` can also handle each message in a transaction that covers its workflow state and the messages its handlers send, with the [transactional outbox](/guide/outbox).
 
 A scheduled message is only deleted from the persistence once it's sent, so a broker outage pauses scheduled sends rather than dropping them. Every bus that shares a persistence's scheduled messages, in any process, must use the same broker, since any started bus sends them through its own transport (see [delayed delivery](/guide/delayed-delivery#sharing-a-persistence)).
 

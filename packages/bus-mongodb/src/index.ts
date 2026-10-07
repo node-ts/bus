@@ -1,3 +1,5 @@
 export * from './error'
+export * from './mongo-session'
+export * from './mongo-test-session'
 export * from './mongodb-configuration'
 export * from './mongodb-persistence'

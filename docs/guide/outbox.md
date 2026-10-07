@@ -24,7 +24,7 @@ Call `withOutbox()` with a persistence that supports it:
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [Postgres](/persistence/postgres) | Yes. Each message is handled in a transaction on a connection from the pool                                                                                  |
 | `InMemoryPersistence`             | Yes, for tests. It's lost when the process stops                                                                                                             |
-| [MongoDB](/persistence/mongodb)   | Not yet ([#323](https://github.com/node-ts/bus/issues/323))                                                                                                  |
+| [MongoDB](/persistence/mongodb)   | Yes, on a replica set or a sharded cluster. Each message is handled in a transaction in a session of the client                                              |
 | [Custom](/persistence/custom)     | If it implements `beginTransaction()` and `removeIncomingMessagesBefore()`, and stores outgoing messages, as for [delayed delivery](/guide/delayed-delivery) |
 
 `build()` throws `OutboxNotSupported` for a persistence that doesn't.
@@ -65,6 +65,7 @@ Incoming middleware runs before the transaction begins, so it runs for every cop
 | Persistence                       | Where the records are kept                                                  |
 | --------------------------------- | --------------------------------------------------------------------------- |
 | [Postgres](/persistence/postgres) | An `inbox` table in the configured schema, keyed by endpoint and message id |
+| [MongoDB](/persistence/mongodb)   | An `inbox` collection, unique by endpoint and message id, with a TTL index  |
 | `InMemoryPersistence`             | In memory, so a copy delivered after the process restarts is handled again  |
 | [Custom](/persistence/custom)     | Where its transaction's `recordIncomingMessage()` keeps them                |
 
@@ -73,6 +74,8 @@ Incoming middleware runs before the transaction begins, so it runs for every cop
 Read the transaction from the handler context with the persistence's accessor. For Postgres that's `postgresTransaction(ctx)`, which returns the `query` of the `pg` client the transaction runs on:
 
 <<< @/snippets/outbox.ts#handler
+
+For MongoDB it's `mongoSession(ctx)`, which returns the `ClientSession` to pass to each operation, as described in [MongoDB transactions](/persistence/mongodb#transactions).
 
 Workflow handlers and [handler middleware](/guide/middleware#handler-middleware) get the same transaction from their context. Incoming middleware runs before the transaction begins, so it has none. `postgresTransaction(ctx)` throws `TransactionNotActive` when there's no transaction, such as on a bus without `withOutbox()` or in a test without a test transaction, when the transaction belongs to another persistence, or once the transaction has ended.
 
@@ -88,6 +91,8 @@ A handler that uses `postgresTransaction(ctx)` can be unit tested with a fake co
 
 <<< @/snippets/outbox-testing.ts
 
+A handler that uses `mongoSession(ctx)` is tested the same way with `mongoTestSession(session)`, as shown in [MongoDB transactions](/persistence/mongodb#transactions).
+
 ## Outside a handler
 
 `bus.transaction()` runs your own work in a transaction, such as an HTTP API that saves a purchase and publishes `ItemPurchased`:
@@ -98,9 +103,9 @@ The messages the work sends through its context are sent once the transaction is
 
 It works on [send-only buses](/guide/delayed-delivery#send-only-buses-and-lambda) too. They send the messages straight away like any other bus, and leave any they can't send to a started bus that uses the same persistence. It throws `OutboxNotEnabled` on a bus without `withOutbox()`.
 
-## Connections
+## Connections (Postgres)
 
-Each message holds a connection from the pool from the time its handlers start until its transaction is committed, so give the pool more connections than the bus' concurrency, with room for the bus' other queries and your own.
+With [Postgres](/persistence/postgres), each message holds a connection from the pool from the time its handlers start until its transaction is committed, so give the pool more connections than the bus' concurrency, with room for the bus' other queries and your own.
 
 ::: warning Queries on the pool from a handler
 A query a handler runs on the pool, rather than through `postgresTransaction(ctx)`, runs outside the transaction on a connection of its own. Once every connection is held by a message's transaction, it waits for one that never comes back, since the messages holding them are waiting for their handlers: the bus deadlocks. Query through `postgresTransaction(ctx)`, or give such queries a pool of their own.
@@ -123,5 +128,5 @@ When several workflows handle the same message, their states are saved one at a 
 
 - [Delayed delivery](/guide/delayed-delivery), which sends the messages left in the table
 - [Recoverability](/guide/recoverability)
-- [Postgres](/persistence/postgres)
-- [`PersistenceTransaction`](/api/bus-core/interfaces/PersistenceTransaction), [`TransactionContext`](/api/bus-core/interfaces/TransactionContext), [`postgresTransaction`](/api/bus-postgres/functions/postgresTransaction), [`postgresTestTransaction`](/api/bus-postgres/functions/postgresTestTransaction), [`outboxTests`](/api/bus-test/functions/outboxTests) and [`inboxTests`](/api/bus-test/functions/inboxTests) in the API reference
+- [Postgres](/persistence/postgres) and [MongoDB](/persistence/mongodb)
+- [`PersistenceTransaction`](/api/bus-core/interfaces/PersistenceTransaction), [`TransactionContext`](/api/bus-core/interfaces/TransactionContext), [`postgresTransaction`](/api/bus-postgres/functions/postgresTransaction), [`postgresTestTransaction`](/api/bus-postgres/functions/postgresTestTransaction), [`mongoSession`](/api/bus-mongodb/functions/mongoSession), [`outboxTests`](/api/bus-test/functions/outboxTests) and [`inboxTests`](/api/bus-test/functions/inboxTests) in the API reference

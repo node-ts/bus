@@ -25,6 +25,13 @@ describe('index', () => {
       })
     })
 
+    it('should export how long the inbox keeps its records, for persistences that expire them', () => {
+      expect(sut.INBOX_RETENTION_MS).toEqual(7 * 24 * 60 * 60_000)
+      expect(sut).not.toHaveProperty('INBOX_CLEANUP_INTERVAL_MS')
+      expect(sut).not.toHaveProperty('INBOX_CLEANUP_JITTER_MS')
+      expect(sut).not.toHaveProperty('INBOX_CLEANUP_BATCH_SIZE')
+    })
+
     it('should export the test helpers and the errors they throw', () => {
       expect(sut).toMatchObject({
         handlerContext: expect.any(Function),
