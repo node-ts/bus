@@ -608,7 +608,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       this.logger.info('Initializing persistence...')
       await this.persistence.initialize({
         workflows: this.workflowRegistry.getPersistedWorkflows(),
-        verifyResources
+        verifyResources,
+        outbox: !!this.outboxPersistence
       })
     }
 

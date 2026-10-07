@@ -25,6 +25,10 @@ describe('index', () => {
       })
     })
 
+    it('should export how long the inbox keeps its records, for persistences that expire them', () => {
+      expect(sut.INBOX_RETENTION_MS).toEqual(7 * 24 * 60 * 60_000)
+    })
+
     it('should export the test helpers and the errors they throw', () => {
       expect(sut).toMatchObject({
         handlerContext: expect.any(Function),

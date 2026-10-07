@@ -2,6 +2,7 @@ import {
   ClassConstructor,
   CoreDependencies,
   hasLookupValue,
+  INBOX_RETENTION_MS,
   Logger,
   MessageWorkflowMapping,
   OutgoingMessage,
@@ -10,16 +11,27 @@ import {
   Persistence,
   PersistenceInitializationOptions,
   PersistenceProvisionOptions,
+  PersistenceTransaction,
   ProvisionedResource,
   ProvisioningPlan,
   ResourcesNotProvisioned,
   WorkflowState
 } from '@node-ts/bus-core'
 import { Message, MessageAttributes } from '@node-ts/bus-messages'
-import { AnyBulkWriteOperation, Db, MongoClient } from 'mongodb'
-import { WorkflowStateNotFound } from './error'
+import {
+  AnyBulkWriteOperation,
+  ClientSession,
+  CreateIndexesOptions,
+  Db,
+  MongoClient
+} from 'mongodb'
+import { ReplicaSetRequired, WorkflowStateNotFound } from './error'
 import { decodeKeys, encodeKey, encodeKeys } from './key-encoding'
 import { MongodbConfiguration } from './mongodb-configuration'
+import {
+  MongodbPersistenceTransaction,
+  TRANSACTION_OPTIONS
+} from './mongodb-persistence-transaction'
 
 /**
  * The name of the field that stores workflow state as JSON in the database row.
@@ -32,6 +44,20 @@ const WORKFLOW_DATA_FIELD_NAME = 'data'
 const OUTGOING_MESSAGES_COLLECTION_NAME = 'outgoingmessages'
 
 /**
+ * The collection that records the messages each endpoint has handled with `withOutbox()`
+ */
+const INBOX_COLLECTION_NAME = 'inbox'
+
+/**
+ * An index this persistence creates on a collection
+ */
+interface MongodbIndex {
+  name: string
+  keys: { [field: string]: 1 }
+  options?: Pick<CreateIndexesOptions, 'unique' | 'expireAfterSeconds'>
+}
+
+/**
  * A collection this persistence stores documents in, with the indexes it creates on it
  */
 interface MongodbCollection {
@@ -39,8 +65,21 @@ interface MongodbCollection {
   /**
    * What the collection stores
    */
-  stores: 'outgoing messages' | 'workflow state'
-  indexes: { name: string; keys: { [field: string]: 1 } }[]
+  stores:
+    'outgoing messages' | 'inbox records of handled messages' | 'workflow state'
+  indexes: MongodbIndex[]
+}
+
+/**
+ * A document of the inbox collection: a message an endpoint has handled
+ */
+interface InboxDocument {
+  endpoint: string
+  messageId: string
+  /**
+   * When the database recorded it. A TTL index removes it once it's older than the inbox keeps records.
+   */
+  processedAt: Date
 }
 
 /**
@@ -67,7 +106,10 @@ interface OutgoingMessageDocument {
 }
 
 /**
- * Stores workflow state, and messages sent with `deliverAfter` or `deliverAt`, in MongoDB
+ * Stores workflow state, and messages sent with `deliverAfter` or `deliverAt`, in MongoDB.
+ *
+ * It supports `withOutbox()`, which needs MongoDB to run as a replica set or a sharded cluster: each message is handled
+ * in a transaction in a `ClientSession`, which handlers can write their own data in with `mongoSession(ctx)`.
  */
 export class MongodbPersistence implements Persistence {
   /**
@@ -88,14 +130,20 @@ export class MongodbPersistence implements Persistence {
   }
 
   /**
-   * Connects, and checks, unless `verifyResources` is off, that the outgoing messages collection and the collection of
-   * each workflow exist with their indexes, with `listCollections` and `listIndexes`. It creates nothing.
-   * @param options the workflows of the bus, and whether to check their collections exist
+   * Connects, and checks, unless `verifyResources` is off, that the outgoing messages and inbox collections and the
+   * collection of each workflow exist with their indexes, with `listCollections` and `listIndexes`. It creates
+   * nothing. When the bus is configured with `withOutbox()`, it also checks the deployment can run transactions.
+   * @param options the workflows of the bus, whether to check their collections exist, and whether the bus has an
+   * outbox
+   * @throws ReplicaSetRequired if the bus is configured with `withOutbox()` and the server is standalone
    * @throws ResourcesNotProvisioned if a collection or an index doesn't exist
    */
   async initialize(options: PersistenceInitializationOptions): Promise<void> {
     this.logger.info('Initializing mongodb persistence...')
     await this.connect()
+    if (options.outbox) {
+      await this.assertTransactionsSupported()
+    }
     if (options.verifyResources) {
       const missingResources = await this.findMissingResources(
         resolveCollections(options.workflows)
@@ -111,9 +159,11 @@ export class MongodbPersistence implements Persistence {
   }
 
   /**
-   * Creates the outgoing messages collection with an index on when each message is next available, and for each
-   * workflow state a collection with an `{ id, version }` index and an index on each field its messages look it up
-   * by. What exists is left as it is, and no index is ever dropped.
+   * Creates the outgoing messages collection with an index on when each message is next available, the inbox
+   * collection that records the messages each endpoint has handled with `withOutbox()`, with a unique index on the
+   * endpoint and message id and a TTL index that removes records after the inbox's retention, and for each workflow
+   * state a collection with an `{ id, version }` index and an index on each field its messages look it up by. What
+   * exists is left as it is, and no index is ever dropped.
    *
    * It needs the `createCollection`, `createIndex` and `listCollections` actions on the database.
    * @param options the workflows of the bus, and whether it's a dry run
@@ -137,7 +187,8 @@ export class MongodbPersistence implements Persistence {
           name: index.name,
           properties: {
             collection: `${databaseName}.${name}`,
-            keys: index.keys as { [field: string]: number }
+            keys: index.keys as { [field: string]: number },
+            ...index.options
           }
         }))
       ]),
@@ -151,9 +202,9 @@ export class MongodbPersistence implements Persistence {
           ...collections.map(({ name, stores }) => ({
             resource: { db: databaseName, collection: name },
             actions:
-              stores === 'outgoing messages'
-                ? ['find', 'insert', 'update', 'remove', 'listIndexes']
-                : ['find', 'insert', 'update', 'listIndexes']
+              stores === 'workflow state'
+                ? ['find', 'insert', 'update', 'listIndexes']
+                : ['find', 'insert', 'update', 'remove', 'listIndexes']
           }))
         ]
       }
@@ -189,118 +240,26 @@ export class MongodbPersistence implements Persistence {
     attributes: MessageAttributes,
     includeCompleted = false
   ): Promise<WorkflowStateType[]> {
-    this.logger.debug('Getting workflow state', {
-      workflowStateName: workflowStateConstructor.name
-    })
-    const workflowStateName = new workflowStateConstructor().$name
-    const tableName = resolveQualifiedTableName(workflowStateName)
-    const matcherValue = messageMap.lookup(message, attributes)
-    // A query for no value would match every instance whose mapped field is missing, null or empty
-    if (!hasLookupValue(matcherValue)) {
-      return []
-    }
-    const collection = this.database.collection(tableName)
-    const findObject = {
-      [resolveWorkflowStateFieldPath(messageMap.mapsTo)]: matcherValue
-    }
-    if (!includeCompleted) {
-      findObject[resolveWorkflowStateFieldPath('$status')] = 'running'
-    }
-    const documents = await collection.find(findObject).toArray()
-    this.logger.debug('Querying workflow state', { findObject })
-
-    this.logger.debug('Got workflow state', {
-      resultsCount: documents?.length
-    })
-
-    const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
-    // The bus restores the classes of the state with its own serializer and message types
-    return rows
-      .filter(row => row !== undefined)
-      .map(row => decodeKeys(row) as WorkflowStateType)
+    return this.queryWorkflowState(
+      undefined,
+      workflowStateConstructor,
+      messageMap,
+      message,
+      attributes,
+      includeCompleted
+    )
   }
 
   async saveWorkflowState<WorkflowStateType extends WorkflowState>(
     workflowState: WorkflowStateType
   ): Promise<void> {
-    this.logger.debug('Saving workflow state', {
-      workflowStateName: workflowState.$name,
-      id: workflowState.$workflowId
-    })
-    const collectionName = resolveQualifiedTableName(workflowState.$name)
-
-    const oldVersion = workflowState.$version
-    const newVersion = oldVersion + 1
-
-    const plainWorkflowState = encodeKeys({
-      ...workflowState,
-      $version: newVersion
-    })
-
-    await this.upsertWorkflowState(
-      collectionName,
-      workflowState.$workflowId,
-      plainWorkflowState,
-      oldVersion,
-      newVersion
-    )
+    await this.writeWorkflowState(undefined, workflowState)
   }
 
   async storeOutgoingMessages(
     outgoingMessages: OutgoingMessage[]
   ): Promise<string[]> {
-    if (outgoingMessages.length === 0) {
-      return []
-    }
-    this.logger.debug('Storing outgoing messages', {
-      numMessages: outgoingMessages.length
-    })
-    // An upsert that only sets fields on insert leaves a message that's already stored as it is
-    const operations: AnyBulkWriteOperation<OutgoingMessageDocument>[] =
-      outgoingMessages.map(
-        ({
-          id,
-          kind,
-          destination,
-          message,
-          attributes,
-          headers,
-          dueAt,
-          leaseMs
-        }) => ({
-          updateOne: {
-            filter: { _id: id },
-            update: {
-              $setOnInsert: {
-                kind,
-                ...(destination === undefined ? {} : { destination }),
-                message: encodeKeys(message),
-                attributes: encodeKeys(attributes),
-                headers: encodeKeys(headers),
-                dueAt,
-                availableAt: new Date(
-                  // Only the transactional outbox, which MongoDB doesn't support yet (#323), stores a lease, so
-                  // this process' clock is close enough
-                  Math.max(
-                    dueAt.getTime(),
-                    leaseMs === undefined ? 0 : Date.now() + leaseMs
-                  )
-                ),
-                attempts: 0
-              }
-            },
-            upsert: true
-          }
-        })
-      )
-    const result = await this.outgoingMessages().bulkWrite(operations, {
-      ordered: false
-    })
-    // Only inserted messages are upserted, so the rest were already stored
-    const upsertedIndexes = new Set(Object.keys(result.upsertedIds).map(Number))
-    return outgoingMessages
-      .filter((_, index) => !upsertedIndexes.has(index))
-      .map(({ id }) => id)
+    return this.insertOutgoingMessages(undefined, outgoingMessages)
   }
 
   /**
@@ -401,6 +360,269 @@ export class MongodbPersistence implements Persistence {
   }
 
   /**
+   * Removes up to `limit` inbox records made before a time, comparing it with when the database recorded them. The
+   * inbox collection's TTL index removes records once they're older than the inbox keeps them, so this usually finds
+   * none: it only catches records the TTL monitor, which runs about once a minute, hasn't removed yet.
+   */
+  async removeIncomingMessagesBefore(
+    before: Date,
+    limit: number
+  ): Promise<number> {
+    // One batch through the processedAt index, so each delete is short. A missing collection finds nothing.
+    const ids = (
+      await this.inbox()
+        .find(
+          { processedAt: { $lt: before } },
+          { projection: { _id: 1 }, limit }
+        )
+        .toArray()
+    ).map(({ _id }) => _id)
+    if (ids.length === 0) {
+      return 0
+    }
+    const { deletedCount } = await this.inbox().deleteMany({
+      _id: { $in: ids },
+      processedAt: { $lt: before }
+    })
+    this.logger.debug('Removed old inbox records', {
+      numRecords: deletedCount
+    })
+    return deletedCount
+  }
+
+  /**
+   * Starts a session of the client and a transaction in it, which reads one snapshot and is committed with majority
+   * write concern. Handlers use the session with `mongoSession(ctx)`. MongoDB only runs transactions on a replica set
+   * or a sharded cluster, which `initialize()` checks when the bus is configured with `withOutbox()`.
+   * @returns the transaction
+   */
+  async beginTransaction(): Promise<PersistenceTransaction> {
+    const session = this.client.startSession()
+    // Nothing is sent to the server until the first operation in the transaction
+    session.startTransaction(TRANSACTION_OPTIONS)
+    this.logger.debug('Began transaction')
+    return new MongodbPersistenceTransaction(session, this.logger, {
+      getWorkflowState: async (
+        workflowStateConstructor,
+        messageMap,
+        message,
+        attributes,
+        includeCompleted
+      ) =>
+        this.queryWorkflowState(
+          session,
+          workflowStateConstructor,
+          messageMap,
+          message,
+          attributes,
+          includeCompleted
+        ),
+      saveWorkflowState: async workflowState =>
+        this.writeWorkflowState(session, workflowState),
+      storeOutgoingMessages: async outgoingMessages =>
+        this.insertOutgoingMessages(session, outgoingMessages),
+      recordIncomingMessage: async (endpoint, messageId) =>
+        this.insertIncomingMessage(session, endpoint, messageId)
+    })
+  }
+
+  private async queryWorkflowState<
+    WorkflowStateType extends WorkflowState,
+    MessageType extends Message
+  >(
+    session: ClientSession | undefined,
+    workflowStateConstructor: ClassConstructor<WorkflowStateType>,
+    messageMap: MessageWorkflowMapping<MessageType, WorkflowStateType>,
+    message: MessageType,
+    attributes: MessageAttributes,
+    includeCompleted = false
+  ): Promise<WorkflowStateType[]> {
+    this.logger.debug('Getting workflow state', {
+      workflowStateName: workflowStateConstructor.name
+    })
+    const workflowStateName = new workflowStateConstructor().$name
+    const tableName = resolveQualifiedTableName(workflowStateName)
+    const matcherValue = messageMap.lookup(message, attributes)
+    // A query for no value would match every instance whose mapped field is missing, null or empty. Guarded here, so
+    // a lookup in a transaction is guarded too.
+    if (!hasLookupValue(matcherValue)) {
+      return []
+    }
+    const collection = this.database.collection(tableName)
+    const findObject = {
+      [resolveWorkflowStateFieldPath(messageMap.mapsTo)]: matcherValue
+    }
+    if (!includeCompleted) {
+      findObject[resolveWorkflowStateFieldPath('$status')] = 'running'
+    }
+    this.logger.debug('Querying workflow state', { findObject })
+    const documents = await collection.find(findObject, { session }).toArray()
+
+    this.logger.debug('Got workflow state', {
+      resultsCount: documents?.length
+    })
+
+    const rows = documents.map(x => x[WORKFLOW_DATA_FIELD_NAME])
+    // The bus restores the classes of the state with its own serializer and message types
+    return rows
+      .filter(row => row !== undefined)
+      .map(row => decodeKeys(row) as WorkflowStateType)
+  }
+
+  private async writeWorkflowState<WorkflowStateType extends WorkflowState>(
+    session: ClientSession | undefined,
+    workflowState: WorkflowStateType
+  ): Promise<void> {
+    this.logger.debug('Saving workflow state', {
+      workflowStateName: workflowState.$name,
+      id: workflowState.$workflowId
+    })
+    const collectionName = resolveQualifiedTableName(workflowState.$name)
+
+    const oldVersion = workflowState.$version
+    const newVersion = oldVersion + 1
+
+    const plainWorkflowState = encodeKeys({
+      ...workflowState,
+      $version: newVersion
+    })
+
+    await this.upsertWorkflowState(
+      session,
+      collectionName,
+      workflowState.$workflowId,
+      plainWorkflowState,
+      oldVersion,
+      newVersion
+    )
+  }
+
+  /**
+   * Stores outgoing messages, leaving any whose id is already stored as it is. A message is first claimable at its due
+   * time, or when its lease ends, `leaseMs` after it's stored by the database's clock, if that's later.
+   * @returns the ids of the messages that were already stored
+   */
+  private async insertOutgoingMessages(
+    session: ClientSession | undefined,
+    outgoingMessages: OutgoingMessage[]
+  ): Promise<string[]> {
+    if (outgoingMessages.length === 0) {
+      return []
+    }
+    this.logger.debug('Storing outgoing messages', {
+      numMessages: outgoingMessages.length
+    })
+    // A pipeline update, so a lease runs from $$NOW, the database's clock that claims compare with. It only sets a
+    // document that isn't stored yet: one that is, which has attempts, is replaced with itself, which changes nothing.
+    // Every stored value is a $literal, so a string that starts with $ isn't read as a field path.
+    const operations: AnyBulkWriteOperation<OutgoingMessageDocument>[] =
+      outgoingMessages.map(
+        ({
+          id,
+          kind,
+          destination,
+          message,
+          attributes,
+          headers,
+          dueAt,
+          leaseMs
+        }) => ({
+          updateOne: {
+            filter: { _id: id },
+            update: [
+              {
+                $replaceWith: {
+                  $cond: {
+                    if: { $eq: [{ $type: '$attempts' }, 'missing'] },
+                    then: {
+                      $mergeObjects: [
+                        {
+                          $literal: {
+                            _id: id,
+                            kind,
+                            ...(destination === undefined
+                              ? {}
+                              : { destination }),
+                            message: encodeKeys(message),
+                            attributes: encodeKeys(attributes),
+                            headers: encodeKeys(headers),
+                            dueAt,
+                            attempts: 0
+                          }
+                        },
+                        {
+                          availableAt:
+                            leaseMs === undefined
+                              ? { $literal: dueAt }
+                              : {
+                                  $max: [
+                                    { $literal: dueAt },
+                                    { $add: ['$$NOW', leaseMs] }
+                                  ]
+                                }
+                        }
+                      ]
+                    },
+                    else: '$$ROOT'
+                  }
+                }
+              }
+            ],
+            upsert: true
+          }
+        })
+      )
+    const result = await this.outgoingMessages().bulkWrite(operations, {
+      ordered: false,
+      session
+    })
+    // Only inserted messages are upserted, so the rest were already stored
+    const upsertedIndexes = new Set(Object.keys(result.upsertedIds).map(Number))
+    return outgoingMessages
+      .filter((_, index) => !upsertedIndexes.has(index))
+      .map(({ id }) => id)
+  }
+
+  /**
+   * Records that an endpoint handled a message, at the database's time, unless it already has
+   * @returns false if the endpoint had already handled the message
+   */
+  private async insertIncomingMessage(
+    session: ClientSession,
+    endpoint: string,
+    messageId: string
+  ): Promise<boolean> {
+    // An upsert rather than an insert, since a duplicate key error would abort the transaction. A record that exists
+    // keeps its processedAt, so the update changes nothing. One that another open transaction has inserted fails
+    // with a write conflict, which the transaction waits out.
+    const result = await this.inbox().updateOne(
+      { endpoint, messageId },
+      [{ $set: { processedAt: { $ifNull: ['$processedAt', '$$NOW'] } } }],
+      { upsert: true, session }
+    )
+    return result.upsertedCount === 1
+  }
+
+  /**
+   * Checks the deployment runs transactions: a replica set member reports the name of its set, and mongos, in front
+   * of a sharded cluster, reports `isdbgrid`
+   * @throws ReplicaSetRequired for a standalone server
+   */
+  private async assertTransactionsSupported(): Promise<void> {
+    const hello = (await this.database.command({ hello: 1 })) as {
+      setName?: string
+      msg?: string
+    }
+    if (hello.setName === undefined && hello.msg !== 'isdbgrid') {
+      throw new ReplicaSetRequired(this.configuration.databaseName)
+    }
+  }
+
+  private inbox() {
+    return this.database.collection<InboxDocument>(INBOX_COLLECTION_NAME)
+  }
+
+  /**
    * Reads the database server's clock, so every process claims by the same time
    */
   private async databaseTime(): Promise<Date> {
@@ -486,13 +708,14 @@ export class MongodbPersistence implements Persistence {
       indexes: indexes.map(({ name }) => name)
     })
     await Promise.all(
-      indexes.map(async ({ name, keys }) =>
-        collection.createIndex(keys, { name })
+      indexes.map(async ({ name, keys, options }) =>
+        collection.createIndex(keys, { ...options, name })
       )
     )
   }
 
   private async upsertWorkflowState(
+    session: ClientSession | undefined,
     collectionName: string,
     workflowId: string,
     plainWorkflowState: object,
@@ -508,11 +731,14 @@ export class MongodbPersistence implements Persistence {
         newVersion
       })
       // This is a new workflow, so just insert the data
-      await collection.insertOne({
-        id: workflowId,
-        version: newVersion,
-        [WORKFLOW_DATA_FIELD_NAME]: plainWorkflowState
-      })
+      await collection.insertOne(
+        {
+          id: workflowId,
+          version: newVersion,
+          [WORKFLOW_DATA_FIELD_NAME]: plainWorkflowState
+        },
+        { session }
+      )
     } else {
       this.logger.debug('Updating existing workflow state', {
         collectionName,
@@ -534,7 +760,7 @@ export class MongodbPersistence implements Persistence {
         // mongodb 6+ returns the bare document by default while 5.x returns the
         // metadata wrapper. Ask for the wrapper so the check below behaves the
         // same whichever driver a user-supplied MongoClient comes from.
-        { includeResultMetadata: true }
+        { includeResultMetadata: true, session }
       )
       if (!result?.value) {
         throw new WorkflowStateNotFound(workflowId, collectionName, oldVersion)
@@ -544,8 +770,8 @@ export class MongodbPersistence implements Persistence {
 }
 
 /**
- * Resolves the collections the persistence stores documents in, with their indexes: one for outgoing messages, and
- * one for each workflow state
+ * Resolves the collections the persistence stores documents in, with their indexes: one for outgoing messages, one for
+ * the inbox, and one for each workflow state
  */
 function resolveCollections(
   workflows: PersistedWorkflow[]
@@ -561,6 +787,24 @@ function resolveCollections(
           'availableAt'
         ),
         keys: { availableAt: 1 }
+      }
+    ]
+  })
+  // Provisioned whether or not the bus uses withOutbox(), so turning the outbox on later needs no new resources
+  collections.set(INBOX_COLLECTION_NAME, {
+    name: INBOX_COLLECTION_NAME,
+    stores: 'inbox records of handled messages',
+    indexes: [
+      {
+        name: resolveIndexName(INBOX_COLLECTION_NAME, 'endpoint', 'messageId'),
+        keys: { endpoint: 1, messageId: 1 },
+        options: { unique: true }
+      },
+      {
+        // MongoDB removes a record once it's older than the inbox keeps records
+        name: resolveIndexName(INBOX_COLLECTION_NAME, 'processedAt'),
+        keys: { processedAt: 1 },
+        options: { expireAfterSeconds: INBOX_RETENTION_MS / 1000 }
       }
     ]
   })

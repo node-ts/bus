@@ -124,7 +124,9 @@ Two things behave differently:
 
 - **The `mongodb` driver is now version 7** (MongoDB server 4.2 or later). `MongodbPersistence` takes a `MongoClient` from `mongodb` 7, so upgrade your own copy of the driver.
 - **Workflow state keys use a new encoding, and existing data isn't migrated.** Keys are now percent-encoded (`%` → `%25`, `$` → `%24`, `.` → `%2E`) instead of using the old `__` scheme. Workflow state saved by 1.x isn't found by 2.0. Before you upgrade, let running workflows finish, or migrate their documents yourself. Drop any existing index on the old key paths, or provisioning fails with an index conflict.
-- **Collections and indexes are created by `bus provision`, not `initialize()`.** The service now needs only `find`, `insert`, `update` and `listIndexes` on its collections (and `remove` on `outgoingmessages`), and `listCollections` on the database.
+- **Collections and indexes are created by `bus provision`, not `initialize()`.** The service now needs only `find`, `insert`, `update` and `listIndexes` on its collections (and `remove` on `outgoingmessages` and `inbox`), and `listCollections` on the database.
+- **An `inbox` collection is provisioned**, which records the messages each endpoint has handled with `withOutbox()`, so a copy of one is skipped. It has a unique index on `{ endpoint, messageId }` and a TTL index that removes records after 7 days. `initialize()` checks it exists, like the other collections, so run `bus provision` before starting a service on this version.
+- **`withOutbox()` is supported, on a replica set or a sharded cluster.** On a standalone server, a bus configured with it throws `ReplicaSetRequired` from `initialize()`.
 
 ## @node-ts/bus-postgres
 

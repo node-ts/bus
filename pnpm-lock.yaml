@@ -277,6 +277,9 @@ importers:
       '@types/node':
         specifier: ^24.19.0
         version: 24.19.0
+      mongodb:
+        specifier: ^7.7.0
+        version: 7.7.0
       typedoc:
         specifier: ^0.28.20
         version: 0.28.20(typescript@6.0.3)

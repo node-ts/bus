@@ -1,6 +1,6 @@
 # @node-ts/bus-mongodb
 
-A [MongoDB](https://www.mongodb.com/) persistence for [@node-ts/bus](https://node-ts.github.io/bus), which stores the state of workflows between messages. It uses version 7 of the `mongodb` driver (MongoDB server 4.2 or later).
+A [MongoDB](https://www.mongodb.com/) persistence for [@node-ts/bus](https://node-ts.github.io/bus), which stores the state of workflows between messages. It supports the transactional outbox on a replica set. It uses version 7 of the `mongodb` driver (MongoDB server 4.2 or later).
 
 [![npm](https://img.shields.io/npm/v/@node-ts/bus-mongodb)](https://www.npmjs.com/package/@node-ts/bus-mongodb)
 
@@ -63,3 +63,4 @@ To share a client with the rest of your application, pass your `MongoClient`, fr
 - [MongoDB](https://node-ts.github.io/bus/persistence/mongodb): the collections and indexes `bus provision` creates, the privileges it needs at runtime, and how keys are stored
 - [Workflows](https://node-ts.github.io/bus/guide/workflows)
 - [Delayed delivery](https://node-ts.github.io/bus/guide/delayed-delivery): messages sent with `deliverAfter` or `deliverAt` are kept in an `outgoingmessages` collection until they're due
+- [Transactional outbox](https://node-ts.github.io/bus/guide/outbox): `withOutbox()` handles each message in a MongoDB transaction, which needs a replica set, and handlers write their own data in it with `mongoSession(ctx)`

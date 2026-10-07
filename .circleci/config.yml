@@ -15,7 +15,7 @@ jobs:
           LOCALSTACK_ENDPOINT: http://127.0.0.1:4566
           RABBITMQ_URL: amqp://guest:guest@127.0.0.1
           POSTGRES_URL: postgres://postgres:password@127.0.0.1:5432/postgres
-          MONGODB_URL: mongodb://127.0.0.1:27017/workflows
+          MONGODB_URL: mongodb://127.0.0.1:27017/workflows?directConnection=true
       - image: rabbitmq:3-management
       - image: localstack/localstack:3
         environment:
@@ -23,7 +23,9 @@ jobs:
       - image: postgres:16
         environment:
           POSTGRES_PASSWORD: password
+      # A single-node replica set, since the outbox's transactions need one. "Wait for integration infra" initiates it.
       - image: mongo:7
+        command: ['--replSet', 'rs0']
     resource_class: large
     steps:
       - checkout
@@ -69,6 +71,7 @@ jobs:
             wait_for_port 5672
             wait_for_port 5432
             wait_for_port 27017
+            node .circleci/init-mongo-replica-set.mjs
             for i in $(seq 1 60); do
               curl -sf http://127.0.0.1:4566/_localstack/health | grep -q '"sqs": "\(available\|running\)"' && break
               sleep 2

@@ -35,6 +35,14 @@ export interface PersistenceInitializationOptions {
    * bus was configured with `withResourceVerification(false)`, or has just provisioned.
    */
   verifyResources: boolean
+
+  /**
+   * Whether the bus is configured with `withOutbox()`, so it will begin transactions with `beginTransaction()`. A
+   * persistence whose database only supports transactions in some deployments, such as MongoDB on a replica set,
+   * checks it can run them here, so the bus fails at startup rather than on its first message.
+   * @default false
+   */
+  outbox?: boolean
 }
 
 export interface PersistenceProvisionOptions {
