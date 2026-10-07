@@ -103,9 +103,9 @@ The messages the work sends through its context are sent once the transaction is
 
 It works on [send-only buses](/guide/delayed-delivery#send-only-buses-and-lambda) too. They send the messages straight away like any other bus, and leave any they can't send to a started bus that uses the same persistence. It throws `OutboxNotEnabled` on a bus without `withOutbox()`.
 
-## Connections
+## Connections (Postgres)
 
-Each message holds a connection from the pool from the time its handlers start until its transaction is committed, so give the pool more connections than the bus' concurrency, with room for the bus' other queries and your own.
+With [Postgres](/persistence/postgres), each message holds a connection from the pool from the time its handlers start until its transaction is committed, so give the pool more connections than the bus' concurrency, with room for the bus' other queries and your own.
 
 ::: warning Queries on the pool from a handler
 A query a handler runs on the pool, rather than through `postgresTransaction(ctx)`, runs outside the transaction on a connection of its own. Once every connection is held by a message's transaction, it waits for one that never comes back, since the messages holding them are waiting for their handlers: the bus deadlocks. Query through `postgresTransaction(ctx)`, or give such queries a pool of their own.

@@ -341,6 +341,47 @@ describe('MongodbPersistence', () => {
     })
   })
 
+  describe('when the inbox index has its name but not its options', () => {
+    const databaseName = 'workflows_inbox_options'
+    let error: unknown
+
+    beforeAll(async () => {
+      await client.db(databaseName).dropDatabase()
+      const persistence = new MongodbPersistence({
+        ...configuration,
+        databaseName
+      })
+      persistence.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as unknown as CoreDependencies)
+      try {
+        await persistence.provision({ workflows: [], dryRun: false })
+        // Made by hand without the TTL, so records would never be removed
+        const inbox = client.db(databaseName).collection('inbox')
+        await inbox.dropIndex('"inbox_processedAt_idx"')
+        await inbox.createIndex(
+          { processedAt: 1 },
+          { name: '"inbox_processedAt_idx"' }
+        )
+        error = await persistence
+          .initialize({ workflows: [], verifyResources: true })
+          .catch((e: unknown) => e)
+      } finally {
+        await persistence.dispose()
+        await client.db(databaseName).dropDatabase()
+      }
+    })
+
+    it('should fail naming the index and the options it needs', () => {
+      expect(error).toBeInstanceOf(ResourcesNotProvisioned)
+      expect(error).toMatchObject({
+        missingResources: [
+          `MongoDB index "inbox_processedAt_idx" on ${databaseName}.inbox (expireAfterSeconds ${INBOX_RETENTION_MS / 1000})`
+        ]
+      })
+    })
+  })
+
   describe('when a dry run is provisioned', () => {
     const databaseName = 'workflows_dry_run'
     let plan: ProvisioningPlan

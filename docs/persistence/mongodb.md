@@ -56,10 +56,10 @@ Keys in the state are percent-encoded when stored (`$` as `%24`, `.` as `%2E` an
 
 ## Transactions
 
-With [`withOutbox()`](/guide/outbox), each message is handled in a transaction, in a `ClientSession` of the persistence's client. It reads one snapshot of the data and is committed with majority write concern, and a commit whose result is unknown, such as after a network error, is tried again for up to 2 minutes, as the driver's `withTransaction()` does.
+With [`withOutbox()`](/guide/outbox), each message is handled in a transaction, in a `ClientSession` of the persistence's client. The transaction is started on the server, with a cheap read, before any handler runs. It reads one snapshot of the data and is committed with majority write concern, and a commit whose result is unknown, such as after a network error, is tried again for up to 2 minutes, as the driver's `withTransaction()` does.
 
 ::: warning A replica set is required
-MongoDB only runs transactions on a replica set, or on a sharded cluster through mongos. A replica set of one member is enough, and MongoDB Atlas clusters are replica sets already. On a standalone server, a bus configured with `withOutbox()` throws `ReplicaSetRequired` from `initialize()`.
+MongoDB only runs transactions on a replica set, or on a sharded cluster through mongos. A replica set of one member is enough, and MongoDB Atlas clusters are replica sets already. On a standalone server, a bus configured with `withOutbox()` throws `ReplicaSetRequired` from `initialize()`. Load-balanced mode (`loadBalanced=true`, such as behind a serverless or load-balanced proxy) isn't supported with `withOutbox()`: it pins a transaction to one connection, which can't run the operations that the handlers of a message send at the same time.
 :::
 
 <<< @/snippets/mongodb-outbox.ts#configure
@@ -71,11 +71,25 @@ Handlers write their own data in the transaction by passing the session from `mo
 A session only runs operations on the client that started it, so pass your `MongoClient` to the `MongodbPersistence` constructor, as above, and run the handlers' operations on collections of that client. Every handler of the message shares the session, and the bus commits the transaction and ends the session, so:
 
 - don't commit, abort or end the session, or start a transaction in it,
-- only use it while the handler runs: the driver rejects an ended session, and `mongoSession(ctx)` throws `TransactionNotActive` once the transaction has ended,
-- await each operation rather than running them in parallel, such as with `Promise.all`, which the driver doesn't support in a transaction, and
-- an operation that fails, such as an insert with a duplicate key, aborts the whole transaction, even if the handler catches the error. The message then fails with `TransactionRolledBack` and is retried, so let the error fail the handler, or avoid it, such as with an upsert.
+- only use it while the handler runs: the driver rejects an ended session, and `mongoSession(ctx)` throws `TransactionNotActive` once the transaction has ended, and
+- an operation that fails, such as an insert with a duplicate key, aborts the whole transaction, even if the handler catches the error, so let the error fail the handler, or avoid it, such as with an upsert.
 
-Operations in a transaction that write the same document as another open transaction fail with a write conflict rather than waiting for it, and the message is retried. The inbox waits for the other transaction instead: a copy of a message that's being handled starts its transaction again, every few milliseconds, until the first copy's transaction ends, holding one of the bus' concurrency slots while it waits.
+The handlers of a message run at the same time, so their operations on the session can overlap. The bus starts the transaction before they run, and MongoDB then runs the operations of a transaction one at a time, so that works on a replica set or a sharded cluster. The persistence's own operations, such as saving workflow state, run one at a time too. Within a handler, awaiting each operation keeps their order clear.
+
+### When MongoDB aborts a transaction
+
+MongoDB aborts a transaction, and nothing the message's handlers saved or sent is kept, when:
+
+- an operation in it fails, even if the handler catches the error,
+- it writes a document that another open transaction has written: MongoDB fails the write with a write conflict rather than waiting for the other transaction,
+- it runs longer than `transactionLifetimeLimitSeconds`, 60 seconds by default, so keep handlers short, or
+- the replica set fails over to another primary.
+
+The commit then throws `TransactionRolledBack` with the reason `aborted-by-database`, and the message is retried by the [recoverability policy](/guide/recoverability). An error from an operation itself, such as a write conflict, fails the handler and the message is retried the same way.
+
+The [inbox](/guide/outbox#the-inbox) waits for the other transaction instead of failing: a copy of a message that's being handled starts its transaction again, every few milliseconds, until the first copy's transaction ends, holding one of the bus' concurrency slots while it waits.
+
+MongoDB 4.2 can't create a collection inside a transaction, so create the collections your handlers write to before the service starts. MongoDB 4.4 and later create them on the first write.
 
 To unit test such a handler, put `mongoTestSession(session)` on a fake context, and check the handler passed that session to a fake collection:
 
@@ -123,12 +137,11 @@ The outbox's transactions run the same operations, so they need nothing more. Co
 docker run -d -p 27017:27017 mongo
 ```
 
-For the outbox, run it as a replica set of one member, initiate it once, and connect with `directConnection=true`, so the driver doesn't look for the member under the host name it was initiated with:
+For the outbox, run it as a replica set of one member, and initiate it once with the host name the service connects to, so the connection string above, `mongodb://localhost:27017/?replicaSet=rs0`, finds it:
 
 ```sh
 docker run -d --name mongo -p 27017:27017 mongo --replSet rs0
-docker exec mongo mongosh --quiet --eval "rs.initiate()"
-# connection: 'mongodb://localhost:27017/?directConnection=true'
+docker exec mongo mongosh --quiet --eval "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] })"
 ```
 
 ## See also

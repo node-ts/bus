@@ -17,13 +17,18 @@ import {
 /**
  * What a transaction does in its session, other than ending it
  */
-type TransactionOperations = Pick<
+export type TransactionOperations = Pick<
   PersistenceTransaction,
   | 'getWorkflowState'
   | 'saveWorkflowState'
   | 'storeOutgoingMessages'
   | 'recordIncomingMessage'
->
+> & {
+  /**
+   * Runs a cheap read in the session, which starts the transaction on the server
+   */
+  start(): Promise<void>
+}
 
 /**
  * The persistence the transaction belongs to, as errors name it
@@ -48,7 +53,8 @@ const RETRY_LIMIT_MS = 120_000
 
 /**
  * How long recording a message waits before trying again while another transaction holds its record, doubling up to
- * `RECORD_RETRY_MAX_DELAY_MS`
+ * `RECORD_RETRY_MAX_DELAY_MS`. Each wait is between half of it and all of it, at random, so copies waiting on the same
+ * record don't retry in step.
  */
 const RECORD_RETRY_INITIAL_DELAY_MS = 5
 
@@ -65,7 +71,8 @@ const MAX_TIME_MS_EXPIRED_CODE = 50
 const DUPLICATE_KEY_CODE = 11000
 
 /**
- * Whether MongoDB aborted the transaction because of another one, such as a write conflict, so it can be run again
+ * Whether MongoDB aborted the transaction, such as after a write conflict, a failed operation, its lifetime limit or
+ * a failover, so it can only be run again from the start
  */
 const isTransientTransactionError = (error: unknown): boolean =>
   error instanceof MongoError &&
@@ -82,10 +89,14 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
    */
   private isSessionShared = false
   /**
-   * Settles once the transaction's first operation has. MongoDB starts the transaction with that operation, and fails
-   * other operations sent before it has, so they wait for it.
+   * How many of the persistence's operations, other than the read that starts the transaction, have run in it
    */
-  private started: Promise<void> | undefined
+  private operationsRun = 0
+  /**
+   * Settles once the persistence's last operation has. Its operations run one at a time, in the order they're
+   * called, so it never sends two at once on the session.
+   */
+  private queue: Promise<void> = Promise.resolve()
 
   /**
    * @param transactionSession the session the transaction was started in, which it ends when the transaction ends
@@ -106,6 +117,16 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
     this.assertActive('mongoSession(ctx)')
     this.isSessionShared = true
     return this.transactionSession
+  }
+
+  /**
+   * Starts the transaction on the server with a cheap read, before any handler can use the session. MongoDB fails
+   * operations sent alongside the one that starts a transaction, and the handlers of a message run at once, so their
+   * first operations would otherwise race each other. Once it's started, MongoDB runs the transaction's operations one
+   * at a time.
+   */
+  async start(): Promise<void> {
+    await this.run(async () => this.operations.start(), false)
   }
 
   getWorkflowState: PersistenceTransaction['getWorkflowState'] = async (
@@ -130,19 +151,18 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
   }
 
   /**
-   * Records that an endpoint handled a message. When it's the first operation of the transaction, as it is for each
-   * message the bus receives, and another transaction that hasn't ended has recorded the same message, it waits for
-   * that transaction to end.
+   * Records that an endpoint handled a message. When nothing but the read that started the transaction has run in
+   * it, as for each message the bus receives, and another transaction that hasn't ended has recorded the same
+   * message, it waits for that transaction to end.
    */
   async recordIncomingMessage(
     endpoint: string,
     messageId: string
   ): Promise<boolean> {
     this.assertActive('recordIncomingMessage')
-    // Nothing else has run in the transaction yet, so it can be started again without losing anything
-    const isFirstOperation = !this.started && !this.isSessionShared
     return this.run(async () =>
-      isFirstOperation
+      // Decided when it runs: only then is it known nothing else has, so starting again loses nothing
+      this.operationsRun === 0 && !this.isSessionShared
         ? this.recordWaitingForOtherTransactions(endpoint, messageId)
         : this.operations.recordIncomingMessage(endpoint, messageId)
     )
@@ -150,8 +170,8 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
 
   /**
    * Commits the transaction, trying again while its result is unknown, and ends the session
-   * @throws TransactionRolledBack if MongoDB aborted the transaction instead, such as when an operation in it failed
-   * or conflicted with another transaction
+   * @throws TransactionRolledBack if MongoDB had aborted the transaction, such as when an operation in it failed,
+   * it conflicted with another transaction, it ran longer than MongoDB allows, or the replica set failed over
    */
   async commit(): Promise<void> {
     this.assertActive('commit')
@@ -159,10 +179,9 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
     try {
       await this.commitUntilKnown()
     } catch (error) {
-      // MongoDB aborts a transaction when an operation in it fails, even if a handler caught the error
       if (isTransientTransactionError(error)) {
         throw new TransactionRolledBack(
-          TransactionRollbackReason.StatementFailed,
+          TransactionRollbackReason.AbortedByDatabase,
           MONGODB_PERSISTENCE_NAME,
           error
         )
@@ -189,16 +208,20 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
   }
 
   /**
-   * Runs an operation in the transaction. The first runs on its own, since it's the one that starts the transaction,
-   * and the rest wait for it, then run as they're called.
+   * Runs one of the persistence's operations in the transaction once the ones called before it have settled
+   * @param counts whether it counts as an operation that starting the transaction again would lose
    */
-  private async run<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.started) {
-      await this.started
-      return operation()
-    }
-    const result = operation()
-    this.started = result.then(
+  private async run<T>(operation: () => Promise<T>, counts = true): Promise<T> {
+    const result = this.queue.then(async () => {
+      try {
+        return await operation()
+      } finally {
+        if (counts) {
+          this.operationsRun++
+        }
+      }
+    })
+    this.queue = result.then(
       () => undefined,
       () => undefined
     )
@@ -224,7 +247,12 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
         const isConflict =
           isTransientTransactionError(error) ||
           (error instanceof MongoError && error.code === DUPLICATE_KEY_CODE)
-        if (!isConflict || !this.isActive || Date.now() >= deadline) {
+        if (
+          !isConflict ||
+          !this.isActive ||
+          this.isSessionShared ||
+          Date.now() >= deadline
+        ) {
           throw error
         }
       }
@@ -235,8 +263,9 @@ export class MongodbPersistenceTransaction implements PersistenceTransaction {
       if (this.transactionSession.inTransaction()) {
         await this.transactionSession.abortTransaction()
       }
-      await sleep(delayMs)
+      await sleep(delayMs / 2 + (Math.random() * delayMs) / 2)
       delayMs = Math.min(delayMs * 2, RECORD_RETRY_MAX_DELAY_MS)
+      // The record is the next operation, and runs alone, so it starts the transaction again
       this.transactionSession.startTransaction(TRANSACTION_OPTIONS)
     }
   }

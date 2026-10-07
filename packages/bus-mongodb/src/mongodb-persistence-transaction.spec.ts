@@ -1,6 +1,5 @@
 import {
   Logger,
-  PersistenceTransaction,
   TransactionNotActive,
   TransactionNotActiveReason,
   TransactionRollbackReason,
@@ -12,16 +11,9 @@ import { IMock, It, Mock, Times } from 'typemoq'
 import { mongoSession } from './mongo-session'
 import {
   MongodbPersistenceTransaction,
-  TRANSACTION_OPTIONS
+  TRANSACTION_OPTIONS,
+  TransactionOperations
 } from './mongodb-persistence-transaction'
-
-type TransactionOperations = Pick<
-  PersistenceTransaction,
-  | 'getWorkflowState'
-  | 'saveWorkflowState'
-  | 'storeOutgoingMessages'
-  | 'recordIncomingMessage'
->
 
 const writeConflict = () =>
   new MongoServerError({
@@ -59,6 +51,16 @@ describe('MongodbPersistenceTransaction', () => {
     })
   })
 
+  describe('when started', () => {
+    beforeEach(async () => {
+      await sut.start()
+    })
+
+    it('should run the read that starts the transaction on the server', () => {
+      operations.verify(async o => o.start(), Times.once())
+    })
+  })
+
   describe('when a message is recorded first, while another transaction holds its record', () => {
     let recorded: boolean
     let attempts: number
@@ -74,6 +76,7 @@ describe('MongodbPersistenceTransaction', () => {
           }
           return false
         })
+      await sut.start()
       recorded = await sut.recordIncomingMessage('endpoint', 'message-id')
     })
 
@@ -115,7 +118,28 @@ describe('MongodbPersistenceTransaction', () => {
     })
   })
 
-  describe('when operations are called at once before the transaction has started', () => {
+  describe('when a message is recorded after a handler used the session, while another transaction holds its record', () => {
+    let error: unknown
+
+    beforeEach(async () => {
+      operations
+        .setup(async o => o.recordIncomingMessage('endpoint', 'message-id'))
+        .returns(async () => {
+          throw writeConflict()
+        })
+      mongoSession({ transaction: sut })
+      error = await sut
+        .recordIncomingMessage('endpoint', 'message-id')
+        .catch((e: unknown) => e)
+    })
+
+    it('should throw the conflict, rather than drop what the handler did', () => {
+      expect(error).toBeInstanceOf(MongoServerError)
+      session.verify(async s => s.abortTransaction(), Times.never())
+    })
+  })
+
+  describe('when operations are called at once', () => {
     const order: string[] = []
     let finishFirst: () => void
 
@@ -156,7 +180,7 @@ describe('MongodbPersistenceTransaction', () => {
       await Promise.all([get, save])
     })
 
-    it('should run the others once the first has started the transaction', () => {
+    it('should run them one at a time, in the order they were called', () => {
       expect(order).toEqual(['get started', 'get finished', 'save'])
     })
   })
@@ -228,10 +252,10 @@ describe('MongodbPersistenceTransaction', () => {
       error = await sut.commit().catch((e: unknown) => e)
     })
 
-    it('should throw TransactionRolledBack', () => {
+    it('should throw TransactionRolledBack, saying the database aborted it', () => {
       expect(error).toBeInstanceOf(TransactionRolledBack)
       expect(error).toMatchObject({
-        reason: TransactionRollbackReason.StatementFailed,
+        reason: TransactionRollbackReason.AbortedByDatabase,
         persistenceName: 'MongodbPersistence'
       })
     })

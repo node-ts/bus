@@ -16,6 +16,7 @@ import { MongodbPersistenceTransaction } from './mongodb-persistence-transaction
  */
 export const mongoTestSession = (session: object = {}): unknown =>
   new MongodbPersistenceTransaction(session as ClientSession, undefined, {
+    start: async () => undefined,
     getWorkflowState: async () => [],
     saveWorkflowState: async () => undefined,
     storeOutgoingMessages: async () => [],

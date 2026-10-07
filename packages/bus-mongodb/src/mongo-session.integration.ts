@@ -2,6 +2,7 @@ import {
   Bus,
   BusInstance,
   deadLetter,
+  defineWorkflow,
   handlerFor,
   InMemoryQueue,
   Logger,
@@ -13,7 +14,13 @@ import { Collection, MongoClient } from 'mongodb'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { Mock } from 'typemoq'
-import { messageTypes, RunTask, TaskRan } from '../test'
+import {
+  messageTypes,
+  RunTask,
+  TaskRan,
+  TestCommand,
+  TestWorkflowState
+} from '../test'
 import { mongoSession } from './mongo-session'
 import { MongodbConfiguration } from './mongodb-configuration'
 import { MongodbPersistence } from './mongodb-persistence'
@@ -36,6 +43,7 @@ describe('mongoSession', () => {
   const deadLetterErrors = new Map<string, unknown>()
   // The persistence's own client, since a session only runs operations on the client that started it
   const client = new MongoClient(configuration.connection)
+  const queue = new InMemoryQueue({ receiveTimeoutMs: 100 })
   let orders: Collection<Order>
   let bus: BusInstance
 
@@ -75,11 +83,12 @@ describe('mongoSession', () => {
     bus = Bus.configure()
       .withMessageTypes(messageTypes)
       .withLogger(() => Mock.ofType<Logger>().object)
-      .withTransport(new InMemoryQueue({ receiveTimeoutMs: 100 }))
+      .withTransport(queue)
       .withPersistence(new MongodbPersistence(configuration, client))
       .withOutbox()
       .withRecoverability(({ message, error }) => {
-        const { value } = message as RunTask
+        const value =
+          (message as RunTask).value ?? (message as TestCommand).property1!
         deadLetterErrors.set(value, error)
         events.emit('dead-lettered', value)
         return deadLetter()
@@ -100,11 +109,32 @@ describe('mongoSession', () => {
         })
       )
       .withHandler(
-        handlerFor(RunTask, ({ value }) => {
+        handlerFor(RunTask, async ({ value }, _attributes, ctx) => {
           if (value.startsWith('fail')) {
             throw new Error('Handler failed')
           }
+          if (value.startsWith('two-writers')) {
+            await orders.insertOne(
+              { _id: `${value}-second` },
+              { session: mongoSession(ctx) }
+            )
+          }
         })
+      )
+      // Writes alongside the workflow that TestCommand starts, which saves its state in the same transaction
+      .withHandler(
+        handlerFor(TestCommand, async ({ property1 }, _attributes, ctx) => {
+          await orders.insertOne(
+            { _id: property1! },
+            { session: mongoSession(ctx) }
+          )
+        })
+      )
+      .withWorkflow(
+        defineWorkflow(TestWorkflowState).startedBy(
+          TestCommand,
+          ({ property1 }) => ({ property1 })
+        )
       )
       .withHandler(
         handlerFor(TaskRan, ({ value }) => {
@@ -134,6 +164,48 @@ describe('mongoSession', () => {
 
     it('should keep what the handler wrote', async () => {
       expect(await orderExists(orderId)).toEqual(true)
+    })
+  })
+
+  describe('when a message without a messageId is handled by two handlers that write with it', () => {
+    const orderId = `two-writers-${randomUUID()}`
+
+    beforeAll(async () => {
+      // Put on the queue as it is, so it has no messageId and the inbox records nothing before the handlers run
+      await queue.send(new RunTask(orderId), {
+        attributes: {},
+        stickyAttributes: {}
+      })
+      await queue.idle()
+    })
+
+    it('should keep what both handlers wrote', async () => {
+      expect(deadLetterErrors.get(orderId)).toBeUndefined()
+      expect(await orderExists(orderId)).toEqual(true)
+      expect(await orderExists(`${orderId}-second`)).toEqual(true)
+    })
+  })
+
+  describe('when a message without a messageId is handled by a handler that writes with it and a workflow', () => {
+    const orderId = randomUUID()
+
+    beforeAll(async () => {
+      await queue.send(new TestCommand(orderId), {
+        attributes: {},
+        stickyAttributes: {}
+      })
+      await queue.idle()
+    })
+
+    it('should keep what the handler wrote and the workflow state', async () => {
+      expect(deadLetterErrors.get(orderId)).toBeUndefined()
+      expect(await orderExists(orderId)).toEqual(true)
+      expect(
+        await client
+          .db(configuration.databaseName)
+          .collection('testworkflowstate')
+          .countDocuments({ 'data.property1': orderId })
+      ).toEqual(1)
     })
   })
 

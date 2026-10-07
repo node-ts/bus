@@ -23,6 +23,7 @@ import {
   ClientSession,
   CreateIndexesOptions,
   Db,
+  Document,
   MongoClient
 } from 'mongodb'
 import { ReplicaSetRequired, WorkflowStateNotFound } from './error'
@@ -392,38 +393,55 @@ export class MongodbPersistence implements Persistence {
 
   /**
    * Starts a session of the client and a transaction in it, which reads one snapshot and is committed with majority
-   * write concern. Handlers use the session with `mongoSession(ctx)`. MongoDB only runs transactions on a replica set
-   * or a sharded cluster, which `initialize()` checks when the bus is configured with `withOutbox()`.
+   * write concern, and starts it on the server with a cheap read, so the handlers of a message can use the session at
+   * once. Handlers use the session with `mongoSession(ctx)`. MongoDB only runs transactions on a replica set or a
+   * sharded cluster, which `initialize()` checks when the bus is configured with `withOutbox()`.
    * @returns the transaction
    */
   async beginTransaction(): Promise<PersistenceTransaction> {
     const session = this.client.startSession()
-    // Nothing is sent to the server until the first operation in the transaction
     session.startTransaction(TRANSACTION_OPTIONS)
-    this.logger.debug('Began transaction')
-    return new MongodbPersistenceTransaction(session, this.logger, {
-      getWorkflowState: async (
-        workflowStateConstructor,
-        messageMap,
-        message,
-        attributes,
-        includeCompleted
-      ) =>
-        this.queryWorkflowState(
-          session,
+    const transaction = new MongodbPersistenceTransaction(
+      session,
+      this.logger,
+      {
+        start: async () => {
+          await this.inbox()
+            .find({}, { session, projection: { _id: 1 }, limit: 1 })
+            .toArray()
+        },
+        getWorkflowState: async (
           workflowStateConstructor,
           messageMap,
           message,
           attributes,
           includeCompleted
-        ),
-      saveWorkflowState: async workflowState =>
-        this.writeWorkflowState(session, workflowState),
-      storeOutgoingMessages: async outgoingMessages =>
-        this.insertOutgoingMessages(session, outgoingMessages),
-      recordIncomingMessage: async (endpoint, messageId) =>
-        this.insertIncomingMessage(session, endpoint, messageId)
-    })
+        ) =>
+          this.queryWorkflowState(
+            session,
+            workflowStateConstructor,
+            messageMap,
+            message,
+            attributes,
+            includeCompleted
+          ),
+        saveWorkflowState: async workflowState =>
+          this.writeWorkflowState(session, workflowState),
+        storeOutgoingMessages: async outgoingMessages =>
+          this.insertOutgoingMessages(session, outgoingMessages),
+        recordIncomingMessage: async (endpoint, messageId) =>
+          this.insertIncomingMessage(session, endpoint, messageId)
+      }
+    )
+    try {
+      // Before any handler gets the session, since operations sent alongside the one that starts it fail
+      await transaction.start()
+    } catch (error) {
+      await transaction.rollback()
+      throw error
+    }
+    this.logger.debug('Began transaction')
+    return transaction
   }
 
   private async queryWorkflowState<
@@ -665,16 +683,19 @@ export class MongodbPersistence implements Persistence {
         missing.push(`MongoDB collection ${databaseName}.${name}`)
         continue
       }
-      const existingIndexes = new Set(
+      const existingIndexes = new Map(
         (await this.database.collection(name).listIndexes().toArray()).map(
-          index => index.name as string
+          index => [index.name as string, index] as const
         )
       )
       missing.push(
         ...indexes
-          .filter(index => !existingIndexes.has(index.name))
+          .filter(
+            index => !hasIndexOptions(existingIndexes.get(index.name), index)
+          )
           .map(
-            index => `MongoDB index ${index.name} on ${databaseName}.${name}`
+            index =>
+              `MongoDB index ${index.name} on ${databaseName}.${name}${describeIndexOptions(index)}`
           )
       )
     }
@@ -832,6 +853,39 @@ function resolveCollections(
     }
   }
   return [...collections.values()]
+}
+
+/**
+ * Whether an index exists with the options the persistence relies on, such as the inbox's unique and TTL indexes. An
+ * index with the right name but without them, such as one made by hand, would let copies of a message both be handled,
+ * or keep records forever.
+ */
+function hasIndexOptions(
+  existing: Document | undefined,
+  { options }: MongodbIndex
+): boolean {
+  if (!existing) {
+    return false
+  }
+  return (
+    (options?.unique === undefined || existing.unique === options.unique) &&
+    (options?.expireAfterSeconds === undefined ||
+      existing.expireAfterSeconds === options.expireAfterSeconds)
+  )
+}
+
+/**
+ * Describes the options of an index, for the error that says it's missing
+ * @example describeIndexOptions(index) => ' (unique)'
+ */
+function describeIndexOptions({ options }: MongodbIndex): string {
+  const described = [
+    ...(options?.unique ? ['unique'] : []),
+    ...(options?.expireAfterSeconds === undefined
+      ? []
+      : [`expireAfterSeconds ${options.expireAfterSeconds}`])
+  ]
+  return described.length ? ` (${described.join(', ')})` : ''
 }
 
 /**
