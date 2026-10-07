@@ -8,8 +8,7 @@ import { BusFeature } from './bus-feature'
 /**
  * Options for `BusModule.forFeature()`
  */
-export interface BusFeatureOptions
-  extends BusFeature, Pick<ModuleMetadata, 'imports'> {
+export interface BusFeatureOptions extends BusFeature {
   /**
    * The name of the bus to register the handlers and workflows with, as given to `BusModule.forRoot({ name })`
    * @default 'default'
@@ -30,7 +29,8 @@ export interface BusFeatureAsyncOptions<
    */
   bus?: string
   /**
-   * The providers to pass to `useFactory`, in order. They must be singletons, since the factory runs once.
+   * The providers to pass to `useFactory`, in order, from the modules in `imports`. They must be singletons, since
+   * the factory runs once.
    */
   inject?: (InjectionToken | OptionalFactoryDependency)[]
   /**

@@ -15,7 +15,7 @@ export class BusNotBuilt extends Error {
     readonly member: string
   ) {
     super(`The bus '${busName}' was used (${member}) before BusModule built it`)
-    this.help = `BusModule builds the bus when the application initializes. Use the bus from a method that runs after that, such as onModuleInit(), onApplicationBootstrap() or a request handler, rather than from a constructor or a factory provider.`
+    this.help = `BusModule builds the bus in its onModuleInit(), which may run after the onModuleInit() of other global modules. Use the bus from onApplicationBootstrap() or later, such as from a request handler, rather than from a constructor, a factory provider or onModuleInit().`
 
     Object.setPrototypeOf(this, new.target.prototype)
   }

@@ -1,4 +1,4 @@
-import { DynamicModule, Provider } from '@nestjs/common'
+import { DynamicModule, Logger, Provider } from '@nestjs/common'
 import { DiscoveryModule, DiscoveryService, ModuleRef } from '@nestjs/core'
 import { Bus } from '@node-ts/bus-core'
 import {
@@ -22,9 +22,10 @@ import { nestLoggerFactory } from './nest-logger-factory'
  * providers can be decorated with `@BusHandler()` and `@BusWorkflow()`. Class handlers and workflows are resolved
  * from Nest's container for each message.
  *
- * The bus is built when the application initializes, initialized and started when it bootstraps, stopped when it
- * starts shutting down and disposed once it has. Call `app.enableShutdownHooks()` so a SIGTERM shuts it down
- * gracefully.
+ * The bus is built when the application initializes and initialized and started when it bootstraps. When the
+ * application shuts down, it's stopped after the `onModuleDestroy` of every module that isn't global, and disposed
+ * after their `onApplicationShutdown`, so release what handlers use in `beforeApplicationShutdown` or
+ * `onApplicationShutdown`. Call `app.enableShutdownHooks()` so a SIGTERM shuts it down gracefully.
  * @example
  * ```ts
  * @Module({
@@ -96,6 +97,12 @@ export class BusModule {
             seed,
             ...(dependencies as TDependencies)
           )
+          if (configuration !== seed) {
+            new Logger('@node-ts/bus-nestjs:bus-module').warn(
+              `The configuration of the bus '${name}' isn't the one BusModule gave its factory, so the bus logs with the default logger rather than Nest's, and stops itself on SIGINT and SIGTERM, alongside Nest's shutdown hooks. Configure and return the configuration the factory is given.`,
+              { bus: name }
+            )
+          }
           return new BusLifecycleHost(
             name,
             configuration,
@@ -123,26 +130,25 @@ export class BusModule {
   }
 
   /**
-   * Registers handlers and workflows with a bus. Class handlers and workflows are also registered as providers of
-   * the module this returns, so pass the modules that export their dependencies in `imports`.
+   * Registers handlers and workflows with a bus. It only registers them: class handlers and workflows must also be
+   * providers, in the `providers` of the module that imports this or another module of the application.
    * @param options the handlers and workflows, and the bus to register them with
    * @returns a module to import in the feature module
    * @example
-   * BusModule.forFeature({ handlers: [ChargeCreditCardHandler, refundHandler], workflows: [shippingWorkflow] })
+   * ```ts
+   * @Module({
+   *   imports: [BusModule.forFeature({ handlers: [ChargeCreditCardHandler, refundHandler], workflows: [shippingWorkflow] })],
+   *   providers: [ChargeCreditCardHandler]
+   * })
+   * export class PaymentsModule {}
+   * ```
    */
   static forFeature(options: BusFeatureOptions): DynamicModule {
-    const { bus, imports, ...feature } = options
+    const { bus, ...feature } = options
     const busName = bus ?? DEFAULT_BUS_NAME
-    const classes = [
-      ...(feature.handlers ?? []),
-      ...(feature.workflows ?? [])
-    ].filter(registered => typeof registered === 'function')
-
     return {
       module: BusModule,
-      imports: imports ?? [],
       providers: [
-        ...classes,
         {
           provide: Symbol(`${BUS_FEATURE_TOKEN_PREFIX}${busName}`),
           useValue: new BusFeatureRegistration(busName, feature)
@@ -154,7 +160,8 @@ export class BusModule {
   /**
    * Registers handlers and workflows with a bus, declared by a factory that's given providers from Nest's
    * container, such as function handlers that close over them. The factory runs once, so it can only inject
-   * singletons.
+   * singletons. Its module only sees the providers of the modules in `imports`. Class handlers and workflows it
+   * returns must also be providers, as with `forFeature()`.
    * @param options the factory, the providers to give it, and the bus to register them with
    * @returns a module to import in the feature module
    * @example

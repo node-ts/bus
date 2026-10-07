@@ -28,13 +28,11 @@ export type BusFeatureWorkflow =
  */
 export interface BusFeature {
   /**
-   * Class handlers, which `BusModule.forFeature()` also registers as providers, and handlers declared with
-   * `handlerFor()`
+   * Class handlers, which must also be providers, and handlers declared with `handlerFor()`
    */
   handlers?: BusFeatureHandler[]
   /**
-   * Class workflows, which `BusModule.forFeature()` also registers as providers, and workflows declared with
-   * `defineWorkflow()`
+   * Class workflows, which must also be providers, and workflows declared with `defineWorkflow()`
    */
   workflows?: BusFeatureWorkflow[]
 }

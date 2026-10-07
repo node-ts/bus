@@ -1,5 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Scope } from '@nestjs/common'
+import { REQUEST } from '@nestjs/core'
 import { defineWorkflow, Workflow, WorkflowMapper } from '@node-ts/bus-core'
+import { BusRequest } from '../bus-request'
 import { BusWorkflow } from '../bus-workflow'
 import { FulfilmentState } from './fulfilment-state'
 import { OrderPlaced } from './order-placed'
@@ -37,3 +39,28 @@ export const shippingWorkflow = (recorder: Recorder) =>
     recorder.record({ by: 'shippingWorkflow', message: event })
     return { orderId: event.orderId }
   })
+
+/**
+ * A request-scoped class workflow that reads the message from `REQUEST` in its constructor, which fails when the
+ * bus creates it without a message to read its `configureWorkflow()`
+ */
+export class RequestScopedWorkflow extends Workflow<FulfilmentState> {
+  readonly orderId: string
+
+  constructor(request: BusRequest) {
+    super()
+    this.orderId = (request.message as OrderPlaced).orderId
+  }
+
+  configureWorkflow(
+    mapper: WorkflowMapper<FulfilmentState, RequestScopedWorkflow>
+  ): void {
+    mapper.withState(FulfilmentState).startedBy(OrderPlaced, 'start')
+  }
+
+  async start(): Promise<Partial<FulfilmentState>> {
+    return { orderId: this.orderId }
+  }
+}
+Injectable({ scope: Scope.REQUEST })(RequestScopedWorkflow)
+Inject(REQUEST)(RequestScopedWorkflow, undefined, 0)

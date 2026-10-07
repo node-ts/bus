@@ -1,8 +1,15 @@
 import 'reflect-metadata'
 
-import { Injectable, Scope } from '@nestjs/common'
+import {
+  BeforeApplicationShutdown,
+  Injectable,
+  OnApplicationShutdown,
+  OnModuleDestroy,
+  Scope
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import {
+  Bus,
   BusInstance,
   BusMiddleware,
   BusState,
@@ -10,17 +17,20 @@ import {
   Handler,
   HandlerDispatchRejected,
   InMemoryQueue,
+  Logger,
   deadLetter,
   handlerFor
 } from '@node-ts/bus-core'
 import { EventEmitter } from 'node:events'
+import { Mock } from 'typemoq'
 import { BusModule } from './bus-module'
 import {
   BusAlreadyRegistered,
+  BusClassNotProvided,
   BusFeatureNotStatic,
   BusNotBuilt,
   BusNotRegistered,
-  HandlerNotProvided
+  WorkflowResolvedWithoutMessage
 } from './error'
 import { getBusToken } from './get-bus-token'
 import { InjectBus } from './inject-bus'
@@ -35,6 +45,8 @@ import {
   OrderPlacedHandler,
   ProvisionedQueue,
   Recorder,
+  RecordingLogger,
+  RequestScopedWorkflow,
   SecondScopedHandler,
   messageTypes,
   orderPlacedAuditHandler,
@@ -112,6 +124,7 @@ describe('BusModule', () => {
         ],
         providers: [
           ChargeCreditCardHandler,
+          OrderPlacedHandler,
           FulfilmentWorkflow,
           MessageScope,
           FirstScopedHandler,
@@ -185,28 +198,127 @@ describe('BusModule', () => {
     })
   })
 
-  describe('when the application shuts down', () => {
-    const queue = new ProvisionedQueue()
+  describe('when the application shuts down while a message is being handled', () => {
+    const events: string[] = []
     let bus: BusInstance
 
+    /**
+     * A queue that lets the handler finish once the bus stops it, so the message is in flight while Nest runs the
+     * other modules' onModuleDestroy
+     */
+    class GatedQueue extends ProvisionedQueue {
+      constructor(private readonly onStop: () => void) {
+        super(events)
+      }
+
+      async stop(): Promise<void> {
+        await super.stop()
+        this.onStop()
+      }
+    }
+
+    /**
+     * A provider of a feature module, such as a database client, that records Nest's shutdown hooks
+     */
+    class Database
+      implements
+        OnModuleDestroy,
+        BeforeApplicationShutdown,
+        OnApplicationShutdown
+    {
+      onModuleDestroy(): void {
+        events.push('database onModuleDestroy')
+      }
+
+      beforeApplicationShutdown(): void {
+        events.push('database beforeApplicationShutdown')
+      }
+
+      onApplicationShutdown(): void {
+        events.push('database onApplicationShutdown')
+      }
+    }
+    class DatabaseModule {}
+
     beforeAll(async () => {
+      let release: () => void = () => undefined
+      const released = new Promise<void>(resolve => (release = resolve))
+      let handling: () => void = () => undefined
+      const handlerStarted = new Promise<void>(resolve => (handling = resolve))
+      const queue = new GatedQueue(() => release())
+
       const app = await startApp({
         imports: [
-          recorderModule(),
+          { module: DatabaseModule, providers: [Database] },
           BusModule.forRoot({
             configure: configuration =>
-              configuration.withTransport(queue).withMessageTypes(messageTypes)
+              configuration
+                .withTransport(queue)
+                .withMessageTypes(messageTypes)
+                .withHandler(
+                  handlerFor(ChargeCreditCard, async () => {
+                    events.push('handler started')
+                    handling()
+                    await released
+                    events.push('handler finished')
+                  })
+                )
           })
-        ],
-        providers: [ChargeCreditCardHandler]
+        ]
       })
       bus = app.get(BusInstance)
+      await bus.send(new ChargeCreditCard('order-1', 10))
+      await handlerStarted
       await app.close()
     })
 
-    it('should stop the bus, then dispose it', () => {
+    it('should stop the bus after the onModuleDestroy of other modules, finishing the message before their later shutdown hooks', () => {
+      expect(events).toEqual([
+        'start',
+        'handler started',
+        'database onModuleDestroy',
+        'stop',
+        'handler finished',
+        'database beforeApplicationShutdown',
+        'database onApplicationShutdown',
+        'dispose'
+      ])
+    })
+
+    it('should leave the bus stopped', () => {
       expect(bus.state).toEqual(BusState.Stopped)
-      expect(queue.calls).toEqual(['start', 'stop', 'dispose'])
+    })
+  })
+
+  describe('when configure() returns a configuration it was not given', () => {
+    const logger = new RecordingLogger()
+    let app: TestingModule
+
+    beforeAll(async () => {
+      app = await Test.createTestingModule({
+        imports: [
+          BusModule.forRoot({
+            configure: () =>
+              Bus.configure()
+                .withLogger(() => Mock.ofType<Logger>().object)
+                .withInterruptSignals([])
+          })
+        ]
+      })
+        .setLogger(logger)
+        .compile()
+      await app.init()
+    })
+
+    afterAll(async () => app.close())
+
+    it('should warn that the logger and shutdown handling of Nest are lost', () => {
+      expect(logger.calls).toContainEqual([
+        'warn',
+        expect.stringContaining("isn't the one BusModule gave its factory"),
+        { bus: 'default' },
+        '@node-ts/bus-nestjs:bus-module'
+      ])
     })
   })
 
@@ -439,8 +551,8 @@ describe('BusModule', () => {
       const [rejection] = (error as HandlerDispatchRejected).rejections
       expect(rejection).toBeInstanceOf(ClassHandlerNotResolved)
       const cause = (rejection as ClassHandlerNotResolved).cause
-      expect(cause).toBeInstanceOf(HandlerNotProvided)
-      expect((cause as HandlerNotProvided).help).toContain('providers')
+      expect(cause).toBeInstanceOf(BusClassNotProvided)
+      expect((cause as BusClassNotProvided).help).toContain('providers')
     })
   })
 
@@ -542,6 +654,88 @@ describe('BusModule', () => {
       })
     })
 
+    describe('and a class registered with forFeature() is not a provider', () => {
+      let error: unknown
+
+      beforeAll(async () => {
+        error = await startFails({
+          imports: [
+            recorderModule(),
+            forRoot(),
+            BusModule.forFeature({ handlers: [OrderPlacedHandler] })
+          ]
+        })
+      })
+
+      it('should throw BusClassNotProvided, naming the class and saying to add it to providers', () => {
+        expect(error).toBeInstanceOf(BusClassNotProvided)
+        const notProvided = error as BusClassNotProvided
+        expect(notProvided.className).toEqual(OrderPlacedHandler.name)
+        expect(notProvided.help).toContain('providers')
+      })
+    })
+
+    describe('and a request-scoped class workflow reads REQUEST in its constructor', () => {
+      const queue = new ProvisionedQueue()
+      let error: unknown
+
+      beforeAll(async () => {
+        error = await startFails({
+          imports: [
+            BusModule.forRoot({
+              configure: configuration =>
+                configuration
+                  .withTransport(queue)
+                  .withMessageTypes(messageTypes)
+            }),
+            BusModule.forFeature({ workflows: [RequestScopedWorkflow] })
+          ],
+          providers: [RequestScopedWorkflow]
+        })
+      })
+
+      it('should throw WorkflowResolvedWithoutMessage, naming the workflow', () => {
+        expect(error).toBeInstanceOf(WorkflowResolvedWithoutMessage)
+        const resolvedWithoutMessage = error as WorkflowResolvedWithoutMessage
+        expect(resolvedWithoutMessage.className).toEqual(
+          RequestScopedWorkflow.name
+        )
+        expect(resolvedWithoutMessage.cause).toBeInstanceOf(TypeError)
+        expect(resolvedWithoutMessage.help).toContain('REQUEST')
+      })
+
+      it('should dispose the bus', () => {
+        expect(queue.calls).toEqual(['dispose'])
+      })
+    })
+
+    describe('and the transport fails to initialize', () => {
+      const transportError = new Error('Connection refused')
+      const queue = new ProvisionedQueue([], transportError)
+      let error: unknown
+
+      beforeAll(async () => {
+        error = await startFails({
+          imports: [
+            BusModule.forRoot({
+              configure: configuration =>
+                configuration
+                  .withTransport(queue)
+                  .withMessageTypes(messageTypes)
+            })
+          ]
+        })
+      })
+
+      it('should rethrow the error', () => {
+        expect(error).toBe(transportError)
+      })
+
+      it('should dispose the bus', () => {
+        expect(queue.calls).toEqual(['dispose'])
+      })
+    })
+
     describe('and a class handler declared with handlerFor() is not a provider', () => {
       let error: unknown
 
@@ -558,9 +752,9 @@ describe('BusModule', () => {
         })
       })
 
-      it('should throw HandlerNotProvided, naming the class', () => {
-        expect(error).toBeInstanceOf(HandlerNotProvided)
-        expect((error as HandlerNotProvided).className).toEqual(
+      it('should throw BusClassNotProvided, naming the class', () => {
+        expect(error).toBeInstanceOf(BusClassNotProvided)
+        expect((error as BusClassNotProvided).className).toEqual(
           UnprovidedHandler.name
         )
       })

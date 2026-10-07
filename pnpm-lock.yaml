@@ -449,6 +449,12 @@ importers:
 
   packages/bus-nestjs:
     dependencies:
+      '@node-ts/bus-messages':
+        specifier: workspace:^
+        version: link:../bus-messages
+      serialize-error:
+        specifier: '8'
+        version: 8.1.0
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
@@ -468,9 +474,6 @@ importers:
       '@node-ts/bus-core':
         specifier: workspace:^
         version: link:../bus-core
-      '@node-ts/bus-messages':
-        specifier: workspace:^
-        version: link:../bus-messages
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2

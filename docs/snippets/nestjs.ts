@@ -1,8 +1,10 @@
 import {
+  INestApplication,
   Inject,
   Injectable,
   Module,
   OnApplicationBootstrap,
+  OnApplicationShutdown,
   Scope
 } from '@nestjs/common'
 import { NestFactory, REQUEST } from '@nestjs/core'
@@ -93,12 +95,12 @@ export class PaymentsModule {}
 // #region for-feature
 @Module({
   imports: [
-    BusModule.forFeature({
-      // Also registered as a provider, with its dependencies from `imports`
-      imports: [PaymentGatewayModule],
-      handlers: [ChargeCreditCardHandler]
-    })
-  ]
+    PaymentGatewayModule,
+    // Registers the handler with the bus, without @BusHandler()
+    BusModule.forFeature({ handlers: [ChargeCreditCardHandler] })
+  ],
+  // It's still a provider of the module
+  providers: [ChargeCreditCardHandler]
 })
 export class PaymentsWithoutDecoratorsModule {}
 // #endregion for-feature
@@ -209,9 +211,32 @@ export class StartBusAfterWarmUp implements OnApplicationBootstrap {
 }
 // #endregion manual-lifecycle
 
+// #region release-resources
+@Injectable()
+export class DatabasePool implements OnApplicationShutdown {
+  async query(_sql: string): Promise<unknown[]> {
+    return []
+  }
+
+  // Not onModuleDestroy, which runs before the bus has finished the messages it's handling
+  async onApplicationShutdown() {
+    // ...close the pool
+  }
+}
+// #endregion release-resources
+
+const shutDown = async (app: INestApplication) => {
+  // #region manual-stop
+  // Stop taking messages and finish those being handled, then shut the rest of the application down
+  await app.get(BusInstance).stop()
+  await app.close()
+  // #endregion manual-stop
+}
+
 // #region provisioning
 // src/provision-bus.ts, run with `bus provision dist/provision-bus.js`
 export default () => createBusForProvisioning(AppModule)
 // #endregion provisioning
 
 await bootstrap()
+await shutDown(await NestFactory.create(AppModule))

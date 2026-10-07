@@ -10,8 +10,9 @@ import { BusConfiguration } from '@node-ts/bus-core'
  * - `auto`: it initializes and starts the bus when the application bootstraps (`onApplicationBootstrap`)
  * - `manual`: the application calls `bus.initialize()` and `bus.start()` itself, such as after `app.listen()`
  *
- * Either way, it stops the bus when the application starts shutting down (`onModuleDestroy`), and disposes it
- * once the application has shut down (`onApplicationShutdown`).
+ * Either way, it stops the bus in its `onModuleDestroy` and disposes it in its `onApplicationShutdown`, which Nest
+ * runs after those of every module that isn't global. With `manual`, call `bus.stop()` before `app.close()` to stop
+ * it before anything else shuts down.
  */
 export type BusLifecycle = 'auto' | 'manual'
 

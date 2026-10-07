@@ -4,7 +4,7 @@ import { ContainerAdapter } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { Mock } from 'typemoq'
 import { BusRequest } from './bus-request'
-import { HandlerNotProvided } from './error'
+import { BusClassNotProvided, WorkflowResolvedWithoutMessage } from './error'
 import { nestContainer } from './nest-container'
 import { OrderPlaced } from './test/order-placed'
 
@@ -19,6 +19,11 @@ class FakeModuleRef {
   readonly singleton = new SingletonHandler()
   readonly resolvedIn: ContextId[] = []
   readonly requests: BusRequest[] = []
+
+  /**
+   * @param failToResolveWith an error to reject with when resolving a request-scoped provider
+   */
+  constructor(private readonly failToResolveWith?: Error) {}
 
   introspect(type: unknown): { scope: Scope } {
     if (type === SingletonHandler) {
@@ -36,6 +41,9 @@ class FakeModuleRef {
 
   async resolve(_type: unknown, contextId: ContextId): Promise<unknown> {
     this.resolvedIn.push(contextId)
+    if (this.failToResolveWith) {
+      throw this.failToResolveWith
+    }
     return new ScopedHandler()
   }
 
@@ -92,6 +100,52 @@ describe('nestContainer', () => {
     })
   })
 
+  describe('when a request-scoped class fails to resolve without a message', () => {
+    const cause = new TypeError(
+      "Cannot read properties of undefined (reading 'message')"
+    )
+    let error: unknown
+
+    beforeAll(async () => {
+      const sut = nestContainer(
+        new FakeModuleRef(cause) as unknown as ModuleRef
+      )
+      try {
+        await sut.get(ScopedHandler)
+      } catch (e) {
+        error = e
+      }
+    })
+
+    it('should throw WorkflowResolvedWithoutMessage, naming the class, with the error as its cause', () => {
+      expect(error).toBeInstanceOf(WorkflowResolvedWithoutMessage)
+      expect((error as WorkflowResolvedWithoutMessage).className).toEqual(
+        'ScopedHandler'
+      )
+      expect((error as WorkflowResolvedWithoutMessage).cause).toBe(cause)
+    })
+  })
+
+  describe('when a request-scoped class fails to resolve for a message', () => {
+    const cause = new Error('Database unavailable')
+    let error: unknown
+
+    beforeAll(async () => {
+      const sut = nestContainer(
+        new FakeModuleRef(cause) as unknown as ModuleRef
+      )
+      try {
+        await sut.get(ScopedHandler, { message: new OrderPlaced('order-1') })
+      } catch (e) {
+        error = e
+      }
+    })
+
+    it('should rethrow the error as it is', () => {
+      expect(error).toBe(cause)
+    })
+  })
+
   describe('when a class is not a provider', () => {
     let error: unknown
 
@@ -104,10 +158,10 @@ describe('nestContainer', () => {
       }
     })
 
-    it('should throw HandlerNotProvided, naming the class', () => {
-      expect(error).toBeInstanceOf(HandlerNotProvided)
-      expect((error as HandlerNotProvided).className).toEqual('MissingHandler')
-      expect((error as HandlerNotProvided).cause).toBeInstanceOf(Error)
+    it('should throw BusClassNotProvided, naming the class', () => {
+      expect(error).toBeInstanceOf(BusClassNotProvided)
+      expect((error as BusClassNotProvided).className).toEqual('MissingHandler')
+      expect((error as BusClassNotProvided).cause).toBeInstanceOf(Error)
     })
   })
 })

@@ -1,36 +1,6 @@
-import { Logger, LoggerService } from '@nestjs/common'
+import { Logger } from '@nestjs/common'
 import { nestLoggerFactory } from './nest-logger-factory'
-
-/**
- * Records each call Nest's `Logger` passes on to the application's logger
- */
-class RecordingLogger implements LoggerService {
-  readonly calls: unknown[][] = []
-
-  log(...args: unknown[]): void {
-    this.calls.push(['log', ...args])
-  }
-
-  error(...args: unknown[]): void {
-    this.calls.push(['error', ...args])
-  }
-
-  warn(...args: unknown[]): void {
-    this.calls.push(['warn', ...args])
-  }
-
-  debug(...args: unknown[]): void {
-    this.calls.push(['debug', ...args])
-  }
-
-  verbose(...args: unknown[]): void {
-    this.calls.push(['verbose', ...args])
-  }
-
-  fatal(...args: unknown[]): void {
-    this.calls.push(['fatal', ...args])
-  }
-}
+import { RecordingLogger } from './test/recording-logger'
 
 describe('nestLoggerFactory', () => {
   const nestLogger = new RecordingLogger()

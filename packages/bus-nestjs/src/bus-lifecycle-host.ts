@@ -1,4 +1,5 @@
 import {
+  Logger,
   OnApplicationBootstrap,
   OnApplicationShutdown,
   OnModuleDestroy,
@@ -13,6 +14,7 @@ import {
   Handler,
   isClassHandler
 } from '@node-ts/bus-core'
+import { serializeError } from 'serialize-error'
 import {
   BUS_HANDLER_METADATA,
   BUS_WORKFLOW_METADATA
@@ -26,9 +28,10 @@ import { BusLifecycle } from './bus-module-options'
 import { createLazyBus } from './create-lazy-bus'
 import {
   BusAlreadyRegistered,
+  BusClassNotProvided,
+  BusCoreVersionNotSupported,
   BusFeatureNotStatic,
-  BusNotRegistered,
-  HandlerNotProvided
+  BusNotRegistered
 } from './error'
 import { DEFAULT_BUS_NAME } from './get-bus-token'
 import { nestContainer } from './nest-container'
@@ -70,9 +73,15 @@ const classOf = (
  * Builds one bus `BusModule` registers, and runs its lifecycle from Nest's lifecycle hooks:
  * - `onModuleInit`: finds the handlers and workflows registered with it, and builds it
  * - `onApplicationBootstrap`: initializes it, and starts it if it reads from its transport
- * - `onModuleDestroy`: stops it, so it takes no more messages and finishes those it's handling while the rest of
- *   the application is still running
- * - `onApplicationShutdown`: disposes it, once the application has stopped taking requests that might send
+ * - `onModuleDestroy`: stops it, so it takes no more messages and finishes those it's handling
+ * - `onApplicationShutdown`: disposes it
+ *
+ * `BusModule` is global, and Nest calls each shutdown hook of global modules after that hook of every module that
+ * isn't. So the bus stops after the `onModuleDestroy` of every module that isn't global, and before any module's
+ * `beforeApplicationShutdown` and `onApplicationShutdown`, and is disposed after the `onApplicationShutdown` of every
+ * module that isn't global. Until it stops, it keeps handling messages and taking new ones. Providers its handlers
+ * use should release their resources in `beforeApplicationShutdown` or `onApplicationShutdown`, not
+ * `onModuleDestroy`.
  *
  * In an application made by `createBusForProvisioning()`, it only builds the bus.
  */
@@ -88,6 +97,8 @@ export class BusLifecycleHost
    */
   readonly bus: BusInstance
   private builtBus: BusInstance | undefined
+  private disposed = false
+  private readonly logger = new Logger('@node-ts/bus-nestjs:bus-lifecycle-host')
 
   /**
    * @param name the bus' name
@@ -113,7 +124,8 @@ export class BusLifecycleHost
    * @throws BusAlreadyRegistered if another `BusModule.forRoot()` registers a bus with the same name
    * @throws BusNotRegistered if handlers or workflows are registered with a bus that isn't
    * @throws BusFeatureNotStatic if a `forFeatureAsync()` factory injects a request-scoped or transient provider
-   * @throws HandlerNotProvided if a class handler or workflow isn't a provider
+   * @throws BusClassNotProvided if a class handler or workflow isn't a provider
+   * @throws BusCoreVersionNotSupported if the installed @node-ts/bus-core is too old
    */
   onModuleInit(): void {
     const registrations = this.findRegistrations()
@@ -143,27 +155,48 @@ export class BusLifecycleHost
     )
     this.assertProvided(classes)
 
-    this.builtBus = this.configuration
+    const bus = this.configuration
       .withContainer(nestContainer(this.moduleRef))
       .build()
+    if (typeof (bus as Partial<BusInstance>).canStart !== 'boolean') {
+      throw new BusCoreVersionNotSupported('BusInstance.canStart')
+    }
+    this.builtBus = bus
   }
 
   /**
-   * Initializes the bus and, if it reads from its transport, starts it, unless its lifecycle is manual
+   * Initializes the bus and, if it reads from its transport, starts it, unless its lifecycle is manual. If either
+   * fails, it disposes the bus, so its connections don't keep the process running, and rethrows.
    */
   async onApplicationBootstrap(): Promise<void> {
     if (this.provisioning || this.lifecycle === 'manual') {
       return
     }
     const bus = this.getBuiltBus()
-    await bus.initialize()
-    if (bus.canStart) {
-      await bus.start()
+    try {
+      await bus.initialize()
+      if (bus.canStart) {
+        await bus.start()
+      }
+    } catch (error) {
+      try {
+        await this.dispose(bus)
+      } catch (disposeError) {
+        this.logger.error(
+          'Failed to dispose the bus after it failed to start',
+          {
+            bus: this.name,
+            error: serializeError(disposeError)
+          }
+        )
+      }
+      throw error
     }
   }
 
   /**
-   * Stops the bus, if it's started, waiting for the messages it's handling
+   * Stops the bus, if it's started, waiting for the messages it's handling. It runs after the `onModuleDestroy` of
+   * every module that isn't global, since `BusModule` is.
    */
   async onModuleDestroy(): Promise<void> {
     if (this.provisioning || !this.builtBus) {
@@ -175,13 +208,24 @@ export class BusLifecycleHost
   }
 
   /**
-   * Disposes the bus
+   * Disposes the bus, after the `onApplicationShutdown` of every module that isn't global
    */
   async onApplicationShutdown(): Promise<void> {
     if (this.provisioning || !this.builtBus) {
       return
     }
-    await this.builtBus.dispose()
+    await this.dispose(this.builtBus)
+  }
+
+  /**
+   * Disposes the bus once, whether the application failed to bootstrap or shut down
+   */
+  private async dispose(bus: BusInstance): Promise<void> {
+    if (this.disposed) {
+      return
+    }
+    this.disposed = true
+    await bus.dispose()
   }
 
   private getBuiltBus(): BusInstance {
@@ -288,14 +332,14 @@ export class BusLifecycleHost
 
   /**
    * Checks every class handler and workflow is a provider, so the bus can resolve it
-   * @throws HandlerNotProvided for the first that isn't
+   * @throws BusClassNotProvided for the first that isn't
    */
   private assertProvided(classes: ClassConstructor<unknown>[]): void {
     for (const type of classes) {
       try {
         this.moduleRef.introspect(type)
       } catch (error) {
-        throw new HandlerNotProvided(type.name, error)
+        throw new BusClassNotProvided(type.name, error)
       }
     }
   }

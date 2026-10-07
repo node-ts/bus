@@ -49,11 +49,11 @@ Function handlers, and workflows declared with `defineWorkflow()`, are registere
 
 <<< @/snippets/nestjs.ts#feature-module
 
-Class handlers and workflows can also be listed in `BusModule.forFeature()` instead of being decorated. It adds them to its module's providers, so pass the modules that export their dependencies in `imports`:
+Class handlers and workflows can also be registered by listing them in `BusModule.forFeature()` instead of decorating them. That only registers them with the bus: they're still providers of your module, with their dependencies injected as usual:
 
 <<< @/snippets/nestjs.ts#for-feature
 
-When the application starts, it fails with `HandlerNotProvided` if a class handler or workflow isn't a provider, and with `BusNotRegistered` if they're registered with a bus no `forRoot()` registers.
+When the application starts, it fails with `BusClassNotProvided` if a class handler or workflow isn't a provider, and with `BusNotRegistered` if they're registered with a bus no `forRoot()` registers.
 
 ## Sending from a service
 
@@ -61,7 +61,7 @@ The bus is injected as `BusInstance`:
 
 <<< @/snippets/nestjs.ts#inject-bus
 
-The bus is built when the application initializes, so use it from a method, not in a constructor or a factory provider. It throws `BusNotBuilt` if it's used before then. Handlers send through their [handler context](/guide/dependency-injection#with-closures) rather than an injected bus.
+The bus is built in `BusModule`'s `onModuleInit`, so use it from `onApplicationBootstrap()` or later, such as from a request handler, and not in a constructor, a factory provider or `onModuleInit()`. It throws `BusNotBuilt` if it's used before then, or rejects with it from an async method such as `send()`. Nest runs the `onModuleInit` of global modules first, so a `@Global()` module listed before `BusModule.forRoot()` can't use the bus in its `onModuleInit` either. Handlers send through their [handler context](/guide/dependency-injection#with-closures) rather than an injected bus.
 
 ## Several buses
 
@@ -75,20 +75,28 @@ Each bus needs a transport of its own. See [Several buses](/guide/multiple-buses
 
 `BusModule` runs the bus with the application:
 
-| Nest hook                | What happens to the bus                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `onModuleInit`           | Built, with the handlers and workflows of every module                                           |
-| `onApplicationBootstrap` | Initialized, then started, unless it's send-only or has a `Receiver`                             |
-| `onModuleDestroy`        | Stopped: it takes no more messages and finishes those it's handling                              |
-| `onApplicationShutdown`  | Disposed, once the application has stopped taking requests, so requests in flight can still send |
+| Nest hook                | What happens to the bus                                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `onModuleInit`           | Built, with the handlers and workflows of every module                                                                                  |
+| `onApplicationBootstrap` | Initialized, then started, unless it's send-only or has a `Receiver`. If either fails, it's disposed and the application fails to start |
+| `onModuleDestroy`        | Stopped, after the `onModuleDestroy` of every module that isn't global: it takes no more messages and finishes those it's handling      |
+| `onApplicationShutdown`  | Disposed, after the `onApplicationShutdown` of every module that isn't global                                                           |
+
+`BusModule` is global, and Nest runs each shutdown hook of global modules after that hook of every module that isn't. So while other modules' `onModuleDestroy` run, the bus is still handling messages, and taking new ones. Release what handlers use, such as a database pool, in `beforeApplicationShutdown` or `onApplicationShutdown`, which run once the bus has stopped:
+
+<<< @/snippets/nestjs.ts#release-resources
 
 The bus doesn't listen for `SIGINT` and `SIGTERM` itself, so call `enableShutdownHooks()`, or a `SIGTERM` ends the process without stopping it, and the messages it was handling are retried:
 
 <<< @/snippets/nestjs.ts#main
 
-`BusModule` is global, so Nest runs its `onApplicationBootstrap` before the root module's, and the bus may handle messages before the rest of the application has finished bootstrapping. To start it later, set `lifecycle: 'manual'`, and initialize and start it yourself. It's still stopped and disposed with the application:
+Nest also runs `BusModule`'s `onApplicationBootstrap` before the root module's, so the bus may handle messages before the rest of the application has finished bootstrapping. For full control, set `lifecycle: 'manual'`, and initialize and start the bus yourself:
 
 <<< @/snippets/nestjs.ts#manual-lifecycle
+
+It's still stopped and disposed with the application. To stop it before anything else shuts down, stop it before closing the application:
+
+<<< @/snippets/nestjs.ts#manual-stop
 
 ## Request-scoped providers
 
@@ -96,7 +104,7 @@ The bus resolves class handlers and workflows for each message. Request-scoped p
 
 <<< @/snippets/nestjs.ts#request-scope
 
-A request-scoped class workflow is also resolved once when the bus initializes, to read its `configureWorkflow()`, with no message, so `REQUEST` is `undefined` then.
+A request-scoped class workflow is also resolved once when the bus initializes, to read its `configureWorkflow()`, with no message, so `REQUEST` is `undefined` then. Keep the request in its constructor, and the constructors of the request-scoped providers it depends on, and read its message and attributes when a message is handled. If resolving it fails then, the application fails to start with `WorkflowResolvedWithoutMessage`.
 
 Outside `BusModule`, `nestContainer(moduleRef)` gives `withContainer()` the same container adapter.
 
