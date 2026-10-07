@@ -34,6 +34,8 @@ The service builds the same configuration when it starts:
 
 <<< @/snippets/provisioning.ts#start
 
+A bus that a framework builds, such as one registered with [`@node-ts/bus-nestjs`](/guide/nestjs#provisioning), can be exported built but not initialized instead, or as a function that returns one.
+
 ## Running bus provision
 
 `bus provision` comes with `@node-ts/bus-cli`. Run it in your deploy pipeline, with credentials that can create the resources, before the new version of the service starts:

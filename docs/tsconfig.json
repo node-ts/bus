@@ -13,6 +13,10 @@
     "declaration": false,
     "importHelpers": false,
     "resolveJsonModule": true,
+    // The NestJS snippets use Nest's decorators, which need the legacy
+    // decorators and their metadata. Messages never use decorators.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "types": ["node"]
   },
   "include": ["snippets/**/*.ts", ".vitepress/**/*.ts", ".vitepress/**/*.mts"],

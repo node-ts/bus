@@ -92,6 +92,7 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: 'Transactional outbox', link: '/guide/outbox' },
       { text: 'OpenTelemetry', link: '/guide/opentelemetry' },
       { text: 'Dependency injection', link: '/guide/dependency-injection' },
+      { text: 'NestJS', link: '/guide/nestjs' },
       {
         text: 'Long running processes',
         link: '/guide/long-running-processes'

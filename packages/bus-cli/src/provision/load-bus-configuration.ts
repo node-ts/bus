@@ -1,4 +1,4 @@
-import type { BusConfiguration } from '@node-ts/bus-core'
+import type { BusConfiguration, BusInstance } from '@node-ts/bus-core'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
@@ -27,6 +27,15 @@ const isBusConfiguration = (value: unknown): value is BusConfiguration =>
   typeof (value as { build?: unknown }).build === 'function'
 
 /**
+ * Whether a value is a built bus, from whichever copy of @node-ts/bus-core the module uses, recognised by its shape.
+ * Checked after `isBusConfiguration`, since a configuration has no `provision`.
+ */
+const isBusInstance = (value: unknown): value is BusInstance =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as { provision?: unknown }).provision === 'function'
+
+/**
  * Describes what a value is, for an error
  */
 const describeValue = (value: unknown): string => {
@@ -40,22 +49,23 @@ const describeValue = (value: unknown): string => {
 }
 
 /**
- * Loads the bus configuration a module exports: a `BusConfiguration`, or a function, sync or async, that returns
- * one
+ * Loads the bus a module exports: a `BusConfiguration`, or a function, sync or async, that returns one. It can also
+ * be a bus that's been built but not initialized, or a function that returns one, for a bus built by a framework,
+ * such as `createBusForProvisioning()` from @node-ts/bus-nestjs.
  * @param modulePath the module's path, relative to `cwd`
  * @param exportName the export to read, such as `default`
  * @param cwd the directory the path is resolved against
  * @param load how to import the module
- * @returns the configuration, not built yet
+ * @returns the configuration, not built yet, or the built bus
  * @throws BusConfigurationModuleNotLoaded if the module can't be imported
- * @throws BusConfigurationNotExported if the export isn't a configuration, or a function that returns one
+ * @throws BusConfigurationNotExported if the export isn't a configuration or a bus, or a function that returns one
  */
 export const loadBusConfiguration = async (
   modulePath: string,
   exportName: string,
   cwd: string,
   load: ImportModule = importModule
-): Promise<BusConfiguration> => {
+): Promise<BusConfiguration | BusInstance> => {
   let module: Record<string, unknown>
   try {
     module = await load(pathToFileURL(resolve(cwd, modulePath)).href)
@@ -79,7 +89,7 @@ export const loadBusConfiguration = async (
     typeof exported === 'function'
       ? await (exported as () => unknown)()
       : exported
-  if (!isBusConfiguration(configuration)) {
+  if (!isBusConfiguration(configuration) && !isBusInstance(configuration)) {
     throw new BusConfigurationNotExported(
       modulePath,
       exportName,

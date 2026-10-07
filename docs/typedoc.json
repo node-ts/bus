@@ -12,6 +12,7 @@
     "../packages/bus-postgres",
     "../packages/bus-mongodb",
     "../packages/bus-opentelemetry",
+    "../packages/bus-nestjs",
     "../packages/bus-test"
   ],
   "packageOptions": {
