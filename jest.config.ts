@@ -17,7 +17,14 @@ const config: Config = {
   testEnvironment: 'node',
   // Generated files import with a .js extension, which resolves to the .ts source
   moduleNameMapper: { '^(\\.{1,2}/.*)\\.js$': '$1' },
-  testPathIgnorePatterns: ['node_modules/', 'dist/', '<rootDir>/docs/'],
+  // Agent worktrees in .claude/worktrees hold copies of every package
+  modulePathIgnorePatterns: ['<rootDir>/.claude/'],
+  testPathIgnorePatterns: [
+    'node_modules/',
+    'dist/',
+    '<rootDir>/docs/',
+    '<rootDir>/.claude/'
+  ],
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',
