@@ -452,12 +452,15 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
     this.listenReconnectTimer = undefined
     this.wakePending = false
     this.wakeAll()
-    await this.listening
+    // Taken before waiting, since a start() while this waits may make a listener of its own, which isn't this stop's
+    // to close. A listen still in flight sees it's stale and closes its own connection.
     const listener = this.listener
     this.listener = undefined
+    const listening = this.listening
     if (listener) {
       await this.closeListener(listener)
     }
+    await listening
   }
 
   /**
@@ -471,8 +474,8 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
     while (this.isStarted) {
       const row = await this.claimNextMessage()
       if (row) {
-        // There may be more, so another waiting read checks too
-        this.wakeOne()
+        // There may be more, so a read that's waiting checks too. One that isn't waiting checks anyway before it waits.
+        this.wakeWaiting()
         return this.toTransportMessage(row)
       }
       // stop() may have run while the claim was in flight, and nothing would wake a read that waits after it
@@ -735,6 +738,13 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
     }
   }
 
+  /**
+   * Wakes one waiting read, if there is one
+   */
+  private wakeWaiting(): void {
+    this.waiters.shift()?.()
+  }
+
   private wakeAll(): void {
     const waiters = this.waiters
     this.waiters = []
@@ -774,6 +784,8 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
       : this.postgres.options
     const client = new Client({
       ...settings,
+      // pg-pool keeps the password non-enumerable, so spreading its options leaves it out
+      password: settings.password,
       // stop() waits for a connection being made, so it mustn't wait forever on a database that doesn't answer
       connectionTimeoutMillis:
         settings.connectionTimeoutMillis || LISTEN_CONNECTION_TIMEOUT_MS,

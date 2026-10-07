@@ -476,6 +476,46 @@ describe('PostgresTransport', () => {
       })
     })
 
+    describe('and it is given a pool with a password of its own', () => {
+      const url = new URL(connection.connectionString)
+      const applicationName = `transport-password-${randomUUID()}`
+      // A password that's set on its own, rather than in a connection string, is hidden in the pool's options
+      const pool = new Pool({
+        host: url.hostname,
+        port: Number(url.port),
+        user: decodeURIComponent(url.username),
+        password: decodeURIComponent(url.password),
+        database: url.pathname.slice(1),
+        application_name: applicationName
+      })
+      let bus: BusInstance
+      let listeningConnections: number
+
+      beforeAll(async () => {
+        bus = await startBus(
+          { pollIntervalMs: 60_000 },
+          async () => undefined,
+          {
+            pool
+          }
+        )
+        const { rows } = await postgres.query(
+          "select count(*)::int as count from pg_stat_activity where application_name = $1 and query ilike 'LISTEN%';",
+          [applicationName]
+        )
+        listeningConnections = (rows as { count: number }[])[0].count
+      })
+
+      afterAll(async () => {
+        await bus.dispose()
+        await pool.end()
+      })
+
+      it('should listen on a connection made with its settings', () => {
+        expect(listeningConnections).toEqual(1)
+      })
+    })
+
     describe('and the transport is stopped while a claim that finds nothing is in flight', () => {
       const pool = new SlowClaimPool(connection)
       let bus: BusInstance
@@ -755,10 +795,27 @@ describe('PostgresTransport', () => {
       const settled = new EventEmitter()
       let arrivals = 0
       let handlerCalls = 0
+      let heldSecondCopy = false
       let bus: BusInstance
 
+      /**
+       * Resolves once another transaction is waiting on a lock to record a message in this schema's inbox, which is
+       * the second copy waiting for the first copy's transaction to end
+       */
+      const secondCopyWaitingOnInbox = async (): Promise<void> => {
+        while (true) {
+          const { rowCount } = await postgres.query(
+            "select 1 from pg_stat_activity where wait_event_type = 'Lock' and query like $1;",
+            [`%"${OVERLAP_SCHEMA}"."inbox"%`]
+          )
+          if (rowCount) {
+            return
+          }
+          await new Promise(resolve => setTimeout(resolve, 20))
+        }
+      }
+
       beforeAll(async () => {
-        const secondArrived = Promise.withResolvers<void>()
         const bothSettled = new Promise<void>(resolve => {
           let count = 0
           settled.on('settled', () => {
@@ -786,9 +843,7 @@ describe('PostgresTransport', () => {
           .withAutoProvision()
           .withMiddleware({
             incoming: async (_, next) => {
-              if (++arrivals === 2) {
-                secondArrived.resolve()
-              }
+              arrivals++
               try {
                 await next()
               } finally {
@@ -800,7 +855,8 @@ describe('PostgresTransport', () => {
             handlerFor(TestOutboxCommand, async () => {
               handlerCalls++
               // Holds the inbox row until the second copy has arrived and is waiting on it
-              await secondArrived.promise
+              await secondCopyWaitingOnInbox()
+              heldSecondCopy = true
             })
           )
           .build()
@@ -814,6 +870,10 @@ describe('PostgresTransport', () => {
 
       it('should receive both copies', () => {
         expect(arrivals).toEqual(2)
+      })
+
+      it("should hold the second copy on the first copy's inbox row", () => {
+        expect(heldSecondCopy).toEqual(true)
       })
 
       it('should run the handler once', () => {
