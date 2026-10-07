@@ -44,14 +44,21 @@ const UNPROVISIONED_SCHEMA = 'transport_unprovisioned'
 const DRY_RUN_SCHEMA = 'transport_dry_run'
 const RECEIVING_SCHEMA = 'transport_receiving'
 const OUTBOX_SCHEMA = 'transport_outbox'
+const OVERLAP_SCHEMA = 'transport_outbox_overlap'
 
 const TEST_SCHEMAS = [
   TRANSPORT_SCHEMA,
   UNPROVISIONED_SCHEMA,
   DRY_RUN_SCHEMA,
   RECEIVING_SCHEMA,
-  OUTBOX_SCHEMA
+  OUTBOX_SCHEMA,
+  OVERLAP_SCHEMA
 ]
+
+/**
+ * How long a test waits for something that should happen well before the transport's next poll
+ */
+const PROMPTLY_MS = 5_000
 
 const configuration: PostgresTransportConfiguration = {
   queueName: '@node-ts/bus-postgres-transport-test',
@@ -60,6 +67,48 @@ const configuration: PostgresTransportConfiguration = {
 }
 
 const silentLogger = () => Mock.ofType<Logger>().object
+
+/**
+ * Resolves with what a promise resolves with, or `'timed out'` once `ms` has passed
+ */
+const within = async <T>(promise: Promise<T>, ms: number) => {
+  let timeout: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<'timed out'>(resolve => {
+        timeout = setTimeout(() => resolve('timed out'), ms)
+      })
+    ])
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * A pool that holds back the result of each claim, as a slow round trip to the database would, and emits `delaying`
+ * once the claim has run and its result is being held back
+ */
+class SlowClaimPool extends Pool {
+  readonly events = new EventEmitter()
+  claimDelayMs = 0
+  delaying = 0
+
+  query(...args: any[]): any {
+    const result = (super.query as any)(...args)
+    const delay = this.claimDelayMs
+    if (!String(args[0]).includes('for update skip locked') || !delay) {
+      return result
+    }
+    return result.then(async (rows: unknown) => {
+      this.delaying++
+      this.events.emit('delaying')
+      await new Promise(resolve => setTimeout(resolve, delay))
+      this.delaying--
+      return rows
+    })
+  }
+}
 
 /**
  * Moves a queue's dead letters back to it, as the docs show
@@ -301,109 +350,202 @@ describe('PostgresTransport', () => {
 
   describe('when receiving', () => {
     const queueName = 'transport-receiving'
-    const events = new EventEmitter()
-    const buses: BusInstance[] = []
 
     /**
-     * The failed attempts of each receipt of a message, in the order they arrived
+     * Builds, initializes and starts a bus on the receiving schema, which records the failed attempts of each
+     * receipt
      */
-    let receipts: number[] = []
-
-    const buildBus = async (
+    const startBus = async (
       transportConfiguration: Partial<PostgresTransportConfiguration>,
       handle: (command: TestCommand) => Promise<void>,
-      concurrency = 1
-    ) => {
-      receipts = []
+      options: { concurrency?: number; pool?: Pool; receipts?: number[] } = {}
+    ): Promise<BusInstance> => {
+      const transportOptions = {
+        ...configuration,
+        queueName,
+        schemaName: RECEIVING_SCHEMA,
+        ...transportConfiguration
+      }
       const bus = Bus.configure()
         .withLogger(silentLogger)
         .withMessageTypes(messageTypes)
         .withTransport(
-          new PostgresTransport({
-            ...configuration,
-            queueName,
-            schemaName: RECEIVING_SCHEMA,
-            ...transportConfiguration
-          })
+          options.pool
+            ? new PostgresTransport(transportOptions, options.pool)
+            : new PostgresTransport(transportOptions)
         )
-        .withConcurrency(concurrency)
+        .withConcurrency(options.concurrency ?? 1)
         .withAutoProvision()
         .withMiddleware({
           incoming: async (context, next) => {
-            receipts.push(context.transportMessage.failedAttempts)
+            options.receipts?.push(context.transportMessage.failedAttempts)
             await next()
           }
         })
         .withHandler(handlerFor(TestCommand, async command => handle(command)))
         .build()
-      buses.push(bus)
       await bus.initialize()
       await bus.start()
       return bus
     }
 
-    afterEach(async () => {
-      while (buses.length) {
-        await buses.pop()!.dispose()
-      }
-    })
-
     describe('and a notification arrives before the next poll', () => {
-      it('should receive the message straight away', async () => {
-        const bus = await buildBus(
-          { pollIntervalMs: 60_000 },
-          async command => {
-            events.emit('listened', command.value)
-          }
+      const value = randomUUID()
+      let bus: BusInstance
+      let received: unknown
+
+      beforeAll(async () => {
+        const handled = Promise.withResolvers<string>()
+        bus = await startBus({ pollIntervalMs: 60_000 }, async command =>
+          handled.resolve(command.value)
         )
-        const value = randomUUID()
-        const received = once(events, 'listened')
         await bus.send(new TestCommand(value, new Date()))
-        expect(await received).toEqual([value])
+        received = await within(handled.promise, PROMPTLY_MS)
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should receive the message straight away', () => {
+        expect(received).toEqual(value)
       })
     })
 
     describe('and listening is off', () => {
-      it('should receive the message on the next poll', async () => {
-        const bus = await buildBus(
+      const value = randomUUID()
+      let bus: BusInstance
+      let received: unknown
+
+      beforeAll(async () => {
+        const handled = Promise.withResolvers<string>()
+        bus = await startBus(
           { listen: false, pollIntervalMs: 100 },
+          async command => handled.resolve(command.value)
+        )
+        await bus.send(new TestCommand(value, new Date()))
+        received = await within(handled.promise, PROMPTLY_MS)
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should receive the message on the next poll', () => {
+        expect(received).toEqual(value)
+      })
+    })
+
+    describe('and a notification arrives while no read is waiting', () => {
+      const pool = new SlowClaimPool(connection)
+      const releaseFirst = Promise.withResolvers<void>()
+      let bus: BusInstance
+      let received: unknown
+
+      beforeAll(async () => {
+        const firstHandling = Promise.withResolvers<void>()
+        const secondHandled = Promise.withResolvers<string>()
+        pool.claimDelayMs = 300
+        bus = await startBus(
+          { pollIntervalMs: 60_000 },
           async command => {
-            events.emit('polled', command.value)
+            if (command.value === 'first') {
+              firstHandling.resolve()
+              await releaseFirst.promise
+            } else {
+              secondHandled.resolve(command.value)
+            }
+          },
+          { concurrency: 2, pool }
+        )
+        await bus.send(new TestCommand('first', new Date()))
+        await firstHandling.promise
+        // The other read was woken when the first message was claimed. Once its claim has found nothing, and before
+        // it's waiting, the second message is sent, so its notification comes while no read is waiting.
+        if (pool.delaying === 0) {
+          await once(pool.events, 'delaying')
+        }
+        await bus.send(new TestCommand('second', new Date()))
+        received = await within(secondHandled.promise, PROMPTLY_MS)
+      })
+
+      afterAll(async () => {
+        releaseFirst.resolve()
+        await bus.dispose()
+        await pool.end()
+      })
+
+      it('should receive the message straight away rather than on the next poll', () => {
+        expect(received).toEqual('second')
+      })
+    })
+
+    describe('and the transport is stopped while a claim that finds nothing is in flight', () => {
+      const pool = new SlowClaimPool(connection)
+      let bus: BusInstance
+      let stopped: unknown
+
+      beforeAll(async () => {
+        pool.claimDelayMs = 300
+        const claimHeldBack = once(pool.events, 'delaying')
+        bus = await startBus(
+          { pollIntervalMs: 60_000 },
+          async () => undefined,
+          {
+            pool
           }
         )
-        const value = randomUUID()
-        const received = once(events, 'polled')
-        await bus.send(new TestCommand(value, new Date()))
-        expect(await received).toEqual([value])
+        await claimHeldBack
+        stopped = await within(
+          bus.stop().then(() => 'stopped'),
+          PROMPTLY_MS
+        )
+      })
+
+      afterAll(async () => {
+        await bus.dispose()
+        await pool.end()
+      })
+
+      it('should stop', () => {
+        expect(stopped).toEqual('stopped')
       })
     })
 
     describe('and a message is not settled before its visibility timeout ends', () => {
-      it('should receive it again, counting the expired receipt as a failed attempt', async () => {
+      const receipts: number[] = []
+      let bus: BusInstance
+
+      beforeAll(async () => {
         const secondReceipt = Promise.withResolvers<void>()
-        const handled = Promise.withResolvers<void>()
-        const bus = await buildBus(
+        const firstHandled = Promise.withResolvers<void>()
+        bus = await startBus(
           { visibilityTimeoutMs: 200, pollIntervalMs: 50 },
           async () => {
             if (receipts.length === 1) {
               // Still handling the first receipt when the second arrives
               await secondReceipt.promise
-              handled.resolve()
+              firstHandled.resolve()
             } else {
               secondReceipt.resolve()
             }
           },
-          2
+          { concurrency: 2, receipts }
         )
         await bus.send(new TestCommand(randomUUID(), new Date()))
-        await handled.promise
+        await firstHandled.promise
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should receive it again, counting the expired receipt as a failed attempt', () => {
         expect(receipts).toEqual([0, 1])
       })
     })
 
     describe('and a message cannot be parsed', () => {
-      it('should move it to the dead letter table with the parse error', async () => {
-        await buildBus({}, async () => undefined)
+      let bus: BusInstance
+      let remaining: number | null
+      let failure: MessageFailure | undefined
+
+      beforeAll(async () => {
+        bus = await startBus({}, async () => undefined)
         const { rows } = await postgres.query(
           `
           insert into "${RECEIVING_SCHEMA}".transport_messages (queue, body, attributes, headers, visible_at)
@@ -412,7 +554,6 @@ describe('PostgresTransport', () => {
           [queueName]
         )
         const id = (rows as { id: string }[])[0].id
-        let failure: MessageFailure | undefined
         while (!failure) {
           const deadLetters = await postgres.query(
             `select headers from "${RECEIVING_SCHEMA}".transport_dead_letters where queue = $1 and body = 'not json';`,
@@ -424,169 +565,259 @@ describe('PostgresTransport', () => {
           )
           await new Promise(resolve => setTimeout(resolve, 50))
         }
-        const remaining = await postgres.query(
-          `select 1 from "${RECEIVING_SCHEMA}".transport_messages where id = $1;`,
-          [id]
-        )
-        expect(remaining.rowCount).toEqual(0)
-        expect(failure.failedAttempts).toEqual(1)
-        expect(failure.endpoint).toEqual(queueName)
+        remaining = (
+          await postgres.query(
+            `select 1 from "${RECEIVING_SCHEMA}".transport_messages where id = $1;`,
+            [id]
+          )
+        ).rowCount
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should remove it from the queue', () => {
+        expect(remaining).toEqual(0)
+      })
+
+      it('should move it to the dead letter table with the parse error', () => {
+        expect(failure!.failedAttempts).toEqual(1)
+        expect(failure!.endpoint).toEqual(queueName)
       })
     })
   })
 
-  describe('with withOutbox() on the same database', () => {
-    const queueName = 'transport-outbox'
-    const events = new EventEmitter()
-    const received: TestOutboxEvent[] = []
-    const handledRunIds: string[] = []
-    const redrivenRunIds = new Set<string>()
-    let bus: BusInstance
+  describe('when messages are handled', () => {
+    describe('with withOutbox() on the same database', () => {
+      const queueName = 'transport-outbox'
+      const events = new EventEmitter()
+      const received: TestOutboxEvent[] = []
+      const handledRunIds: string[] = []
+      const redrivenRunIds = new Set<string>()
+      let bus: BusInstance
 
-    const receivedFrom = (runId: string) =>
-      received.filter(event => event.runId === runId)
+      const receivedFrom = (runId: string) =>
+        received.filter(event => event.runId === runId)
 
-    const waitForEvent = async (runId: string): Promise<void> =>
-      new Promise(resolve => {
-        const listener = (receivedRunId: string) => {
-          if (receivedRunId === runId) {
-            events.off('received', listener)
-            resolve()
-          }
-        }
-        events.on('received', listener)
-      })
-
-    /**
-     * Sends a command and waits for the event its handler publishes, so every message sent before it has been
-     * handled, since the bus handles one message at a time in the order they were sent
-     */
-    const drain = async (): Promise<void> => {
-      const runId = randomUUID()
-      const eventReceived = waitForEvent(runId)
-      await bus.send(new TestOutboxCommand(runId, 'publish'))
-      await eventReceived
-    }
-
-    beforeAll(async () => {
-      const outboxConfiguration = {
-        connection,
-        schemaName: OUTBOX_SCHEMA
-      }
-      bus = Bus.configure()
-        .withLogger(silentLogger)
-        .withMessageTypes(messageTypes)
-        .withTransport(
-          new PostgresTransport({
-            ...outboxConfiguration,
-            queueName,
-            pollIntervalMs: 100
-          })
-        )
-        .withPersistence(new PostgresPersistence(outboxConfiguration))
-        .withOutbox()
-        .withAutoProvision()
-        .withRecoverability(({ message, failedAttempts }) => {
-          if (failedAttempts < 2) {
-            return retry(0)
-          }
-          events.emit('dead-lettered', (message as TestOutboxCommand).runId)
-          return deadLetter()
-        })
-        .withHandler(
-          handlerFor(TestOutboxCommand, async ({ runId, scenario }, _, ctx) => {
-            handledRunIds.push(runId)
-            await ctx.publish(new TestOutboxEvent(runId, scenario))
-            if (scenario === 'fail' && !redrivenRunIds.has(runId)) {
-              throw new Error('Handler failed')
+      const waitForEvent = async (runId: string): Promise<void> =>
+        new Promise(resolve => {
+          const listener = (receivedRunId: string) => {
+            if (receivedRunId === runId) {
+              events.off('received', listener)
+              resolve()
             }
-          })
-        )
-        .withHandler(
-          handlerFor(TestOutboxEvent, event => {
-            received.push(event)
-            events.emit('received', event.runId)
-          })
-        )
-        .build()
-      await bus.initialize()
-      await bus.start()
-    })
+          }
+          events.on('received', listener)
+        })
 
-    afterAll(async () => bus.dispose())
-
-    describe('when a handler publishes an event', () => {
-      it('should deliver the event once its transaction is committed', async () => {
+      /**
+       * Sends a command and waits for the event its handler publishes, so every message sent before it has been
+       * handled, since the bus handles one message at a time in the order they were sent
+       */
+      const drain = async (): Promise<void> => {
         const runId = randomUUID()
         const eventReceived = waitForEvent(runId)
         await bus.send(new TestOutboxCommand(runId, 'publish'))
         await eventReceived
-        expect(receivedFrom(runId)).toHaveLength(1)
-      })
-    })
-
-    describe('when a handler fails after publishing an event', () => {
-      const runId = randomUUID()
+      }
 
       beforeAll(async () => {
-        const deadLettered = once(events, 'dead-lettered')
-        await bus.send(new TestOutboxCommand(runId, 'fail'))
-        await deadLettered
-        await drain()
+        const outboxConfiguration = {
+          connection,
+          schemaName: OUTBOX_SCHEMA
+        }
+        bus = Bus.configure()
+          .withLogger(silentLogger)
+          .withMessageTypes(messageTypes)
+          .withTransport(
+            new PostgresTransport({
+              ...outboxConfiguration,
+              queueName,
+              pollIntervalMs: 100
+            })
+          )
+          .withPersistence(new PostgresPersistence(outboxConfiguration))
+          .withOutbox()
+          .withAutoProvision()
+          .withRecoverability(({ message, failedAttempts }) => {
+            if (failedAttempts < 2) {
+              return retry(0)
+            }
+            events.emit('dead-lettered', (message as TestOutboxCommand).runId)
+            return deadLetter()
+          })
+          .withHandler(
+            handlerFor(
+              TestOutboxCommand,
+              async ({ runId, scenario }, _, ctx) => {
+                handledRunIds.push(runId)
+                await ctx.publish(new TestOutboxEvent(runId, scenario))
+                if (scenario === 'fail' && !redrivenRunIds.has(runId)) {
+                  throw new Error('Handler failed')
+                }
+              }
+            )
+          )
+          .withHandler(
+            handlerFor(TestOutboxEvent, event => {
+              received.push(event)
+              events.emit('received', event.runId)
+            })
+          )
+          .build()
+        await bus.initialize()
+        await bus.start()
       })
 
-      it('should not deliver the event', () => {
-        expect(receivedFrom(runId)).toHaveLength(0)
-      })
+      afterAll(async () => bus.dispose())
 
-      describe('and its dead letter is moved back to the queue', () => {
+      describe('and a handler publishes an event', () => {
+        const runId = randomUUID()
+
         beforeAll(async () => {
-          redrivenRunIds.add(runId)
           const eventReceived = waitForEvent(runId)
-          await postgres.query(redriveSql(OUTBOX_SCHEMA), [queueName])
+          await bus.send(new TestOutboxCommand(runId, 'publish'))
           await eventReceived
         })
 
-        it('should handle it again', () => {
+        it('should deliver the event once its transaction is committed', () => {
           expect(receivedFrom(runId)).toHaveLength(1)
         })
       })
-    })
 
-    describe('when a message is delivered twice', () => {
-      const runId = randomUUID()
-
-      beforeAll(async () => {
-        const messageId = randomUUID()
-        const command = new TestOutboxCommand(runId, 'publish')
-        await bus.send(command, { messageId })
-        await bus.send(command, { messageId })
-        await drain()
-      })
-
-      it('should handle it once', () => {
-        expect(handledRunIds.filter(id => id === runId)).toHaveLength(1)
-        expect(receivedFrom(runId)).toHaveLength(1)
-      })
-    })
-
-    describe('when a message is sent with a delay', () => {
-      const delay = 500
-      let elapsed: number
-
-      beforeAll(async () => {
+      describe('and a handler fails after publishing an event', () => {
         const runId = randomUUID()
-        const eventReceived = waitForEvent(runId)
-        const sentAt = Date.now()
-        await bus.send(new TestOutboxCommand(runId, 'publish'), {
-          deliverAfter: delay
+
+        beforeAll(async () => {
+          const deadLettered = once(events, 'dead-lettered')
+          await bus.send(new TestOutboxCommand(runId, 'fail'))
+          await deadLettered
+          await drain()
         })
-        await eventReceived
-        elapsed = Date.now() - sentAt
+
+        it('should not deliver the event', () => {
+          expect(receivedFrom(runId)).toHaveLength(0)
+        })
+
+        describe('and its dead letter is moved back to the queue', () => {
+          beforeAll(async () => {
+            redrivenRunIds.add(runId)
+            const eventReceived = waitForEvent(runId)
+            await postgres.query(redriveSql(OUTBOX_SCHEMA), [queueName])
+            await eventReceived
+          })
+
+          it('should handle it again', () => {
+            expect(receivedFrom(runId)).toHaveLength(1)
+          })
+        })
       })
 
-      it('should deliver it once the delay has passed', () => {
-        expect(elapsed).toBeGreaterThanOrEqual(delay)
+      describe('and a message is delivered twice', () => {
+        const runId = randomUUID()
+
+        beforeAll(async () => {
+          const messageId = randomUUID()
+          const command = new TestOutboxCommand(runId, 'publish')
+          await bus.send(command, { messageId })
+          await bus.send(command, { messageId })
+          await drain()
+        })
+
+        it('should handle it once', () => {
+          expect(handledRunIds.filter(id => id === runId)).toHaveLength(1)
+          expect(receivedFrom(runId)).toHaveLength(1)
+        })
+      })
+
+      describe('and a message is sent with a delay', () => {
+        const delay = 500
+        let elapsed: number
+
+        beforeAll(async () => {
+          const runId = randomUUID()
+          const eventReceived = waitForEvent(runId)
+          const sentAt = Date.now()
+          await bus.send(new TestOutboxCommand(runId, 'publish'), {
+            deliverAfter: delay
+          })
+          await eventReceived
+          elapsed = Date.now() - sentAt
+        })
+
+        it('should deliver it once the delay has passed', () => {
+          expect(elapsed).toBeGreaterThanOrEqual(delay)
+        })
+      })
+    })
+
+    describe('with withOutbox(), and a copy arrives while the first is still being handled', () => {
+      const runId = randomUUID()
+      const settled = new EventEmitter()
+      let arrivals = 0
+      let handlerCalls = 0
+      let bus: BusInstance
+
+      beforeAll(async () => {
+        const secondArrived = Promise.withResolvers<void>()
+        const bothSettled = new Promise<void>(resolve => {
+          let count = 0
+          settled.on('settled', () => {
+            if (++count === 2) {
+              resolve()
+            }
+          })
+        })
+        const outboxConfiguration = { connection, schemaName: OVERLAP_SCHEMA }
+        bus = Bus.configure()
+          .withLogger(silentLogger)
+          .withMessageTypes(messageTypes)
+          .withTransport(
+            new PostgresTransport({
+              ...outboxConfiguration,
+              queueName: 'transport-outbox-overlap',
+              // The first copy is still being handled when its visibility timeout ends, so it's received again
+              visibilityTimeoutMs: 300,
+              pollIntervalMs: 50
+            })
+          )
+          .withPersistence(new PostgresPersistence(outboxConfiguration))
+          .withOutbox()
+          .withConcurrency(2)
+          .withAutoProvision()
+          .withMiddleware({
+            incoming: async (_, next) => {
+              if (++arrivals === 2) {
+                secondArrived.resolve()
+              }
+              try {
+                await next()
+              } finally {
+                settled.emit('settled')
+              }
+            }
+          })
+          .withHandler(
+            handlerFor(TestOutboxCommand, async () => {
+              handlerCalls++
+              // Holds the inbox row until the second copy has arrived and is waiting on it
+              await secondArrived.promise
+            })
+          )
+          .build()
+        await bus.initialize()
+        await bus.start()
+        await bus.send(new TestOutboxCommand(runId, 'hold'))
+        await bothSettled
+      })
+
+      afterAll(async () => bus.dispose())
+
+      it('should receive both copies', () => {
+        expect(arrivals).toEqual(2)
+      })
+
+      it('should run the handler once', () => {
+        expect(handlerCalls).toEqual(1)
       })
     })
   })

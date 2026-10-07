@@ -13,7 +13,7 @@ import {
 import { Command } from '@node-ts/bus-messages'
 import { Pool, QueryResult } from 'pg'
 import { IMock, It, Mock, Times } from 'typemoq'
-import { InvalidSchemaName } from './error'
+import { InvalidSchemaName, InvalidTransportDuration } from './error'
 import { PostgresTransport } from './postgres-transport'
 import { PostgresTransportMessage } from './postgres-transport-message'
 
@@ -99,6 +99,37 @@ describe('PostgresTransport', () => {
         'GRANT SELECT ON "bus"."transport_queues" TO <runtime_role>;',
         'GRANT SELECT ON "bus"."transport_subscriptions" TO <runtime_role>;'
       ])
+    })
+  })
+
+  describe('when constructed with a duration that is not positive', () => {
+    const errors: unknown[] = []
+
+    beforeAll(() => {
+      for (const setting of [
+        { pollIntervalMs: 0 },
+        { visibilityTimeoutMs: -1 },
+        { pollIntervalMs: Number.NaN }
+      ]) {
+        try {
+          new PostgresTransport(
+            { ...configuration, ...setting },
+            Mock.ofType<Pool>().object
+          )
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+    })
+
+    it('should throw InvalidTransportDuration naming the setting', () => {
+      expect(errors).toHaveLength(3)
+      errors.forEach(error =>
+        expect(error).toBeInstanceOf(InvalidTransportDuration)
+      )
+      expect(
+        errors.map(error => (error as InvalidTransportDuration).setting)
+      ).toEqual(['pollIntervalMs', 'visibilityTimeoutMs', 'pollIntervalMs'])
     })
   })
 

@@ -50,7 +50,7 @@ Configure a `PostgresTransport` and pass it to the bus configuration:
 | `pollIntervalMs`      | `1000`  | How often the queue is checked for messages when no notification arrives, in milliseconds.                                                                                                          |
 | `listen`              | `true`  | Whether to listen for notifications of new messages, on a connection of its own outside the pool. Turn it off behind a pooler that doesn't support `LISTEN`, such as PgBouncer in transaction mode. |
 
-To share a pool with the rest of your application, pass your `Pool` as the second constructor argument. The transport doesn't end a pool it's given. Give the pool more connections than the bus' concurrency.
+To share a pool with the rest of your application, pass your `Pool` as the second constructor argument. The transport doesn't end a pool it's given, and listens on a connection made with the pool's settings. Give the pool more connections than the bus' concurrency. `visibilityTimeoutMs` and `pollIntervalMs` must be above 0, or the constructor throws `InvalidTransportDuration`.
 
 ## Sending and receiving
 
@@ -64,7 +64,25 @@ Messages are received roughly in the order they became visible, but a retried or
 
 Sending a message also sends a Postgres notification for each queue it reaches, which the receiving service listens for, so it receives the message straight away. Postgres sends notifications when the transaction commits. The queue is also checked every `pollIntervalMs`, which receives messages whose delay has passed, and any sent while the listening connection was down. If that connection is lost, the transport keeps polling and reconnects with a backoff of up to 30 seconds.
 
-An idle process checks its queue once each poll, however many workers it has, and a worker that receives a message wakes another, so a backlog is worked through at full concurrency.
+An idle process checks its queue once each poll, however many workers it has, and a worker that receives a message wakes another, so a backlog is worked through at full concurrency. A notification that arrives while every worker is busy, or checking the queue, makes the next one that finds the queue empty check again, so the message isn't left for the next poll. The listening connection uses TCP keepalive, and if it keeps dropping, its reconnects back off rather than restarting at a second each time.
+
+### Messages from other systems
+
+A system that isn't on @node-ts/bus can send a message to the services that handle it, such as a [custom handler](/guide/messages/system-messages)'s `topicIdentifier`, by inserting one row for each queue subscribed to it, and notifying each queue so it's received straight away. The channel of a queue is `node_ts_bus_` followed by the MD5 hash of `<schema>.<queue>`:
+
+```sql
+with inserted as (
+  insert into bus.transport_messages (queue, body, attributes, headers, visible_at)
+  select queue, '{"orderId":"o-1"}', '{"messageId":"a-unique-id","attributes":{},"stickyAttributes":{}}', '{}', now()
+  from bus.transport_subscriptions
+  where message_name = 'billing.order-paid'
+  returning queue
+)
+select pg_notify('node_ts_bus_' || md5('bus.' || queue), '')
+from (select distinct queue from inserted) as notified;
+```
+
+`body` is the message as JSON, which the bus' serializer reads and the custom handler's resolver then matches, and `attributes` holds its [attributes](/guide/message-attributes). Give each message its own `messageId`, so the [inbox](/guide/outbox#the-inbox) can recognise a copy. Without the notification, the message is received on the next poll.
 
 ## Retries and dead letters
 

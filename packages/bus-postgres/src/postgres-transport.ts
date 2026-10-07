@@ -27,6 +27,7 @@ import {
 import { createHash, randomUUID } from 'node:crypto'
 import { Client, escapeIdentifier, escapeLiteral, Pool } from 'pg'
 import { serializeError } from 'serialize-error'
+import { InvalidTransportDuration } from './error'
 import {
   assertValidSchemaName,
   createIfMissing,
@@ -84,6 +85,11 @@ const LISTEN_RECONNECT_MIN_DELAY_MS = 1_000
 const LISTEN_RECONNECT_MAX_DELAY_MS = 30_000
 
 /**
+ * How long making the listening connection may take, unless the connection settings give a timeout of their own
+ */
+const LISTEN_CONNECTION_TIMEOUT_MS = 10_000
+
+/**
  * The name of the channel a queue's notifications are sent on. The SQL that sends them computes the same hash with
  * `md5()`.
  */
@@ -97,6 +103,19 @@ const notifyChannel = (schemaName: string, queue: string): string =>
 const assertHeadersNotReserved = (headers: TransportHeaders): void => {
   if (Object.hasOwn(headers, FAILURE_HEADER)) {
     throw new TransportHeaderReserved(FAILURE_HEADER, 'PostgresTransport')
+  }
+}
+
+/**
+ * Checks a configured duration is a positive, finite number of milliseconds
+ * @throws InvalidTransportDuration if it isn't
+ */
+const assertPositiveDuration = (
+  setting: 'pollIntervalMs' | 'visibilityTimeoutMs',
+  value: unknown
+): void => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new InvalidTransportDuration(setting, value)
   }
 }
 
@@ -149,15 +168,33 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
    * checks its queue once each time rather than once for each of its workers.
    */
   private waiters: (() => void)[] = []
+  /**
+   * Whether a poll, notification or received message came while no read was waiting, so the next read that finds
+   * the queue empty checks again rather than waiting
+   */
+  private wakePending = false
   private pollTimer: NodeJS.Timeout | undefined
   private listener: Client | undefined
+  /**
+   * When the listener connected, so a connection that keeps dropping straight away doesn't reset the backoff
+   */
+  private listenerConnectedAt = 0
+  /**
+   * The listen in flight, which `stop()` waits for
+   */
+  private listening: Promise<void> | undefined
+  /**
+   * Counts each start and stop, so a listen begun before the latest of them ends its own connection
+   */
+  private listenGeneration = 0
   private listenReconnectTimer: NodeJS.Timeout | undefined
   private listenReconnectDelay = LISTEN_RECONNECT_MIN_DELAY_MS
 
   /**
    * @param configuration the queue, schema and connection, and how messages are received
    * @param postgres a pool to use instead of one made from `connection`. The transport doesn't end a pool it's
-   * given.
+   * given, and listens on a connection made with the pool's settings.
+   * @throws InvalidTransportDuration if `pollIntervalMs` or `visibilityTimeoutMs` isn't a positive number
    */
   constructor(
     private readonly configuration: PostgresTransportConfiguration,
@@ -170,12 +207,18 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
       configuration.visibilityTimeoutMs ?? DEFAULT_VISIBILITY_TIMEOUT_MS
     this.pollIntervalMs =
       configuration.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+    assertPositiveDuration('visibilityTimeoutMs', this.visibilityTimeoutMs)
+    assertPositiveDuration('pollIntervalMs', this.pollIntervalMs)
     this.channel = notifyChannel(
       configuration.schemaName,
       configuration.queueName
     )
   }
 
+  /**
+   * Keeps the bus' serializer, which messages are written and read with, and creates the transport's logger
+   * @param coreDependencies the dependencies of the bus the transport belongs to
+   */
   prepare(coreDependencies: CoreDependencies): void {
     this.coreDependencies = coreDependencies
     this.logger = coreDependencies.loggerFactory(
@@ -379,27 +422,42 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
     }
   }
 
+  /**
+   * Starts receiving: polls the queue every `pollIntervalMs`, and unless `listen` is off, listens for notifications
+   * that a message was sent to it on a connection of its own. If that connection can't be made, it's logged and tried
+   * again with a backoff, and messages are received by polling until it's made.
+   */
   async start(): Promise<void> {
+    if (this.isStarted) {
+      return
+    }
     this.isStarted = true
+    this.listenGeneration++
     this.pollTimer = setInterval(() => this.wakeOne(), this.pollIntervalMs)
     if (this.configuration.listen ?? true) {
-      await this.listen()
+      await this.startListening()
     }
   }
 
   /**
-   * Stops polling and listening, and releases any reads still waiting for a message
+   * Stops polling and listening, and releases any reads still waiting for a message. It waits for a listening
+   * connection that's being made, and closes it.
    */
   async stop(): Promise<void> {
     this.isStarted = false
+    this.listenGeneration++
     clearInterval(this.pollTimer)
     clearTimeout(this.listenReconnectTimer)
     this.pollTimer = undefined
     this.listenReconnectTimer = undefined
+    this.wakePending = false
     this.wakeAll()
+    await this.listening
     const listener = this.listener
     this.listener = undefined
-    await listener?.end().catch(() => undefined)
+    if (listener) {
+      await this.closeListener(listener)
+    }
   }
 
   /**
@@ -416,6 +474,15 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
         // There may be more, so another waiting read checks too
         this.wakeOne()
         return this.toTransportMessage(row)
+      }
+      // stop() may have run while the claim was in flight, and nothing would wake a read that waits after it
+      if (!this.isStarted) {
+        break
+      }
+      if (this.wakePending) {
+        // A poll or notification came while no read was waiting, which may be for a message sent after this claim
+        this.wakePending = false
+        continue
       }
       await new Promise<void>(resolve => this.waiters.push(resolve))
     }
@@ -656,8 +723,16 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
     }
   }
 
+  /**
+   * Wakes one waiting read, or if none is waiting, makes the next read that finds the queue empty check again
+   */
   private wakeOne(): void {
-    this.waiters.shift()?.()
+    const wake = this.waiters.shift()
+    if (wake) {
+      wake()
+    } else {
+      this.wakePending = true
+    }
   }
 
   private wakeAll(): void {
@@ -667,26 +742,56 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
   }
 
   /**
-   * Opens a connection of its own that listens for notifications that a message was sent to the queue. If it can't
-   * connect, or the connection is lost, the transport keeps polling and tries again with a backoff.
+   * Begins listening, as the one listen in flight, so `stop()` can wait for it
    */
-  private async listen(): Promise<void> {
-    if (!this.isStarted) {
+  private async startListening(): Promise<void> {
+    const listening = this.listen(this.listenGeneration)
+    this.listening = listening
+    try {
+      await listening
+    } finally {
+      if (this.listening === listening) {
+        this.listening = undefined
+      }
+    }
+  }
+
+  /**
+   * Opens a connection of its own that listens for notifications that a message was sent to the queue, with the
+   * settings of the pool it was given, or `connection`. If it can't connect, or the connection is lost, the transport
+   * keeps polling and tries again with a backoff.
+   * @param generation the start it belongs to. If the transport has been stopped or started again since, the
+   * connection is closed instead of kept.
+   */
+  private async listen(generation: number): Promise<void> {
+    const isCurrent = () =>
+      this.isStarted && generation === this.listenGeneration
+    if (!isCurrent()) {
       return
     }
-    const client = new Client(this.configuration.connection)
-    const lost = (error?: unknown) => this.listenerLost(client, error)
+    const settings = this.ownsPool
+      ? this.configuration.connection
+      : this.postgres.options
+    const client = new Client({
+      ...settings,
+      // stop() waits for a connection being made, so it mustn't wait forever on a database that doesn't answer
+      connectionTimeoutMillis:
+        settings.connectionTimeoutMillis || LISTEN_CONNECTION_TIMEOUT_MS,
+      // Notices a connection that a network device dropped without closing it
+      keepAlive: true
+    })
     // A client without an error listener crashes the process when its connection fails
-    client.on('error', lost)
-    client.on('end', () => lost())
+    client.on('error', error => this.listenerLost(client, error))
+    client.on('end', () => this.listenerLost(client))
     client.on('notification', () => this.wakeOne())
     try {
       await client.connect()
       await client.query(`LISTEN ${escapeIdentifier(this.channel)};`)
     } catch (error) {
-      client.removeAllListeners()
-      client.on('error', () => undefined)
-      await client.end().catch(() => undefined)
+      await this.closeListener(client)
+      if (!isCurrent()) {
+        return
+      }
       this.logger.warn(
         'Could not listen for messages sent to the queue. Messages are received by polling until it can.',
         { error: serializeError(error) }
@@ -694,14 +799,12 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
       this.scheduleListen()
       return
     }
-    if (!this.isStarted) {
-      client.removeAllListeners()
-      client.on('error', () => undefined)
-      await client.end().catch(() => undefined)
+    if (!isCurrent()) {
+      await this.closeListener(client)
       return
     }
     this.listener = client
-    this.listenReconnectDelay = LISTEN_RECONNECT_MIN_DELAY_MS
+    this.listenerConnectedAt = Date.now()
     this.logger.debug('Listening for messages sent to the queue', {
       channel: this.channel
     })
@@ -714,17 +817,33 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
       return
     }
     this.listener = undefined
-    client.removeAllListeners()
-    client.on('error', () => undefined)
-    client.end().catch(() => undefined)
+    // Ended without waiting, since it's already lost
+    void this.closeListener(client)
     if (!this.isStarted) {
       return
+    }
+    // Only a connection that stayed up a while starts the backoff again, so one that keeps dropping isn't retried,
+    // and warned about, every second
+    if (
+      Date.now() - this.listenerConnectedAt >=
+      LISTEN_RECONNECT_MAX_DELAY_MS
+    ) {
+      this.listenReconnectDelay = LISTEN_RECONNECT_MIN_DELAY_MS
     }
     this.logger.warn(
       'Lost the connection that listens for messages sent to the queue. Messages are received by polling until it reconnects.',
       { error: serializeError(error) }
     )
     this.scheduleListen()
+  }
+
+  /**
+   * Ends a listening connection, ignoring its errors, since it's no longer used
+   */
+  private async closeListener(client: Client): Promise<void> {
+    client.removeAllListeners()
+    client.on('error', () => undefined)
+    await client.end().catch(() => undefined)
   }
 
   private scheduleListen(): void {
@@ -736,10 +855,11 @@ export class PostgresTransport implements Transport<PostgresTransportMessage> {
       delay * 2,
       LISTEN_RECONNECT_MAX_DELAY_MS
     )
+    clearTimeout(this.listenReconnectTimer)
     this.listenReconnectTimer = setTimeout(() => {
       this.listenReconnectTimer = undefined
-      // listen() handles its own errors
-      void this.listen()
+      // startListening() handles its own errors, and stop() waits for it through this.listening
+      void this.startListening()
     }, delay)
   }
 

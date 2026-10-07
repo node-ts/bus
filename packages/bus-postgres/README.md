@@ -96,7 +96,7 @@ await bus.initialize()
 await bus.start()
 ```
 
-The examples use top-level `await`, so it runs as an ES module. In CommonJS, wrap it in an `async` function.
+The examples use top-level `await`, so they run as ES modules. In CommonJS, wrap them in an `async` function.
 
 ## Configuration
 
