@@ -11,12 +11,13 @@ A bus needs infrastructure before it can run: a queue, a topic or exchange for e
 
 Everything is worked out from the bus' configuration: its transport, persistence, handlers, workflows, custom handlers and message types.
 
-| Adapter                                           | Provisions                                                                                                                           |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [Amazon SQS](/transports/amazon-sqs#provisioning) | An SNS topic per message, the service queue and dead letter queue, a subscription per handled message, and the queue's access policy |
-| [RabbitMQ](/transports/rabbitmq#provisioning)     | A fanout exchange per message, the service queue with its retry and dead letter queues, and the bindings                             |
-| [Postgres](/persistence/postgres#provisioning)    | The schema, a table per workflow state with indexes on its lookups, and the outgoing messages table                                  |
-| [MongoDB](/persistence/mongodb#provisioning)      | A collection per workflow state with indexes on its lookups, and the outgoing messages collection                                    |
+| Adapter                                                 | Provisions                                                                                                                           |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [Amazon SQS](/transports/amazon-sqs#provisioning)       | An SNS topic per message, the service queue and dead letter queue, a subscription per handled message, and the queue's access policy |
+| [RabbitMQ](/transports/rabbitmq#provisioning)           | A fanout exchange per message, the service queue with its retry and dead letter queues, and the bindings                             |
+| [Postgres transport](/transports/postgres#provisioning) | The schema, the messages, queues, subscriptions and dead letters tables, the service's queue, and a subscription per handled message |
+| [Postgres](/persistence/postgres#provisioning)          | The schema, a table per workflow state with indexes on its lookups, and the outgoing messages table                                  |
+| [MongoDB](/persistence/mongodb#provisioning)            | A collection per workflow state with indexes on its lookups, and the outgoing messages collection                                    |
 
 A topic or exchange is provisioned for every message the bus handles, and every message in the [message types](/guide/serializers/message-types) passed to `withMessageTypes()`, other than workflow state. That way a service that sends a message doesn't depend on the service that handles it being deployed first. A send-only bus provisions only those topics or exchanges, so **pass a send-only bus the message types of everything it sends**: without them it provisions nothing, its runtime permissions allow sending nothing, and `bus provision` logs a warning. The in-memory queue and persistence have nothing to provision.
 
@@ -121,7 +122,7 @@ SqsTransport (7 resources)
 
 ## Checking resources at startup
 
-`initialize()` creates nothing. It checks that what the bus receives through exists, such as its queues and subscriptions, and its tables and indexes, with read-only calls such as SQS's `GetQueueUrl` or Postgres' `to_regclass`, and throws `ResourcesNotProvisioned` naming each missing resource, so a service that was deployed before its infrastructure fails straight away rather than when the first message arrives. A send-only bus has nothing to check on its transport. The topics or exchanges of messages a bus only sends aren't checked at startup: a send to one that doesn't exist fails when it's sent. Each adapter's page lists the permissions the check needs. They're included in the permissions `--permissions` prints.
+`initialize()` creates nothing. It checks that what the bus receives through exists, such as its queues and subscriptions, and its tables and indexes, with read-only calls such as SQS's `GetQueueUrl` or Postgres' `to_regclass`, and throws `ResourcesNotProvisioned` naming each missing resource, so a service that was deployed before its infrastructure fails straight away rather than when the first message arrives. A send-only bus checks little or nothing on its transport, such as only the Postgres transport's tables. The topics or exchanges of messages a bus only sends aren't checked at startup: a send to one that doesn't exist fails when it's sent. Each adapter's page lists the permissions the check needs. They're included in the permissions `--permissions` prints.
 
 If the service's credentials can't be given those permissions, turn the check off:
 
@@ -157,5 +158,5 @@ A [custom transport](/transports/custom) or [persistence](/persistence/custom) i
 
 ## See also
 
-- [Amazon SQS](/transports/amazon-sqs#provisioning), [RabbitMQ](/transports/rabbitmq#provisioning), [Postgres](/persistence/postgres#provisioning) and [MongoDB](/persistence/mongodb#provisioning), for what each provisions and the permissions it needs
+- [Amazon SQS](/transports/amazon-sqs#provisioning), [RabbitMQ](/transports/rabbitmq#provisioning), the [Postgres transport](/transports/postgres#provisioning), [Postgres](/persistence/postgres#provisioning) and [MongoDB](/persistence/mongodb#provisioning), for what each provisions and the permissions it needs
 - [`BusInstance.provision`](/api/bus-core/classes/BusInstance#provision), [`ProvisioningPlan`](/api/bus-core/interfaces/ProvisioningPlan) and [`ResourcesNotProvisioned`](/api/bus-core/classes/ResourcesNotProvisioned) in the API reference

@@ -46,7 +46,7 @@ pnpm exec dotenv -e test.env -- jest packages/bus-sqs/src/sqs-transport.spec.ts 
 
 - `bus-messages` — `Message`/`Command`/`Event` base types and `MessageAttributes`. Messages identify themselves by `$name` (usually a static `NAME`) and `$version`.
 - `bus-core` — the bus itself, the `Transport`/`Persistence`/`Serializer`/`Receiver` interfaces (`Transport.endpointName` is the service queue's name), and in-memory defaults (`InMemoryQueue`, `InMemoryPersistence`, `JsonSerializer`).
-- Transports: `bus-sqs` (SNS topics fanned out to SQS queues, with policy generation), `bus-rabbitmq`.
+- Transports: `bus-sqs` (SNS topics fanned out to SQS queues, with policy generation), `bus-rabbitmq`, and `PostgresTransport` in `bus-postgres` (queues in shared Postgres tables, no broker; see `packages/bus-postgres/CLAUDE.md`).
 - Persistence (workflow state and delayed messages): `bus-postgres`, `bus-mongodb`.
 - `bus-sqs-lambda` — a `Receiver` that feeds Lambda SQS events into the bus instead of the bus polling the transport.
 - `bus-opentelemetry` — `openTelemetry()` middleware for spans, W3C trace context (carried in message attributes) and messaging metrics, with only `@opentelemetry/api` as a peer. See `packages/bus-opentelemetry/CLAUDE.md`.
