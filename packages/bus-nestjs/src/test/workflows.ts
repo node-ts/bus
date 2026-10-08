@@ -41,13 +41,15 @@ export const shippingWorkflow = (recorder: Recorder) =>
   })
 
 /**
- * A request-scoped class workflow that reads the message from `REQUEST` in its constructor, which fails when the
- * bus creates it without a message to read its `configureWorkflow()`
+ * A request-scoped class workflow that reads the message from `REQUEST` in its constructor, and records it
  */
 export class RequestScopedWorkflow extends Workflow<FulfilmentState> {
-  readonly orderId: string
+  private readonly orderId: string
 
-  constructor(request: BusRequest) {
+  constructor(
+    request: BusRequest,
+    private readonly recorder: Recorder
+  ) {
     super()
     this.orderId = (request.message as OrderPlaced).orderId
   }
@@ -58,9 +60,15 @@ export class RequestScopedWorkflow extends Workflow<FulfilmentState> {
     mapper.withState(FulfilmentState).startedBy(OrderPlaced, 'start')
   }
 
-  async start(): Promise<Partial<FulfilmentState>> {
+  async start(event: OrderPlaced): Promise<Partial<FulfilmentState>> {
+    this.recorder.record({
+      by: RequestScopedWorkflow.name,
+      message: event,
+      detail: this.orderId
+    })
     return { orderId: this.orderId }
   }
 }
 Injectable({ scope: Scope.REQUEST })(RequestScopedWorkflow)
 Inject(REQUEST)(RequestScopedWorkflow, undefined, 0)
+Inject(Recorder)(RequestScopedWorkflow, undefined, 1)

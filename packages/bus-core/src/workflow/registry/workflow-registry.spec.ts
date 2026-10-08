@@ -19,6 +19,8 @@ import { InMemoryQueue } from '../../transport'
 import { CoreDependencies, sleep } from '../../util'
 import { FunctionWorkflow } from '../define-workflow'
 import {
+  WorkflowAlreadyStartedByMessage,
+  WorkflowConfigurationFailed,
   WorkflowNameAlreadyRegistered,
   WorkflowNotRecognized,
   WorkflowRegisteredAfterInitialization,
@@ -162,60 +164,122 @@ describe('WorkflowRegistry', () => {
     })
   })
 
-  describe('when initializing', () => {
-    beforeEach(() => {
+  describe('when initializing a class workflow', () => {
+    let container: IMock<ContainerAdapter>
+    let constructed: number
+
+    beforeAll(async () => {
+      constructed = 0
+      class CountingWorkflow extends TestWorkflow {
+        constructor(bus: BusInstance) {
+          super(bus)
+          constructed++
+        }
+      }
+      container = Mock.ofType<ContainerAdapter>()
       sut = new WorkflowRegistry()
-      sut.register(TestWorkflow)
       sut.prepare(
-        {
-          loggerFactory: (name: string) => new DebugLogger(name)
-        } as unknown as CoreDependencies,
+        coreDependencies,
         persistence.object,
         new MessageHandlingContext(),
         new MessageLifecycleContext(),
         new UnitOfWorkContext()
       )
+      sut.register(CountingWorkflow)
+      await sut.initialize(new DefaultHandlerRegistry(), container.object)
     })
 
-    describe('without a container', () => {
-      it('should construct workflow instances', async () => {
-        await sut.initialize(new DefaultHandlerRegistry(), undefined)
-      })
+    it('should not construct the workflow', () => {
+      expect(constructed).toEqual(0)
     })
 
-    describe('with a container', () => {
-      let container: IMock<ContainerAdapter>
-
-      beforeEach(() => {
-        container = Mock.ofType<ContainerAdapter>()
-        container
-          .setup(c => c.get(TestWorkflow))
-          .returns(() => new TestWorkflow(Mock.ofType<BusInstance>().object))
-          .verifiable(Times.once())
-      })
-
-      it('should fetch workflows from the container', async () => {
-        await sut.initialize(new DefaultHandlerRegistry(), container.object)
-        container.verifyAll()
-      })
+    it('should not resolve the workflow from the container', () => {
+      container.verify(c => c.get(It.isAny(), It.isAny()), Times.never())
     })
-    describe('with an async container', () => {
-      let container: IMock<ContainerAdapter>
 
-      beforeEach(() => {
-        container = Mock.ofType<ContainerAdapter>()
-        container
-          .setup(c => c.get(TestWorkflow))
-          .returns(() =>
-            Promise.resolve(new TestWorkflow(Mock.ofType<BusInstance>().object))
-          )
-          .verifiable(Times.once())
-      })
+    it('should read its state from configureWorkflow', () => {
+      expect(sut.getWorkflowStateNames()).toEqual([TestWorkflowState.NAME])
+    })
+  })
 
-      it('should fetch workflows from the container', async () => {
-        await sut.initialize(new DefaultHandlerRegistry(), container.object)
-        container.verifyAll()
-      })
+  describe('when a class workflow reads its fields in configureWorkflow', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      class FieldReadingWorkflow extends Workflow<TestWorkflowState> {
+        private readonly startedBy = { handler: 'start' as const }
+
+        configureWorkflow(
+          mapper: WorkflowMapper<TestWorkflowState, FieldReadingWorkflow>
+        ): void {
+          mapper
+            .withState(TestWorkflowState)
+            .startedBy(TestCommand, this.startedBy.handler)
+        }
+
+        start() {
+          return {}
+        }
+      }
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext(),
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
+      )
+      sut.register(FieldReadingWorkflow)
+      error = await catchError(() =>
+        sut.initialize(new DefaultHandlerRegistry(), undefined)
+      )
+    })
+
+    it('should throw WorkflowConfigurationFailed naming the workflow, with the error as its cause and the fix', () => {
+      expect(error).toBeInstanceOf(WorkflowConfigurationFailed)
+      const configurationFailed = error as WorkflowConfigurationFailed
+      expect(configurationFailed.workflowName).toEqual('FieldReadingWorkflow')
+      expect(configurationFailed.cause).toBeInstanceOf(TypeError)
+      expect(configurationFailed.help).toContain(
+        'without running its constructor'
+      )
+    })
+  })
+
+  describe('when a class workflow is started by a message twice in configureWorkflow', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      class TwiceStartedWorkflow extends Workflow<TestWorkflowState> {
+        configureWorkflow(
+          mapper: WorkflowMapper<TestWorkflowState, TwiceStartedWorkflow>
+        ): void {
+          mapper
+            .withState(TestWorkflowState)
+            .startedBy(TestCommand, 'start')
+            .startedBy(TestCommand, 'start')
+        }
+
+        start() {
+          return {}
+        }
+      }
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext(),
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
+      )
+      sut.register(TwiceStartedWorkflow)
+      error = await catchError(() =>
+        sut.initialize(new DefaultHandlerRegistry(), undefined)
+      )
+    })
+
+    it("should throw the mapper's own error", () => {
+      expect(error).toBeInstanceOf(WorkflowAlreadyStartedByMessage)
     })
   })
 

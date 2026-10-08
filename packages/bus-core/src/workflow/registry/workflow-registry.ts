@@ -21,14 +21,14 @@ import {
 import { TransportMessage } from '../../transport'
 import { ClassConstructor, CoreDependencies } from '../../util'
 import { applyWorkflowStateChange } from '../apply-workflow-state-change'
+import { configureClassWorkflow } from '../configure-class-workflow'
 import { FunctionWorkflow } from '../define-workflow'
 import {
   WorkflowAlreadyInitialized,
   WorkflowHandlerFailed,
   WorkflowNameAlreadyRegistered,
   WorkflowNotRecognized,
-  WorkflowRegisteredAfterInitialization,
-  WorkflowStateNotProvided
+  WorkflowRegisteredAfterInitialization
 } from '../error'
 import {
   FunctionWorkflowDefinition,
@@ -38,7 +38,7 @@ import {
 import { hasLookupValue } from '../has-lookup-value'
 import { MessageWorkflowMapping } from '../message-workflow-mapping'
 import { PersistedWorkflow, Persistence } from '../persistence'
-import { Workflow, WorkflowMapper } from '../workflow'
+import { Workflow } from '../workflow'
 import { WorkflowContext } from '../workflow-context'
 import { WorkflowState, WorkflowStatus } from '../workflow-state'
 import { WorkflowHandlerResult } from '../workflow-state-change'
@@ -227,7 +227,7 @@ export class WorkflowRegistry {
 
       const workflowHandlers = isFunctionWorkflow(workflow)
         ? this.getFunctionWorkflowHandlers(workflow)
-        : await this.getClassWorkflowHandlers(workflow, container)
+        : this.getClassWorkflowHandlers(workflow, container)
 
       this.workflowStateNames.push(
         new workflowHandlers.workflowStateType().$name
@@ -281,32 +281,15 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Reads the handlers of a class workflow by calling its `configureWorkflow`. The workflow is resolved from the
-   * container, or constructed with no arguments, each time it handles a message.
+   * Reads the handlers of a class workflow from its `configureWorkflow`, which is called without constructing the
+   * workflow. The workflow is resolved from the container, or constructed with no arguments, only to handle a
+   * message, each time it handles one.
    */
-  private async getClassWorkflowHandlers(
+  private getClassWorkflowHandlers(
     WorkflowCtor: ClassConstructor<Workflow<WorkflowState>>,
     container: ContainerAdapter | undefined
-  ): Promise<WorkflowHandlers> {
-    let workflowInstance
-    if (container) {
-      const workflowInstanceFromContainer = container.get(WorkflowCtor)
-      if (workflowInstanceFromContainer instanceof Promise) {
-        workflowInstance = await workflowInstanceFromContainer
-      } else {
-        workflowInstance = workflowInstanceFromContainer
-      }
-    } else {
-      workflowInstance = new WorkflowCtor()
-    }
-    const mapper = new WorkflowMapper(WorkflowCtor)
-    workflowInstance.configureWorkflow(mapper)
-
-    if (!mapper.workflowStateCtor) {
-      throw new WorkflowStateNotProvided(
-        WorkflowCtor.prototype.constructor.name
-      )
-    }
+  ): WorkflowHandlers {
+    const { mapper, workflowStateType } = configureClassWorkflow(WorkflowCtor)
 
     const invokerFor =
       (
@@ -341,7 +324,7 @@ export class WorkflowRegistry {
 
     return {
       workflowName: WorkflowCtor.name,
-      workflowStateType: mapper.workflowStateCtor,
+      workflowStateType,
       startedBy: new Map(
         Array.from(mapper.onStartedBy, ([messageType, options]) => [
           messageType,

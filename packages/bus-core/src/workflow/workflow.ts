@@ -273,7 +273,9 @@ export class WorkflowMapper<
  */
 export abstract class Workflow<WorkflowStateType extends WorkflowState> {
   /**
-   * Maps the messages the workflow handles to its handler methods
+   * Maps the messages the workflow handles to its handler methods. The bus calls it once when it initializes, on an
+   * instance created from the class' prototype without running its constructor, so it can't use the workflow's
+   * fields or dependencies; use those in the handler methods.
    * @param mapper Declares the workflow state, and which methods start the workflow or handle messages. Type it with
    * the workflow class, such as `WorkflowMapper<OrderState, OrderWorkflow>`, so handler names are checked. With
    * `any` no handler name compiles.

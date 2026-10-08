@@ -39,13 +39,18 @@ describe('Workflow', () => {
   const CONSUME_TIMEOUT = 2000
   let bus: BusInstance
   const inMemoryPersistence = new InMemoryPersistence()
+  const resolvedFor: (Message | undefined)[] = []
 
   beforeAll(async () => {
     bus = Bus.configure()
       .withMessageTypes(testMessageTypes)
       .withPersistence(inMemoryPersistence)
       .withContainer({
-        get<T>(workflowType: ClassConstructor<T>) {
+        get<T>(
+          workflowType: ClassConstructor<T>,
+          context?: { message?: Message }
+        ) {
+          resolvedFor.push(context?.message)
           return new workflowType(bus)
         }
       })
@@ -62,6 +67,13 @@ describe('Workflow', () => {
 
   afterAll(async () => {
     await bus.dispose()
+  })
+
+  describe('when the bus has a container', () => {
+    it('should resolve class workflows from it only to handle a message', () => {
+      expect(resolvedFor.length).toBeGreaterThan(0)
+      expect(resolvedFor).not.toContain(undefined)
+    })
   })
 
   describe('when a message that starts a workflow is received', () => {

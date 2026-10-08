@@ -1,6 +1,7 @@
 export * from './workflow-already-handles-message'
 export * from './workflow-already-initialized'
 export * from './workflow-already-started-by-message'
+export * from './workflow-configuration-failed'
 export * from './workflow-does-not-handle-message'
 export * from './workflow-handler-failed'
 export * from './workflow-name-already-registered'
