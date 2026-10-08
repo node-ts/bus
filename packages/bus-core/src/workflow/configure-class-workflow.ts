@@ -23,12 +23,22 @@ export interface ClassWorkflowConfiguration<
  * without running its constructor, so neither the workflow nor its dependencies are created just to read it
  * @param workflowType the class workflow
  * @returns the mapper it configured, and its state
- * @throws WorkflowConfigurationFailed if `configureWorkflow()` throws an error other than the mapper's own
+ * @throws WorkflowConfigurationFailed if `configureWorkflow` isn't a method, or throws an error other than the
+ * mapper's `WorkflowAlreadyStartedByMessage` or `WorkflowAlreadyHandlesMessage`, such as `WorkflowMappingInvalid`
  * @throws WorkflowStateNotProvided if it doesn't declare its state with `mapper.withState()`
  */
 export const configureClassWorkflow = <TWorkflowState extends WorkflowState>(
   workflowType: ClassConstructor<Workflow<TWorkflowState>>
 ): ClassWorkflowConfiguration<TWorkflowState> => {
+  // An arrow function property only exists on instances, which aren't created here
+  if (typeof workflowType.prototype.configureWorkflow !== 'function') {
+    throw new WorkflowConfigurationFailed(
+      workflowType.name,
+      new TypeError(`configureWorkflow isn't a method of ${workflowType.name}`),
+      `Declare ${workflowType.name}.configureWorkflow(mapper) as a method, not as a property holding an arrow` +
+        ' function: the bus calls it without constructing the workflow, so properties are never set.'
+    )
+  }
   const mapper = new WorkflowMapper<TWorkflowState, Workflow<TWorkflowState>>(
     workflowType
   )

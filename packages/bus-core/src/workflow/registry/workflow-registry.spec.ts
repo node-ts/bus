@@ -1,4 +1,5 @@
 import { MessageAttributes, messageAttributes } from '@node-ts/bus-messages'
+import { EventEmitter, once } from 'node:events'
 import { IMock, It, Mock, Times } from 'typemoq'
 import { ContainerAdapter } from '../../container'
 import {
@@ -7,12 +8,14 @@ import {
   Handler,
   HandlerContext,
   HandlerDefinition,
+  HandlerDispatchRejected,
   HandlerRegistry
 } from '../../handler'
 import { DebugLogger, Logger } from '../../logger'
 import { MessageHandlingContext } from '../../message-handling-context'
 import { MessageLifecycleContext } from '../../message-lifecycle-context'
 import { UnitOfWorkContext } from '../../outbox/unit-of-work-context'
+import { deadLetter } from '../../recoverability'
 import { Bus, BusInstance } from '../../service-bus'
 import { testMessageTypes } from '../../test'
 import { InMemoryQueue } from '../../transport'
@@ -21,6 +24,8 @@ import { FunctionWorkflow } from '../define-workflow'
 import {
   WorkflowAlreadyStartedByMessage,
   WorkflowConfigurationFailed,
+  WorkflowHandlerFailed,
+  WorkflowMappingInvalid,
   WorkflowNameAlreadyRegistered,
   WorkflowNotRecognized,
   WorkflowRegisteredAfterInitialization,
@@ -280,6 +285,198 @@ describe('WorkflowRegistry', () => {
 
     it("should throw the mapper's own error", () => {
       expect(error).toBeInstanceOf(WorkflowAlreadyStartedByMessage)
+    })
+  })
+
+  describe('when a class workflow reads a lookup from a field in configureWorkflow', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      class FieldLookupWorkflow extends Workflow<TestWorkflowState> {
+        private readonly byValue = (message: TaskRan) => message.value
+
+        configureWorkflow(
+          mapper: WorkflowMapper<TestWorkflowState, FieldLookupWorkflow>
+        ): void {
+          mapper
+            .withState(TestWorkflowState)
+            .startedBy(TestCommand, 'start')
+            .when(TaskRan, 'ran', {
+              lookup: this.byValue,
+              mapsTo: 'property1'
+            })
+        }
+
+        start() {
+          return {}
+        }
+
+        ran() {
+          return {}
+        }
+      }
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext(),
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
+      )
+      sut.register(FieldLookupWorkflow)
+      error = await catchError(() =>
+        sut.initialize(new DefaultHandlerRegistry(), undefined)
+      )
+    })
+
+    it('should throw WorkflowConfigurationFailed, caused by WorkflowMappingInvalid naming the lookup', () => {
+      expect(error).toBeInstanceOf(WorkflowConfigurationFailed)
+      const cause = (error as WorkflowConfigurationFailed).cause
+      expect(cause).toBeInstanceOf(WorkflowMappingInvalid)
+      expect((cause as WorkflowMappingInvalid).workflowName).toEqual(
+        'FieldLookupWorkflow'
+      )
+      expect((cause as WorkflowMappingInvalid).mapperMethod).toEqual('when')
+      expect((cause as WorkflowMappingInvalid).problem).toEqual(
+        "a lookup whose lookup isn't a function"
+      )
+    })
+  })
+
+  describe('when a class workflow reads a handler name from a field in configureWorkflow', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      class FieldHandlerNameWorkflow extends Workflow<TestWorkflowState> {
+        private readonly startHandler = 'start' as const
+
+        configureWorkflow(
+          mapper: WorkflowMapper<TestWorkflowState, FieldHandlerNameWorkflow>
+        ): void {
+          mapper
+            .withState(TestWorkflowState)
+            .startedBy(TestCommand, this.startHandler)
+        }
+
+        start() {
+          return {}
+        }
+      }
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext(),
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
+      )
+      sut.register(FieldHandlerNameWorkflow)
+      error = await catchError(() =>
+        sut.initialize(new DefaultHandlerRegistry(), undefined)
+      )
+    })
+
+    it('should throw WorkflowConfigurationFailed, caused by WorkflowMappingInvalid naming the handler name', () => {
+      expect(error).toBeInstanceOf(WorkflowConfigurationFailed)
+      const cause = (error as WorkflowConfigurationFailed).cause
+      expect(cause).toBeInstanceOf(WorkflowMappingInvalid)
+      expect((cause as WorkflowMappingInvalid).mapperMethod).toEqual(
+        'startedBy'
+      )
+      expect((cause as WorkflowMappingInvalid).problem).toContain(
+        "a handler name that isn't a string"
+      )
+    })
+  })
+
+  describe('when a class workflow declares configureWorkflow as an arrow function property', () => {
+    let error: unknown
+
+    beforeAll(async () => {
+      class ArrowConfiguredWorkflow extends Workflow<TestWorkflowState> {
+        configureWorkflow: (
+          mapper: WorkflowMapper<TestWorkflowState, ArrowConfiguredWorkflow>
+        ) => void = mapper => {
+          mapper.withState(TestWorkflowState).startedBy(TestCommand, 'start')
+        }
+
+        start() {
+          return {}
+        }
+      }
+      sut = new WorkflowRegistry()
+      sut.prepare(
+        coreDependencies,
+        persistence.object,
+        new MessageHandlingContext(),
+        new MessageLifecycleContext(),
+        new UnitOfWorkContext()
+      )
+      sut.register(ArrowConfiguredWorkflow)
+      error = await catchError(() =>
+        sut.initialize(new DefaultHandlerRegistry(), undefined)
+      )
+    })
+
+    it('should throw WorkflowConfigurationFailed, saying to declare it as a method', () => {
+      expect(error).toBeInstanceOf(WorkflowConfigurationFailed)
+      const configurationFailed = error as WorkflowConfigurationFailed
+      expect(configurationFailed.workflowName).toEqual(
+        'ArrowConfiguredWorkflow'
+      )
+      expect(configurationFailed.message).not.toContain('unconstructed')
+      expect(configurationFailed.help).toContain('as a method')
+    })
+  })
+
+  describe('when the container fails to resolve a class workflow for a message', () => {
+    const containerError = new Error('Workflow is not bound')
+    const errors = new EventEmitter()
+    const queue = new InMemoryQueue()
+    let bus: BusInstance
+    let dispatchError: unknown
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withMessageTypes(testMessageTypes)
+        .withWorkflow(TestWorkflow)
+        .withContainer({
+          get: () => {
+            throw containerError
+          }
+        })
+        .withTransport(queue)
+        .withRecoverability(() => deadLetter())
+        .withMiddleware({
+          incoming: async (_, next) => {
+            try {
+              await next()
+            } catch (error) {
+              errors.emit('failed', error)
+              throw error
+            }
+          }
+        })
+        .build()
+
+      await bus.initialize()
+      await bus.start()
+      const failed = once(errors, 'failed')
+      await bus.send(new TestCommand('abc'))
+      ;[dispatchError] = await failed
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should fail the message with WorkflowHandlerFailed, keeping the container error as its cause', () => {
+      expect(dispatchError).toBeInstanceOf(HandlerDispatchRejected)
+      const [rejection] = (dispatchError as HandlerDispatchRejected).rejections
+      expect(rejection).toBeInstanceOf(WorkflowHandlerFailed)
+      expect((rejection as WorkflowHandlerFailed).workflowName).toEqual(
+        'TestWorkflow'
+      )
+      expect((rejection as WorkflowHandlerFailed).cause).toBe(containerError)
     })
   })
 

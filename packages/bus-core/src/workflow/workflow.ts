@@ -7,7 +7,8 @@ import { HandlerContext } from '../handler'
 import { ClassConstructor } from '../util'
 import {
   WorkflowAlreadyHandlesMessage,
-  WorkflowAlreadyStartedByMessage
+  WorkflowAlreadyStartedByMessage,
+  WorkflowMappingInvalid
 } from './error'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { WorkflowState, WorkflowStatus } from './workflow-state'
@@ -151,6 +152,36 @@ export type OnWhenHandler = {
 }
 
 /**
+ * What's wrong with the arguments given to `startedBy` or `when`, if anything
+ */
+const findMappingProblem = (
+  message: unknown,
+  workflowHandler: unknown,
+  customLookup: unknown
+): string | undefined => {
+  if (message === undefined || message === null) {
+    return `no message (${String(message)})`
+  }
+  if (typeof workflowHandler !== 'string') {
+    return `a handler name that isn't a string (${String(workflowHandler)})`
+  }
+  if (customLookup === undefined) {
+    return undefined
+  }
+  if (typeof customLookup !== 'object' || customLookup === null) {
+    return `a lookup that isn't an object (${String(customLookup)})`
+  }
+  const { lookup, mapsTo } = customLookup as Partial<MessageWorkflowMapping>
+  if (typeof lookup !== 'function') {
+    return "a lookup whose lookup isn't a function"
+  }
+  if (typeof mapsTo !== 'string') {
+    return "a lookup whose mapsTo isn't a string"
+  }
+  return undefined
+}
+
+/**
  * A workflow configuration that describes how to map incoming messages to handlers within the workflow.
  */
 export class WorkflowMapper<
@@ -192,6 +223,7 @@ export class WorkflowMapper<
    * @param workflowHandler The name of the workflow method that handles `message`. It must take `message` and return
    * changes to the workflow state, or nothing, with no fields that aren't in the state.
    * @throws WorkflowAlreadyStartedByMessage if the workflow is already started by `message`
+   * @throws WorkflowMappingInvalid if `message` is missing or `workflowHandler` isn't a string
    * @example
    * mapper.withState(OrderState).startedBy(OrderPlaced, 'start')
    */
@@ -207,6 +239,7 @@ export class WorkflowMapper<
       WorkflowStateType
     >
   ): this {
+    this.assertMapping('startedBy', message, workflowHandler, undefined)
     if (this.onStartedBy.has(message)) {
       throw new WorkflowAlreadyStartedByMessage(this.workflow.name, message)
     }
@@ -225,6 +258,8 @@ export class WorkflowMapper<
    * @param customLookup How to find the workflow instance for `message`. By default it's found by the `workflowId`
    * sticky attribute that's added to messages sent from the workflow.
    * @throws WorkflowAlreadyHandlesMessage if the workflow already handles `message`
+   * @throws WorkflowMappingInvalid if `message` is missing, `workflowHandler` isn't a string, or `customLookup` has
+   * no `lookup` function or `mapsTo` field
    * @example
    * mapper.when(CardCharged, 'charged', { lookup: message => message.orderId, mapsTo: 'orderId' })
    */
@@ -241,6 +276,7 @@ export class WorkflowMapper<
     >,
     customLookup?: MessageWorkflowMapping<MessageType, WorkflowStateType>
   ): this {
+    this.assertMapping('when', message, workflowHandler, customLookup)
     if (this.onWhen.has(message)) {
       throw new WorkflowAlreadyHandlesMessage(this.workflow.name, message)
     }
@@ -253,6 +289,27 @@ export class WorkflowMapper<
       >
     })
     return this
+  }
+
+  /**
+   * Checks what `startedBy` or `when` was given can be used, since a value that's undefined at runtime, such as one
+   * read from a field of the workflow that `configureWorkflow` is called without, would otherwise only fail when a
+   * message is handled
+   */
+  private assertMapping(
+    mapperMethod: 'startedBy' | 'when',
+    message: unknown,
+    workflowHandler: unknown,
+    customLookup: unknown
+  ): void {
+    const problem = findMappingProblem(message, workflowHandler, customLookup)
+    if (problem) {
+      throw new WorkflowMappingInvalid(
+        this.workflow.name,
+        mapperMethod,
+        problem
+      )
+    }
   }
 }
 
@@ -273,9 +330,10 @@ export class WorkflowMapper<
  */
 export abstract class Workflow<WorkflowStateType extends WorkflowState> {
   /**
-   * Maps the messages the workflow handles to its handler methods. The bus calls it once when it initializes, on an
-   * instance created from the class' prototype without running its constructor, so it can't use the workflow's
-   * fields or dependencies; use those in the handler methods.
+   * Maps the messages the workflow handles to its handler methods. The bus calls it once when it provisions or
+   * initializes, on an instance created from the class' prototype without running its constructor, so it can't use
+   * the workflow's fields or dependencies; use those in the handler methods. Declare it as a method, not as an arrow
+   * function property.
    * @param mapper Declares the workflow state, and which methods start the workflow or handle messages. Type it with
    * the workflow class, such as `WorkflowMapper<OrderState, OrderWorkflow>`, so handler names are checked. With
    * `any` no handler name compiles.
