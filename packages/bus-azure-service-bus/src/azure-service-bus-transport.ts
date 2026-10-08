@@ -255,6 +255,9 @@ export class AzureServiceBusTransport implements Transport<ServiceBusReceivedMes
    * while the messages are handled
    */
   async start(): Promise<void> {
+    // A restarted bus would otherwise leave the previous receiver's link open. Messages it delivered that are still
+    // being handled settle by their lock tokens, which doesn't need the receiver they came from.
+    await this.receiver?.close()
     this.isStarted = true
     this.receiver = this.getClient().createReceiver(this.endpointName, {
       receiveMode: 'peekLock',

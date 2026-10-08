@@ -558,6 +558,42 @@ describe('AzureServiceBusTransport', () => {
     })
   })
 
+  describe('when the transport is started again after it stops', () => {
+    const firstReceiver = Mock.ofType<ServiceBusReceiver>()
+    const secondReceiver = Mock.ofType<ServiceBusReceiver>()
+
+    beforeAll(async () => {
+      const client = Mock.ofType<ServiceBusClient>()
+      const receivers = [firstReceiver, secondReceiver]
+      receivers.forEach(receiver => {
+        receiver
+          .setup(r => r.subscribe(It.isAny(), It.isAny()))
+          .returns(() => ({ close: async () => undefined }))
+        receiver.setup(r => r.close()).returns(async () => undefined)
+      })
+      let created = 0
+      client
+        .setup(c => c.createReceiver(It.isAny(), It.isAny()))
+        .returns(() => receivers[created++].object)
+      const sut = new AzureServiceBusTransport(configuration, client.object)
+      prepare(sut)
+      await sut.connect({ concurrency: 1 })
+      await sut.start()
+      await sut.stop()
+      await sut.start()
+      await sut.stop()
+      await sut.disconnect()
+    })
+
+    it('should close the first receiver', () => {
+      firstReceiver.verify(r => r.close(), Times.once())
+    })
+
+    it('should close the second receiver', () => {
+      secondReceiver.verify(r => r.close(), Times.once())
+    })
+  })
+
   describe('when the transport stops while a read is waiting', () => {
     let result: unknown
 
