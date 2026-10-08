@@ -26,11 +26,12 @@ import {
 } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
-import { createClient } from 'redis'
+import { createClient, TimeoutError } from 'redis'
 import { serializeError } from 'serialize-error'
 import {
   InvalidRedisKeyName,
   InvalidRedisTransportDuration,
+  RedisCommandTimedOut,
   RedisTransportNotConnected
 } from './error'
 import { DEFAULT_KEY_PREFIX, isValidKeyName, RedisKeys } from './redis-keys'
@@ -176,6 +177,25 @@ const createRedisClient = (options: RedisConnectionOptions) =>
     },
     RESP: 2
   })
+
+/**
+ * Waits for a command, replacing node-redis' timeout error, which has no message, with one that names the command
+ * and connection
+ * @throws RedisCommandTimedOut if the command timed out
+ */
+const nameTimeout = async <T>(
+  command: Promise<T>,
+  name: string,
+  connection: 'sending' | 'receiving'
+): Promise<T> => {
+  try {
+    return await command
+  } catch (error) {
+    throw error instanceof TimeoutError
+      ? new RedisCommandTimedOut(name, connection, error)
+      : error
+  }
+}
 
 const TIMED_OUT = Symbol('timed out')
 
@@ -563,13 +583,17 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       throw new EndpointNotFound(address, 'RedisTransport')
     }
     // NOMKSTREAM adds nothing to a stream that doesn't exist, rather than creating one nothing reads
-    const id = await this.getClient().sendCommand<string | null>([
+    const id = await nameTimeout(
+      this.getClient().sendCommand<string | null>([
+        'XADD',
+        this.keys.queue(address),
+        'NOMKSTREAM',
+        '*',
+        ...fields
+      ]),
       'XADD',
-      this.keys.queue(address),
-      'NOMKSTREAM',
-      '*',
-      ...fields
-    ])
+      'sending'
+    )
     if (id === null) {
       throw new EndpointNotFound(address, 'RedisTransport')
     }
@@ -729,10 +753,14 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
   ): Promise<void> {
     const fields = this.toFields(message, messageAttributes, sendOptions)
     const client = this.getClient()
-    const subscribers = await client.sendCommand<string[]>([
+    const subscribers = await nameTimeout(
+      client.sendCommand<string[]>([
+        'SMEMBERS',
+        this.keys.subscriptions(message.$name)
+      ]),
       'SMEMBERS',
-      this.keys.subscriptions(message.$name)
-    ])
+      'sending'
+    )
     const queues = subscribers.filter(queue => {
       if (isValidKeyName(queue)) {
         return true
@@ -761,7 +789,11 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
         ...fields
       ])
     )
-    const ids = (await transaction.exec()) as unknown[]
+    const ids = (await nameTimeout(
+      transaction.exec(),
+      'MULTI',
+      'sending'
+    )) as unknown[]
     ids.forEach((id, index) => {
       if (id === null) {
         this.logger.warn(
@@ -940,21 +972,23 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
     if (!reader) {
       return []
     }
-    const reply = await reader.sendCommand<
-      [stream: string, entries: RawStreamEntry[]][] | null
-    >([
+    const reply = await nameTimeout(
+      reader.sendCommand<[stream: string, entries: RawStreamEntry[]][] | null>([
+        'XREADGROUP',
+        'GROUP',
+        this.endpointName,
+        this.consumerName,
+        'COUNT',
+        String(count),
+        'BLOCK',
+        String(blockMs),
+        'STREAMS',
+        this.keys.queue(this.endpointName),
+        '>'
+      ]),
       'XREADGROUP',
-      'GROUP',
-      this.endpointName,
-      this.consumerName,
-      'COUNT',
-      String(count),
-      'BLOCK',
-      String(blockMs),
-      'STREAMS',
-      this.keys.queue(this.endpointName),
-      '>'
-    ])
+      'receiving'
+    )
     if (!reply) {
       return []
     }
@@ -1110,13 +1144,22 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
   ): Promise<unknown> {
     const client = this.getClient()
     const tail = [String(keys.length), ...keys, ...args]
+    const name = `script ${redisScript.name}`
     try {
-      return await client.sendCommand(['EVALSHA', redisScript.sha, ...tail])
+      return await nameTimeout(
+        client.sendCommand(['EVALSHA', redisScript.sha, ...tail]),
+        name,
+        'sending'
+      )
     } catch (error) {
       if (!(error instanceof Error && error.message.startsWith('NOSCRIPT'))) {
         throw error
       }
-      return client.sendCommand(['EVAL', redisScript.source, ...tail])
+      return nameTimeout(
+        client.sendCommand(['EVAL', redisScript.source, ...tail]),
+        name,
+        'sending'
+      )
     }
   }
 
@@ -1239,11 +1282,14 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       role === 'client' ? this.createMainClient() : this.createReader()
     this[role] = replacement
     client.destroy()
-    replacement.connect().catch(error =>
-      this.logger.warn('Could not reconnect to Redis', {
-        error: serializeError(error)
-      })
-    )
+    replacement.connect().catch(error => {
+      // A replacement closed by disconnect() or stop(), or replaced in turn, fails to connect as expected
+      if (this[role] === replacement) {
+        this.logger.warn('Could not reconnect to Redis', {
+          error: serializeError(error)
+        })
+      }
+    })
   }
 
   private getClient(): RedisClient {

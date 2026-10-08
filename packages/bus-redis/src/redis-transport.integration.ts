@@ -573,13 +573,18 @@ describe('RedisTransport', () => {
         const deadline = Date.now() + ms
         while (Date.now() < deadline) {
           const received = new Promise<boolean>(resolve => {
-            const timeout = setTimeout(() => resolve(false), 5_000)
-            handled.on('handled', handledValue => {
+            const onHandled = (handledValue: string) => {
               if (handledValue === value) {
-                clearTimeout(timeout)
-                resolve(true)
+                settle(true)
               }
-            })
+            }
+            const settle = (wasHandled: boolean) => {
+              clearTimeout(timeout)
+              handled.off('handled', onHandled)
+              resolve(wasHandled)
+            }
+            const timeout = setTimeout(() => settle(false), 5_000)
+            handled.on('handled', onHandled)
           })
           await sender
             .send(new TestCommand(value, new Date()))
