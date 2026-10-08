@@ -16,8 +16,8 @@ const thrownBy = (act: () => unknown): unknown => {
 
 describe('createLazyBus', () => {
   describe('when the bus is not built', () => {
-    const sut = createLazyBus('billing', () => undefined)
-    const probe = sut as unknown as Record<string, unknown>
+    let sut: BusInstance
+    let probe: Record<string, unknown>
     let readingState: unknown
     let callingSyncMethod: unknown
     let sending: Promise<void>
@@ -25,6 +25,8 @@ describe('createLazyBus', () => {
     let asString: string
 
     beforeAll(() => {
+      sut = createLazyBus('billing', () => undefined)
+      probe = sut as unknown as Record<string, unknown>
       asString = String(sut)
       readingState = thrownBy(() => sut.state)
       callingSyncMethod = thrownBy(() => sut.getHandlingContext())
@@ -68,7 +70,7 @@ describe('createLazyBus', () => {
 
   describe('when the bus is built after a method is read', () => {
     let bus: BusInstance | undefined
-    const sut = createLazyBus('default', () => bus)
+    let sut: BusInstance
     let getHandlingContextReadEarly: BusInstance['getHandlingContext']
     let state: BusState
     let canStart: boolean
@@ -78,6 +80,7 @@ describe('createLazyBus', () => {
     let handlingContextFromBound: unknown
 
     beforeAll(() => {
+      sut = createLazyBus('default', () => bus)
       getHandlingContextReadEarly = sut.getHandlingContext
       bus = Bus.configure().build()
       state = sut.state

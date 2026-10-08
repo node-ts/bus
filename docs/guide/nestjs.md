@@ -82,7 +82,7 @@ Each bus needs a transport of its own. See [Several buses](/guide/multiple-buses
 | `onModuleDestroy`        | Stopped, after the `onModuleDestroy` of every module that isn't global: it takes no more messages and finishes those it's handling      |
 | `onApplicationShutdown`  | Disposed, after the `onApplicationShutdown` of every module that isn't global                                                           |
 
-`BusModule` is global, and Nest runs each shutdown hook of global modules after that hook of every module that isn't. So while other modules' `onModuleDestroy` run, the bus is still handling messages, and taking new ones. Release what handlers use, such as a database pool, in `beforeApplicationShutdown` or `onApplicationShutdown`, which run once the bus has stopped:
+`BusModule` is global, and Nest runs each shutdown hook of global modules after that hook of every module that isn't. So while other modules' `onModuleDestroy` run, the bus is still handling messages, and taking new ones. Release what handlers use, such as a database pool, in `beforeApplicationShutdown` or `onApplicationShutdown`, which run once the bus has stopped. Other `@Global()` modules run their hooks in import order relative to `BusModule`: one imported before `BusModule.forRoot()` shouldn't send from its `onApplicationBootstrap`, since the bus isn't initialized yet, and one imported after it runs its `onModuleDestroy` while the bus is still handling messages, so it should release resources in `beforeApplicationShutdown` or `onApplicationShutdown` too:
 
 <<< @/snippets/nestjs.ts#release-resources
 
