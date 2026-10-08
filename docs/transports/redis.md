@@ -49,7 +49,13 @@ Configure a `RedisTransport` and pass it to the bus configuration:
 | `visibilityTimeoutMs`   | `30000`             | How long a handler has, in milliseconds, before another receiver takes the message over and it's handled again. Set it above how long your slowest handler takes.                             |
 | `deadLetterRetentionMs` | `1209600000` (14 d) | How long dead-lettered messages are kept, in milliseconds. Older ones are trimmed, roughly, as new ones are dead-lettered. `0` or `Infinity` keeps them until you remove them.                |
 
-The transport makes two connections: one to send and settle messages, and one that waits for new ones. It always speaks RESP2, whatever node-redis' default. Each connection sends a `PING` every 5 seconds, and one that receives nothing for 15 seconds is closed and reconnected, so a server or network that stops answering doesn't leave the bus waiting forever; `stop()` and `dispose()` wait a few seconds at most for it. Set `socket.socketTimeout`, `pingInterval` or `socket.reconnectStrategy` in `connection` to change that. An invalid `queueName` or `keyPrefix` throws `InvalidRedisKeyName`, and a duration that isn't a whole number of milliseconds throws `InvalidRedisTransportDuration`.
+The transport makes two connections: one to send and settle messages, and one that waits for new ones. It always speaks RESP2, whatever node-redis' default. So that a server or network that stops answering doesn't leave the bus waiting forever:
+
+- every 5 seconds, each connection is sent a `PING`, and if no reply comes within 15 seconds, it's closed, which fails the commands waiting on it, and replaced with a new one. So a connection that stops answering is noticed within 20 seconds, however often it's written to;
+- a connection with no traffic at all for 15 seconds is closed and reconnected (`socket.socketTimeout`), and node-redis sends it a `PING` every 5 seconds (`pingInterval`), so an idle one stays open;
+- `stop()` waits at most 3 seconds for a read in flight, and then closes its connection, and at most 3 more to give back messages it received but didn't hand out. The bus then waits for the messages being handled: on a connection that stopped answering, settling each one fails once the connection is replaced, up to 20 seconds later. `dispose()` then waits at most 3 seconds to leave the consumer group and 3 to close the connection.
+
+Set `socket.socketTimeout`, `pingInterval` or `socket.reconnectStrategy` in `connection` to change the connections' own settings. An invalid `queueName` or `keyPrefix` throws `InvalidRedisKeyName`, and a duration that isn't a whole number of milliseconds throws `InvalidRedisTransportDuration`.
 
 ## Sending and receiving
 
@@ -188,7 +194,7 @@ docker run -d -p 6379:6379 valkey/valkey:8
 
 ## Migrating from @node-ts/bus-redis 0.x
 
-The 0.x versions of `@node-ts/bus-redis`, from the `node-ts/bus-redis` repository, kept queues in Redis lists. There were two lines of them:
+The 0.x versions of `@node-ts/bus-redis`, from the `node-ts/bus-redis` repository, kept queues in Redis lists, through BullMQ in 0.1.1 and 0.1.2 and modest-queue after that. There were two lines of them:
 
 - **0.1.8**, npm's `latest`, for bus-core 1.x. It's configured with `new RedisTransport({ queueName, connectionString, ... })`, passed to `Bus.configure().withTransport()`.
 - **0.1.1 to 0.1.7, and 0.1.9** (the `0.x` tag), for bus-core 0.6 with inversify. It's loaded as `BusRedisModule`, with its configuration bound to `BUS_REDIS_SYMBOLS.TransportConfiguration`.

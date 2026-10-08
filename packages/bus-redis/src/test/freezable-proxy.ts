@@ -45,6 +45,14 @@ export class FreezableProxy {
   }
 
   /**
+   * Passes data again. What was sent while frozen is lost, so the connections open then stay broken, as a client
+   * would find them after a network fault, and only new connections work.
+   */
+  unfreeze(): void {
+    this.frozen = false
+  }
+
+  /**
    * Closes every connection and stops listening
    */
   async close(): Promise<void> {

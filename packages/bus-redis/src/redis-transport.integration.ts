@@ -24,6 +24,7 @@ import {
   transportTests
 } from '@node-ts/bus-test'
 import { randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { createClient } from 'redis'
 import { Mock } from 'typemoq'
 import { RedisTransport } from './redis-transport'
@@ -493,7 +494,12 @@ describe('RedisTransport', () => {
         const handled = Promise.withResolvers<void>()
         const bus = await startBus(
           'frozen',
-          { connection: { url: `redis://127.0.0.1:${proxy.port}` } },
+          {
+            connection: {
+              url: `redis://127.0.0.1:${proxy.port}`,
+              name: 'node-ts-bus-test-frozen'
+            }
+          },
           async () => handled.resolve()
         )
         await bus.send(new TestCommand(randomUUID(), new Date()))
@@ -503,7 +509,10 @@ describe('RedisTransport', () => {
           !(await redis.sendCommand<string>(['CLIENT', 'LIST']))
             .split('\n')
             .some(
-              client => /cmd=xreadgroup/.test(client) && /flags=b/.test(client)
+              client =>
+                client.includes('name=node-ts-bus-test-frozen ') &&
+                /cmd=xreadgroup/.test(client) &&
+                /flags=b/.test(client)
             )
         ) {
           await new Promise(resolve => setTimeout(resolve, 20))
@@ -525,6 +534,106 @@ describe('RedisTransport', () => {
       })
 
       it('should dispose without waiting for it', () => {
+        expect(disposeMs).toBeLessThan(10_000)
+      })
+    })
+
+    describe('and Redis stops answering while messages are still being sent', () => {
+      const proxy = new FreezableProxy({
+        host: new URL(connection.url).hostname,
+        port: Number(new URL(connection.url).port || 6379)
+      })
+      const handled = new EventEmitter()
+      let bus: BusInstance | undefined
+      let sending: NodeJS.Timeout | undefined
+      let recovered: boolean
+      let stopMs: number
+      let disposeMs: number
+
+      /**
+       * Sends a message every 2 s, without waiting for it, as an API or a timer would. Each send writes to the
+       * connection, so its socket timeout never ends, and only a check that Redis answers notices it's frozen.
+       */
+      const keepSending = (sender: BusInstance) =>
+        setInterval(() => {
+          sender
+            .send(new TestCommand('sent-while-frozen', new Date()))
+            .catch(() => undefined)
+        }, 2_000)
+
+      /**
+       * Sends a message until it's handled, or the deadline passes. A connection made while Redis was frozen is stuck
+       * until its socket timeout ends, so the first sends after it answers again may fail.
+       */
+      const receivesWithin = async (
+        sender: BusInstance,
+        ms: number
+      ): Promise<boolean> => {
+        const value = randomUUID()
+        const deadline = Date.now() + ms
+        while (Date.now() < deadline) {
+          const received = new Promise<boolean>(resolve => {
+            const timeout = setTimeout(() => resolve(false), 5_000)
+            handled.on('handled', handledValue => {
+              if (handledValue === value) {
+                clearTimeout(timeout)
+                resolve(true)
+              }
+            })
+          })
+          await sender
+            .send(new TestCommand(value, new Date()))
+            .catch(() => undefined)
+          if (await received) {
+            return true
+          }
+        }
+        return false
+      }
+
+      beforeAll(async () => {
+        await proxy.start()
+        bus = await startBus(
+          'frozen-while-sending',
+          { connection: { url: `redis://127.0.0.1:${proxy.port}` } },
+          async command => {
+            handled.emit('handled', command.value)
+          }
+        )
+
+        proxy.freeze()
+        sending = keepSending(bus)
+        // Long enough for the watchdog to send a PING (every 5 s) and give up waiting for its answer (15 s)
+        await new Promise(resolve => setTimeout(resolve, 22_000))
+        proxy.unfreeze()
+        clearInterval(sending)
+        recovered = await receivesWithin(bus, 45_000)
+
+        proxy.freeze()
+        sending = keepSending(bus)
+        const stopping = Date.now()
+        await bus.stop()
+        stopMs = Date.now() - stopping
+        const disposing = Date.now()
+        await bus.dispose()
+        disposeMs = Date.now() - disposing
+        bus = undefined
+      }, 120_000)
+
+      afterAll(async () => {
+        clearInterval(sending)
+        await bus?.dispose()
+        await proxy.close()
+      })
+
+      it('should replace the connections and receive again once Redis answers', () => {
+        expect(recovered).toEqual(true)
+      })
+
+      it('should stop and dispose without waiting for it', () => {
+        // The bus waits for the messages being handled, whose settling fails once the watchdog closes the connection
+        // (a PING every 5 s, answered within 15 s)
+        expect(stopMs).toBeLessThan(30_000)
         expect(disposeMs).toBeLessThan(10_000)
       })
     })
@@ -566,6 +675,114 @@ describe('RedisTransport', () => {
         expect(failure!.failedAttempts).toEqual(1)
         expect(failure!.endpoint).toEqual(queueName)
       })
+    })
+  })
+
+  describe('when a message in a batch cannot be dead-lettered', () => {
+    const queueName = 'batch-release'
+    const transport = new RedisTransport({
+      ...configuration,
+      queueName,
+      // Long, so a message left pending isn't taken over during the test
+      visibilityTimeoutMs: 60_000
+    })
+    const ids: string[] = []
+    let firstRound: PromiseSettledResult<unknown>[]
+    let receivedAgain: { id: string; failedAttempts: number }[]
+    let pending: [string, string, number, number][]
+
+    beforeAll(async () => {
+      await redis.sendCommand([
+        'XGROUP',
+        'CREATE',
+        queueKey(queueName),
+        queueName,
+        '0',
+        'MKSTREAM'
+      ])
+      // Its dead letter stream is a string, so dead-lettering fails every time
+      await redis.sendCommand(['SET', deadLetterKey(queueName), 'not a stream'])
+      for (const body of [
+        JSON.stringify(new TestCommand('1', new Date())),
+        'not json',
+        JSON.stringify(new TestCommand('3', new Date())),
+        JSON.stringify(new TestCommand('4', new Date()))
+      ]) {
+        ids.push(
+          await redis.sendCommand<string>([
+            'XADD',
+            queueKey(queueName),
+            '*',
+            'body',
+            body,
+            'attributes',
+            JSON.stringify({
+              messageId: randomUUID(),
+              attributes: {},
+              stickyAttributes: {}
+            }),
+            'headers',
+            '{}'
+          ])
+        )
+      }
+      transport.prepare({
+        loggerFactory: silentLogger,
+        messageSerializer
+      } as never)
+      await transport.connect()
+      await transport.start()
+
+      // Four reads waiting, so all four messages are read in one batch
+      firstRound = await Promise.allSettled([
+        transport.readNextMessage(),
+        transport.readNextMessage(),
+        transport.readNextMessage(),
+        transport.readNextMessage()
+      ])
+      receivedAgain = []
+      while (receivedAgain.length < 2) {
+        const message = await transport.readNextMessage()
+        if (message) {
+          receivedAgain.push({
+            id: message.id!,
+            failedAttempts: message.failedAttempts
+          })
+          await transport.deleteMessage(message)
+        }
+      }
+      pending = await redis.sendCommand<[string, string, number, number][]>([
+        'XPENDING',
+        queueKey(queueName),
+        queueName,
+        '-',
+        '+',
+        '10'
+      ])
+    })
+
+    afterAll(async () => transport.dispose())
+
+    it('should give the message before it to a read, and fail the other reads', () => {
+      expect(
+        firstRound.map(result =>
+          result.status === 'fulfilled'
+            ? (result.value as { id: string }).id
+            : 'rejected'
+        )
+      ).toEqual([ids[0], 'rejected', 'rejected', 'rejected'])
+    })
+
+    it('should give back the messages after it straight away, without counting an attempt', () => {
+      expect(receivedAgain).toEqual([
+        { id: ids[2], failedAttempts: 0 },
+        { id: ids[3], failedAttempts: 0 }
+      ])
+    })
+
+    it('should leave the message that failed pending until its visibility timeout ends', () => {
+      // The first message wasn't settled by the test, so it's pending too
+      expect(pending.map(([id]) => id)).toEqual([ids[0], ids[1]])
     })
   })
 

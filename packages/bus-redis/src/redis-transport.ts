@@ -67,15 +67,25 @@ export const DEFAULT_DEAD_LETTER_RETENTION_MS: Milliseconds =
 const READ_BLOCK_MS = 1_000
 
 /**
- * How long a connection may go without receiving anything before it's closed as lost, and reconnected. node-redis'
- * command timeout only covers a command waiting to be written, not one waiting for its reply, so without it a
- * connection that stops answering, such as through a frozen proxy or a half-open socket, would leave reads and
- * scripts waiting forever. Each connection sends a PING every `PING_INTERVAL_MS`, so an idle one isn't closed. The
- * receiving connection's is longer than a read blocks for.
+ * How long a connection may go without any traffic before it's closed as lost, and reconnected. node-redis' command
+ * timeout only covers a command waiting to be written, not one waiting for its reply, so without it a connection
+ * that stops answering, such as through a frozen proxy or a half-open socket, would leave reads and scripts waiting
+ * forever. Each connection sends a PING every `PING_INTERVAL_MS`, so an idle one isn't closed. The receiving
+ * connection's is longer than a read blocks for.
+ *
+ * Writes count as traffic too, so a connection that's written to often never times out. The watchdog covers that.
  */
 const SOCKET_TIMEOUT_MS = 15_000
 const READ_SOCKET_TIMEOUT_MS = READ_BLOCK_MS + 10_000
 const PING_INTERVAL_MS = 5_000
+
+/**
+ * How often the watchdog sends each connection a PING, and how long the connection has to answer before it's closed,
+ * failing whatever was waiting on it, and replaced. It notices a connection that stopped answering however often
+ * it's written to.
+ */
+const WATCHDOG_INTERVAL_MS = 5_000
+const REPLY_TIMEOUT_MS = 15_000
 
 /**
  * The longest `stop()` waits for a read in flight before it closes the receiving connection, and for the messages
@@ -300,6 +310,11 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
    * The read of the queue in flight, which `stop()` waits for
    */
   private fetching: Promise<void> | undefined
+  private watchdogTimer: NodeJS.Timeout | undefined
+  /**
+   * Whether the watchdog is checking the connections, so checks don't overlap
+   */
+  private isCheckingConnections = false
   private lastReclaimAt = 0
   private lastConsumerCleanupAt = 0
 
@@ -360,15 +375,10 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       return
     }
     this.logger.info('Connecting redis transport')
-    const client = createRedisClient(this.configuration.connection ?? {})
-    // A client without an error listener crashes the process when its connection fails. node-redis reconnects.
-    client.on('error', error =>
-      this.logger.warn('Redis connection error', {
-        error: serializeError(error)
-      })
-    )
+    const client = this.createMainClient()
     await client.connect()
     this.client = client
+    this.startWatchdog()
   }
 
   /**
@@ -376,6 +386,7 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
    * removed from the queue's consumer group first, so stopped processes don't leave consumers behind.
    */
   async disconnect(): Promise<void> {
+    this.stopWatchdog()
     if (this.hasStarted) {
       // The bus disconnects once its workers have settled the messages they were handling
       await settleWithin(this.leaveConsumerGroup(), DISCONNECT_TIMEOUT_MS)
@@ -571,23 +582,8 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
     if (this.isStarted) {
       return
     }
-    const client = this.getClient()
-    const socket = client.options.socket ?? {}
-    const reader = client.duplicate({
-      // Longer than a read blocks for, so only a connection that stopped answering times out
-      socket: {
-        ...socket,
-        socketTimeout: Math.max(
-          socket.socketTimeout ?? 0,
-          READ_SOCKET_TIMEOUT_MS
-        )
-      }
-    })
-    reader.on('error', error =>
-      this.logger.warn('Redis connection error while receiving', {
-        error: serializeError(error)
-      })
-    )
+    this.getClient()
+    const reader = this.createReader()
     await reader.connect()
     this.reader = reader
     this.isStarted = true
@@ -902,9 +898,10 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
   }
 
   /**
-   * Gives received entries to the waiting reads. If one can't be converted or dead-lettered, the entries not given
-   * to a read yet, including that one, are given back, so they're received again straight away rather than after the
-   * visibility timeout, and the error is thrown.
+   * Gives received entries to the waiting reads. If one can't be converted or dead-lettered, the entries after it are
+   * given back, so they're received again straight away rather than after the visibility timeout, and the error is
+   * thrown. The one that failed is left pending until its visibility timeout ends, and then counts a failed attempt,
+   * so one that fails every time doesn't loop without being counted.
    */
   private async deliver(entries: ReceivedEntry[]): Promise<void> {
     for (const [index, entry] of entries.entries()) {
@@ -912,7 +909,7 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       try {
         message = await this.toTransportMessage(entry)
       } catch (error) {
-        await this.releaseAll(entries.slice(index))
+        await this.releaseAll(entries.slice(index + 1))
         throw error
       }
       if (!message) {
@@ -1134,6 +1131,119 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
         { id: raw.id, messageId: raw.attributes.messageId }
       )
     }
+  }
+
+  /**
+   * Creates the connection that sends and settles messages
+   */
+  private createMainClient(): RedisClient {
+    const client = createRedisClient(this.configuration.connection ?? {})
+    // A client without an error listener crashes the process when its connection fails. node-redis reconnects.
+    client.on('error', error =>
+      this.logger.warn('Redis connection error', {
+        error: serializeError(error)
+      })
+    )
+    return client
+  }
+
+  /**
+   * Creates the connection that waits for new messages
+   */
+  private createReader(): RedisClient {
+    const connection = this.configuration.connection ?? {}
+    const socket = connection.socket ?? {}
+    const reader = createRedisClient({
+      ...connection,
+      // Longer than a read blocks for, so only a connection that stopped answering times out
+      socket: {
+        ...socket,
+        socketTimeout: Math.max(
+          socket.socketTimeout ?? 0,
+          READ_SOCKET_TIMEOUT_MS
+        )
+      }
+    })
+    reader.on('error', error =>
+      this.logger.warn('Redis connection error while receiving', {
+        error: serializeError(error)
+      })
+    )
+    return reader
+  }
+
+  private startWatchdog(): void {
+    clearInterval(this.watchdogTimer)
+    this.watchdogTimer = setInterval(
+      // checkConnections() handles its own errors
+      () => void this.checkConnections(),
+      WATCHDOG_INTERVAL_MS
+    )
+    // The watchdog alone doesn't keep the process running
+    this.watchdogTimer.unref()
+  }
+
+  private stopWatchdog(): void {
+    clearInterval(this.watchdogTimer)
+    this.watchdogTimer = undefined
+  }
+
+  /**
+   * Checks each connection answers, unless a check is still in flight
+   */
+  private async checkConnections(): Promise<void> {
+    if (this.isCheckingConnections) {
+      return
+    }
+    this.isCheckingConnections = true
+    try {
+      await Promise.all([
+        this.checkConnection('client'),
+        this.checkConnection('reader')
+      ])
+    } catch (error) {
+      this.logger.warn('Could not check the connections to Redis', {
+        error: serializeError(error)
+      })
+    } finally {
+      this.isCheckingConnections = false
+    }
+  }
+
+  /**
+   * Sends a connection a PING. If it doesn't answer within `REPLY_TIMEOUT_MS`, it's closed at once, which fails the
+   * commands waiting on it, and replaced with a new connection. A connection that's reconnecting isn't checked, since
+   * node-redis is already dealing with it.
+   */
+  private async checkConnection(role: 'client' | 'reader'): Promise<void> {
+    const client = this[role]
+    if (!client?.isReady) {
+      return
+    }
+    const answer = await settleWithin(
+      client.sendCommand(['PING']).then(
+        () => 'answered',
+        () => 'failed'
+      ),
+      REPLY_TIMEOUT_MS
+    )
+    // It may have been replaced, or closed by stop() or disconnect(), in the meantime
+    if (answer !== TIMED_OUT || this[role] !== client) {
+      return
+    }
+    this.logger.warn(
+      `Redis didn't answer within ${REPLY_TIMEOUT_MS} ms, so the connection was closed and is being replaced. Commands waiting on it fail.`,
+      { connection: role === 'client' ? 'sending' : 'receiving' }
+    )
+    const replacement =
+      role === 'client' ? this.createMainClient() : this.createReader()
+    this[role] = replacement
+    client.destroy()
+    replacement.connect().catch(error =>
+      this.logger.warn('Could not reconnect to Redis', {
+        error: serializeError(error)
+      })
+    )
   }
 
   private getClient(): RedisClient {

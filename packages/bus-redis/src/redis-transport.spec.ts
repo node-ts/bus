@@ -239,20 +239,29 @@ describe('RedisTransport', () => {
   })
 
   describe('when checking send options', () => {
+    let reservedError: unknown
+    let otherError: unknown
+
     beforeAll(() => {
       sut = new RedisTransport(configuration)
+      try {
+        sut.assertSendOptions({ headers: { [FAILURE_HEADER]: 'x' } })
+      } catch (error) {
+        reservedError = error
+      }
+      try {
+        sut.assertSendOptions({ headers: { 'x-tenant': 'a' } })
+      } catch (error) {
+        otherError = error
+      }
     })
 
     it('should reject the bus-failure header', () => {
-      expect(() =>
-        sut.assertSendOptions({ headers: { [FAILURE_HEADER]: 'x' } })
-      ).toThrow(TransportHeaderReserved)
+      expect(reservedError).toBeInstanceOf(TransportHeaderReserved)
     })
 
     it('should accept other headers', () => {
-      expect(() =>
-        sut.assertSendOptions({ headers: { 'x-tenant': 'a' } })
-      ).not.toThrow()
+      expect(otherError).toBeUndefined()
     })
   })
 
