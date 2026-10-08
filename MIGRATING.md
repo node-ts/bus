@@ -162,7 +162,7 @@ Two things behave differently:
 
 ## @node-ts/bus-redis
 
-- **It's a new transport on Redis Streams**, replacing the 0.x Redis lists transport from the `node-ts/bus-redis` repository. `BusRedisModule` and inversify are gone: pass `new RedisTransport({ queueName, connection: { url } })` to `withTransport()`. It needs Redis 7.0+ or Valkey 7.2+, and `redis` (node-redis) 6 as a peer dependency.
+- **It's a new transport on Redis Streams**, replacing the 0.x Redis lists transport from the `node-ts/bus-redis` repository: 0.1.8 (npm's `latest`, for bus-core 1.x, configured with `new RedisTransport({ queueName, connectionString })`), and 0.1.1–0.1.7 and 0.1.9 (the `0.x` tag, for bus-core 0.6, loaded as the inversify `BusRedisModule`). Pass `new RedisTransport({ queueName, connection: { url } })` to `withTransport()`: `connectionString` is now `connection.url`, and inversify isn't used. It needs Redis 7.0+ or Valkey 7.2+, and `redis` (node-redis) 6 as a peer dependency.
 - **`maxRetries` is removed**: use the bus' recoverability policy, `defaultRecoverability({ maxAttempts })`. `visibilityTimeout` is now `visibilityTimeoutMs`, `subscriptionsKeyPrefix` is now `keyPrefix`, and `withScheduler` is removed.
 - **Messages in 0.x queues aren't moved**, and the two versions can't send each other messages. Drain the old queues, then provision and deploy every service that exchanges messages together. See [Migrating from @node-ts/bus-redis 0.x](https://node-ts.github.io/bus/transports/redis#migrating-from-node-ts-bus-redis-0-x).
 

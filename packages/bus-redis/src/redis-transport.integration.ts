@@ -28,6 +28,7 @@ import { createClient } from 'redis'
 import { Mock } from 'typemoq'
 import { RedisTransport } from './redis-transport'
 import { RedisTransportConfiguration } from './redis-transport-configuration'
+import { FreezableProxy } from './test'
 
 jest.setTimeout(30_000)
 
@@ -476,6 +477,55 @@ describe('RedisTransport', () => {
         expect(receipts.map(({ failedAttempts }) => failedAttempts)).toEqual([
           0, 0
         ])
+      })
+    })
+
+    describe('and Redis stops answering', () => {
+      const proxy = new FreezableProxy({
+        host: new URL(connection.url).hostname,
+        port: Number(new URL(connection.url).port || 6379)
+      })
+      let stopMs: number
+      let disposeMs: number
+
+      beforeAll(async () => {
+        await proxy.start()
+        const handled = Promise.withResolvers<void>()
+        const bus = await startBus(
+          'frozen',
+          { connection: { url: `redis://127.0.0.1:${proxy.port}` } },
+          async () => handled.resolve()
+        )
+        await bus.send(new TestCommand(randomUUID(), new Date()))
+        await handled.promise
+        // Freezes while the worker waits on the server for its next message, so that read is in flight
+        while (
+          !(await redis.sendCommand<string>(['CLIENT', 'LIST']))
+            .split('\n')
+            .some(
+              client => /cmd=xreadgroup/.test(client) && /flags=b/.test(client)
+            )
+        ) {
+          await new Promise(resolve => setTimeout(resolve, 20))
+        }
+        proxy.freeze()
+        const stopping = Date.now()
+        await bus.stop()
+        stopMs = Date.now() - stopping
+        const disposing = Date.now()
+        await bus.dispose()
+        disposeMs = Date.now() - disposing
+      })
+
+      afterAll(async () => proxy.close())
+
+      it('should stop without waiting for it', () => {
+        // stop() gives a read in flight 3 s, then closes its connection
+        expect(stopMs).toBeLessThan(8_000)
+      })
+
+      it('should dispose without waiting for it', () => {
+        expect(disposeMs).toBeLessThan(10_000)
       })
     })
 

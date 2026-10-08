@@ -98,6 +98,7 @@ describe('RedisTransport', () => {
             '+smembers',
             '+multi',
             '+exec',
+            '+ping',
             '+xreadgroup',
             '+xack',
             '+xdel',
@@ -149,7 +150,8 @@ describe('RedisTransport', () => {
           '+xadd',
           '+smembers',
           '+multi',
-          '+exec'
+          '+exec',
+          '+ping'
         ]
       })
     })
@@ -190,8 +192,11 @@ describe('RedisTransport', () => {
       for (const settings of [
         { visibilityTimeoutMs: 0 },
         { visibilityTimeoutMs: Infinity },
+        // Redis takes idle times as integers
+        { visibilityTimeoutMs: 1500.5 },
         { deadLetterRetentionMs: -1 },
-        { deadLetterRetentionMs: Number.NaN }
+        { deadLetterRetentionMs: Number.NaN },
+        { deadLetterRetentionMs: 1500.5 }
       ]) {
         try {
           new RedisTransport({ ...configuration, ...settings })
@@ -207,6 +212,8 @@ describe('RedisTransport', () => {
       ).toEqual([
         'visibilityTimeoutMs',
         'visibilityTimeoutMs',
+        'visibilityTimeoutMs',
+        'deadLetterRetentionMs',
         'deadLetterRetentionMs',
         'deadLetterRetentionMs'
       ])
@@ -214,17 +221,20 @@ describe('RedisTransport', () => {
   })
 
   describe('when constructed with a dead letter retention of 0 or Infinity', () => {
+    const errors: unknown[] = []
+
+    beforeAll(() => {
+      for (const deadLetterRetentionMs of [0, Infinity]) {
+        try {
+          new RedisTransport({ ...configuration, deadLetterRetentionMs })
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+    })
+
     it('should accept it', () => {
-      expect(
-        () => new RedisTransport({ ...configuration, deadLetterRetentionMs: 0 })
-      ).not.toThrow()
-      expect(
-        () =>
-          new RedisTransport({
-            ...configuration,
-            deadLetterRetentionMs: Infinity
-          })
-      ).not.toThrow()
+      expect(errors).toEqual([])
     })
   })
 

@@ -49,7 +49,7 @@ Configure a `RedisTransport` and pass it to the bus configuration:
 | `visibilityTimeoutMs`   | `30000`             | How long a handler has, in milliseconds, before another receiver takes the message over and it's handled again. Set it above how long your slowest handler takes.                             |
 | `deadLetterRetentionMs` | `1209600000` (14 d) | How long dead-lettered messages are kept, in milliseconds. Older ones are trimmed, roughly, as new ones are dead-lettered. `0` or `Infinity` keeps them until you remove them.                |
 
-The transport makes two connections: one to send and settle messages, and one that waits for new ones. It always speaks RESP2, whatever node-redis' default. An invalid `queueName` or `keyPrefix` throws `InvalidRedisKeyName`, and an invalid duration throws `InvalidRedisTransportDuration`.
+The transport makes two connections: one to send and settle messages, and one that waits for new ones. It always speaks RESP2, whatever node-redis' default. Each connection sends a `PING` every 5 seconds, and one that receives nothing for 15 seconds is closed and reconnected, so a server or network that stops answering doesn't leave the bus waiting forever; `stop()` and `dispose()` wait a few seconds at most for it. Set `socket.socketTimeout`, `pingInterval` or `socket.reconnectStrategy` in `connection` to change that. An invalid `queueName` or `keyPrefix` throws `InvalidRedisKeyName`, and a duration that isn't a whole number of milliseconds throws `InvalidRedisTransportDuration`.
 
 ## Sending and receiving
 
@@ -57,7 +57,7 @@ Provisioning a service creates its queue's stream, `bus:{<queueName>}:queue`, wi
 
 Every instance of a service reads its queue as the same consumer group, so each message goes to one of them. A message that's been read stays pending to its receiver until it's handled, and is then acknowledged and removed from the stream, so streams only hold what's waiting or being handled. If it isn't settled within `visibilityTimeoutMs`, such as when the process stops, another receiver takes it over and handles it again, counting a failed attempt. That also happens if a handler takes longer than the timeout, while the first receipt is still being handled. The first receipt can then no longer delete, retry or dead-letter the message, which is logged as a warning. Make handlers idempotent, or use [`withOutbox()`](/guide/outbox), whose inbox skips a copy of a message that was already handled.
 
-Each process reads its queue once at a time, for as many messages as it has workers waiting, waiting on the server for up to a second for one to arrive. A message is received as soon as it's added. Messages are received in the order they were added, but a retried message goes to the back of the queue, and there's no strict ordering between instances.
+Each process reads its queue one read at a time, for as many messages as it has workers waiting, waiting on the server for up to a second for one to arrive. A message is received as soon as it's added. Messages are received in the order they were added, but a retried message goes to the back of the queue, and there's no strict ordering between instances.
 
 When a process stops, it gives back any message it read but didn't hand to a worker, without counting an attempt, and once its workers have settled what they were handling, it leaves the consumer group. A process that crashed leaves its consumer behind: it's removed by another instance once it has nothing pending and has been idle for a day.
 
@@ -153,11 +153,11 @@ At `initialize()`, unless the bus only sends, the transport checks that its stre
 
 ```txt
 ~bus:{reservations-service}:* %W~bus:{*}:queue %R~bus:subscriptions:*
-+xadd +smembers +multi +exec +xreadgroup +xack +xdel +xpending +xclaim +xinfo|groups +xinfo|consumers
++xadd +smembers +multi +exec +ping +xreadgroup +xack +xdel +xpending +xclaim +xinfo|groups +xinfo|consumers
 +xgroup|delconsumer +zadd +zrange +zrangebyscore +zrem +sismember +time +evalsha +eval
 ```
 
-The service can read and write its own queue's keys, add messages to any queue's stream (to send, publish and reply) without reading them, and read the subscription sets. It runs its scripts with `EVALSHA`, and `EVAL` to load them, and the commands they run are checked too. A send-only bus only needs the second and third key patterns and `+xadd +smembers +multi +exec`. Create the user with the rules, such as:
+The service can read and write its own queue's keys, add messages to any queue's stream (to send, publish and reply) without reading them, and read the subscription sets. It runs its scripts with `EVALSHA`, and `EVAL` to load them, and the commands they run are checked too. A send-only bus only needs the second and third key patterns and `+xadd +smembers +multi +exec +ping`. Create the user with the rules, such as:
 
 ```sh
 redis-cli ACL SETUSER reservations-service on '>a-long-password' resetkeys resetchannels -@all \
@@ -188,11 +188,16 @@ docker run -d -p 6379:6379 valkey/valkey:8
 
 ## Migrating from @node-ts/bus-redis 0.x
 
-The 0.x versions of `@node-ts/bus-redis`, from the `node-ts/bus-redis` repository, ran on bus-core 1.x with inversify, and kept queues in Redis lists. This version is a new transport on Redis Streams. First move your services to the current bus-core, following [Upgrading to 2.0](/upgrading/v2), then change the transport's configuration:
+The 0.x versions of `@node-ts/bus-redis`, from the `node-ts/bus-redis` repository, kept queues in Redis lists. There were two lines of them:
+
+- **0.1.8**, npm's `latest`, for bus-core 1.x. It's configured with `new RedisTransport({ queueName, connectionString, ... })`, passed to `Bus.configure().withTransport()`.
+- **0.1.1 to 0.1.7, and 0.1.9** (the `0.x` tag), for bus-core 0.6 with inversify. It's loaded as `BusRedisModule`, with its configuration bound to `BUS_REDIS_SYMBOLS.TransportConfiguration`.
+
+This version is a new transport on Redis Streams. First move your services to the current bus-core, following [Upgrading to 2.0](/upgrading/v2), after moving to bus-core 1.x if they're on 0.6. Then change the transport's configuration:
 
 | 0.x option               | Now                                                                                                                   |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `BusRedisModule`         | `new RedisTransport(configuration)`, passed to `Bus.configure().withTransport()`                                      |
+| `BusRedisModule` (0.6)   | `new RedisTransport(configuration)`, passed to `Bus.configure().withTransport()`, as 0.1.8 already does               |
 | `queueName`              | `queueName`                                                                                                           |
 | `connectionString`       | `connection: { url }`                                                                                                 |
 | `maxRetries`             | The bus' [recoverability policy](/guide/recoverability): `withRecoverability(defaultRecoverability({ maxAttempts }))` |

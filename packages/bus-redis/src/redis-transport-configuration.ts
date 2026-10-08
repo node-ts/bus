@@ -28,7 +28,9 @@ export interface RedisTransportConfiguration extends Omit<
 
   /**
    * How to connect to Redis. The transport makes a connection for sending and settling messages, and another for
-   * waiting for new messages.
+   * waiting for new messages. Unless set here, each sends a `PING` every 5 s (`pingInterval`), is closed and
+   * reconnected when it receives nothing for 15 s (`socket.socketTimeout`), and reconnects with a backoff of up to
+   * 2 s (`socket.reconnectStrategy`).
    * @default {} (localhost:6379)
    * @example { url: process.env.REDIS_URL }
    */

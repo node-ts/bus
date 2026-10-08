@@ -62,15 +62,32 @@ export const DEFAULT_DEAD_LETTER_RETENTION_MS: Milliseconds =
   14 * 24 * 60 * 60 * 1_000
 
 /**
- * The longest a read waits on the server for a message. It's kept well below node-redis' default command timeout
- * (5 s), and it's the longest `stop()` waits for a read in flight.
+ * The longest a read waits on the server for a message
  */
 const READ_BLOCK_MS = 1_000
 
 /**
- * How long the reading connection waits for the answer to a read, beyond how long the read blocks for
+ * How long a connection may go without receiving anything before it's closed as lost, and reconnected. node-redis'
+ * command timeout only covers a command waiting to be written, not one waiting for its reply, so without it a
+ * connection that stops answering, such as through a frozen proxy or a half-open socket, would leave reads and
+ * scripts waiting forever. Each connection sends a PING every `PING_INTERVAL_MS`, so an idle one isn't closed. The
+ * receiving connection's is longer than a read blocks for.
  */
-const READ_TIMEOUT_MARGIN_MS = 10_000
+const SOCKET_TIMEOUT_MS = 15_000
+const READ_SOCKET_TIMEOUT_MS = READ_BLOCK_MS + 10_000
+const PING_INTERVAL_MS = 5_000
+
+/**
+ * The longest `stop()` waits for a read in flight before it closes the receiving connection, and for the messages
+ * it gives back
+ */
+const STOP_TIMEOUT_MS = READ_BLOCK_MS + 2_000
+
+/**
+ * The longest `disconnect()` waits to leave the consumer group, and for the connection to close cleanly, before it
+ * closes it at once
+ */
+const DISCONNECT_TIMEOUT_MS = 3_000
 
 /**
  * How often messages left pending past the visibility timeout are looked for
@@ -112,6 +129,12 @@ interface ReceivedEntry {
 }
 
 /**
+ * What identifies a receipt of a message: its stream entry, and how many times it had been delivered when it was
+ * received
+ */
+type Receipt = Pick<RedisTransportMessage, 'id' | 'deliveries'>
+
+/**
  * A read waiting for a message
  */
 interface Waiter {
@@ -122,10 +145,67 @@ interface Waiter {
 }
 
 /**
- * Creates a client that speaks RESP2, so replies have the same shape whatever the client's defaults
+ * Reconnects with a backoff of up to 2 s, like node-redis' default, but also after a socket timeout, which node-redis
+ * doesn't reconnect after by default
+ */
+const reconnectWithBackoff = (retries: number): number =>
+  Math.min(2 ** retries * 50, 2_000) + Math.floor(Math.random() * 200)
+
+/**
+ * Creates a client that speaks RESP2, so replies have the same shape whatever the client's defaults, and that
+ * notices a connection that stopped answering (see `SOCKET_TIMEOUT_MS`). Settings given in `options` win.
  */
 const createRedisClient = (options: RedisConnectionOptions) =>
-  createClient({ ...options, RESP: 2 })
+  createClient({
+    pingInterval: PING_INTERVAL_MS,
+    ...options,
+    socket: {
+      socketTimeout: SOCKET_TIMEOUT_MS,
+      reconnectStrategy: reconnectWithBackoff,
+      ...options.socket
+    },
+    RESP: 2
+  })
+
+const TIMED_OUT = Symbol('timed out')
+
+/**
+ * Waits for a promise, but no longer than `ms`
+ * @returns what the promise resolves with, or `TIMED_OUT`
+ */
+const settleWithin = async <T>(
+  promise: Promise<T>,
+  ms: Milliseconds
+): Promise<T | typeof TIMED_OUT> => {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<typeof TIMED_OUT>(resolve => {
+        timer = setTimeout(() => resolve(TIMED_OUT), ms)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Closes a client cleanly, or at once if that takes longer than `DISCONNECT_TIMEOUT_MS`, such as when its connection
+ * stopped answering
+ */
+const closeClient = async (client: RedisClient): Promise<void> => {
+  if (!client.isOpen) {
+    return
+  }
+  const closed = await settleWithin(
+    client.close().catch(() => undefined),
+    DISCONNECT_TIMEOUT_MS
+  )
+  if (closed === TIMED_OUT) {
+    client.destroy()
+  }
+}
 
 type RedisClient = ReturnType<typeof createRedisClient>
 
@@ -226,8 +306,8 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
   /**
    * @param configuration the queue, how to connect, and how messages are received and dead-lettered
    * @throws InvalidRedisKeyName if `queueName` or `keyPrefix` is empty or contains `{` or `}`
-   * @throws InvalidRedisTransportDuration if `visibilityTimeoutMs` isn't a positive number, or
-   * `deadLetterRetentionMs` is negative
+   * @throws InvalidRedisTransportDuration if `visibilityTimeoutMs` isn't a positive whole number, or
+   * `deadLetterRetentionMs` isn't 0 or more whole milliseconds, or `Infinity`
    */
   constructor(private readonly configuration: RedisTransportConfiguration) {
     if (!isValidKeyName(configuration.queueName)) {
@@ -238,11 +318,8 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
     this.visibilityTimeoutMs =
       configuration.visibilityTimeoutMs ?? DEFAULT_VISIBILITY_TIMEOUT_MS
     const visibilityTimeoutMs = this.visibilityTimeoutMs
-    if (
-      typeof visibilityTimeoutMs !== 'number' ||
-      !Number.isFinite(visibilityTimeoutMs) ||
-      visibilityTimeoutMs <= 0
-    ) {
+    // A whole number, since Redis takes idle times as integers
+    if (!Number.isInteger(visibilityTimeoutMs) || visibilityTimeoutMs <= 0) {
       throw new InvalidRedisTransportDuration(
         'visibilityTimeoutMs',
         visibilityTimeoutMs
@@ -251,9 +328,8 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
     const retention =
       configuration.deadLetterRetentionMs ?? DEFAULT_DEAD_LETTER_RETENTION_MS
     if (
-      typeof retention !== 'number' ||
-      Number.isNaN(retention) ||
-      retention < 0
+      retention !== Infinity &&
+      (!Number.isInteger(retention) || retention < 0)
     ) {
       throw new InvalidRedisTransportDuration(
         'deadLetterRetentionMs',
@@ -261,9 +337,7 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       )
     }
     // 0 keeps dead letters until they're removed, as Infinity does
-    this.deadLetterRetentionMs = Number.isFinite(retention)
-      ? Math.round(retention)
-      : 0
+    this.deadLetterRetentionMs = Number.isFinite(retention) ? retention : 0
   }
 
   /**
@@ -304,12 +378,12 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
   async disconnect(): Promise<void> {
     if (this.hasStarted) {
       // The bus disconnects once its workers have settled the messages they were handling
-      await this.leaveConsumerGroup()
+      await settleWithin(this.leaveConsumerGroup(), DISCONNECT_TIMEOUT_MS)
     }
     const client = this.client
     this.client = undefined
-    if (client?.isOpen) {
-      await client.close()
+    if (client) {
+      await closeClient(client)
     }
   }
 
@@ -497,8 +571,17 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
     if (this.isStarted) {
       return
     }
-    const reader = this.getClient().duplicate({
-      commandOptions: { timeout: READ_BLOCK_MS + READ_TIMEOUT_MARGIN_MS }
+    const client = this.getClient()
+    const socket = client.options.socket ?? {}
+    const reader = client.duplicate({
+      // Longer than a read blocks for, so only a connection that stopped answering times out
+      socket: {
+        ...socket,
+        socketTimeout: Math.max(
+          socket.socketTimeout ?? 0,
+          READ_SOCKET_TIMEOUT_MS
+        )
+      }
     })
     reader.on('error', error =>
       this.logger.warn('Redis connection error while receiving', {
@@ -515,25 +598,40 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
    * Stops receiving. It waits for a read in flight, which waits on the server for at most a second, gives back any
    * message received but not handled, so another receiver takes it over without counting a failed attempt, and
    * releases the reads still waiting. Messages being handled can still be settled until the transport disconnects.
+   *
+   * It waits at most a few seconds for each step, so a connection that stopped answering can't hold it up: a read
+   * still in flight then has its connection closed, and a message it couldn't give back is taken over once its
+   * visibility timeout ends.
    */
   async stop(): Promise<void> {
     if (!this.isStarted) {
       return
     }
     this.isStarted = false
-    await this.fetching
+    const reader = this.reader
+    this.reader = undefined
+    const fetching = this.fetching
+    if (
+      fetching &&
+      (await settleWithin(fetching, STOP_TIMEOUT_MS)) === TIMED_OUT
+    ) {
+      this.logger.warn(
+        'A read of the queue did not finish in time, so its connection was closed. Redis may not be answering.'
+      )
+      // Fails the read in flight straight away. One waiting on the main connection is left to its socket timeout.
+      reader?.destroy()
+    }
     const waiters = this.waiters
     this.waiters = []
     waiters.forEach(waiter => waiter.resolve(undefined))
     const received = this.received
     this.received = []
-    for (const message of received) {
-      await this.release(message.raw)
-    }
-    const reader = this.reader
-    this.reader = undefined
-    if (reader?.isOpen) {
-      await reader.close()
+    await settleWithin(
+      this.releaseAll(received.map(({ raw }) => raw)),
+      STOP_TIMEOUT_MS
+    )
+    if (reader) {
+      await closeClient(reader)
     }
   }
 
@@ -799,22 +897,37 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
             : READ_BLOCK_MS
         )
       }
-      for (const entry of entries) {
-        const message = await this.toTransportMessage(entry)
-        if (!message) {
-          continue
-        }
-        if (!this.isStarted) {
-          // Received while stopping. It's given back for another receiver.
-          await this.release(message.raw)
-          continue
-        }
-        const waiter = this.waiters.shift()
-        if (waiter) {
-          waiter.resolve(message)
-        } else {
-          this.received.push(message)
-        }
+      await this.deliver(entries)
+    }
+  }
+
+  /**
+   * Gives received entries to the waiting reads. If one can't be converted or dead-lettered, the entries not given
+   * to a read yet, including that one, are given back, so they're received again straight away rather than after the
+   * visibility timeout, and the error is thrown.
+   */
+  private async deliver(entries: ReceivedEntry[]): Promise<void> {
+    for (const [index, entry] of entries.entries()) {
+      let message: TransportMessage<RedisTransportMessage> | undefined
+      try {
+        message = await this.toTransportMessage(entry)
+      } catch (error) {
+        await this.releaseAll(entries.slice(index))
+        throw error
+      }
+      if (!message) {
+        continue
+      }
+      if (!this.isStarted) {
+        // Received while stopping. It's given back for another receiver.
+        await this.release(message.raw)
+        continue
+      }
+      const waiter = this.waiters.shift()
+      if (waiter) {
+        waiter.resolve(message)
+      } else {
+        this.received.push(message)
       }
     }
   }
@@ -933,7 +1046,7 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
    * Gives back a message received but not handled, so another receiver takes it over without counting a failed
    * attempt. A failure is only logged: the message is taken over after the visibility timeout anyway.
    */
-  private async release(raw: RedisTransportMessage): Promise<void> {
+  private async release(raw: Receipt): Promise<void> {
     try {
       await this.runScript(
         RELEASE_SCRIPT,
@@ -942,9 +1055,18 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       )
     } catch (error) {
       this.logger.warn(
-        'Could not give back a message received while stopping. Another receiver takes it over after the visibility timeout.',
+        'Could not give back a message that was received but not handled. Another receiver takes it over after the visibility timeout.',
         { id: raw.id, error: serializeError(error) }
       )
+    }
+  }
+
+  /**
+   * Gives back messages received but not handled, one at a time
+   */
+  private async releaseAll(receipts: Receipt[]): Promise<void> {
+    for (const receipt of receipts) {
+      await this.release(receipt)
     }
   }
 
@@ -972,7 +1094,7 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
    * The arguments that identify a receipt to the scripts that settle it: the group, this consumer, the entry and
    * its delivery count
    */
-  private receiptArguments(raw: RedisTransportMessage): string[] {
+  private receiptArguments(raw: Receipt): string[] {
     return [
       this.endpointName,
       this.consumerName,
@@ -1094,7 +1216,9 @@ export class RedisTransport implements Transport<RedisTransportMessage> {
       '+xadd',
       '+smembers',
       '+multi',
-      '+exec'
+      '+exec',
+      // Each connection sends a PING when idle, so one that stopped answering is noticed
+      '+ping'
     ]
     if (sendOnly) {
       return sending
