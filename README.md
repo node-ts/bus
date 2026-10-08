@@ -18,6 +18,7 @@ Requires Node.js 24 or later.
 - [@node-ts/bus-messages](https://github.com/node-ts/bus/tree/master/packages/bus-messages) - The base types of commands, events and their attributes, used to declare your own messages
 - [@node-ts/bus-cli](https://github.com/node-ts/bus/tree/master/packages/bus-cli) - Command line tools, including `bus generate-message-types`, which lets the bus restore Dates and class instances in messages
 - [@node-ts/bus-rabbitmq](https://github.com/node-ts/bus/tree/master/packages/bus-rabbitmq) - A RabbitMQ transport
+- [@node-ts/bus-azure-service-bus](https://github.com/node-ts/bus/tree/master/packages/bus-azure-service-bus) - An Azure Service Bus transport
 - [@node-ts/bus-sqs](https://github.com/node-ts/bus/tree/master/packages/bus-sqs) - An Amazon SQS transport
 - [@node-ts/bus-sqs-lambda](https://github.com/node-ts/bus/tree/master/packages/bus-sqs-lambda) - A receiver that handles SQS messages in AWS Lambda
 - [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence for workflow state, and a Postgres transport that needs no broker
