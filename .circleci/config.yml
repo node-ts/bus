@@ -16,6 +16,7 @@ jobs:
           RABBITMQ_URL: amqp://guest:guest@127.0.0.1
           POSTGRES_URL: postgres://postgres:password@127.0.0.1:5432/postgres
           MONGODB_URL: mongodb://127.0.0.1:27017/workflows?directConnection=true
+          REDIS_URL: redis://127.0.0.1:6379
       - image: rabbitmq:3-management
       - image: localstack/localstack:3
         environment:
@@ -26,6 +27,10 @@ jobs:
       # A single-node replica set, since the outbox's transactions need one. "Wait for integration infra" initiates it.
       - image: mongo:7
         command: ['--replSet', 'rs0']
+      - image: redis:8
+      # The Redis transport's tests run against Valkey too, on a port of its own since containers share the network
+      - image: valkey/valkey:8
+        command: ['valkey-server', '--port', '6381']
     resource_class: large
     steps:
       - checkout
@@ -71,6 +76,8 @@ jobs:
             wait_for_port 5672
             wait_for_port 5432
             wait_for_port 27017
+            wait_for_port 6379
+            wait_for_port 6381
             node .circleci/init-mongo-replica-set.mjs
             for i in $(seq 1 60); do
               curl -sf http://127.0.0.1:4566/_localstack/health | grep -q '"sqs": "\(available\|running\)"' && break
@@ -80,6 +87,9 @@ jobs:
       - run:
           name: Integration Test
           command: pnpm run test:integration
+      - run:
+          name: Integration Test (Redis transport on Valkey)
+          command: REDIS_URL=redis://127.0.0.1:6381 pnpm exec dotenv -e test.env -- jest --runInBand --coverage=false packages/bus-redis/src/redis-transport.integration.ts
       # Save workspace for subsequent jobs (i.e. test)
       - persist_to_workspace:
           root: .

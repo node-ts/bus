@@ -21,6 +21,7 @@ Requires Node.js 24 or later.
 - [@node-ts/bus-sqs](https://github.com/node-ts/bus/tree/master/packages/bus-sqs) - An Amazon SQS transport
 - [@node-ts/bus-sqs-lambda](https://github.com/node-ts/bus/tree/master/packages/bus-sqs-lambda) - A receiver that handles SQS messages in AWS Lambda
 - [@node-ts/bus-postgres](https://github.com/node-ts/bus/tree/master/packages/bus-postgres) - A Postgres persistence for workflow state, and a Postgres transport that needs no broker
+- [@node-ts/bus-redis](https://github.com/node-ts/bus/tree/master/packages/bus-redis) - A Redis Streams transport, for Redis or Valkey
 - [@node-ts/bus-mongodb](https://github.com/node-ts/bus/tree/master/packages/bus-mongodb) - A MongoDB persistence for workflow state
 - [@node-ts/bus-opentelemetry](https://github.com/node-ts/bus/tree/master/packages/bus-opentelemetry) - OpenTelemetry tracing and metrics, as bus middleware
 - [@node-ts/bus-nestjs](https://github.com/node-ts/bus/tree/master/packages/bus-nestjs) - A NestJS module: handlers and workflows as providers, and the bus run by Nest's lifecycle

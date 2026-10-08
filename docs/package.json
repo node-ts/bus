@@ -28,6 +28,7 @@
     "@node-ts/bus-opentelemetry": "workspace:^",
     "@node-ts/bus-postgres": "workspace:^",
     "@node-ts/bus-rabbitmq": "workspace:^",
+    "@node-ts/bus-redis": "workspace:^",
     "@node-ts/bus-sqs": "workspace:^",
     "@node-ts/bus-sqs-lambda": "workspace:^",
     "@node-ts/bus-test": "workspace:^",
