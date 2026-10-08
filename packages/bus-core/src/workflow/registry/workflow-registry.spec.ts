@@ -340,6 +340,9 @@ describe('WorkflowRegistry', () => {
       expect((cause as WorkflowMappingInvalid).problem).toEqual(
         "a lookup whose lookup isn't a function"
       )
+      expect((error as WorkflowConfigurationFailed).help).toEqual(
+        (cause as WorkflowMappingInvalid).help
+      )
     })
   })
 

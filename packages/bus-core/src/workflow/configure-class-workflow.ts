@@ -3,6 +3,7 @@ import {
   WorkflowAlreadyHandlesMessage,
   WorkflowAlreadyStartedByMessage,
   WorkflowConfigurationFailed,
+  WorkflowMappingInvalid,
   WorkflowStateNotProvided
 } from './error'
 import { Workflow, WorkflowMapper } from './workflow'
@@ -54,7 +55,11 @@ export const configureClassWorkflow = <TWorkflowState extends WorkflowState>(
     ) {
       throw error
     }
-    throw new WorkflowConfigurationFailed(workflowType.name, error)
+    throw new WorkflowConfigurationFailed(
+      workflowType.name,
+      error,
+      error instanceof WorkflowMappingInvalid ? error.help : undefined
+    )
   }
 
   const workflowStateType = mapper.workflowStateCtor
