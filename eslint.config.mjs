@@ -11,7 +11,8 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/coverage/**',
       'docs/api/**',
-      'docs/.vitepress/cache/**'
+      'docs/.vitepress/cache/**',
+      '.claude/worktrees/**'
     ]
   },
   eslint.configs.recommended,

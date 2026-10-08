@@ -8,6 +8,9 @@ docs/api/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 
+# Claude Code agent worktrees, each a full checkout of the repo
+.claude/worktrees/
+
 #### joe made this: http://goel.io/joe
 
 #####=== Archives ===#####
