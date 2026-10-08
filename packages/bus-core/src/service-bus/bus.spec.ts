@@ -270,6 +270,28 @@ describe('Bus', () => {
     })
   })
 
+  describe('when checking whether a bus can be started', () => {
+    const receiver = Mock.ofType<Receiver>().object
+
+    it('should be true for a bus that reads from its transport', () => {
+      expect(Bus.configure().build().canStart).toEqual(true)
+    })
+
+    it('should be true for a scheduler', () => {
+      expect(Bus.configure().asScheduler().build().canStart).toEqual(true)
+    })
+
+    it('should be false for a send-only bus', () => {
+      expect(Bus.configure().asSendOnly().build().canStart).toEqual(false)
+    })
+
+    it('should be false for a bus with a receiver', () => {
+      expect(Bus.configure().withReceiver(receiver).build().canStart).toEqual(
+        false
+      )
+    })
+  })
+
   describe('when disposing the bus', () => {
     describe('after its been initialized', () => {
       it('should dispose', async () => {

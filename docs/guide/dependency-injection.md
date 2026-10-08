@@ -27,7 +27,10 @@ To construct them with their dependencies, pass an adapter to your IoC container
 
 `get` is also given the message being handled and its attributes, for containers that resolve differently per message, and may return a promise.
 
+In a NestJS application, [`@node-ts/bus-nestjs`](/guide/nestjs) registers handlers and workflows as providers and resolves them from Nest's container.
+
 ## See also
 
 - [Commands](/guide/messages/commands), for class handlers
+- [NestJS](/guide/nestjs)
 - [`ContainerAdapter`](/api/bus-core/interfaces/ContainerAdapter) in the API reference

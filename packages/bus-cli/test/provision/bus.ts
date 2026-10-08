@@ -35,3 +35,12 @@ export default configure()
 export const createBusConfiguration = async () => configure()
 
 export const notABus = 42
+
+/**
+ * Returns the bus built, as a framework integration does, and leaves a timer running, as an application's
+ * connection pool would, so the command has to exit by itself
+ */
+export const createBuiltBus = async () => {
+  setInterval(() => undefined, 60_000)
+  return configure().build()
+}

@@ -1128,6 +1128,20 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   }
 
   /**
+   * Whether `start()` can be called on the bus: false for a send-only bus, and for a bus with a `Receiver`, whose
+   * messages are passed in with `receive()`. Code that runs the bus' lifecycle, such as a framework integration,
+   * reads it to know whether to call `start()` after `initialize()`.
+   * @example
+   * await bus.initialize()
+   * if (bus.canStart) {
+   *   await bus.start()
+   * }
+   */
+  get canStart(): boolean {
+    return !this.sendOnly && !this.receiver
+  }
+
+  /**
    * The return address stamped on outgoing messages, so replies come back to this bus' queue: the transport's
    * `returnAddress`, or its `endpointName` when it has none. `undefined` for a send-only bus, a scheduler or a
    * transport with neither, which have no queue that's read.

@@ -154,6 +154,30 @@ describe('runProvision', () => {
     })
   })
 
+  describe('when a module exports an async function that returns a built bus', () => {
+    let transport: ProvisionedQueue
+    let exitCode: number
+
+    beforeAll(async () => {
+      transport = new ProvisionedQueue()
+      ;({ exitCode } = await run(
+        { default: async () => configure(transport).build() },
+        'src/bus.js'
+      ))
+    })
+
+    it('should provision the bus without building it again', () => {
+      expect(exitCode).toEqual(0)
+      expect(transport.provisionOptions).toMatchObject({
+        messageNames: ['test/order-placed']
+      })
+    })
+
+    it('should dispose the bus', () => {
+      expect(transport.wasDisposed).toEqual(true)
+    })
+  })
+
   describe('when a CommonJS module exports a function under a name', () => {
     let transport: ProvisionedQueue
     let exitCode: number
@@ -270,7 +294,7 @@ describe('runProvision', () => {
     it('should fail, saying what to export', () => {
       expect(exitCode).toEqual(1)
       expect(output.errors.join('\n')).toContain(
-        "The default export of src/bus.js isn't a bus configuration or a function that returns one, it's a number"
+        "The default export of src/bus.js isn't a bus configuration or a bus, or a function that returns one, it's a number"
       )
       expect(output.errors.join('\n')).toContain('--export')
     })
