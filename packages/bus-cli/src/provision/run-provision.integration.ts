@@ -87,6 +87,25 @@ describe('bus provision', () => {
     })
   })
 
+  describe('when given an export that returns a built bus and leaves a handle open', () => {
+    let exitCode: number
+    let stdout: string
+
+    beforeAll(async () => {
+      ;({ exitCode, stdout } = await runBus(
+        'provision',
+        'test/provision/bus.ts',
+        '--export',
+        'createBuiltBus'
+      ))
+    })
+
+    it('should provision the bus and exit', () => {
+      expect(exitCode).toEqual(0)
+      expect(stdout).toContain('topic  fixture/order-placed')
+    })
+  })
+
   describe('when the export is not a bus configuration', () => {
     let exitCode: number
     let stderr: string

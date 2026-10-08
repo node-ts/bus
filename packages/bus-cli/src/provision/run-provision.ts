@@ -20,7 +20,8 @@ queues, topics, subscriptions, exchanges, tables and indexes. It's idempotent, s
 deploy credentials, before the service starts. It never initializes or starts the bus.
 
 The module's default export, or the one named by --export, is a bus configuration (Bus.configure()...,
-not built), or a function, sync or async, that returns one. It's loaded with import(), so it can be JavaScript,
+not built), or a function, sync or async, that returns one. It can also be a bus that's built but not
+initialized, or a function that returns one, such as createBusForProvisioning() from @node-ts/bus-nestjs. It's loaded with import(), so it can be JavaScript,
 or TypeScript that Node can run by stripping its types.
 
 Options:
@@ -109,13 +110,13 @@ export const runProvision = async (
 
   let plans: Awaited<ReturnType<BusInstance['provision']>>
   try {
-    const configuration = await loadBusConfiguration(
+    const loaded = await loadBusConfiguration(
       modulePath,
       values.export,
       cwd,
       load
     )
-    const bus = configuration.build()
+    const bus = 'build' in loaded ? loaded.build() : loaded
     if (typeof bus.provision !== 'function') {
       output.error(
         `The bus in ${modulePath} can't be provisioned. Upgrade @node-ts/bus-core to a version with bus.provision().`
