@@ -112,18 +112,19 @@ jobs:
       - run:
           name: Start the Service Bus emulator
           command: docker compose --profile azure-service-bus up -d servicebus servicebus-sql
+      # Each step is a new shell, which starts on the image's own Node.js, so
+      # the steps that need ours switch to it with nvm first
       - run:
           name: Install Node.js and pnpm
           command: |
             nvm install "$(cat .nvmrc)"
-            nvm alias default "$(cat .nvmrc)"
             npm install --global pnpm@12.4.1
       - run:
           name: Install dependencies
-          command: pnpm i
+          command: nvm use "$(cat .nvmrc)" && pnpm i
       - run:
           name: Build
-          command: pnpm --filter '@node-ts/bus-azure-service-bus...' run build
+          command: nvm use "$(cat .nvmrc)" && pnpm --filter '@node-ts/bus-azure-service-bus...' run build
       - run:
           name: Wait for the Service Bus emulator
           command: |
@@ -134,7 +135,7 @@ jobs:
             curl -sf http://localhost:5300/health || (docker compose --profile azure-service-bus logs servicebus && exit 1)
       - run:
           name: Integration Test
-          command: pnpm exec dotenv -e test.env -- jest --runInBand 'packages/bus-azure-service-bus/.+\.integration\.ts$'
+          command: nvm use "$(cat .nvmrc)" && pnpm exec dotenv -e test.env -- jest --runInBand 'packages/bus-azure-service-bus/.+\.integration\.ts$'
 
   docs:
     <<: *defaults
