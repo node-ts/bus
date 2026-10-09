@@ -29,6 +29,7 @@ A few rules the bus relies on:
 
 - `readNextMessage()` returns `undefined` when there's nothing to read, rather than throwing.
 - `readNextMessage()` sets `failedAttempts` to how many times handling the message has failed before, `0` on its first delivery. Count it from the broker's delivery count, or a header the transport writes when it returns a message.
+- `readNextMessage()` returns a new `TransportMessage` object for each delivery, including each retry of a message it returned, even when it keeps the message itself in memory. The bus freezes it while it's handled, and [container adapters](/guide/dependency-injection#a-scope-per-message) scope what they resolve to it.
 - `returnMessage(message, delay)` makes the message available again after `delay` milliseconds, with one more failed attempt. The bus' [recoverability policy](/guide/recoverability) decides the delay and when a message is out of attempts, so the transport never dead-letters a returned message itself.
 - `fail(message, failure)` moves a message to the dead letter queue and removes it from the service queue, keeping its attributes and headers. Write `failure` on the copy as a `bus-failure` header with `toFailureHeader()`, and reserve that name. The bus calls `fail()` instead of `deleteMessage()`, not before it.
 - The bus settles each message once: it calls exactly one of `deleteMessage()`, `returnMessage()` or `fail()`.

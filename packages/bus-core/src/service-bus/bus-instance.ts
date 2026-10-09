@@ -2072,7 +2072,7 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       { name: handlerNameOf(handler) },
       async () =>
         this.middlewarePipeline.runHandler(invocationContext, async () =>
-          this.invokeHandler(message, attributes, handler, context)
+          this.invokeHandler(transportMessage, handler, context)
         )
     )
   }
@@ -2559,14 +2559,16 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
   /**
    * Resolves a class handler from the container, or constructs it, and calls it. A function handler is called as
    * it is.
+   * @param transportMessage the delivery being handled, which the container is given so it can scope what it
+   * resolves to that delivery
    * @throws ClassHandlerNotResolved if a class handler can't be resolved or constructed
    */
   private async invokeHandler(
-    message: Message,
-    attributes: MessageAttributes,
+    transportMessage: TransportMessage<TTransportMessage>,
     handler: HandlerDefinition,
     context: HandlerContext
   ): Promise<void> {
+    const { domainMessage: message, attributes } = transportMessage
     if (!isClassHandler(handler)) {
       const fnHandler = handler as FunctionHandler<Message>
       await fnHandler(message, attributes, context)
@@ -2591,7 +2593,8 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       try {
         handlerInstance = await container.get(classHandler, {
           message,
-          messageAttributes: attributes
+          messageAttributes: attributes,
+          transportMessage
         })
       } catch (e) {
         throw new ClassHandlerNotResolved(

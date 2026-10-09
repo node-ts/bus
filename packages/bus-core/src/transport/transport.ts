@@ -191,6 +191,9 @@ export interface Transport<TransportMessageType = {}> {
    * Fetch the next message from the underlying queue. If there are no messages, then `undefined`
    * should be returned.
    *
+   * Return a new `TransportMessage` object for each delivery, including each retry of a message that was returned to
+   * the queue. The bus freezes it while it's handled, and container adapters scope what they resolve to it.
+   *
    * @returns The message construct from the underlying transport, that includes both the raw message envelope
    * plus the contents or body that contains the `@node-ts/bus-messages` message.
    */

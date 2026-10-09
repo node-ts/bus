@@ -5,11 +5,16 @@ import { ClassHandlerNotResolved, ContainerNotRegistered } from '../error'
 import { Handler, HandlerDispatchRejected } from '../handler'
 import { Logger } from '../logger'
 import { BusMiddleware } from '../middleware'
+import { retry } from '../recoverability'
 import { Bus, BusInstance } from '../service-bus'
 import { TestEvent, TestEvent2, testMessageTypes } from '../test'
 import { TestEventClassHandler } from '../test/test-event-class-handler'
 import { MessageLogger } from '../test/test-event-handler'
+import { InMemoryQueue, TransportMessage } from '../transport'
 import { ClassConstructor, sleep } from '../util'
+import { Workflow, WorkflowMapper } from '../workflow'
+import { TestWorkflowState } from '../workflow/test'
+import { ContainerContext } from './container-context'
 
 // Lets a test see messages handled by UnregisteredClassHandler when the bus constructs it with new
 let handled: ((message: TestEvent2) => void) | undefined
@@ -325,6 +330,108 @@ describe('ContainerAdapter', () => {
         })
         await onError
       })
+    })
+  })
+
+  describe('when class handlers and workflows are resolved for a message that is retried and sent again', () => {
+    const queue = new InMemoryQueue()
+    const resolutions: { type: string; context: ContainerContext }[] = []
+    const sentEvent = new TestEvent2()
+    let failNextHandling = true
+
+    class FailsOnceHandler implements Handler<TestEvent2> {
+      get messageType() {
+        return TestEvent2
+      }
+
+      async handle(): Promise<void> {
+        if (failNextHandling) {
+          failNextHandling = false
+          throw new Error('Failed on the first attempt')
+        }
+      }
+    }
+
+    class StartedByEventWorkflow extends Workflow<TestWorkflowState> {
+      configureWorkflow(
+        mapper: WorkflowMapper<TestWorkflowState, StartedByEventWorkflow>
+      ): void {
+        mapper.withState(TestWorkflowState).startedBy(TestEvent2, 'start')
+      }
+
+      async start(): Promise<Partial<TestWorkflowState>> {
+        return {}
+      }
+    }
+
+    /**
+     * The deliveries the container was given, in the order it first saw them, each with the classes it resolved
+     */
+    const deliveries = () => {
+      const byDelivery = new Map<TransportMessage<unknown>, string[]>()
+      for (const { type, context } of resolutions) {
+        const delivery = context.transportMessage!
+        byDelivery.set(delivery, [...(byDelivery.get(delivery) ?? []), type])
+      }
+      return [...byDelivery]
+    }
+
+    beforeAll(async () => {
+      bus = Bus.configure()
+        .withTransport(queue)
+        .withMessageTypes(testMessageTypes)
+        .withLogger(() => Mock.ofType<Logger>().object)
+        .withRecoverability(() => retry(0))
+        .withContainer({
+          get<T>(type: ClassConstructor<T>, context?: ContainerContext) {
+            // Without a message, the bus is reading a class workflow's configureWorkflow()
+            if (context?.message) {
+              resolutions.push({ type: type.name, context })
+            }
+            return new type()
+          }
+        })
+        .withHandler(FailsOnceHandler)
+        .withWorkflow(StartedByEventWorkflow)
+        .build()
+      await bus.initialize()
+      await bus.start()
+
+      await bus.publish(sentEvent)
+      await queue.idle()
+      await bus.publish(sentEvent)
+      await queue.idle()
+    })
+
+    afterAll(async () => bus.dispose())
+
+    it('should give the class handler and workflow of each delivery the same transport message', () => {
+      expect(deliveries().map(([, types]) => types.sort())).toEqual([
+        ['FailsOnceHandler', 'StartedByEventWorkflow'],
+        ['FailsOnceHandler', 'StartedByEventWorkflow'],
+        ['FailsOnceHandler', 'StartedByEventWorkflow']
+      ])
+    })
+
+    it('should give the retry and the second send transport messages of their own', () => {
+      expect(deliveries().map(([delivery]) => delivery.failedAttempts)).toEqual(
+        [0, 1, 0]
+      )
+    })
+
+    it('should give every delivery the same message object, so only the transport message tells them apart', () => {
+      const messages = resolutions.map(({ context }) => context.message)
+      expect(new Set(messages).size).toEqual(1)
+      expect(messages[0]).toBe(sentEvent)
+    })
+
+    it('should give the transport message with the message and attributes it carries', () => {
+      for (const { context } of resolutions) {
+        expect(context.transportMessage!.domainMessage).toBe(context.message)
+        expect(context.transportMessage!.attributes).toBe(
+          context.messageAttributes
+        )
+      }
     })
   })
 

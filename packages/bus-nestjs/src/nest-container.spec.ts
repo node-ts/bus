@@ -1,7 +1,7 @@
 import { Scope } from '@nestjs/common'
 import { ContextId, ModuleRef } from '@nestjs/core'
-import { ContainerAdapter } from '@node-ts/bus-core'
-import { MessageAttributes } from '@node-ts/bus-messages'
+import { ContainerAdapter, TransportMessage } from '@node-ts/bus-core'
+import { Message, MessageAttributes } from '@node-ts/bus-messages'
 import { Mock } from 'typemoq'
 import { BusRequest } from './bus-request'
 import { BusClassNotProvided, WorkflowResolvedWithoutMessage } from './error'
@@ -52,6 +52,20 @@ class FakeModuleRef {
   }
 }
 
+/**
+ * A new delivery of a message, as a transport hands out for each read, including a retry of the same message
+ */
+const deliveryOf = (
+  message: Message,
+  attributes: MessageAttributes
+): TransportMessage<unknown> => ({
+  id: undefined,
+  domainMessage: message,
+  attributes,
+  raw: {},
+  failedAttempts: 0
+})
+
 describe('nestContainer', () => {
   describe('when a singleton is resolved', () => {
     const moduleRef = new FakeModuleRef()
@@ -71,32 +85,50 @@ describe('nestContainer', () => {
     })
   })
 
-  describe('when a request-scoped provider is resolved for the handlers of messages', () => {
+  describe('when a request-scoped provider is resolved for the handlers of deliveries', () => {
     const moduleRef = new FakeModuleRef()
     const message = new OrderPlaced('order-1')
     const attributes = Mock.ofType<MessageAttributes>().object
+    const delivery = deliveryOf(message, attributes)
+    const retry = deliveryOf(message, attributes)
 
     beforeAll(async () => {
       const sut: ContainerAdapter = nestContainer(
         moduleRef as unknown as ModuleRef
       )
-      await sut.get(ScopedHandler, { message, messageAttributes: attributes })
-      await sut.get(ScopedHandler, { message, messageAttributes: attributes })
-      await sut.get(ScopedHandler, { message: new OrderPlaced('order-2') })
+      for (const transportMessage of [delivery, delivery, retry]) {
+        await sut.get(ScopedHandler, {
+          message,
+          messageAttributes: attributes,
+          transportMessage
+        })
+      }
+      await sut.get(ScopedHandler, { message })
+      await sut.get(ScopedHandler, { message })
       await sut.get(ScopedHandler)
     })
 
-    it('should resolve the handlers of one message in one request scope', () => {
-      const [first, second, third, fourth] = moduleRef.resolvedIn
-      expect(first).toBe(second)
-      expect(third).not.toBe(first)
-      expect(fourth).not.toBe(first)
-      expect(fourth).not.toBe(third)
+    it('should resolve the handlers of one delivery in one request scope', () => {
+      const [first, second] = moduleRef.resolvedIn
+      expect(second).toBe(first)
     })
 
-    it('should register each message and its attributes as the request once', () => {
-      expect(moduleRef.requests).toHaveLength(2)
-      expect(moduleRef.requests[0]).toEqual({ message, attributes })
+    it('should resolve a retry of the same message object in a request scope of its own', () => {
+      const [first, , retried] = moduleRef.resolvedIn
+      expect(retried).not.toBe(first)
+    })
+
+    it('should resolve in a new request scope each time it is given no delivery', () => {
+      expect(new Set(moduleRef.resolvedIn).size).toEqual(5)
+    })
+
+    it('should register the message and its attributes as the request once for each scope with a message', () => {
+      expect(moduleRef.requests).toEqual([
+        { message, attributes },
+        { message, attributes },
+        { message, attributes: undefined },
+        { message, attributes: undefined }
+      ])
     })
   })
 

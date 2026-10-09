@@ -100,7 +100,7 @@ It's still stopped and disposed with the application. To stop it before anything
 
 ## Request-scoped providers
 
-The bus resolves class handlers and workflows for each message. Request-scoped providers, and providers that depend on them, get a request scope for each received message, shared by every handler and workflow that handles it. Nest's `REQUEST` is a `BusRequest`, with the message and its attributes:
+The bus resolves class handlers and workflows for each message. Request-scoped providers, and providers that depend on them, get a request scope for each delivery of a message, shared by every handler and workflow that handles it. A retry of the message is a new delivery, so it gets new request-scoped providers rather than those of the attempt that failed, and so does each send of the same message object. Nest's `REQUEST` is a `BusRequest`, with the message and its attributes:
 
 <<< @/snippets/nestjs.ts#request-scope
 
