@@ -127,6 +127,7 @@ const infrastructure: DefaultTheme.SidebarItem[] = [
       { text: 'Amazon SQS', link: '/transports/amazon-sqs' },
       { text: 'SQS and Lambda', link: '/transports/sqs-lambda' },
       { text: 'Postgres', link: '/transports/postgres' },
+      { text: 'Redis', link: '/transports/redis' },
       { text: 'Custom transports', link: '/transports/custom' }
     ]
   },

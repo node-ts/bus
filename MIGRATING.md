@@ -160,6 +160,12 @@ Two things behave differently:
 - **The AMQP `messageId` property is now the bus' `messageId`**, so it's the same for every message sent with the same id, rather than a new UUID per publish. `sentAt` is carried in a `sentAt` header.
 - `amqplib` is now version 2.2. It ships its own types, so remove `@types/amqplib`. `heartbeat=0` in a connection string now disables heartbeats.
 
+## @node-ts/bus-redis
+
+- **It's a new transport on Redis Streams**, replacing the 0.x Redis lists transport from the `node-ts/bus-redis` repository: 0.1.8 (npm's `latest`, for bus-core 1.x, configured with `new RedisTransport({ queueName, connectionString })`), and 0.1.1–0.1.7 and 0.1.9 (the `0.x` tag, for bus-core 0.6, loaded as the inversify `BusRedisModule`). Pass `new RedisTransport({ queueName, connection: { url } })` to `withTransport()`: `connectionString` is now `connection.url`, and inversify isn't used. It needs Redis 7.0+ or Valkey 7.2+, and `redis` (node-redis) 6 as a peer dependency.
+- **`maxRetries` is removed**: use the bus' recoverability policy, `defaultRecoverability({ maxAttempts })`. `visibilityTimeout` is now `visibilityTimeoutMs`, `subscriptionsKeyPrefix` is now `keyPrefix`, and `withScheduler` is removed.
+- **Messages in 0.x queues aren't moved**, and the two versions can't send each other messages. Drain the old queues, then provision and deploy every service that exchanges messages together. See [Migrating from @node-ts/bus-redis 0.x](https://node-ts.github.io/bus/transports/redis#migrating-from-node-ts-bus-redis-0-x).
+
 ## @node-ts/bus-sqs-lambda
 
 - **The receiver applies the bus' recoverability policy.** A record that's retried has its visibility timeout set to the policy's delay, rather than waiting out the queue's visibility timeout, and a record that's dead-lettered, by the policy or `failMessage()`, is moved to the dead letter queue with its failure metadata and reported to Lambda as handled.

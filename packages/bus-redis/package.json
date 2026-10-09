@@ -1,0 +1,76 @@
+{
+  "name": "@node-ts/bus-redis",
+  "version": "0.0.0",
+  "description": "A Redis Streams transport adapter for @node-ts/bus-core.",
+  "homepage": "https://node-ts.github.io/bus/transports/redis",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/node-ts/bus.git",
+    "directory": "packages/bus-redis"
+  },
+  "bugs": {
+    "url": "https://github.com/node-ts/bus/issues"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc",
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@node-ts/bus-messages": "workspace:^",
+    "serialize-error": "8",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@node-ts/bus-core": "workspace:^",
+    "@node-ts/bus-test": "workspace:^",
+    "redis": "^6.3.0",
+    "typemoq": "^2.1.0",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "@node-ts/bus-core": "^1.3.3",
+    "redis": "^6.0.0"
+  },
+  "keywords": [
+    "esb",
+    "redis",
+    "valkey",
+    "redis streams",
+    "queue",
+    "transport",
+    "typescript",
+    "enterprise integration patterns",
+    "bus",
+    "messaging",
+    "microservices",
+    "distributed systems"
+  ]
+}

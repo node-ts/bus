@@ -22,6 +22,28 @@ services:
     ports:
       - '6432:5432'
 
+  redis:
+    image: redis:8
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Optional: run the Redis transport's tests against Valkey with
+  # REDIS_URL=redis://localhost:6381
+  valkey:
+    image: valkey/valkey:8
+    ports:
+      - '6381:6379'
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   mongo:
     image: mongo:7
     # A single-node replica set, since the outbox's transactions need one. The

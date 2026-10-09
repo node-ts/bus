@@ -16,6 +16,7 @@ Everything is worked out from the bus' configuration: its transport, persistence
 | [Amazon SQS](/transports/amazon-sqs#provisioning)       | An SNS topic per message, the service queue and dead letter queue, a subscription per handled message, and the queue's access policy |
 | [RabbitMQ](/transports/rabbitmq#provisioning)           | A fanout exchange per message, the service queue with its retry and dead letter queues, and the bindings                             |
 | [Postgres transport](/transports/postgres#provisioning) | The schema, the messages, queues, subscriptions and dead letters tables, the service's queue, and a subscription per handled message |
+| [Redis](/transports/redis#provisioning)                 | The service queue's stream and its consumer group, and the queue in the subscription set of each handled message                     |
 | [Postgres](/persistence/postgres#provisioning)          | The schema, a table per workflow state with indexes on its lookups, and the outgoing messages table                                  |
 | [MongoDB](/persistence/mongodb#provisioning)            | A collection per workflow state with indexes on its lookups, and the outgoing messages collection                                    |
 
@@ -118,7 +119,7 @@ SqsTransport (7 resources)
 
 - `adapters` has an entry for each transport or persistence that provisions anything, in the order they ran: the persistence first, then the transport.
 - Each resource has a `type`, its `name` (an ARN for AWS resources) and, for some, the `properties` it's created with. The types are listed on each adapter's page.
-- `runtimePermissions` is only included with `--permissions`. Its `format` says what `document` is: `iam-policy` (an IAM policy document), `rabbitmq-permissions` (the `configure`, `write` and `read` expressions for the vhost), `sql` (a list of grant statements) or `mongodb-privileges` (the privileges of a role). The `ProvisionReport` type, exported by `@node-ts/bus-cli`, describes it.
+- `runtimePermissions` is only included with `--permissions`. Its `format` says what `document` is: `iam-policy` (an IAM policy document), `rabbitmq-permissions` (the `configure`, `write` and `read` expressions for the vhost), `sql` (a list of grant statements), `redis-acl` (the ACL rules of a user) or `mongodb-privileges` (the privileges of a role). The `ProvisionReport` type, exported by `@node-ts/bus-cli`, describes it.
 
 ## Checking resources at startup
 
@@ -158,5 +159,5 @@ A [custom transport](/transports/custom) or [persistence](/persistence/custom) i
 
 ## See also
 
-- [Amazon SQS](/transports/amazon-sqs#provisioning), [RabbitMQ](/transports/rabbitmq#provisioning), the [Postgres transport](/transports/postgres#provisioning), [Postgres](/persistence/postgres#provisioning) and [MongoDB](/persistence/mongodb#provisioning), for what each provisions and the permissions it needs
+- [Amazon SQS](/transports/amazon-sqs#provisioning), [RabbitMQ](/transports/rabbitmq#provisioning), the [Postgres transport](/transports/postgres#provisioning), [Redis](/transports/redis#provisioning), [Postgres](/persistence/postgres#provisioning) and [MongoDB](/persistence/mongodb#provisioning), for what each provisions and the permissions it needs
 - [`BusInstance.provision`](/api/bus-core/classes/BusInstance#provision), [`ProvisioningPlan`](/api/bus-core/interfaces/ProvisioningPlan) and [`ResourcesNotProvisioned`](/api/bus-core/classes/ResourcesNotProvisioned) in the API reference
