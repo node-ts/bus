@@ -97,11 +97,12 @@ Outgoing middleware can also set native headers for the transport in `context.he
 
 <<< @/snippets/middleware.ts#headers
 
-| Transport                            | Writes each header as                         | Reserved names                                                                                                                                 |
-| ------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| [RabbitMQ](/transports/rabbitmq)     | an AMQP header, kept when the message retries | `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`, `bus-failure`, `x-death`, and names starting `x-first-death-` or `x-last-death-` |
-| [Amazon SQS](/transports/amazon-sqs) | an SNS message attribute under its own name   | `correlationId`, `messageId`, `sentAt`, `replyTo`, `bus-failure`, and names starting `attributes.` or `stickyAttributes.`                      |
-| In-memory queue                      | an entry in the raw message's `headers`       | `bus-failure`                                                                                                                                  |
+| Transport                                          | Writes each header as                                                     | Reserved names                                                                                                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [RabbitMQ](/transports/rabbitmq)                   | an AMQP header, kept when the message retries                             | `attributes`, `stickyAttributes`, `sentAt`, `failedAttempts`, `bus-failure`, `x-death`, and names starting `x-first-death-` or `x-last-death-`                    |
+| [Amazon SQS](/transports/amazon-sqs)               | an SNS message attribute under its own name                               | `correlationId`, `messageId`, `sentAt`, `replyTo`, `bus-failure`, and names starting `attributes.` or `stickyAttributes.`                                         |
+| [Azure Service Bus](/transports/azure-service-bus) | an application property under its own name, kept when the message retries | `messageId`, `sentAt`, `failedAttempts`, `bus-failure`, `DeadLetterReason`, `DeadLetterErrorDescription`, and names starting `attributes.` or `stickyAttributes.` |
+| In-memory queue                                    | an entry in the raw message's `headers`                                   | `bus-failure`                                                                                                                                                     |
 
 Setting a reserved name makes the `send()`, `publish()` or `reply()` throw `TransportHeaderReserved`, before the message is buffered or sent. AWS's limit of 10 message attributes on SQS only applies with SNS raw message delivery, which the SQS transport doesn't use.
 
