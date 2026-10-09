@@ -1,4 +1,10 @@
-import { Bus, ClassConstructor, Handler, handlerFor } from '@node-ts/bus-core'
+import {
+  Bus,
+  ClassConstructor,
+  ContainerContext,
+  Handler,
+  handlerFor
+} from '@node-ts/bus-core'
 import { messageTypes } from './message-types.generated'
 import { ChargeCreditCard } from './messages'
 
@@ -33,6 +39,7 @@ export class ChargeCreditCardHandler implements Handler<ChargeCreditCard> {
  */
 interface Container {
   get<T>(type: ClassConstructor<T>): T
+  createChild(): Container
 }
 declare const container: Container
 declare const gateway: PaymentGateway
@@ -46,6 +53,30 @@ const bus = Bus.configure()
   })
   .build()
 // #endregion container
+
+// #region scope-per-delivery
+// One child container for each delivery, shared by the handlers and workflows that handle it
+const scopes = new WeakMap<object, Container>()
+
+export const scopedBus = Bus.configure()
+  .withMessageTypes(messageTypes)
+  .withHandler(ChargeCreditCardHandler)
+  .withContainer({
+    get: <T>(type: ClassConstructor<T>, context?: ContainerContext) => {
+      const delivery = context?.transportMessage
+      if (!delivery) {
+        return container.get<T>(type)
+      }
+      let scope = scopes.get(delivery)
+      if (!scope) {
+        scope = container.createChild()
+        scopes.set(delivery, scope)
+      }
+      return scope.get<T>(type)
+    }
+  })
+  .build()
+// #endregion scope-per-delivery
 
 Bus.configure()
   .withMessageTypes(messageTypes)
