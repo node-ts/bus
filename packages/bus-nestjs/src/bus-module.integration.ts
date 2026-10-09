@@ -19,7 +19,8 @@ import {
   InMemoryQueue,
   Logger,
   deadLetter,
-  handlerFor
+  handlerFor,
+  retry
 } from '@node-ts/bus-core'
 import { EventEmitter } from 'node:events'
 import { Mock } from 'typemoq'
@@ -36,8 +37,12 @@ import { getBusToken } from './get-bus-token'
 import { InjectBus } from './inject-bus'
 import {
   BillingHandler,
+  ChargeAttempt,
+  ChargeAttemptHandler,
+  ChargeAttemptWorkflow,
   ChargeCreditCard,
   ChargeCreditCardHandler,
+  DECLINED_ONCE,
   FirstScopedHandler,
   FulfilmentWorkflow,
   MessageScope,
@@ -195,6 +200,87 @@ describe('BusModule', () => {
     it('should give each message a request scope of its own', () => {
       const [first, second] = recorder.by(FirstScopedHandler.name)
       expect(first.detail).not.toBe(second.detail)
+    })
+  })
+
+  describe('when request-scoped providers handle a message that is retried and sent again', () => {
+    const queue = new ProvisionedQueue()
+    const declinedOnce = new ChargeCreditCard(DECLINED_ONCE, 10)
+    const sentTwice = new ChargeCreditCard('sent-twice', 10)
+    let app: TestingModule
+    let recorder: Recorder
+
+    /**
+     * What the handler and workflow recorded for one order, in the order they handled its deliveries
+     */
+    const attemptsFor = (command: ChargeCreditCard) => {
+      const of = (name: string) =>
+        recorder
+          .by(name)
+          .filter(({ message }) => message === command)
+          .map(({ detail }) => detail as ChargeAttempt)
+      return {
+        handler: of(ChargeAttemptHandler.name),
+        workflow: of(ChargeAttemptWorkflow.name)
+      }
+    }
+
+    beforeAll(async () => {
+      app = await startApp({
+        imports: [
+          recorderModule(),
+          BusModule.forRoot({
+            configure: configuration =>
+              configuration
+                .withTransport(queue)
+                .withMessageTypes(messageTypes)
+                .withLogger(() => Mock.ofType<Logger>().object)
+                .withRecoverability(() => retry(0))
+          }),
+          BusModule.forFeature({
+            handlers: [ChargeAttemptHandler],
+            workflows: [ChargeAttemptWorkflow]
+          })
+        ],
+        providers: [ChargeAttempt, ChargeAttemptHandler, ChargeAttemptWorkflow]
+      })
+      recorder = app.get(Recorder)
+      const bus = app.get(BusInstance)
+
+      await bus.send(declinedOnce)
+      await queue.idle()
+      await bus.send(sentTwice)
+      await bus.send(sentTwice)
+      await queue.idle()
+    })
+
+    afterAll(async () => app.close())
+
+    it('should give the retry a request scope of its own, without the state of the attempt that failed', () => {
+      const { handler } = attemptsFor(declinedOnce)
+      expect(handler).toHaveLength(2)
+      const [failed, retried] = handler
+      expect(retried).not.toBe(failed)
+      expect(retried.charges).toEqual([DECLINED_ONCE])
+    })
+
+    it('should give each send of the same message a request scope of its own', () => {
+      const { handler } = attemptsFor(sentTwice)
+      expect(handler).toHaveLength(2)
+      const [first, second] = handler
+      expect(second).not.toBe(first)
+      expect(second.charges).toEqual(['sent-twice'])
+    })
+
+    it('should give the handler and workflow of each delivery the same request scope, with the message as the request', () => {
+      for (const command of [declinedOnce, sentTwice]) {
+        const { handler, workflow } = attemptsFor(command)
+        expect(workflow).toHaveLength(2)
+        workflow.forEach((attempt, delivery) => {
+          expect(attempt).toBe(handler[delivery])
+          expect(attempt.request.message).toBe(command)
+        })
+      }
     })
   })
 

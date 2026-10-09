@@ -1,3 +1,4 @@
+export * from './charge-attempt'
 export * from './charge-credit-card'
 export * from './fulfilment-state'
 export * from './handlers'

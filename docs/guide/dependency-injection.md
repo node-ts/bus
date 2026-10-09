@@ -25,9 +25,17 @@ To construct them with their dependencies, pass an adapter to your IoC container
 
 <<< @/snippets/dependency-injection.ts#container
 
-`get` is also given the message being handled and its attributes, for containers that resolve differently per message, and may return a promise.
+`get` may return a promise.
 
 In a NestJS application, [`@node-ts/bus-nestjs`](/guide/nestjs) registers handlers and workflows as providers and resolves them from Nest's container.
+
+## A scope per message
+
+`get` is also given a [`ContainerContext`](/api/bus-core/interfaces/ContainerContext): the message being handled, its attributes, and its delivery, the `transportMessage` the bus read from the transport. Every class handler and workflow that handles one delivery is given the same `transportMessage`, and each retry of the message gets a new one, as does each send of the same message. To give a message's handlers dependencies of their own, such as a database transaction or a tenant's repository, key a child container on it:
+
+<<< @/snippets/dependency-injection.ts#scope-per-delivery
+
+Key it on the `transportMessage`, not the `message`. A transport may hand out the same message object again when it retries it, and the same object can be sent more than once, so a scope keyed on the message would give a retry the dependencies of the attempt that failed. A `WeakMap` drops each scope once its delivery has been handled.
 
 ## See also
 

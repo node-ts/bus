@@ -315,9 +315,12 @@ export class WorkflowRegistry {
       async (message, workflowState, attributes, context) => {
         let workflow: Workflow<WorkflowState>
         if (container) {
+          // The received message rather than the workflow's copy of the handling context, so the class handlers and
+          // workflows that handle one delivery are given the same one
           const workflowFromContainer = container.get(WorkflowCtor, {
             message,
-            messageAttributes: attributes
+            messageAttributes: attributes,
+            transportMessage: this.messageHandlingContext.getReceived()
           })
           if (workflowFromContainer instanceof Promise) {
             workflow = await workflowFromContainer
