@@ -16,6 +16,7 @@ import {
   PersistenceInitializationOptions,
   PersistenceProvisionOptions,
   Workflow,
+  WorkflowConfigurationFailed,
   WorkflowMapper
 } from '../workflow'
 import {
@@ -28,18 +29,13 @@ import { BusConfiguration } from './bus-configuration'
 import { BusInstance } from './bus-instance'
 
 /**
- * A workflow that can't be constructed, so registering it fails
+ * A workflow whose configureWorkflow() throws, so registering it fails
  */
-class UnconstructableWorkflow extends Workflow<TestWorkflowState> {
-  constructor() {
-    super()
-    throw new Error('UnconstructableWorkflow failed to construct')
-  }
-
+class UnconfigurableWorkflow extends Workflow<TestWorkflowState> {
   configureWorkflow(
-    mapper: WorkflowMapper<TestWorkflowState, UnconstructableWorkflow>
+    _mapper: WorkflowMapper<TestWorkflowState, UnconfigurableWorkflow>
   ): void {
-    mapper.withState(TestWorkflowState)
+    throw new Error('UnconfigurableWorkflow failed to configure')
   }
 }
 
@@ -439,7 +435,7 @@ describe('BusInstance provisioning', () => {
         .withLogger(() => Mock.ofType<Logger>().object)
         .withMessageTypes(testMessageTypes)
         .withTransport(new ProvisioningQueue())
-        .withWorkflow(UnconstructableWorkflow)
+        .withWorkflow(UnconfigurableWorkflow)
         .build()
       provisionError = await sut.provision().catch((e: unknown) => e)
       initializeError = await sut.initialize().catch((e: unknown) => e)
@@ -448,8 +444,9 @@ describe('BusInstance provisioning', () => {
     afterAll(async () => sut.dispose())
 
     it('should fail provisioning', () => {
-      expect((provisionError as Error).message).toEqual(
-        'UnconstructableWorkflow failed to construct'
+      expect(provisionError).toBeInstanceOf(WorkflowConfigurationFailed)
+      expect((provisionError as WorkflowConfigurationFailed).cause).toEqual(
+        new Error('UnconfigurableWorkflow failed to configure')
       )
     })
 

@@ -8,12 +8,11 @@ import {
   MessageWorkflowMapping,
   Workflow,
   WorkflowHandlerResult,
-  WorkflowMapper,
   WorkflowState,
-  WorkflowStateNotProvided,
   WorkflowStatus
 } from '../workflow'
 import { applyWorkflowStateChange } from '../workflow/apply-workflow-state-change'
+import { configureClassWorkflow } from '../workflow/configure-class-workflow'
 import {
   FunctionWorkflowDefinition,
   isFunctionWorkflow
@@ -131,14 +130,8 @@ const readClassWorkflow = <TWorkflowState extends WorkflowState>(
     throw new WorkflowFactoryMissing(workflowType.name)
   }
   const create = createWorkflow ?? (() => new workflowType())
-  const mapper = new WorkflowMapper<TWorkflowState, Workflow<TWorkflowState>>(
-    workflowType
-  )
-  create().configureWorkflow(mapper)
-  const workflowStateType = mapper.workflowStateCtor
-  if (!workflowStateType) {
-    throw new WorkflowStateNotProvided(workflowType.name)
-  }
+  // Read as the bus reads it, without creating the workflow
+  const { mapper, workflowStateType } = configureClassWorkflow(workflowType)
 
   // A new workflow handles each message, as on a bus
   const handlerOf =
@@ -285,6 +278,8 @@ const outgoingAttributes = (
  * @param options how to create a class workflow, members of every handler's context, and when the clock starts
  * @returns the scenario, with no workflow instance yet
  * @throws WorkflowStateNotProvided if a class workflow doesn't declare its state with `mapper.withState()`
+ * @throws WorkflowConfigurationFailed if a class workflow's `configureWorkflow()` throws, which is called without
+ * creating the workflow, as on a bus
  * @throws WorkflowFactoryMissing if a class workflow's constructor takes arguments and `createWorkflow` isn't given
  * @example
  * const scenario = testWorkflow(orderWorkflow)

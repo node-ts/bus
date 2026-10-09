@@ -25,7 +25,9 @@ With functions, `defineWorkflow(State)` returns a workflow that `startedBy` and 
 
 :::
 
-A function workflow reaches its dependencies through closures and needs no container. A class workflow is constructed with no arguments, or resolved from a [container](/guide/dependency-injection) when the bus has one.
+A function workflow reaches its dependencies through closures and needs no container. A class workflow is constructed with no arguments, or resolved from a [container](/guide/dependency-injection) when the bus has one, for each message it handles.
+
+The bus calls `configureWorkflow` once when it provisions or initializes, on an instance created from the class' prototype without running its constructor, so it can't use the workflow's fields or dependencies; use those in the handler methods. Declare it as a method, not as a property holding an arrow function, and pass the mapper the message, handler name and lookup directly rather than from a field. If it throws, or passes the mapper an undefined value, `provision()` or `initialize()` throws `WorkflowConfigurationFailed`, naming the workflow.
 
 Type a class workflow's mapper with the class itself, as `WorkflowMapper<FulfilmentWorkflowState, FulfilmentWorkflow>`. The compiler then checks every handler name against the method it names:
 

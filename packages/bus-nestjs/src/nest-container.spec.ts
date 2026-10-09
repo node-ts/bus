@@ -4,7 +4,7 @@ import { ContainerAdapter } from '@node-ts/bus-core'
 import { MessageAttributes } from '@node-ts/bus-messages'
 import { Mock } from 'typemoq'
 import { BusRequest } from './bus-request'
-import { BusClassNotProvided, WorkflowResolvedWithoutMessage } from './error'
+import { BusClassNotProvided } from './error'
 import { nestContainer } from './nest-container'
 import { OrderPlaced } from './test/order-placed'
 
@@ -117,12 +117,8 @@ describe('nestContainer', () => {
       }
     })
 
-    it('should throw WorkflowResolvedWithoutMessage, naming the class, with the error as its cause', () => {
-      expect(error).toBeInstanceOf(WorkflowResolvedWithoutMessage)
-      expect((error as WorkflowResolvedWithoutMessage).className).toEqual(
-        'ScopedHandler'
-      )
-      expect((error as WorkflowResolvedWithoutMessage).cause).toBe(cause)
+    it('should rethrow the error as it is', () => {
+      expect(error).toBe(cause)
     })
   })
 

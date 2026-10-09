@@ -29,8 +29,7 @@ import {
   BusClassNotProvided,
   BusFeatureNotStatic,
   BusNotBuilt,
-  BusNotRegistered,
-  WorkflowResolvedWithoutMessage
+  BusNotRegistered
 } from './error'
 import { getBusToken } from './get-bus-token'
 import { InjectBus } from './inject-bus'
@@ -460,6 +459,36 @@ describe('BusModule', () => {
     })
   })
 
+  describe('when a request-scoped class workflow reads REQUEST in its constructor', () => {
+    const queue = new InMemoryQueue()
+    let app: TestingModule
+    let recorder: Recorder
+
+    beforeAll(async () => {
+      app = await startApp({
+        imports: [
+          recorderModule(),
+          BusModule.forRoot({
+            configure: configuration =>
+              configuration.withTransport(queue).withMessageTypes(messageTypes)
+          }),
+          BusModule.forFeature({ workflows: [RequestScopedWorkflow] })
+        ],
+        providers: [RequestScopedWorkflow]
+      })
+      recorder = app.get(Recorder)
+      await app.get(BusInstance).publish(new OrderPlaced('order-1'))
+      await queue.idle()
+    })
+
+    afterAll(async () => app.close())
+
+    it('should create the workflow with the message it handles as the request', () => {
+      const [started] = recorder.by(RequestScopedWorkflow.name)
+      expect(started.detail).toEqual('order-1')
+    })
+  })
+
   describe('when an application has several buses', () => {
     const defaultQueue = new InMemoryQueue()
     const billingQueue = new InMemoryQueue()
@@ -672,40 +701,6 @@ describe('BusModule', () => {
         const notProvided = error as BusClassNotProvided
         expect(notProvided.className).toEqual(OrderPlacedHandler.name)
         expect(notProvided.help).toContain('providers')
-      })
-    })
-
-    describe('and a request-scoped class workflow reads REQUEST in its constructor', () => {
-      const queue = new ProvisionedQueue()
-      let error: unknown
-
-      beforeAll(async () => {
-        error = await startFails({
-          imports: [
-            BusModule.forRoot({
-              configure: configuration =>
-                configuration
-                  .withTransport(queue)
-                  .withMessageTypes(messageTypes)
-            }),
-            BusModule.forFeature({ workflows: [RequestScopedWorkflow] })
-          ],
-          providers: [RequestScopedWorkflow]
-        })
-      })
-
-      it('should throw WorkflowResolvedWithoutMessage, naming the workflow', () => {
-        expect(error).toBeInstanceOf(WorkflowResolvedWithoutMessage)
-        const resolvedWithoutMessage = error as WorkflowResolvedWithoutMessage
-        expect(resolvedWithoutMessage.className).toEqual(
-          RequestScopedWorkflow.name
-        )
-        expect(resolvedWithoutMessage.cause).toBeInstanceOf(TypeError)
-        expect(resolvedWithoutMessage.help).toContain('REQUEST')
-      })
-
-      it('should dispose the bus', () => {
-        expect(queue.calls).toEqual(['dispose'])
       })
     })
 

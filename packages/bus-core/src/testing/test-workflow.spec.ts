@@ -1,6 +1,10 @@
 import { ReturnAddressMissing } from '../error'
 import { InvalidDeliveryOptions } from '../outgoing-message'
-import { defineWorkflow, WorkflowStateNotProvided } from '../workflow'
+import {
+  defineWorkflow,
+  WorkflowConfigurationFailed,
+  WorkflowStateNotProvided
+} from '../workflow'
 import { TestCommand } from '../workflow/test/test-command'
 import { TestDiscardedWorkflow } from '../workflow/test/test-discarded-workflow'
 import {
@@ -419,8 +423,8 @@ describe('testWorkflow', () => {
       await sut.when(TestPaymentReceived({ orderId: '1' }))
     })
 
-    it('should create one to configure it and one for each message', () => {
-      expect(created).toEqual(3)
+    it('should create one for each message, and none to configure it', () => {
+      expect(created).toEqual(2)
     })
   })
 
@@ -438,6 +442,26 @@ describe('testWorkflow', () => {
       expect(() => testWorkflow(StatelessWorkflow)).toThrow(
         WorkflowStateNotProvided
       )
+    })
+  })
+
+  describe('when a class workflow reads its fields in configureWorkflow', () => {
+    class FieldReadingWorkflow extends Workflow<TestScenarioState> {
+      private readonly options = { stateType: TestScenarioState }
+
+      configureWorkflow(
+        mapper: WorkflowMapper<TestScenarioState, FieldReadingWorkflow>
+      ): void {
+        mapper.withState(this.options.stateType)
+      }
+    }
+
+    it('should throw WorkflowConfigurationFailed, as the bus does', () => {
+      expect(() =>
+        testWorkflow(FieldReadingWorkflow, {
+          createWorkflow: () => new FieldReadingWorkflow()
+        })
+      ).toThrow(WorkflowConfigurationFailed)
     })
   })
 

@@ -104,7 +104,7 @@ The bus resolves class handlers and workflows for each message. Request-scoped p
 
 <<< @/snippets/nestjs.ts#request-scope
 
-A request-scoped class workflow is also resolved once when the bus initializes, to read its `configureWorkflow()`, with no message, so `REQUEST` is `undefined` then. Keep the request in its constructor, and the constructors of the request-scoped providers it depends on, and read its message and attributes when a message is handled. If resolving it fails then, the application fails to start with `WorkflowResolvedWithoutMessage`.
+Class workflows are only resolved to handle a message, so a request-scoped workflow, and the request-scoped providers it depends on, can read `REQUEST` in their constructors. The bus reads a class workflow's `configureWorkflow()` without creating it (see [Creating a workflow](/guide/workflows/creating-a-workflow#declaring-the-workflow)).
 
 Outside `BusModule`, `nestContainer(moduleRef)` gives `withContainer()` the same container adapter.
 
