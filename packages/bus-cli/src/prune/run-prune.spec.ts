@@ -41,7 +41,8 @@ class OrderPlaced extends Event {
 }
 
 /**
- * An in-memory queue that finds an orphaned subscription until it's removed, and records how it was pruned
+ * An in-memory queue that finds orphaned subscriptions until they're removed, removes only those it's allowed to,
+ * and records how it was pruned
  */
 class PrunedQueue extends InMemoryQueue {
   readonly pruneCalls: TransportPruneOptions[] = []
@@ -50,6 +51,14 @@ class PrunedQueue extends InMemoryQueue {
    */
   handledMessageNames: string[] | undefined
   orphaned = ['test/order-cancelled']
+  /**
+   * The subscriptions found from the second prune on, such as when something changed in between
+   */
+  orphanedWhenApplying: string[] | undefined
+  /**
+   * The subscriptions that fail to be removed, and the error
+   */
+  failToRemove: { [name: string]: Error } = {}
   wasDisposed = false
   failWith: Error | undefined
   /**
@@ -67,18 +76,40 @@ class PrunedQueue extends InMemoryQueue {
     if (this.failWith) {
       throw this.failWith
     }
+    const found = (
+      this.pruneCalls.length > 1 && this.orphanedWhenApplying
+        ? this.orphanedWhenApplying
+        : this.orphaned
+    ).map(name => ({
+      type: 'subscription',
+      name,
+      properties: { topic: name }
+    }))
+    const approved = options.only?.map(({ name }) => name)
     const plan: PruningPlan = {
       adapter: 'PrunedQueue',
-      resources: this.orphaned.map(name => ({
-        type: 'subscription',
-        name,
-        properties: { topic: name }
-      })),
-      removed: options.apply
+      resources: approved
+        ? found.filter(({ name }) => approved.includes(name))
+        : found,
+      removed: [],
+      failed: [],
+      notFound: (options.only ?? []).filter(
+        ({ name }) => !found.some(resource => resource.name === name)
+      )
     }
     if (options.apply) {
       this.writtenWhenRemoved = [...(this.output?.written ?? [])]
-      this.orphaned = []
+      for (const resource of plan.resources) {
+        const error = this.failToRemove[resource.name]
+        if (error) {
+          plan.failed.push({ resource, error })
+        } else {
+          plan.removed.push(resource)
+        }
+      }
+      this.orphaned = this.orphaned.filter(
+        name => !plan.removed.some(resource => resource.name === name)
+      )
     }
     return plan
   }
@@ -182,9 +213,144 @@ describe('runPrune', () => {
       ])
     })
 
+    it('should only allow what it printed to be removed', () => {
+      expect(transport.pruneCalls[1].only).toEqual([
+        {
+          type: 'subscription',
+          name: 'test/order-cancelled',
+          properties: { topic: 'test/order-cancelled' }
+        }
+      ])
+    })
+
     it('should print what it removed', () => {
-      expect(output.logs[1]).toContain(
-        'Removed 1 resource the bus in src/bus.js no longer needs.'
+      expect(output.logs[1]).toEqual(
+        [
+          'Removed 1 resource the bus in src/bus.js no longer needs.',
+          '',
+          'PrunedQueue',
+          '  removed  subscription  test/order-cancelled'
+        ].join('\n')
+      )
+    })
+  })
+
+  describe('when more is found to remove after it was printed', () => {
+    let transport: PrunedQueue
+    let exitCode: number
+    let output: CapturedOutput
+
+    beforeAll(async () => {
+      output = new CapturedOutput()
+      transport = new PrunedQueue(output)
+      transport.orphaned = ['test/order-cancelled', 'test/order-shipped']
+      transport.orphanedWhenApplying = [
+        'test/order-shipped',
+        'test/order-refunded'
+      ]
+      ;({ exitCode } = await run(
+        { default: configure(transport) },
+        ['src/bus.js', '--apply'],
+        output
+      ))
+    })
+
+    it('should remove only what it printed and still finds', () => {
+      expect(exitCode).toEqual(0)
+      expect(output.logs[0]).toContain('Removing 2 resources')
+      expect(transport.orphaned).toEqual(['test/order-cancelled'])
+    })
+
+    it('should report what it removed, and what it printed but no longer found', () => {
+      expect(output.logs[1]).toEqual(
+        [
+          'Removed 1 resource the bus in src/bus.js no longer needs. 1 resource printed before removing was no longer found, so it was left as it is.',
+          '',
+          'PrunedQueue',
+          '  removed    subscription  test/order-shipped',
+          '  not found  subscription  test/order-cancelled'
+        ].join('\n')
+      )
+      expect(output.logs[1]).not.toContain('test/order-refunded')
+    })
+  })
+
+  describe('when some of what it found fails to be removed', () => {
+    let transport: PrunedQueue
+    let exitCode: number
+    let output: CapturedOutput
+    let report: PruneReport
+
+    beforeAll(async () => {
+      transport = new PrunedQueue()
+      transport.orphaned = ['test/order-cancelled', 'test/order-shipped']
+      transport.failToRemove = {
+        'test/order-cancelled': new Error('Access denied')
+      }
+      ;({ exitCode, output } = await run({ default: configure(transport) }, [
+        'src/bus.js',
+        '--apply',
+        '--json'
+      ]))
+      report = JSON.parse(output.logs.join('\n')) as PruneReport
+    })
+
+    it('should fail', () => {
+      expect(exitCode).toEqual(1)
+      expect(output.errors.join('\n')).toContain(
+        'Pruning failed: Pruning the bus of'
+      )
+      expect(output.errors.join('\n')).toContain('prune again')
+    })
+
+    it('should report exactly what was removed and what failed', () => {
+      expect(report).toMatchObject({
+        applied: true,
+        adapters: [
+          {
+            adapter: 'PrunedQueue',
+            removed: [{ name: 'test/order-shipped' }],
+            failed: [
+              {
+                resource: { name: 'test/order-cancelled' },
+                error: 'Access denied'
+              }
+            ],
+            notFound: []
+          }
+        ]
+      })
+    })
+
+    it('should still dispose the bus', () => {
+      expect(transport.wasDisposed).toEqual(true)
+    })
+  })
+
+  describe('when some of what it found fails to be removed, without --json', () => {
+    let output: CapturedOutput
+
+    beforeAll(async () => {
+      const transport = new PrunedQueue()
+      transport.orphaned = ['test/order-cancelled', 'test/order-shipped']
+      transport.failToRemove = {
+        'test/order-cancelled': new Error('Access denied')
+      }
+      ;({ output } = await run({ default: configure(transport) }, [
+        'src/bus.js',
+        '--apply'
+      ]))
+    })
+
+    it('should print what was removed and what failed, with why', () => {
+      expect(output.logs[1]).toEqual(
+        [
+          'Removed 1 of 2 resources the bus in src/bus.js no longer needs. 1 could not be removed, and is left as it was.',
+          '',
+          'PrunedQueue',
+          '  removed  subscription  test/order-shipped',
+          '  failed   subscription  test/order-cancelled: Access denied'
+        ].join('\n')
       )
     })
   })
@@ -221,7 +387,15 @@ describe('runPrune', () => {
                 properties: { topic: 'test/order-cancelled' }
               }
             ],
-            removed: true
+            removed: [
+              {
+                type: 'subscription',
+                name: 'test/order-cancelled',
+                properties: { topic: 'test/order-cancelled' }
+              }
+            ],
+            failed: [],
+            notFound: []
           }
         ]
       })
@@ -392,6 +566,56 @@ describe('runPrune', () => {
           '--apply',
           '--allow-empty'
         ]))
+      })
+
+      it('should prune it', () => {
+        expect(exitCode).toEqual(0)
+        expect(transport.pruneCalls.map(({ apply }) => apply)).toEqual([
+          false,
+          true
+        ])
+      })
+    })
+  })
+
+  describe('when the bus has a custom handler without a topic', () => {
+    const configureWithCustomHandler = (transport: PrunedQueue) =>
+      configure(transport).withCustomHandler(
+        async (_: { source: string }) => undefined,
+        { resolveWith: message => message.source === 's3' }
+      )
+
+    describe('without --allow-custom-handlers', () => {
+      let transport: PrunedQueue
+      let exitCode: number
+      let output: CapturedOutput
+
+      beforeAll(async () => {
+        transport = new PrunedQueue()
+        ;({ exitCode, output } = await run(
+          { default: configureWithCustomHandler(transport) },
+          ['src/bus.js', '--apply']
+        ))
+      })
+
+      it('should refuse, saying how to allow it', () => {
+        expect(exitCode).toEqual(1)
+        expect(output.errors.join('\n')).toContain('topicIdentifier')
+        expect(output.errors.join('\n')).toContain('--allow-custom-handlers')
+        expect(transport.pruneCalls).toEqual([])
+      })
+    })
+
+    describe('with --allow-custom-handlers', () => {
+      let transport: PrunedQueue
+      let exitCode: number
+
+      beforeAll(async () => {
+        transport = new PrunedQueue()
+        ;({ exitCode } = await run(
+          { default: configureWithCustomHandler(transport) },
+          ['src/bus.js', '--apply', '--allow-custom-handlers']
+        ))
       })
 
       it('should prune it', () => {

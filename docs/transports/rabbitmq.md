@@ -93,7 +93,7 @@ From RabbitMQ 4.3.1, a passive declare needs some permission on what it checks, 
 
 The management API's user is the one in `managementUrl`, if it has one, and otherwise the one in `connectionString`, and the vhost is the one in `connectionString`. Without a `managementUrl`, pruning throws `RabbitMqManagementUrlMissing`, and a request the API refuses throws `RabbitMqManagementRequestFailed`.
 
-It only considers bindings shaped like the ones the transport makes: from a fanout exchange to the service queue, with an empty routing key and no arguments. Bindings from the default exchange or the queue's own `<queue>` exchange, bindings with a routing key or arguments, bindings from other kinds of exchange, and other queues' bindings are left as they are. It unbinds over AMQP, and never deletes an exchange or queue.
+It only considers bindings shaped like the ones the transport makes: from a fanout exchange to the service queue, with an empty routing key and no arguments. Bindings from the default exchange or the queue's own `<queue>` exchange, bindings with a routing key or arguments, bindings from other kinds of exchange, and other queues' bindings are left as they are. It unbinds over AMQP, each binding on a channel of its own, since the broker closes a channel whose unbind it refuses, so one refusal doesn't stop the rest. It never deletes an exchange or queue.
 
 On top of provisioning's permissions, the deploy user needs:
 

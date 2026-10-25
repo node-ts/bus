@@ -37,7 +37,11 @@ describe('bus prune', () => {
     let report: PruneReport
 
     beforeAll(async () => {
-      const result = await runBus('prune', 'test/prune/bus.ts', '--json')
+      const result = await runBus(
+        'prune',
+        'test/provision/prune-bus.ts',
+        '--json'
+      )
       exitCode = result.exitCode
       report = JSON.parse(result.stdout) as PruneReport
     })
@@ -53,7 +57,9 @@ describe('bus prune', () => {
             resources: [
               { type: 'subscription', name: 'fixture/order-cancelled' }
             ],
-            removed: false
+            removed: [],
+            failed: [],
+            notFound: []
           }
         ]
       })
@@ -64,7 +70,11 @@ describe('bus prune', () => {
     let exitCode: number
 
     beforeAll(async () => {
-      ;({ exitCode } = await runBus('prune', 'test/prune/bus.ts', '--check'))
+      ;({ exitCode } = await runBus(
+        'prune',
+        'test/provision/prune-bus.ts',
+        '--check'
+      ))
     })
 
     it('should exit with 3, since something would be removed', () => {
@@ -79,7 +89,7 @@ describe('bus prune', () => {
     beforeAll(async () => {
       ;({ exitCode, stdout } = await runBus(
         'prune',
-        'test/prune/bus.ts',
+        'test/provision/prune-bus.ts',
         '--apply'
       ))
     })
@@ -88,6 +98,7 @@ describe('bus prune', () => {
       expect(exitCode).toEqual(0)
       const removing = stdout.indexOf('Removing 1 resource')
       const removed = stdout.indexOf('Removed 1 resource')
+      expect(stdout).toContain('removed  subscription  fixture/order-cancelled')
       expect(removing).toBeGreaterThanOrEqual(0)
       expect(removed).toBeGreaterThan(removing)
     })
@@ -100,7 +111,7 @@ describe('bus prune', () => {
     beforeAll(async () => {
       ;({ exitCode, stderr } = await runBus(
         'prune',
-        'test/prune/bus.ts',
+        'test/provision/prune-bus.ts',
         '--export',
         'sendOnlyBus',
         '--apply'

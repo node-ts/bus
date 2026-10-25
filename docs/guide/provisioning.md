@@ -162,15 +162,15 @@ npx bus prune dist/bus-configuration.js --export busConfiguration
 npx bus prune dist/bus-configuration.js --export busConfiguration --apply
 ```
 
-It loads and builds the bus the same way `bus provision` does, and works out what the bus handles now from its handlers, workflows and custom handlers. It lists the subscriptions or bindings of the service's own queue, and reports each one to a topic or exchange the bus no longer handles, including the topics of custom handlers that were removed. Without `--apply` it only reports them. With `--apply` it prints them, then removes them. It never initializes or starts the bus.
+It loads and builds the bus the same way `bus provision` does, and works out what the bus handles now from its handlers, workflows and custom handlers. It lists the subscriptions or bindings of the service's own queue, and reports each one to a topic or exchange the bus no longer handles, including the topics of custom handlers that were removed. Without `--apply` it only reports them. With `--apply` it prints them, then removes only what it printed: anything found after that is left for the next run, and anything it printed that's no longer found is reported and left as it is. It tries each one even when another fails, then reports what was removed and what failed. It never initializes or starts the bus.
 
 It's deliberately narrow. It never:
 
 - touches another service's queue, even one subscribed to the same topic or bound to the same exchange.
-- removes what the bus wouldn't have made itself, such as a RabbitMQ binding with a routing key or from a topic exchange.
+- removes what the bus wouldn't have made itself, such as an SNS subscription with raw message delivery or a filter policy, or a RabbitMQ binding with a routing key or from a topic exchange.
 - deletes a topic, exchange or queue, since other services may still send to them. See [Removing a queue](#removing-a-queue).
 
-It refuses a send-only bus or a scheduler, which have no queue of their own. It refuses a bus that handles no message through a topic or exchange, since that's more often a module whose handlers weren't registered than a service that stopped handling everything: pass `--allow-empty` if it really is. And it refuses a bus with a [custom handler](/guide/messages/system-messages) that has no `topicIdentifier`, since that queue was subscribed by hand and the subscription can't be told apart from one that's no longer needed.
+It refuses a send-only bus or a scheduler, which have no queue of their own. It refuses a bus that handles no message through a topic or exchange, since that's more often a module whose handlers weren't registered than a service that stopped handling everything: pass `--allow-empty` if it really is. And it refuses a bus with a [custom handler](/guide/messages/system-messages) that has no `topicIdentifier`, since its messages may arrive through a subscription or binding made by hand, which can't be told apart from one that's no longer needed. If they do, pass that topic or exchange as the handler's `topicIdentifier`, so pruning keeps it. If they're sent straight to the queue instead, such as S3 event notifications or messages another system sends to the queue, there's nothing to keep: pass `--allow-custom-handlers`. Any subscription or binding made by hand for a handler without a `topicIdentifier` is then removed.
 
 [Amazon SQS](/transports/amazon-sqs#pruning) and [RabbitMQ](/transports/rabbitmq#pruning) can be pruned. Each page lists the permissions pruning needs, which the deploy credentials need on top of provisioning's. The other transports don't implement it yet, so `bus prune` says there's nothing to prune.
 
@@ -184,15 +184,16 @@ Prune after the new version of a service has rolled out to every instance, not b
 
 To roll back after pruning, run `bus provision` with the old version before starting it, which subscribes its queue again. Messages published while the queue wasn't subscribed aren't delivered to it.
 
-| Option            | Description                                                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `--export <name>` | The export to use. `default` by default.                                                                            |
-| `--apply`         | Removes what's found, after printing it. Without it, nothing is removed.                                            |
-| `--allow-empty`   | Prunes a bus that handles no message, which removes every subscription or binding of its queue.                     |
-| `--check`         | Removes nothing, and exits with `3` if anything would be removed, so CI can flag what a deploy left behind.         |
-| `--json`          | Prints a JSON report instead. With `--apply`, what's about to be removed is printed to stderr first, not to stdout. |
+| Option                    | Description                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--export <name>`         | The export to use. `default` by default.                                                                            |
+| `--apply`                 | Removes what's found, after printing it. Without it, nothing is removed.                                            |
+| `--allow-empty`           | Prunes a bus that handles no message, which removes every subscription or binding of its queue.                     |
+| `--allow-custom-handlers` | Prunes a bus with a custom handler that has no `topicIdentifier`, whose messages are sent straight to the queue.    |
+| `--check`                 | Removes nothing, and exits with `3` if anything would be removed, so CI can flag what a deploy left behind.         |
+| `--json`                  | Prints a JSON report instead. With `--apply`, what's about to be removed is printed to stderr first, not to stdout. |
 
-The exit code is `0` on success, `1` if the module can't be loaded or pruning is refused or fails, `2` for invalid options, and `3` with `--check` when something would be removed.
+The exit code is `0` on success, `1` if the module can't be loaded, pruning is refused or fails, or anything couldn't be removed, `2` for invalid options, and `3` with `--check` when something would be removed.
 
 ```txt
 Found 1 resource the bus in dist/bus-configuration.js no longer needs. Nothing was removed: run again with --apply to remove them.
@@ -222,13 +223,15 @@ SqsTransport (1 resource)
           }
         }
       ],
-      "removed": false
+      "removed": [],
+      "failed": [],
+      "notFound": []
     }
   ]
 }
 ```
 
-`applied` is whether it ran with `--apply`, and each adapter's `removed` whether its `resources` were removed.
+`applied` is whether it ran with `--apply`. With `--apply`, each adapter's `resources` are what it printed and still found, `removed` is those it removed, `failed` those it couldn't remove, each as `{ resource, error }` with the error's message, and `notFound` what it printed but no longer found. When anything failed, the report is still printed, then the error, and the command exits with `1`. What was removed stays removed: fix the cause and prune again.
 
 ### Removing a queue
 
@@ -239,17 +242,17 @@ Pruning never deletes a queue. When a service is retired, or its queue renamed, 
 
 ### Pruning from code
 
-`bus.prune()` is what the command calls. It only reports unless it's passed `{ apply: true }`, and takes `allowEmpty` as `--allow-empty`:
+`bus.prune()` is what the command calls. It only reports unless it's passed `{ apply: true }`, and takes `allowEmpty` as `--allow-empty` and `allowCustomHandlersWithoutTopic` as `--allow-custom-handlers`. Pass what an earlier `prune()` found, once it's approved, as `only`, and only that is removed, as the command does:
 
 <<< @/snippets/provisioning.ts#prune
 
-It returns a `PruningPlan` for each transport that prunes, and throws `PruneRefused` for the buses the command refuses.
+It returns a `PruningPlan` for each transport that prunes, with the same `resources`, `removed`, `failed` and `notFound` as the JSON report. It throws `PruneRefused` for the buses the command refuses, and `PruneIncomplete`, whose `plans` say what was removed and what failed, when anything couldn't be removed.
 
 ## Custom adapters
 
-A [custom transport](/transports/custom) or [persistence](/persistence/custom) implements the optional `provision()` method to create what it needs, and checks it exists in `initialize()` when `verifyResources` is set. A custom transport can also implement the optional `prune()`, which gets the same options as `provision()` with `apply` instead of `dryRun`, and returns a `PruningPlan` of the subscriptions or bindings of its own queue that the bus no longer needs. The [conformance suites](/transports/custom#testing-with-the-conformance-suite) provision their buses with `bus.provision()`, then initialize them without provisioning.
+A [custom transport](/transports/custom) or [persistence](/persistence/custom) implements the optional `provision()` method to create what it needs, and checks it exists in `initialize()` when `verifyResources` is set. A custom transport can also implement the optional `prune()`, which gets the same options as `provision()` with `apply` instead of `dryRun`, and `only` when only approved resources may be removed, and returns a `PruningPlan` of the subscriptions or bindings of its own queue that the bus no longer needs, with what it removed and what failed. The [conformance suites](/transports/custom#testing-with-the-conformance-suite) provision their buses with `bus.provision()`, then initialize them without provisioning.
 
 ## See also
 
 - [Amazon SQS](/transports/amazon-sqs#provisioning), [RabbitMQ](/transports/rabbitmq#provisioning), the [Postgres transport](/transports/postgres#provisioning), [Redis](/transports/redis#provisioning), [Postgres](/persistence/postgres#provisioning) and [MongoDB](/persistence/mongodb#provisioning), for what each provisions and the permissions it needs
-- [`BusInstance.provision`](/api/bus-core/classes/BusInstance#provision), [`ProvisioningPlan`](/api/bus-core/interfaces/ProvisioningPlan), [`ResourcesNotProvisioned`](/api/bus-core/classes/ResourcesNotProvisioned), [`BusInstance.prune`](/api/bus-core/classes/BusInstance#prune), [`PruningPlan`](/api/bus-core/interfaces/PruningPlan) and [`PruneRefused`](/api/bus-core/classes/PruneRefused) in the API reference
+- [`BusInstance.provision`](/api/bus-core/classes/BusInstance#provision), [`ProvisioningPlan`](/api/bus-core/interfaces/ProvisioningPlan), [`ResourcesNotProvisioned`](/api/bus-core/classes/ResourcesNotProvisioned), [`BusInstance.prune`](/api/bus-core/classes/BusInstance#prune), [`PruningPlan`](/api/bus-core/interfaces/PruningPlan), [`PruneRefused`](/api/bus-core/classes/PruneRefused) and [`PruneIncomplete`](/api/bus-core/classes/PruneIncomplete) in the API reference

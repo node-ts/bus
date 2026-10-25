@@ -1,7 +1,7 @@
 import { Mock } from 'typemoq'
 import { handlerFor } from '../handler'
 import { Logger } from '../logger'
-import { PruneRefused, PruningPlan } from '../provisioning'
+import { PruneIncomplete, PruneRefused, PruningPlan } from '../provisioning'
 import { testMessageTypes } from '../test'
 import { TestEvent } from '../test/test-event'
 import { TestSystemMessage } from '../test/test-system-message'
@@ -23,6 +23,10 @@ class PruningQueue extends InMemoryQueue {
   readonly calls: string[] = []
   pruneOptions: TransportPruneOptions | undefined
   handledMessageNames: string[] = []
+  /**
+   * The error removing the orphaned subscription fails with, if any
+   */
+  removeError: Error | undefined
 
   async connect(_: TransportConnectionOptions): Promise<void> {
     this.calls.push('transport.connect')
@@ -32,10 +36,19 @@ class PruningQueue extends InMemoryQueue {
     this.calls.push(`transport.prune${options.apply ? ' (apply)' : ''}`)
     this.pruneOptions = options
     this.handledMessageNames = options.handlerRegistry.getMessageNames()
+    const resources = [
+      { type: 'subscription', name: 'orphaned-topic' },
+      { type: 'subscription', name: 'other-orphaned-topic' }
+    ]
     return {
       adapter: 'PruningQueue',
-      resources: [{ type: 'subscription', name: 'orphaned-topic' }],
-      removed: options.apply
+      resources,
+      removed: options.apply ? resources.slice(this.removeError ? 1 : 0) : [],
+      failed:
+        options.apply && this.removeError
+          ? [{ resource: resources[0], error: this.removeError }]
+          : [],
+      notFound: []
     }
   }
 }
@@ -83,8 +96,13 @@ describe('BusInstance pruning', () => {
       expect(plans).toEqual([
         {
           adapter: 'PruningQueue',
-          resources: [{ type: 'subscription', name: 'orphaned-topic' }],
-          removed: false
+          resources: [
+            { type: 'subscription', name: 'orphaned-topic' },
+            { type: 'subscription', name: 'other-orphaned-topic' }
+          ],
+          removed: [],
+          failed: [],
+          notFound: []
         }
       ])
     })
@@ -103,7 +121,53 @@ describe('BusInstance pruning', () => {
 
     it('should tell the transport to remove what it finds', () => {
       expect(transport.pruneOptions?.apply).toEqual(true)
-      expect(plans[0].removed).toEqual(true)
+      expect(plans[0].removed).toHaveLength(2)
+    })
+  })
+
+  describe('when the bus is pruned with what was approved', () => {
+    const only = [{ type: 'subscription', name: 'orphaned-topic' }]
+    let sut: BusInstance
+
+    beforeAll(async () => {
+      sut = configure().build()
+      await sut.prune({ apply: true, only })
+    })
+
+    afterAll(async () => sut.dispose())
+
+    it('should pass it to the transport', () => {
+      expect(transport.pruneOptions?.only).toEqual(only)
+    })
+  })
+
+  describe('when the transport fails to remove something', () => {
+    let sut: BusInstance
+    let error: unknown
+
+    beforeAll(async () => {
+      sut = configure().build()
+      transport.removeError = new Error('Access denied')
+      error = await sut.prune({ apply: true }).catch((e: unknown) => e)
+    })
+
+    afterAll(async () => sut.dispose())
+
+    it('should throw, with what was removed and what failed', () => {
+      expect(error).toBeInstanceOf(PruneIncomplete)
+      const { plans, message, help } = error as PruneIncomplete
+      expect(plans[0].removed).toEqual([
+        { type: 'subscription', name: 'other-orphaned-topic' }
+      ])
+      expect(plans[0].failed).toEqual([
+        {
+          resource: { type: 'subscription', name: 'orphaned-topic' },
+          error: transport.removeError
+        }
+      ])
+      expect(message).toContain('removed 1 of 2 resources')
+      expect(message).toContain('orphaned-topic, failed with: Access denied')
+      expect(help).toContain('prune again')
     })
   })
 
@@ -268,11 +332,37 @@ describe('BusInstance pruning', () => {
 
     afterAll(async () => sut.dispose())
 
-    it('should refuse, since its subscription was made by hand', () => {
+    it('should refuse, since its subscription may have been made by hand', () => {
       expect(error).toBeInstanceOf(PruneRefused)
       expect(error).toMatchObject({ reason: 'custom-handler-without-topic' })
       expect((error as PruneRefused).help).toContain('topicIdentifier')
+      expect((error as PruneRefused).help).toContain(
+        'allowCustomHandlersWithoutTopic: true'
+      )
+      expect((error as PruneRefused).help).toContain('--allow-custom-handlers')
       expect(transport.calls).toEqual([])
+    })
+
+    describe('and it is pruned with allowCustomHandlersWithoutTopic', () => {
+      let allowed: BusInstance
+
+      beforeAll(async () => {
+        allowed = configure()
+          .withCustomHandler(async (_: TestSystemMessage) => undefined, {
+            resolveWith: message => message.name === TestSystemMessage.NAME
+          })
+          .build()
+        await allowed.prune({ allowCustomHandlersWithoutTopic: true })
+      })
+
+      afterAll(async () => allowed.dispose())
+
+      it('should prune it', () => {
+        expect(transport.calls).toEqual([
+          'transport.connect',
+          'transport.prune'
+        ])
+      })
     })
   })
 })

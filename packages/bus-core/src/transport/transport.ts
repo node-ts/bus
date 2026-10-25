@@ -5,7 +5,11 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
-import { ProvisioningPlan, PruningPlan } from '../provisioning'
+import {
+  ProvisionedResource,
+  ProvisioningPlan,
+  PruningPlan
+} from '../provisioning'
 import { MessageFailure } from '../recoverability'
 import { CoreDependencies, Milliseconds } from '../util'
 import { TransportMessage } from './transport-message'
@@ -77,7 +81,7 @@ export interface TransportProvisionOptions {
 }
 
 /**
- * What `Transport.prune()` is given: the same as `provision()`, with `apply` instead of `dryRun`
+ * What `Transport.prune()` is given: the same as `provision()`, with `apply` instead of `dryRun`, and what may be removed
  */
 export interface TransportPruneOptions {
   /**
@@ -108,6 +112,13 @@ export interface TransportPruneOptions {
    * Removes what's found. Without it, the transport only reports what it would remove, with read-only calls.
    */
   apply: boolean
+
+  /**
+   * When set, only these resources may be removed: what an earlier `prune()` returned, once someone approved it.
+   * Report and remove only what's both in it and still found now, matched on what identifies it on the broker (such
+   * as a subscription's ARN), and report each one in it that isn't found now in `notFound`.
+   */
+  only?: ProvisionedResource[]
 }
 
 export interface TransportConnectionOptions {
@@ -313,9 +324,11 @@ export interface Transport<TransportMessageType = {}> {
    * rolled out, since the old version still needs them until then.
    *
    * Only consider what's attached to the bus' own queue, never another service's, and only what's shaped like what
-   * `provision()` creates. Never delete topics, exchanges or queues: other services may still send to them.
-   * @param options the messages the bus handles and sends, and whether to remove what's found
-   * @returns what the transport found, and whether it removed it
+   * `provision()` creates. Never delete topics, exchanges or queues: other services may still send to them. With
+   * `apply`, try to remove every resource even when one fails, and return the failures in `failed` rather than
+   * throwing, so the caller learns exactly what was removed.
+   * @param options the messages the bus handles and sends, whether to remove what's found, and what may be removed
+   * @returns what the transport found, removed and failed to remove
    * @example
    * const plan = await transport.prune({ handlerRegistry, sendOnly: false, messageNames, sendsAnyMessage: false, apply: false })
    */

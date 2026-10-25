@@ -354,8 +354,6 @@ importers:
 
   packages/bus-cli/test/provision: {}
 
-  packages/bus-cli/test/prune: {}
-
   packages/bus-cli/test/same-names: {}
 
   packages/bus-cli/test/skipped: {}

@@ -424,9 +424,42 @@ describe('RabbitMqTransport', () => {
       'someone-elses-topic-exchange': 'topic'
     }
 
+    /**
+     * A connection whose channels unbind, except from the exchanges given, where the broker refuses and closes the
+     * channel, which then refuses anything else
+     */
+    const fakeConnection = (refusedExchanges: string[] = []) => {
+      const unbound: string[] = []
+      let channels = 0
+      const connection = {
+        createChannel: async () => {
+          channels++
+          let closed = false
+          return {
+            on: () => undefined,
+            unbindQueue: async (_: string, exchange: string) => {
+              if (closed) {
+                throw new Error('Channel closed')
+              }
+              if (refusedExchanges.includes(exchange)) {
+                closed = true
+                throw new Error(
+                  `Operation failed: QueueUnbind; 403 (ACCESS-REFUSED)`
+                )
+              }
+              unbound.push(exchange)
+            },
+            close: async () => undefined
+          }
+        }
+      }
+      return { connection, unbound, channelCount: () => channels }
+    }
+
     const pruneTransport = async (
       configuration: Partial<RabbitMqTransportConfiguration>,
-      options: Partial<TransportPruneOptions> = {}
+      options: Partial<TransportPruneOptions> = {},
+      connection?: unknown
     ) => {
       const management = Mock.ofType<RabbitMqManagementClient>()
       management
@@ -459,6 +492,7 @@ describe('RabbitMqTransport', () => {
       sut.prepare({
         loggerFactory: () => Mock.ofType<Logger>().object
       } as any as CoreDependencies)
+      ;(sut as any).connection = connection
       const result = await sut
         .prune({
           handlerRegistry,
@@ -506,7 +540,9 @@ describe('RabbitMqTransport', () => {
               }
             }
           ],
-          removed: false
+          removed: [],
+          failed: [],
+          notFound: []
         })
       })
 
@@ -516,6 +552,99 @@ describe('RabbitMqTransport', () => {
         management.verify(m => m.getExchange('keyed-message'), Times.never())
         management.verify(m => m.getExchange('header-message'), Times.never())
         management.verify(m => m.getExchange('handled-message'), Times.never())
+      })
+    })
+
+    describe('with apply', () => {
+      let plan: PruningPlan | undefined
+      let unbound: string[]
+
+      beforeAll(async () => {
+        const fake = fakeConnection()
+        unbound = fake.unbound
+        ;({ plan } = await pruneTransport({}, { apply: true }, fake.connection))
+      })
+
+      it('should unbind each binding it found', () => {
+        expect(unbound).toEqual(['removed-message', 'removed-external-topic'])
+        expect(plan?.removed).toEqual(plan?.resources)
+        expect(plan?.failed).toEqual([])
+      })
+    })
+
+    describe('with apply and what was approved', () => {
+      let plan: PruningPlan | undefined
+      let unbound: string[]
+      const approvedGone = {
+        type: 'rabbitmq-binding',
+        name: 'already-unbound -> orders',
+        properties: {
+          exchange: 'already-unbound',
+          queue: 'orders',
+          routingKey: ''
+        }
+      }
+
+      beforeAll(async () => {
+        const fake = fakeConnection()
+        unbound = fake.unbound
+        ;({ plan } = await pruneTransport(
+          {},
+          {
+            apply: true,
+            only: [
+              {
+                type: 'rabbitmq-binding',
+                name: 'removed-message -> orders',
+                properties: {
+                  exchange: 'removed-message',
+                  queue: 'orders',
+                  routingKey: ''
+                }
+              },
+              approvedGone
+            ]
+          },
+          fake.connection
+        ))
+      })
+
+      it('should only unbind what was approved and is still found', () => {
+        expect(unbound).toEqual(['removed-message'])
+        expect(plan?.resources.map(({ name }) => name)).toEqual([
+          'removed-message -> orders'
+        ])
+      })
+
+      it('should report what was approved but is no longer found', () => {
+        expect(plan?.notFound).toEqual([approvedGone])
+      })
+    })
+
+    describe('with apply, when the broker refuses one unbind', () => {
+      let plan: PruningPlan | undefined
+      let fake: ReturnType<typeof fakeConnection>
+
+      beforeAll(async () => {
+        fake = fakeConnection(['removed-message'])
+        ;({ plan } = await pruneTransport({}, { apply: true }, fake.connection))
+      })
+
+      it('should still unbind the others, on channels of their own', () => {
+        expect(fake.unbound).toEqual(['removed-external-topic'])
+        expect(fake.channelCount()).toEqual(2)
+        expect(plan?.removed.map(({ name }) => name)).toEqual([
+          'removed-external-topic -> orders'
+        ])
+      })
+
+      it('should report the one that failed, with its error', () => {
+        expect(plan?.failed.map(({ resource }) => resource.name)).toEqual([
+          'removed-message -> orders'
+        ])
+        expect((plan?.failed[0].error as Error).message).toContain(
+          'ACCESS-REFUSED'
+        )
       })
     })
 

@@ -162,7 +162,7 @@ describe('RabbitMqTransport pruning', () => {
 
     it("should list the queue's bindings to their exchanges", () => {
       expect(plans).toHaveLength(1)
-      expect(plans[0].removed).toEqual(false)
+      expect(plans[0].removed).toEqual([])
       expect(plans[0].resources).toEqual(
         expect.arrayContaining([
           {
@@ -198,8 +198,9 @@ describe('RabbitMqTransport pruning', () => {
       })
 
       it('should unbind them', () => {
-        expect(appliedPlans[0].removed).toEqual(true)
-        expect(appliedPlans[0].resources).toHaveLength(2)
+        expect(appliedPlans[0].removed).toEqual(appliedPlans[0].resources)
+        expect(appliedPlans[0].removed).toHaveLength(2)
+        expect(appliedPlans[0].failed).toEqual([])
         expect(boundExchanges).not.toContain(TestEvent.NAME)
         expect(boundExchanges).not.toContain(removedExternalExchange)
       })

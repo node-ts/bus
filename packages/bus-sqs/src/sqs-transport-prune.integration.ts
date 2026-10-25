@@ -4,6 +4,7 @@ import {
   ListSubscriptionsCommand,
   ListSubscriptionsResponse,
   SNSClient,
+  SubscribeCommand,
   Subscription,
   UnsubscribeCommand
 } from '@aws-sdk/client-sns'
@@ -17,6 +18,7 @@ import {
   BusConfiguration,
   handlerFor,
   Logger,
+  PruneOptions,
   PruneRefused,
   PruningPlan
 } from '@node-ts/bus-core'
@@ -54,6 +56,10 @@ const otherQueue = `${resourcePrefix}-other`
 // Topics of custom handlers, which are managed outside the bus
 const keptExternalTopic = `${resourcePrefix}-kept-external`
 const removedExternalTopic = `${resourcePrefix}-removed-external`
+// Topics the queue was subscribed to by hand, in ways the bus never subscribes
+const rawTopic = `${resourcePrefix}-raw`
+const filteredTopic = `${resourcePrefix}-filtered`
+const handMadeTopics = [rawTopic, filteredTopic]
 
 /**
  * The topic of a message, as the transport names it by default
@@ -108,11 +114,12 @@ describe('SqsTransport pruning', () => {
 
   const prune = async (
     busConfiguration: BusConfiguration,
-    apply: boolean
+    apply: boolean,
+    options: PruneOptions = {}
   ): Promise<PruningPlan[]> => {
     const bus = busConfiguration.build()
     try {
-      return await bus.prune({ apply })
+      return await bus.prune({ ...options, apply })
     } finally {
       await bus.dispose()
     }
@@ -146,7 +153,11 @@ describe('SqsTransport pruning', () => {
       .sort()
 
   beforeAll(async () => {
-    for (const name of [keptExternalTopic, removedExternalTopic]) {
+    for (const name of [
+      keptExternalTopic,
+      removedExternalTopic,
+      ...handMadeTopics
+    ]) {
       await sns.send(new CreateTopicCommand({ Name: name }))
     }
     for (const busConfiguration of [
@@ -157,6 +168,24 @@ describe('SqsTransport pruning', () => {
       await bus.provision()
       await bus.dispose()
     }
+    await sns.send(
+      new SubscribeCommand({
+        TopicArn: topicArn(rawTopic),
+        Protocol: 'sqs',
+        Endpoint: queueArn(serviceQueue),
+        Attributes: { RawMessageDelivery: 'true' }
+      })
+    )
+    await sns.send(
+      new SubscribeCommand({
+        TopicArn: topicArn(filteredTopic),
+        Protocol: 'sqs',
+        Endpoint: queueArn(serviceQueue),
+        Attributes: {
+          FilterPolicy: JSON.stringify({ 'attributes.region': ['eu'] })
+        }
+      })
+    )
   })
 
   afterAll(async () => {
@@ -176,7 +205,11 @@ describe('SqsTransport pruning', () => {
       )
       await sqs.send(new DeleteQueueCommand({ QueueUrl }))
     }
-    for (const name of [keptExternalTopic, removedExternalTopic]) {
+    for (const name of [
+      keptExternalTopic,
+      removedExternalTopic,
+      ...handMadeTopics
+    ]) {
       await sns.send(new DeleteTopicCommand({ TopicArn: topicArn(name) }))
     }
   })
@@ -192,7 +225,7 @@ describe('SqsTransport pruning', () => {
 
     it("should list the queue's subscriptions to their topics", () => {
       expect(plans).toHaveLength(1)
-      expect(plans[0].removed).toEqual(false)
+      expect(plans[0].removed).toEqual([])
       expect(
         plans[0].resources.map(({ properties }) => properties?.topicArn).sort()
       ).toEqual(
@@ -200,9 +233,40 @@ describe('SqsTransport pruning', () => {
       )
     })
 
+    it("should leave out the raw and filtered subscriptions the bus doesn't make", () => {
+      const topicArns = plans[0].resources.map(
+        ({ properties }) => properties?.topicArn
+      )
+      expect(topicArns).not.toContain(topicArn(rawTopic))
+      expect(topicArns).not.toContain(topicArn(filteredTopic))
+    })
+
     it('should not remove them', () => {
       expect(subscribedTopics).toContain(messageTopicArn(TestEvent.NAME))
       expect(subscribedTopics).toContain(topicArn(removedExternalTopic))
+    })
+
+    describe('and it is pruned with apply, approving only one of them', () => {
+      let approvedPlans: PruningPlan[]
+
+      beforeAll(async () => {
+        const approved = plans[0].resources.find(
+          ({ properties }) =>
+            properties?.topicArn === topicArn(removedExternalTopic)
+        )!
+        approvedPlans = await prune(configureCurrentVersion(), true, {
+          only: [approved]
+        })
+        subscribedTopics = await listSubscribedTopics(serviceQueue)
+      })
+
+      it('should only remove the approved one', () => {
+        expect(
+          approvedPlans[0].removed.map(({ properties }) => properties?.topicArn)
+        ).toEqual([topicArn(removedExternalTopic)])
+        expect(subscribedTopics).not.toContain(topicArn(removedExternalTopic))
+        expect(subscribedTopics).toContain(messageTopicArn(TestEvent.NAME))
+      })
     })
 
     describe('and it is pruned with apply', () => {
@@ -216,12 +280,19 @@ describe('SqsTransport pruning', () => {
       })
 
       it('should remove them', () => {
-        expect(appliedPlans[0].removed).toEqual(true)
-        expect(appliedPlans[0].resources).toHaveLength(2)
+        expect(appliedPlans[0].removed).toEqual(appliedPlans[0].resources)
+        expect(appliedPlans[0].removed).toHaveLength(1)
+        expect(appliedPlans[0].failed).toEqual([])
+        expect(subscribedTopics).not.toContain(messageTopicArn(TestEvent.NAME))
+      })
+
+      it("should keep the bus' own subscriptions, and the raw and filtered ones", () => {
         expect(subscribedTopics).toEqual(
           [
             messageTopicArn(TestCommand.NAME),
-            topicArn(keptExternalTopic)
+            topicArn(keptExternalTopic),
+            topicArn(rawTopic),
+            topicArn(filteredTopic)
           ].sort()
         )
       })
@@ -273,7 +344,7 @@ describe('SqsTransport pruning', () => {
     it('should refuse, leaving its subscriptions', () => {
       expect(error).toBeInstanceOf(PruneRefused)
       expect(error).toMatchObject({ reason: 'handles-nothing' })
-      expect(subscribedTopics).toHaveLength(2)
+      expect(subscribedTopics).toHaveLength(4)
     })
   })
 })

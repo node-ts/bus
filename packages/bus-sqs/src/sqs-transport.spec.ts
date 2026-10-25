@@ -1,5 +1,6 @@
 import {
   CreateTopicCommand,
+  GetSubscriptionAttributesCommand,
   ListSubscriptionsByTopicCommand,
   ListSubscriptionsCommand,
   SNSClient,
@@ -1978,18 +1979,71 @@ describe('sqs-transport', () => {
         Subscriptions: [
           subscription('removed-message'),
           subscription('removed-external-topic'),
-          subscription('pending-topic', queueArn, 'PendingConfirmation')
+          subscription('pending-topic', queueArn, 'PendingConfirmation'),
+          subscription('raw-topic'),
+          subscription('filtered-topic'),
+          subscription('redriven-topic'),
+          subscription('role-topic'),
+          subscription('gone-topic')
         ]
       }
     ]
+    const subscriptionArnOf = (topic: string) =>
+      pages[1].Subscriptions.find(
+        ({ TopicArn }) => TopicArn === topicArn(topic)
+      )!.SubscriptionArn
+    // Subscriptions set up by something other than the bus, or removed since they were listed
+    const subscriptionAttributes = (
+      subscriptionArn: string
+    ): Record<string, string> | undefined => {
+      if (subscriptionArn === subscriptionArnOf('gone-topic')) {
+        return undefined
+      }
+      const handMade: Record<string, Record<string, string>> = {
+        [subscriptionArnOf('raw-topic')]: { RawMessageDelivery: 'true' },
+        [subscriptionArnOf('filtered-topic')]: {
+          RawMessageDelivery: 'false',
+          FilterPolicy: '{"type":["a"]}'
+        },
+        [subscriptionArnOf('redriven-topic')]: {
+          RedrivePolicy: '{"deadLetterTargetArn":"arn"}'
+        },
+        [subscriptionArnOf('role-topic')]: {
+          SubscriptionRoleArn: 'arn:aws:iam::123456789012:role/r'
+        }
+      }
+      return handMade[subscriptionArn] ?? { RawMessageDelivery: 'false' }
+    }
 
-    const pruneTransport = async (options: Partial<TransportPruneOptions>) => {
+    const pruneTransport = async (
+      options: Partial<TransportPruneOptions>,
+      failToUnsubscribe: string[] = []
+    ) => {
       const sns = Mock.ofType<SNSClient>()
       sns
         .setup(s => s.send(It.isAny()))
         .returns(async (command: any): Promise<any> => {
           if (command instanceof ListSubscriptionsCommand) {
             return command.input.NextToken === 'page-2' ? pages[1] : pages[0]
+          }
+          if (command instanceof GetSubscriptionAttributesCommand) {
+            const attributes = subscriptionAttributes(
+              command.input.SubscriptionArn!
+            )
+            if (!attributes) {
+              throw Object.assign(new Error('Subscription does not exist'), {
+                name: 'NotFoundException'
+              })
+            }
+            return { Attributes: attributes }
+          }
+          if (
+            command instanceof UnsubscribeCommand &&
+            failToUnsubscribe.includes(command.input.SubscriptionArn!)
+          ) {
+            throw Object.assign(new Error('Not authorized'), {
+              name: 'AuthorizationErrorException'
+            })
           }
           return {}
         })
@@ -2022,7 +2076,9 @@ describe('sqs-transport', () => {
 
       it("should list the queue's subscriptions to topics it no longer handles, across every page", () => {
         expect(plan.adapter).toEqual('SqsTransport')
-        expect(plan.removed).toEqual(false)
+        expect(plan.removed).toEqual([])
+        expect(plan.failed).toEqual([])
+        expect(plan.notFound).toEqual([])
         expect(plan.resources.map(({ name }) => name)).toEqual([
           `${topicArn('removed-message')} -> ${queueArn}`,
           `${topicArn('removed-external-topic')} -> ${queueArn}`
@@ -2036,6 +2092,20 @@ describe('sqs-transport', () => {
             subscriptionArn: pages[1].Subscriptions[0].SubscriptionArn
           }
         })
+      })
+
+      it("should leave subscriptions the bus doesn't make: raw, filtered, with a redrive policy or a role", () => {
+        for (const topic of [
+          'raw-topic',
+          'filtered-topic',
+          'redriven-topic',
+          'role-topic',
+          'gone-topic'
+        ]) {
+          expect(
+            plan.resources.map(({ properties }) => properties?.topicArn)
+          ).not.toContain(topicArn(topic))
+        }
       })
 
       it('should not unsubscribe anything', () => {
@@ -2058,7 +2128,8 @@ describe('sqs-transport', () => {
       })
 
       it('should unsubscribe each orphaned subscription of the queue', () => {
-        expect(plan.removed).toEqual(true)
+        expect(plan.removed).toEqual(plan.resources)
+        expect(plan.removed).toHaveLength(2)
         for (const orphaned of pages[1].Subscriptions.slice(0, 2)) {
           sns.verify(
             s =>
@@ -2081,6 +2152,88 @@ describe('sqs-transport', () => {
               It.is((command: any) => command instanceof UnsubscribeCommand)
             ),
           Times.exactly(2)
+        )
+      })
+    })
+
+    describe('with apply and what was approved', () => {
+      let sns: IMock<SNSClient>
+      let plan: PruningPlan
+      const approvedGone = {
+        type: 'sns-subscription',
+        name: `${topicArn('already-removed')} -> ${queueArn}`,
+        properties: {
+          topicArn: topicArn('already-removed'),
+          protocol: 'sqs',
+          endpoint: queueArn,
+          subscriptionArn: `${topicArn('already-removed')}:${randomUUID()}`
+        }
+      }
+
+      beforeAll(async () => {
+        ;({ sns, plan } = await pruneTransport({
+          apply: true,
+          only: [
+            {
+              type: 'sns-subscription',
+              name: 'removed-message',
+              properties: {
+                subscriptionArn: subscriptionArnOf('removed-message')
+              }
+            },
+            approvedGone
+          ]
+        }))
+      })
+
+      it('should only unsubscribe what was approved and is still found', () => {
+        expect(
+          plan.removed.map(({ properties }) => properties?.topicArn)
+        ).toEqual([topicArn('removed-message')])
+        sns.verify(
+          s =>
+            s.send(
+              It.is((command: any) => command instanceof UnsubscribeCommand)
+            ),
+          Times.once()
+        )
+      })
+
+      it('should report what was approved but is no longer found', () => {
+        expect(plan.notFound).toEqual([approvedGone])
+      })
+    })
+
+    describe('with apply, when one fails to be unsubscribed', () => {
+      let sns: IMock<SNSClient>
+      let plan: PruningPlan
+
+      beforeAll(async () => {
+        ;({ sns, plan } = await pruneTransport({ apply: true }, [
+          subscriptionArnOf('removed-message')
+        ]))
+      })
+
+      it('should still unsubscribe the others', () => {
+        sns.verify(
+          s =>
+            s.send(
+              It.is((command: any) => command instanceof UnsubscribeCommand)
+            ),
+          Times.exactly(2)
+        )
+        expect(
+          plan.removed.map(({ properties }) => properties?.topicArn)
+        ).toEqual([topicArn('removed-external-topic')])
+      })
+
+      it('should report the one that failed, with its error', () => {
+        expect(plan.failed).toHaveLength(1)
+        expect(plan.failed[0].resource.properties?.topicArn).toEqual(
+          topicArn('removed-message')
+        )
+        expect((plan.failed[0].error as Error).message).toEqual(
+          'Not authorized'
         )
       })
     })

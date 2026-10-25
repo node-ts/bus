@@ -1,5 +1,5 @@
 // A module that exports a bus configuration for `bus prune`, written in TypeScript that Node runs by stripping its
-// types
+// types. It shares the `type: module` package.json of the `bus provision` fixture.
 import {
   Bus,
   handlerFor,
@@ -16,10 +16,15 @@ const OrderPlaced = defineEvent('fixture/order-placed')()
  */
 class PrunedQueue extends InMemoryQueue {
   async prune(options: TransportPruneOptions): Promise<PruningPlan> {
+    const resources = [
+      { type: 'subscription', name: 'fixture/order-cancelled' }
+    ]
     return {
       adapter: 'PrunedQueue',
-      resources: [{ type: 'subscription', name: 'fixture/order-cancelled' }],
-      removed: options.apply
+      resources,
+      removed: options.apply ? resources : [],
+      failed: [],
+      notFound: []
     }
   }
 }

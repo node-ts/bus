@@ -1,4 +1,9 @@
-import { Bus, BusConfiguration } from '@node-ts/bus-core'
+import {
+  Bus,
+  BusConfiguration,
+  ProvisionedResource,
+  PruneIncomplete
+} from '@node-ts/bus-core'
 import { PostgresPersistence } from '@node-ts/bus-postgres'
 import { SqsTransport } from '@node-ts/bus-sqs'
 import { reserveRoomHandler } from './handlers/reserve-room-handler'
@@ -58,18 +63,30 @@ const provisionFromCode = async () => {
   // #endregion provision
 }
 
+/**
+ * Asks someone to approve what's about to be removed, such as a step of a deploy pipeline
+ */
+declare const approve: (resources: ProvisionedResource[]) => Promise<boolean>
+
 const pruneFromCode = async () => {
   // #region prune
   const bus = busConfiguration().build()
   try {
-    // Only reports what the bus no longer needs. Pass { apply: true } to remove it.
-    const plans = await bus.prune()
-    for (const { adapter, resources } of plans) {
-      console.log(
-        adapter,
-        resources.map(resource => resource.name)
+    // Only reports what the bus no longer needs
+    const found = (await bus.prune()).flatMap(plan => plan.resources)
+    if (found.length && (await approve(found))) {
+      // Removes only what was approved, even if more is found by now
+      const [plan] = await bus.prune({ apply: true, only: found })
+      console.log('Removed', plan?.removed, 'no longer found', plan?.notFound)
+    }
+  } catch (error) {
+    if (error instanceof PruneIncomplete) {
+      // Some of it couldn't be removed. What was removed stays removed.
+      console.error(
+        error.plans.map(({ removed, failed }) => ({ removed, failed }))
       )
     }
+    throw error
   } finally {
     // prune() connects, but doesn't initialize or start the bus
     await bus.dispose()

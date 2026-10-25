@@ -79,21 +79,22 @@ npx bus provision dist/bus-configuration.js --export busConfiguration
 
 ## Pruning
 
-Provisioning only adds. Once a new version of a service has rolled out, `bus prune` finds the subscriptions and bindings of its queue to the topics or exchanges of messages it no longer handles, on Amazon SQS and RabbitMQ. It only reports them unless it's given `--apply`, prints them before removing them, and never deletes topics, exchanges or queues, or touches other services' queues:
+Provisioning only adds. Once a new version of a service has rolled out, `bus prune` finds the subscriptions and bindings of its queue to the topics or exchanges of messages it no longer handles, on Amazon SQS and RabbitMQ. It only reports them unless it's given `--apply`, prints them before removing them, removes only what it printed, and never deletes topics, exchanges or queues, or touches other services' queues:
 
 ```sh
 npx bus prune dist/bus-configuration.js --export busConfiguration --apply
 ```
 
-| Option            | Default   | Description                                                        |
-| ----------------- | --------- | ------------------------------------------------------------------ |
-| `--export <name>` | `default` | The export to use                                                  |
-| `--apply`         |           | Removes what's found, after printing it                            |
-| `--allow-empty`   |           | Prunes a bus that handles no message, which is refused otherwise   |
-| `--check`         |           | Removes nothing, and exits with `3` if anything would be removed   |
-| `--json`          |           | Prints a JSON report, described by the exported `PruneReport` type |
+| Option                    | Default   | Description                                                                                                     |
+| ------------------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
+| `--export <name>`         | `default` | The export to use                                                                                               |
+| `--apply`                 |           | Removes what's found, after printing it                                                                         |
+| `--allow-empty`           |           | Prunes a bus that handles no message, which is refused otherwise                                                |
+| `--allow-custom-handlers` |           | Prunes a bus with a custom handler that has no `topicIdentifier`, whose messages are sent straight to the queue |
+| `--check`                 |           | Removes nothing, and exits with `3` if anything would be removed                                                |
+| `--json`                  |           | Prints a JSON report, described by the exported `PruneReport` type                                              |
 
-A send-only bus or a scheduler is refused. To roll back, run `bus provision` with the old version.
+A send-only bus or a scheduler is refused. It exits with `1` if anything couldn't be removed, after reporting what was. To roll back, run `bus provision` with the old version.
 
 ## Learn more
 

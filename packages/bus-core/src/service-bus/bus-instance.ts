@@ -82,6 +82,7 @@ import {
 import {
   ProvisioningPlan,
   ProvisionOptions,
+  PruneIncomplete,
   PruneOptions,
   PruneRefused,
   PruningPlan
@@ -720,12 +721,16 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
    * Run it with deploy credentials once a new version of a service is rolled out, since the old version still needs
    * what it handled until then, usually through `bus prune` from @node-ts/bus-cli. Provisioning the old version
    * again restores what was removed. It doesn't initialize or start the bus, so call `dispose()` when it's done.
-   * @param options with `apply`, removes what's found, and with `allowEmpty`, prunes a bus that handles nothing
-   * @returns what each transport that prunes found, and whether it was removed. It's empty when the transport
-   * doesn't implement `prune()`.
+   * @param options with `apply`, removes what's found, with `only`, removes only what's in it (what an earlier
+   * `prune()` returned and someone approved), with `allowEmpty`, prunes a bus that handles nothing, and with
+   * `allowCustomHandlersWithoutTopic`, prunes a bus with a custom handler that has no `topicIdentifier`
+   * @returns what each transport that prunes found and removed. It's empty when the transport doesn't implement
+   * `prune()`.
    * @throws PruneRefused if the bus is send-only or a scheduler, handles no message through a topic or exchange and
-   * `allowEmpty` isn't set, or has a custom handler without a `topicIdentifier`, whose subscription was made by hand
-   * @throws the transport's own error if it can't list or remove something, such as when a permission is missing
+   * `allowEmpty` isn't set, or has a custom handler without a `topicIdentifier` and
+   * `allowCustomHandlersWithoutTopic` isn't set
+   * @throws PruneIncomplete if some of what was found couldn't be removed, with what was removed and what failed
+   * @throws the transport's own error if it can't list what to remove, such as when a permission is missing
    * @example
    * const bus = Bus.configure().withTransport(transport).withHandler(orderPlacedHandler).build()
    * try {
@@ -750,8 +755,9 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
     if (handlesNothing && !options.allowEmpty) {
       throw new PruneRefused(this.transport.endpointName, 'handles-nothing')
     }
-    // Its queue was subscribed by hand, to a topic the bus doesn't know, so that subscription would look orphaned
+    // Its queue may be subscribed by hand, to a topic the bus doesn't know, so that subscription would look orphaned
     if (
+      !options.allowCustomHandlersWithoutTopic &&
       this.handlerRegistry
         .getResolvers()
         .some(({ topicIdentifier }) => !topicIdentifier)
@@ -774,12 +780,19 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       sendOnly: false,
       messageNames: this.getMessageNames(),
       sendsAnyMessage: false,
-      apply
+      apply,
+      only: options.only
     })
     this.logger.info(apply ? 'Resources pruned' : 'Resources to prune found', {
       adapter: plan.adapter,
-      resources: plan.resources.length
+      resources: plan.resources.length,
+      removed: plan.removed.length,
+      failed: plan.failed.length,
+      notFound: plan.notFound.length
     })
+    if (plan.failed.length) {
+      throw new PruneIncomplete(this.transport.endpointName, [plan])
+    }
     return [plan]
   }
 

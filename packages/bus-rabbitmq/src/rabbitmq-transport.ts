@@ -387,8 +387,12 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
    * (`GET /api/queues/{vhost}/{queue}/bindings`, and `GET /api/exchanges/{vhost}/{exchange}` for each exchange's
    * type), which needs a user with the management tag and access to the vhost. They're removed over AMQP, which
    * needs `write` permission on the service queue and `read` on the exchanges.
-   * @param options the messages the bus handles, and whether to remove what's found
-   * @returns the bindings the bus no longer needs, and whether they were removed
+   *
+   * With `only`, it only reports and removes what's in it, matched by exchange and queue. With `apply`, it tries every
+   * binding even when one fails, each on a channel of its own since the broker closes a channel whose unbind it
+   * refuses, and returns those that failed in `failed`.
+   * @param options the messages the bus handles, whether to remove what's found, and what may be removed
+   * @returns the bindings the bus no longer needs, and which were removed
    * @throws RabbitMqManagementUrlMissing if the transport isn't configured with a `managementUrl`
    * @throws RabbitMqManagementRequestFailed if the management API can't be reached or refuses a request
    */
@@ -396,7 +400,9 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     const plan: PruningPlan = {
       adapter: 'RabbitMqTransport',
       resources: [],
-      removed: false
+      removed: [],
+      failed: [],
+      notFound: []
     }
     // A send-only transport has no queue, so nothing is bound to anything
     if (options.sendOnly) {
@@ -419,6 +425,7 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
         "The service queue doesn't exist on the vhost of connectionString, so it has no bindings to prune",
         { queueName }
       )
+      plan.notFound = options.only ? this.approvedBindings(options.only) : []
       return plan
     }
     const candidates = bindings.filter(
@@ -436,40 +443,89 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
           .map(({ source }) => source)
       )
     ]
-
-    plan.resources = orphanedExchanges.map(exchange => ({
+    const toResource = (exchange: string): ProvisionedResource => ({
       type: 'rabbitmq-binding',
       name: `${exchange} -> ${queueName}`,
       properties: { exchange, queue: queueName, routingKey: '' }
-    }))
-    plan.removed = options.apply
-    if (!options.apply || !orphanedExchanges.length) {
+    })
+
+    if (options.only) {
+      const approved = this.approvedBindings(options.only)
+      const approvedExchanges = new Set(
+        approved.map(({ properties }) => properties!.exchange as string)
+      )
+      plan.resources = orphanedExchanges
+        .filter(exchange => approvedExchanges.has(exchange))
+        .map(toResource)
+      plan.notFound = approved.filter(
+        ({ properties }) =>
+          !orphanedExchanges.includes(properties!.exchange as string)
+      )
+      const unapproved = orphanedExchanges.length - plan.resources.length
+      if (unapproved) {
+        this.logger.warn(
+          "Leaving bindings the bus no longer needs that weren't approved, since they were found after the approved list was made. Prune again to remove them.",
+          { queueName, bindings: unapproved }
+        )
+      }
+    } else {
+      plan.resources = orphanedExchanges.map(toResource)
+    }
+    if (!options.apply || !plan.resources.length) {
       return plan
     }
 
     this.logger.info('Removing bindings the bus no longer needs', {
       queueName,
-      exchanges: orphanedExchanges
+      exchanges: plan.resources.map(({ properties }) => properties!.exchange)
     })
-    // A channel of its own, since the broker closes it if an unbind is refused
+    for (const resource of plan.resources) {
+      try {
+        await this.unbindFromExchange(resource.properties!.exchange as string)
+        plan.removed.push(resource)
+      } catch (error) {
+        this.logger.error('Unbinding exchange from queue failed', {
+          exchange: resource.properties!.exchange,
+          queueName,
+          error: serializeError(error)
+        })
+        plan.failed.push({ resource, error })
+      }
+    }
+    return plan
+  }
+
+  /**
+   * Unbinds the service queue from an exchange, on a channel of its own, since the broker closes a channel whose
+   * unbind it refuses
+   */
+  private async unbindFromExchange(exchange: string): Promise<void> {
+    const { queueName } = this.configuration
+    this.logger.info('Unbinding exchange from queue', { exchange, queueName })
     const channel = await this.connection!.createChannel()
     channel.on('error', error =>
       this.logger.warn('RabbitMQ channel error while pruning', {
+        exchange,
         error: serializeError(error)
       })
     )
     try {
-      for (const exchange of orphanedExchanges) {
-        this.logger.info('Unbinding exchange from queue', {
-          exchange,
-          queueName
-        })
-        await channel.unbindQueue(queueName, exchange, '')
-      }
+      await channel.unbindQueue(queueName, exchange, '')
     } finally {
       await channel.close().catch(() => undefined)
     }
-    return plan
+  }
+
+  /**
+   * The approved resources that are bindings of the service queue
+   */
+  private approvedBindings(only: ProvisionedResource[]): ProvisionedResource[] {
+    return only.filter(
+      ({ type, properties }) =>
+        type === 'rabbitmq-binding' &&
+        properties?.queue === this.configuration.queueName &&
+        typeof properties.exchange === 'string'
+    )
   }
 
   /**
