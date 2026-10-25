@@ -1,5 +1,5 @@
 /**
- * Thrown by `bus provision` when the module it was given can't be imported
+ * Thrown by `bus provision` and `bus prune` when the module they were given can't be imported
  */
 export class BusConfigurationModuleNotLoaded extends Error {
   readonly help: string

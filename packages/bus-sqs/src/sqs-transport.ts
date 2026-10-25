@@ -2,12 +2,17 @@ import { AssertionError } from 'assert'
 
 import {
   CreateTopicCommand,
+  GetSubscriptionAttributesCommand,
   ListSubscriptionsByTopicCommand,
   ListSubscriptionsByTopicResponse,
+  ListSubscriptionsCommand,
+  ListSubscriptionsResponse,
   MessageAttributeValue,
   PublishCommand,
   SNSClient,
-  SubscribeCommand
+  SubscribeCommand,
+  Subscription,
+  UnsubscribeCommand
 } from '@aws-sdk/client-sns'
 import {
   ChangeMessageVisibilityCommand,
@@ -32,7 +37,9 @@ import {
   JsonValue,
   Logger,
   MessageFailure,
+  ProvisionedResource,
   ProvisioningPlan,
+  PruningPlan,
   ResourcesNotProvisioned,
   toFailureHeader,
   Transport,
@@ -41,6 +48,7 @@ import {
   TransportInitializationOptions,
   TransportMessage,
   TransportProvisionOptions,
+  TransportPruneOptions,
   TransportSendOptions
 } from '@node-ts/bus-core'
 import {
@@ -131,31 +139,92 @@ interface SqsResources {
 }
 
 /**
- * The most SNS and SQS calls `initialize()` makes at once when it checks resources exist, to stay clear of
- * throttling
+ * The most SNS and SQS calls `initialize()` makes at once when it checks resources exist, and `prune()` when it
+ * unsubscribes, to stay clear of throttling
  */
 const VERIFY_CONCURRENCY = 10
 
 /**
- * Maps items with an async function, running at most `concurrency` at once, keeping their order
+ * Maps items with an async function, running at most `concurrency` at once, keeping their order. On the first
+ * failure no more items are started, and it rejects with that error once those already running have settled.
  */
 const mapWithConcurrency = async <TItem, TResult>(
   items: TItem[],
   concurrency: number,
   map: (item: TItem) => Promise<TResult>
 ): Promise<TResult[]> => {
-  const results: TResult[] = new Array(items.length)
+  let failure: { error: unknown } | undefined
+  const settled = await settleWithConcurrency(
+    items,
+    concurrency,
+    async item => {
+      try {
+        return await map(item)
+      } catch (error) {
+        failure ??= { error }
+        throw error
+      }
+    },
+    () => !!failure
+  )
+  if (failure) {
+    throw failure.error
+  }
+  return settled.map(
+    result => (result as PromiseFulfilledResult<TResult>).value
+  )
+}
+
+/**
+ * Maps items with an async function, running at most `concurrency` at once, and settles every one, keeping their
+ * order. Items aren't started once `stop` returns true.
+ */
+const settleWithConcurrency = async <TItem, TResult>(
+  items: TItem[],
+  concurrency: number,
+  map: (item: TItem) => Promise<TResult>,
+  stop: () => boolean = () => false
+): Promise<PromiseSettledResult<TResult>[]> => {
+  const results: PromiseSettledResult<TResult>[] = new Array(items.length)
   let next = 0
   const worker = async () => {
-    while (next < items.length) {
+    while (next < items.length && !stop()) {
       const index = next++
-      results[index] = await map(items[index])
+      try {
+        results[index] = { status: 'fulfilled', value: await map(items[index]) }
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason }
+      }
     }
   }
   await Promise.all(
     Array.from({ length: Math.min(concurrency, items.length) }, worker)
   )
   return results
+}
+
+/**
+ * The subscription attributes that `provision()` never sets, so a subscription with any of them was made or changed
+ * by something other than the bus, and pruning leaves it
+ */
+const HAND_MADE_SUBSCRIPTION_ATTRIBUTES = [
+  'FilterPolicy',
+  'RedrivePolicy',
+  'SubscriptionRoleArn'
+]
+
+/**
+ * Why a subscription isn't shaped like those `provision()` makes, if it isn't
+ */
+const describeHandMadeSubscription = (
+  attributes: Record<string, string>
+): string | undefined => {
+  if (attributes.RawMessageDelivery?.toLowerCase() === 'true') {
+    return 'RawMessageDelivery'
+  }
+  return HAND_MADE_SUBSCRIPTION_ATTRIBUTES.find(
+    name => !!attributes[name]?.trim()
+  )
 }
 
 /**
@@ -776,6 +845,211 @@ export class SqsTransport implements Transport<SQSMessage> {
     )
     await this.syncQueueAttributes(this.queueUrl, serviceQueue.attributes)
     return plan
+  }
+
+  /**
+   * Finds the subscriptions of the service queue to topics the bus no longer handles, such as the topic of a message
+   * whose handler was removed, or of a custom handler that's gone, and with `apply`, unsubscribes the queue from them.
+   * Only subscriptions whose endpoint is this transport's own queue are considered, so other queues' subscriptions to
+   * the same topics are left as they are. Topics, queues and the queue policy are never changed or deleted.
+   *
+   * SNS has no call that lists a queue's subscriptions, so it reads every page of `ListSubscriptions`, which covers
+   * the caller's own subscriptions in the SNS client's region. It reads each candidate's attributes, and skips with a
+   * warning any that `provision()` wouldn't have made: those with raw message delivery, a filter policy, a redrive
+   * policy or a subscription role. A subscription still pending confirmation can't be removed, so it's skipped with a
+   * warning too. It needs `sns:ListSubscriptions` on `*`, `sns:GetSubscriptionAttributes` and, with `apply`,
+   * `sns:Unsubscribe` on the topics.
+   *
+   * With `only`, it only reports and removes what's in it, matched by `subscriptionArn`. With `apply`, it tries every
+   * subscription even when one fails, and returns those that failed in `failed`.
+   * @param options the messages the bus handles, whether to remove what's found, and what may be removed
+   * @returns the subscriptions the bus no longer needs, and which were removed
+   */
+  async prune(options: TransportPruneOptions): Promise<PruningPlan> {
+    const plan: PruningPlan = {
+      adapter: 'SqsTransport',
+      resources: [],
+      removed: [],
+      failed: [],
+      notFound: []
+    }
+    // A send-only transport has no queue, so nothing is subscribed to anything
+    if (options.sendOnly) {
+      return plan
+    }
+    this.resolveResourceNames(options.sendOnly)
+    const { subscriptions } = this.planResources(options)
+    const neededTopicArns = new Set(
+      subscriptions.map(({ topicArn }) => topicArn)
+    )
+    const orphaned = (await this.listQueueSubscriptions(this.queueArn)).filter(
+      ({ TopicArn }) => !neededTopicArns.has(TopicArn!)
+    )
+    const pending = orphaned.filter(
+      ({ SubscriptionArn }) => !SubscriptionArn?.startsWith('arn:')
+    )
+    if (pending.length) {
+      this.logger.warn(
+        "Skipping subscriptions of the queue that aren't confirmed, since they can't be removed until they are",
+        { topicArns: pending.map(({ TopicArn }) => TopicArn) }
+      )
+    }
+    const approvedArns =
+      options.only && toApprovedSubscriptionArns(options.only)
+    const candidates = orphaned.filter(
+      ({ SubscriptionArn }) =>
+        SubscriptionArn?.startsWith('arn:') &&
+        (!approvedArns || approvedArns.has(SubscriptionArn))
+    )
+    const removable = await this.withoutHandMadeSubscriptions(candidates)
+
+    plan.resources = removable.map(
+      ({ TopicArn, SubscriptionArn }): ProvisionedResource => ({
+        type: 'sns-subscription',
+        name: `${TopicArn} -> ${this.queueArn}`,
+        properties: {
+          topicArn: TopicArn!,
+          protocol: 'sqs',
+          endpoint: this.queueArn,
+          subscriptionArn: SubscriptionArn!
+        }
+      })
+    )
+    if (options.only) {
+      const foundArns = new Set(
+        removable.map(({ SubscriptionArn }) => SubscriptionArn)
+      )
+      plan.notFound = options.only.filter(
+        resource =>
+          resource.type === 'sns-subscription' &&
+          !foundArns.has(resource.properties?.subscriptionArn as string)
+      )
+      const unapproved = orphaned.length - pending.length - candidates.length
+      if (unapproved) {
+        this.logger.warn(
+          "Leaving subscriptions the bus no longer needs that weren't approved, since they were found after the approved list was made. Prune again to remove them.",
+          { queueArn: this.queueArn, subscriptions: unapproved }
+        )
+      }
+    }
+    if (!options.apply || !plan.resources.length) {
+      return plan
+    }
+
+    this.logger.info('Removing subscriptions the bus no longer needs', {
+      queueArn: this.queueArn,
+      subscriptions: removable.length
+    })
+    const results = await settleWithConcurrency(
+      removable,
+      VERIFY_CONCURRENCY,
+      async ({ TopicArn, SubscriptionArn }) =>
+        this.unsubscribe(TopicArn!, SubscriptionArn!)
+    )
+    results.forEach((result, index) => {
+      const resource = plan.resources[index]
+      if (result.status === 'fulfilled') {
+        plan.removed.push(resource)
+      } else {
+        this.logger.error('Unsubscribing sqs queue from sns topic failed', {
+          topicArn: resource.properties?.topicArn,
+          error: serializeError(result.reason)
+        })
+        plan.failed.push({ resource, error: result.reason })
+      }
+    })
+    return plan
+  }
+
+  /**
+   * Leaves out the subscriptions `provision()` wouldn't have made, such as one with raw message delivery or a filter
+   * policy, with a warning, and those that were removed since they were listed
+   */
+  private async withoutHandMadeSubscriptions(
+    subscriptions: Subscription[]
+  ): Promise<Subscription[]> {
+    const attributes = await mapWithConcurrency(
+      subscriptions,
+      VERIFY_CONCURRENCY,
+      async ({ SubscriptionArn }) => {
+        try {
+          const response = await this.sns.send(
+            new GetSubscriptionAttributesCommand({
+              SubscriptionArn
+            })
+          )
+          return response.Attributes ?? {}
+        } catch (error) {
+          if (isTopicMissing(error)) {
+            return undefined
+          }
+          throw error
+        }
+      }
+    )
+    const handMade = subscriptions
+      .map((subscription, index) => ({
+        topicArn: subscription.TopicArn,
+        attribute:
+          attributes[index] && describeHandMadeSubscription(attributes[index])
+      }))
+      .filter(({ attribute }) => !!attribute)
+    if (handMade.length) {
+      this.logger.warn(
+        "Skipping subscriptions of the queue that the bus doesn't make, since they were set up by something else",
+        { queueArn: this.queueArn, subscriptions: handMade }
+      )
+    }
+    return subscriptions.filter(
+      (_, index) =>
+        !!attributes[index] && !describeHandMadeSubscription(attributes[index])
+    )
+  }
+
+  /**
+   * Lists the SNS subscriptions whose endpoint is a queue, reading every page of `ListSubscriptions`
+   */
+  private async listQueueSubscriptions(
+    queueArn: string
+  ): Promise<Subscription[]> {
+    const subscriptions: Subscription[] = []
+    let nextToken: string | undefined = undefined
+    do {
+      const response: ListSubscriptionsResponse = await this.sns.send(
+        new ListSubscriptionsCommand({ NextToken: nextToken })
+      )
+      subscriptions.push(
+        ...(response.Subscriptions ?? []).filter(
+          subscription =>
+            subscription.Protocol === 'sqs' &&
+            subscription.Endpoint === queueArn
+        )
+      )
+      nextToken = response.NextToken
+    } while (nextToken)
+    return subscriptions
+  }
+
+  /**
+   * Removes a subscription. One that's already gone is left as it is.
+   */
+  private async unsubscribe(
+    topicArn: string,
+    subscriptionArn: string
+  ): Promise<void> {
+    this.logger.info('Unsubscribing sqs queue from sns topic', {
+      serviceQueueArn: this.queueArn,
+      topicArn
+    })
+    try {
+      await this.sns.send(
+        new UnsubscribeCommand({ SubscriptionArn: subscriptionArn })
+      )
+    } catch (error) {
+      if (!isTopicMissing(error)) {
+        throw error
+      }
+    }
   }
 
   /**
@@ -1567,6 +1841,19 @@ const isAccessDenied = (error: unknown): boolean =>
     'AccessDenied',
     'AccessDeniedException'
   ].includes((error as { name?: string } | undefined)?.name ?? '')
+
+/**
+ * The subscription ARNs of the approved resources that are SNS subscriptions
+ */
+const toApprovedSubscriptionArns = (
+  resources: ProvisionedResource[]
+): Set<string> =>
+  new Set(
+    resources
+      .filter(({ type }) => type === 'sns-subscription')
+      .map(({ properties }) => properties?.subscriptionArn)
+      .filter((arn): arn is string => typeof arn === 'string')
+  )
 
 /**
  * Whether SNS rejected a request because its topic doesn't exist

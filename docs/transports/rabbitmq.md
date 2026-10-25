@@ -39,6 +39,7 @@ Configure a `RabbitMqTransport` and pass it to the bus configuration:
 | `connectionString`    |               | An AMQP connection string, such as `amqp://guest:guest@localhost`.                                                  |
 | `deadLetterQueueName` | `dead-letter` | Where messages go once they're out of attempts. Every service shares the default, so give each its own.             |
 | `persistentMessages`  | `false`       | Whether messages survive a broker restart.                                                                          |
+| `managementUrl`       |               | The URL of the management API, such as `http://rabbitmq:15672`. Only [pruning](#pruning) uses it.                   |
 | `connectionRecovery`  | enabled       | How to reconnect when the connection or channel is lost: exponential backoff from 100 ms to 30 s, retrying forever. |
 
 When the connection is lost, the transport reconnects and carries on consuming. With `withAutoProvision()`, it declares its topology again first. Messages that were being handled are redelivered by the broker. The first connection, at `initialize()`, isn't retried: it fails straight away if the broker can't be reached. Once recovery gives up after `connectionRecovery.maxRetries` attempts, sending and publishing throw `RabbitMqConnectionRecoveryFailed`.
@@ -83,6 +84,24 @@ Once provisioned, the service declares nothing, so it needs no `configure` permi
 At `initialize()` the transport checks the service, retry and dead letter queues, their exchanges and the exchange of each message it handles exist, with passive declares. Before sending to an exchange or a retry queue for the first time, it checks that exists too, so a message isn't silently dropped: RabbitMQ discards a message sent to a queue that doesn't exist. A send to a missing exchange throws `ResourcesNotProvisioned`. Bindings can't be checked without the management API, so they aren't. A send-only bus checks nothing at startup.
 
 From RabbitMQ 4.3.1, a passive declare needs some permission on what it checks, which is why `read` covers the dead letter and retry queues and the `<queue>` and `<queue>-retry` exchanges. On an earlier broker, passive declares need no permission, so `read` can be narrowed to the service queue. When the user has no permission on something it checks, the transport throws `RabbitMqResourceCheckRefused`, naming it. `withResourceVerification(false)` turns off every check, at startup and before first use, so the transport needs no permission to check anything, and trusts that its exchanges and queues exist.
+
+### Pruning
+
+[`bus prune`](/guide/provisioning#pruning) removes the service queue's bindings to exchanges the bus no longer handles, including the exchanges of custom handlers that were removed. AMQP can't list bindings, so the transport reads them from the management API, at `managementUrl`:
+
+<<< @/snippets/rabbitmq-pruning.ts#configuration
+
+The management API's user is the one in `managementUrl`, if it has one, and otherwise the one in `connectionString`, and the vhost is the one in `connectionString`. Without a `managementUrl`, pruning throws `RabbitMqManagementUrlMissing`, and a request the API refuses throws `RabbitMqManagementRequestFailed`.
+
+It only considers bindings shaped like the ones the transport makes: from a fanout exchange to the service queue, with an empty routing key and no arguments. Bindings from the default exchange or the queue's own `<queue>` exchange, bindings with a routing key or arguments, bindings from other kinds of exchange, and other queues' bindings are left as they are. It unbinds over AMQP, each binding on a channel of its own, since the broker closes a channel whose unbind it refuses, so one refusal doesn't stop the rest. It never deletes an exchange or queue.
+
+On top of provisioning's permissions, the deploy user needs:
+
+| Permission                                    | Why                                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| the `management` tag, and access to the vhost | listing the service queue's bindings and each exchange's type through the API |
+| `write` on the service queue                  | unbinding it, with `--apply`                                                  |
+| `read` on the exchanges it's unbound from     | unbinding it, with `--apply`                                                  |
 
 ## Message attributes
 

@@ -120,6 +120,22 @@ When the queues and topics are created by other tooling, such as CDK, CloudForma
 
 `initialize()` checks the service queue, the dead letter queue, and each subscription of the service queue and its topic exist, and throws `ResourcesNotProvisioned` naming any that are missing.
 
+### Pruning
+
+[`bus prune`](/guide/provisioning#pruning) removes the service queue's subscriptions to topics the bus no longer handles, including the topics of custom handlers that were removed. SNS can't list the subscriptions of one queue, so the transport reads every subscription with `ListSubscriptions`, and only considers those whose endpoint is the service queue's ARN: other queues' subscriptions to the same topics are left as they are. It never deletes a topic or queue, or changes the queue policy.
+
+`ListSubscriptions` only returns the subscriptions owned by the caller's account, in the region of the transport's SNS client. A subscription of the queue made from another account, such as to a topic another account owns and subscribed from there, or to a topic in another region, is never found, so it's never pruned. Remove those by hand.
+
+It reads each subscription's attributes with `GetSubscriptionAttributes`, and leaves, with a warning, any the transport wouldn't have made: those with raw message delivery, a filter policy, a redrive policy or a subscription role. A subscription that's still pending confirmation can't be removed, so it's skipped with a warning too.
+
+On top of provisioning's permissions, the deploy credentials need:
+
+| Action                          | On                                                | Why                                                 |
+| ------------------------------- | ------------------------------------------------- | --------------------------------------------------- |
+| `sns:ListSubscriptions`         | `*`, since it isn't scoped to a topic             | finding the service queue's subscriptions           |
+| `sns:GetSubscriptionAttributes` | the topics the queue is subscribed to, or `*`     | leaving the subscriptions the transport didn't make |
+| `sns:Unsubscribe`               | the topics the queue is unsubscribed from, or `*` | removing the subscriptions, with `--apply`          |
+
 ## Message attributes
 
 Attributes are sent as SNS message attributes named `attributes.<key>`, `stickyAttributes.<key>`, `correlationId`, `messageId`, `sentAt` and `replyTo`. Strings use the `String` type and numbers `Number`. SNS has no boolean type, so booleans are sent as `String.boolean`, with the value `true` or `false`, and read back as booleans. Keep this in mind when writing SNS subscription filter policies. Empty strings are left out, because SNS rejects them.

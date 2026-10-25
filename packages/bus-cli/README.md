@@ -1,6 +1,6 @@
 # @node-ts/bus-cli
 
-The `bus` command line for [@node-ts/bus](https://node-ts.github.io/bus). Its `bus generate-message-types` command generates the message types that let the bus restore Dates, Maps, Sets, bigints and class instances at any depth of your messages, with no decorators or `reflect-metadata`, and `bus provision` creates the queues, topics, tables and indexes a bus needs at deploy time.
+The `bus` command line for [@node-ts/bus](https://node-ts.github.io/bus). Its `bus generate-message-types` command generates the message types that let the bus restore Dates, Maps, Sets, bigints and class instances at any depth of your messages, with no decorators or `reflect-metadata`, `bus provision` creates the queues, topics, tables and indexes a bus needs at deploy time, and `bus prune` removes the subscriptions and bindings it no longer needs.
 
 [![npm](https://img.shields.io/npm/v/@node-ts/bus-cli)](https://www.npmjs.com/package/@node-ts/bus-cli)
 
@@ -77,8 +77,27 @@ npx bus provision dist/bus-configuration.js --export busConfiguration
 | `--permissions`   |           | Also prints the permissions each adapter needs at runtime, such as an IAM policy      |
 | `--json`          |           | Prints a JSON report, described by the exported `ProvisionReport` type                |
 
+## Pruning
+
+Provisioning only adds. Once a new version of a service has rolled out, `bus prune` finds the subscriptions and bindings of its queue to the topics or exchanges of messages it no longer handles, on Amazon SQS and RabbitMQ. It only reports them unless it's given `--apply`, prints them before removing them, removes only what it printed, and never deletes topics, exchanges or queues, or touches other services' queues:
+
+```sh
+npx bus prune dist/bus-configuration.js --export busConfiguration --apply
+```
+
+| Option                    | Default   | Description                                                                                                     |
+| ------------------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
+| `--export <name>`         | `default` | The export to use                                                                                               |
+| `--apply`                 |           | Removes what's found, after printing it                                                                         |
+| `--allow-empty`           |           | Prunes a bus that handles no message, which is refused otherwise                                                |
+| `--allow-custom-handlers` |           | Prunes a bus with a custom handler that has no `topicIdentifier`, whose messages are sent straight to the queue |
+| `--check`                 |           | Removes nothing, and exits with `3` if anything would be removed                                                |
+| `--json`                  |           | Prints a JSON report, described by the exported `PruneReport` type                                              |
+
+A send-only bus or a scheduler is refused. It exits with `1` if anything couldn't be removed, after reporting what was. To roll back, run `bus provision` with the old version.
+
 ## Learn more
 
 - [Generating message types](https://node-ts.github.io/bus/guide/serializers/message-types): what the generator reads, the types it supports, its known limits, and generating from code
 - [Serializers](https://node-ts.github.io/bus/guide/serializers), for how the bus uses the message types
-- [Provisioning](https://node-ts.github.io/bus/guide/provisioning): `bus provision`, its JSON report, and checking resources at startup
+- [Provisioning](https://node-ts.github.io/bus/guide/provisioning): `bus provision`, its JSON report, checking resources at startup, and [pruning](https://node-ts.github.io/bus/guide/provisioning#pruning) with `bus prune`

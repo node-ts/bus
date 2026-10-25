@@ -2,12 +2,22 @@ import {
   CoreDependencies,
   Logger,
   ProvisioningPlan,
+  PruningPlan,
   TransportHeaderReserved,
-  TransportProvisionOptions
+  TransportProvisionOptions,
+  TransportPruneOptions
 } from '@node-ts/bus-core'
-import { Mock } from 'typemoq'
-import { RabbitMqResourceCheckRefused } from './error'
+import { IMock, It, Mock, Times } from 'typemoq'
+import {
+  RabbitMqManagementUrlMissing,
+  RabbitMqResourceCheckRefused
+} from './error'
+import {
+  RabbitMqManagementBinding,
+  RabbitMqManagementClient
+} from './rabbitmq-management-client'
 import { RabbitMqTransport } from './rabbitmq-transport'
+import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import { TestCommand } from './test'
 
 const reservedHeaderNames = [
@@ -370,6 +380,303 @@ describe('RabbitMqTransport', () => {
       expect(plan.runtimePermissions?.document).toMatchObject({
         configure: '^$',
         write: '.*'
+      })
+    })
+  })
+
+  describe('when pruning', () => {
+    /**
+     * A transport whose management API client is a mock
+     */
+    class ManagedRabbitMqTransport extends RabbitMqTransport {
+      constructor(
+        configuration: RabbitMqTransportConfiguration,
+        private readonly management: RabbitMqManagementClient
+      ) {
+        super(configuration)
+      }
+
+      protected createManagementClient(): RabbitMqManagementClient {
+        return this.management
+      }
+    }
+
+    const handlerRegistry = {
+      getMessageNames: () => ['handled-message'],
+      getExternallyManagedTopicIdentifiers: () => ['external-topic']
+    } as any as TransportPruneOptions['handlerRegistry']
+    const binding = (
+      source: string,
+      overrides: Partial<RabbitMqManagementBinding> = {}
+    ): RabbitMqManagementBinding => ({
+      source,
+      destination: 'orders',
+      destination_type: 'queue',
+      routing_key: '',
+      arguments: {},
+      ...overrides
+    })
+    const exchangeTypes: Record<string, string> = {
+      'handled-message': 'fanout',
+      'external-topic': 'fanout',
+      'removed-message': 'fanout',
+      'removed-external-topic': 'fanout',
+      'someone-elses-topic-exchange': 'topic'
+    }
+
+    /**
+     * A connection whose channels unbind, except from the exchanges given, where the broker refuses and closes the
+     * channel, which then refuses anything else
+     */
+    const fakeConnection = (refusedExchanges: string[] = []) => {
+      const unbound: string[] = []
+      let channels = 0
+      const connection = {
+        createChannel: async () => {
+          channels++
+          let closed = false
+          return {
+            on: () => undefined,
+            unbindQueue: async (_: string, exchange: string) => {
+              if (closed) {
+                throw new Error('Channel closed')
+              }
+              if (refusedExchanges.includes(exchange)) {
+                closed = true
+                throw new Error(
+                  `Operation failed: QueueUnbind; 403 (ACCESS-REFUSED)`
+                )
+              }
+              unbound.push(exchange)
+            },
+            close: async () => undefined
+          }
+        }
+      }
+      return { connection, unbound, channelCount: () => channels }
+    }
+
+    const pruneTransport = async (
+      configuration: Partial<RabbitMqTransportConfiguration>,
+      options: Partial<TransportPruneOptions> = {},
+      connection?: unknown
+    ) => {
+      const management = Mock.ofType<RabbitMqManagementClient>()
+      management
+        .setup(m => m.getQueueBindings(It.isAny()))
+        .returns(async () => [
+          binding(''),
+          binding('orders'),
+          binding('handled-message'),
+          binding('external-topic'),
+          binding('removed-message'),
+          binding('removed-external-topic'),
+          binding('keyed-message', { routing_key: 'orders' }),
+          binding('header-message', { arguments: { 'x-match': 'all' } }),
+          binding('someone-elses-topic-exchange')
+        ])
+      management
+        .setup(m => m.getExchange(It.isAny()))
+        .returns(async (name: string) =>
+          exchangeTypes[name] ? { name, type: exchangeTypes[name] } : undefined
+        )
+      const sut = new ManagedRabbitMqTransport(
+        {
+          queueName: 'orders',
+          connectionString: 'amqp://guest:guest@0.0.0.0',
+          managementUrl: 'http://127.0.0.1:15672',
+          ...configuration
+        },
+        management.object
+      )
+      sut.prepare({
+        loggerFactory: () => Mock.ofType<Logger>().object
+      } as any as CoreDependencies)
+      ;(sut as any).connection = connection
+      const result = await sut
+        .prune({
+          handlerRegistry,
+          sendOnly: false,
+          messageNames: ['handled-message', 'sent-message'],
+          sendsAnyMessage: false,
+          apply: false,
+          ...options
+        })
+        .then(
+          plan => ({ plan, error: undefined }),
+          (error: unknown) => ({ plan: undefined, error })
+        )
+      return { management, ...result }
+    }
+
+    describe('without apply', () => {
+      let plan: PruningPlan | undefined
+      let management: IMock<RabbitMqManagementClient>
+
+      beforeAll(async () => {
+        ;({ plan, management } = await pruneTransport({}))
+      })
+
+      it("should list the queue's bindings from fanout exchanges it no longer handles", () => {
+        expect(plan).toEqual({
+          adapter: 'RabbitMqTransport',
+          resources: [
+            {
+              type: 'rabbitmq-binding',
+              name: 'removed-message -> orders',
+              properties: {
+                exchange: 'removed-message',
+                queue: 'orders',
+                routingKey: ''
+              }
+            },
+            {
+              type: 'rabbitmq-binding',
+              name: 'removed-external-topic -> orders',
+              properties: {
+                exchange: 'removed-external-topic',
+                queue: 'orders',
+                routingKey: ''
+              }
+            }
+          ],
+          removed: [],
+          failed: [],
+          notFound: []
+        })
+      })
+
+      it('should only look up exchanges that bind like the bus does', () => {
+        management.verify(m => m.getExchange(''), Times.never())
+        management.verify(m => m.getExchange('orders'), Times.never())
+        management.verify(m => m.getExchange('keyed-message'), Times.never())
+        management.verify(m => m.getExchange('header-message'), Times.never())
+        management.verify(m => m.getExchange('handled-message'), Times.never())
+      })
+    })
+
+    describe('with apply', () => {
+      let plan: PruningPlan | undefined
+      let unbound: string[]
+
+      beforeAll(async () => {
+        const fake = fakeConnection()
+        unbound = fake.unbound
+        ;({ plan } = await pruneTransport({}, { apply: true }, fake.connection))
+      })
+
+      it('should unbind each binding it found', () => {
+        expect(unbound).toEqual(['removed-message', 'removed-external-topic'])
+        expect(plan?.removed).toEqual(plan?.resources)
+        expect(plan?.failed).toEqual([])
+      })
+    })
+
+    describe('with apply and what was approved', () => {
+      let plan: PruningPlan | undefined
+      let unbound: string[]
+      const approvedGone = {
+        type: 'rabbitmq-binding',
+        name: 'already-unbound -> orders',
+        properties: {
+          exchange: 'already-unbound',
+          queue: 'orders',
+          routingKey: ''
+        }
+      }
+
+      beforeAll(async () => {
+        const fake = fakeConnection()
+        unbound = fake.unbound
+        ;({ plan } = await pruneTransport(
+          {},
+          {
+            apply: true,
+            only: [
+              {
+                type: 'rabbitmq-binding',
+                name: 'removed-message -> orders',
+                properties: {
+                  exchange: 'removed-message',
+                  queue: 'orders',
+                  routingKey: ''
+                }
+              },
+              approvedGone
+            ]
+          },
+          fake.connection
+        ))
+      })
+
+      it('should only unbind what was approved and is still found', () => {
+        expect(unbound).toEqual(['removed-message'])
+        expect(plan?.resources.map(({ name }) => name)).toEqual([
+          'removed-message -> orders'
+        ])
+      })
+
+      it('should report what was approved but is no longer found', () => {
+        expect(plan?.notFound).toEqual([approvedGone])
+      })
+    })
+
+    describe('with apply, when the broker refuses one unbind', () => {
+      let plan: PruningPlan | undefined
+      let fake: ReturnType<typeof fakeConnection>
+
+      beforeAll(async () => {
+        fake = fakeConnection(['removed-message'])
+        ;({ plan } = await pruneTransport({}, { apply: true }, fake.connection))
+      })
+
+      it('should still unbind the others, on channels of their own', () => {
+        expect(fake.unbound).toEqual(['removed-external-topic'])
+        expect(fake.channelCount()).toEqual(2)
+        expect(plan?.removed.map(({ name }) => name)).toEqual([
+          'removed-external-topic -> orders'
+        ])
+      })
+
+      it('should report the one that failed, with its error', () => {
+        expect(plan?.failed.map(({ resource }) => resource.name)).toEqual([
+          'removed-message -> orders'
+        ])
+        expect((plan?.failed[0].error as Error).message).toContain(
+          'ACCESS-REFUSED'
+        )
+      })
+    })
+
+    describe('without a management url', () => {
+      let error: unknown
+
+      beforeAll(async () => {
+        ;({ error } = await pruneTransport({ managementUrl: undefined }))
+      })
+
+      it('should fail, saying how to configure it', () => {
+        expect(error).toBeInstanceOf(RabbitMqManagementUrlMissing)
+        expect((error as RabbitMqManagementUrlMissing).help).toContain(
+          'managementUrl'
+        )
+      })
+    })
+
+    describe('a send-only transport', () => {
+      let plan: PruningPlan | undefined
+      let management: IMock<RabbitMqManagementClient>
+
+      beforeAll(async () => {
+        ;({ plan, management } = await pruneTransport(
+          { managementUrl: undefined },
+          { sendOnly: true, apply: true }
+        ))
+      })
+
+      it('should find nothing, without calling the management API', () => {
+        expect(plan?.resources).toEqual([])
+        management.verify(m => m.getQueueBindings(It.isAny()), Times.never())
       })
     })
   })
