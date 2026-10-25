@@ -15,7 +15,8 @@ import { BusClassNotProvided } from './error'
  * Singleton providers are resolved with `moduleRef.get()`. Request-scoped and transient providers, and providers
  * that depend on them, are resolved with `moduleRef.resolve()` in a request scope of their own for each delivery of
  * a message, shared by every handler and workflow that handles it, with the message and its attributes registered
- * as Nest's `REQUEST` (see `BusRequest`). A retry of the message is a new delivery, so it gets a new scope.
+ * as Nest's `REQUEST` (see `BusRequest`). A retry of the message is a new delivery, so it gets a new scope. Called
+ * directly without a `transportMessage`, each `get` gets a fresh scope.
  * @param moduleRef a `ModuleRef` from the application, which finds providers in any of its modules
  * @returns the adapter, for `withContainer()`
  * @throws BusClassNotProvided from `get`, when the class isn't a provider in the application

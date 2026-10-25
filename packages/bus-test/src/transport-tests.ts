@@ -97,6 +97,8 @@ export const transportTests = (
   let poisonedMessageReceiptAttempts = 0
   const poisonedMessageAttemptAttributes: MessageAttributes[] = []
   const poisonedMessageFailedAttempts: number[] = []
+  // The transport message of each delivery of the poisoned message, as the bus got it from the transport
+  const poisonedTransportMessages: object[] = []
   let unrecoverableMessageReceiptAttempts = 0
   let failMessageReceiptAttempts = 0
   let bus: BusInstance
@@ -172,6 +174,14 @@ export const transportTests = (
             throw new TestUnrecoverableError(message.id)
           })
         )
+        .withMiddleware({
+          incoming: async (context, next) => {
+            if (context.message.$name === TestPoisonedMessage.NAME) {
+              poisonedTransportMessages.push(context.transportMessage)
+            }
+            await next()
+          }
+        })
         .withRecoverability(
           defaultRecoverability({
             maxAttempts: MAX_ATTEMPTS,
@@ -432,6 +442,13 @@ export const transportTests = (
         expect(poisonedMessageFailedAttempts).toEqual(
           Array.from({ length: MAX_ATTEMPTS }, (_, attempt) => attempt)
         )
+      })
+
+      it('should read each delivery as a different transport message', () => {
+        expect(poisonedTransportMessages).toHaveLength(MAX_ATTEMPTS)
+        const [first, ...retries] = poisonedTransportMessages
+        retries.forEach(retry => expect(retry).not.toBe(first))
+        expect(new Set(poisonedTransportMessages).size).toEqual(MAX_ATTEMPTS)
       })
 
       it('should dead-letter it once it has been attempted maxAttempts times', () => {
