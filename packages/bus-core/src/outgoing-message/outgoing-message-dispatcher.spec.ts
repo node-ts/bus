@@ -284,12 +284,18 @@ describe('OutgoingMessageDispatcher', () => {
 
   describe('when it is stopped after a send timed out', () => {
     const slow = outgoingMessage('slow')
-    let stopTookMs: number
+    let finishSend: () => void
+    let stoppedWhileSendPending: boolean
+    let stoppedAfterSendFinished: boolean
 
     beforeAll(async () => {
       createSut({ sendTimeoutMs: 100 })
       claims([slow])
-      sender.setup(async s => s.send(slow)).returns(async () => sleep(150))
+      // The send only finishes when the test releases it, so nothing here depends on how long anything takes
+      const sendFinished = new Promise<void>(resolve => {
+        finishSend = resolve
+      })
+      sender.setup(async s => s.send(slow)).returns(async () => sendFinished)
       sut.start()
       await until(() => {
         try {
@@ -303,14 +309,20 @@ describe('OutgoingMessageDispatcher', () => {
           return false
         }
       })
-      const stopping = Date.now()
-      await sut.stop()
-      stopTookMs = Date.now() - stopping
+      let stopped = false
+      const stopping = sut.stop().then(() => {
+        stopped = true
+      })
+      await new Promise(resolve => setImmediate(resolve))
+      stoppedWhileSendPending = stopped
+      finishSend()
+      await stopping
+      stoppedAfterSendFinished = stopped
     })
 
     it('should wait for the send that timed out to finish', () => {
-      expect(stopTookMs).toBeGreaterThanOrEqual(30)
-      expect(stopTookMs).toBeLessThan(100)
+      expect(stoppedWhileSendPending).toEqual(false)
+      expect(stoppedAfterSendFinished).toEqual(true)
     })
   })
 
