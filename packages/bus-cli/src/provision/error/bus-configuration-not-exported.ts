@@ -1,6 +1,6 @@
 /**
- * Thrown by `bus provision` when the module doesn't export a bus configuration or a built bus, or a function that
- * returns one, under the export it was told to use
+ * Thrown by `bus provision` and `bus prune` when the module doesn't export a bus configuration or a built bus, or a
+ * function that returns one, under the export it was told to use
  */
 export class BusConfigurationNotExported extends Error {
   readonly help: string

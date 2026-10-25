@@ -5,7 +5,7 @@ import {
   MessageAttributes
 } from '@node-ts/bus-messages'
 import { HandlerRegistry } from '../handler'
-import { ProvisioningPlan } from '../provisioning'
+import { ProvisioningPlan, PruningPlan } from '../provisioning'
 import { MessageFailure } from '../recoverability'
 import { CoreDependencies, Milliseconds } from '../util'
 import { TransportMessage } from './transport-message'
@@ -74,6 +74,40 @@ export interface TransportProvisionOptions {
    * Only work out the plan, without connecting to the broker or changing anything
    */
   dryRun: boolean
+}
+
+/**
+ * What `Transport.prune()` is given: the same as `provision()`, with `apply` instead of `dryRun`
+ */
+export interface TransportPruneOptions {
+  /**
+   * The handler registry that contains all of the message handlers the bus handles now. A subscription or binding of
+   * the service queue to the topic or exchange of anything it handles, including the topics of custom handlers, is
+   * kept.
+   */
+  handlerRegistry: HandlerRegistry
+
+  /**
+   * If the bus only sends, so it has no queue whose subscriptions could be pruned. `bus.prune()` refuses such a bus,
+   * so it's always `false` there.
+   */
+  sendOnly: boolean
+
+  /**
+   * The `$name` of every message the bus handles or has message types for, without workflow state
+   */
+  messageNames: string[]
+
+  /**
+   * Whether the bus may send messages of any type, such as a scheduler. `bus.prune()` refuses a scheduler, so it's
+   * always `false` there.
+   */
+  sendsAnyMessage: boolean
+
+  /**
+   * Removes what's found. Without it, the transport only reports what it would remove, with read-only calls.
+   */
+  apply: boolean
 }
 
 export interface TransportConnectionOptions {
@@ -271,6 +305,21 @@ export interface Transport<TransportMessageType = {}> {
    * const plan = await transport.provision({ handlerRegistry, sendOnly: false, messageNames, dryRun: true })
    */
   provision?(options: TransportProvisionOptions): Promise<ProvisioningPlan>
+
+  /**
+   * Finds the subscriptions or bindings of the service queue to topics or exchanges the bus no longer handles, such
+   * as after a handler was removed, and with `apply`, removes them. It's run with deploy credentials by
+   * `bus.prune()` (and `bus prune` from @node-ts/bus-cli), after `connect()`, once a new version of a service is
+   * rolled out, since the old version still needs them until then.
+   *
+   * Only consider what's attached to the bus' own queue, never another service's, and only what's shaped like what
+   * `provision()` creates. Never delete topics, exchanges or queues: other services may still send to them.
+   * @param options the messages the bus handles and sends, and whether to remove what's found
+   * @returns what the transport found, and whether it removed it
+   * @example
+   * const plan = await transport.prune({ handlerRegistry, sendOnly: false, messageNames, sendsAnyMessage: false, apply: false })
+   */
+  prune?(options: TransportPruneOptions): Promise<PruningPlan>
 
   /**
    * An optional function that will be called when the service bus is shutting down. This is an

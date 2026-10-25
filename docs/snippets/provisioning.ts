@@ -58,6 +58,25 @@ const provisionFromCode = async () => {
   // #endregion provision
 }
 
+const pruneFromCode = async () => {
+  // #region prune
+  const bus = busConfiguration().build()
+  try {
+    // Only reports what the bus no longer needs. Pass { apply: true } to remove it.
+    const plans = await bus.prune()
+    for (const { adapter, resources } of plans) {
+      console.log(
+        adapter,
+        resources.map(resource => resource.name)
+      )
+    }
+  } finally {
+    // prune() connects, but doesn't initialize or start the bus
+    await bus.dispose()
+  }
+  // #endregion prune
+}
+
 const startWithoutVerification = async () => {
   // #region skip-verification
   // The service's credentials can't describe its resources, so don't check them
@@ -66,4 +85,10 @@ const startWithoutVerification = async () => {
   // #endregion skip-verification
 }
 
-export { provisionFromCode, start, startLocally, startWithoutVerification }
+export {
+  provisionFromCode,
+  pruneFromCode,
+  start,
+  startLocally,
+  startWithoutVerification
+}

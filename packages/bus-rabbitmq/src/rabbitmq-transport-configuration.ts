@@ -9,6 +9,14 @@ export interface RabbitMqTransportConfiguration extends TransportConfiguration {
   connectionString: string
 
   /**
+   * The URL of RabbitMQ's management API, which `bus prune` (`bus.prune()`) needs to list the bindings of the service
+   * queue, since AMQP can't. Its user and vhost come from `connectionString`, unless the URL has a user of its own.
+   * The user needs the management tag and access to the vhost. Nothing else uses it.
+   * @example http://rabbitmq:15672
+   */
+  managementUrl?: string
+
+  /**
    * Whether messages are sent as persistent, so they survive a broker restart. Transient messages are
    * lost when the broker restarts, so set this to `true` in production.
    * @default false

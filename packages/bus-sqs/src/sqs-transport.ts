@@ -4,10 +4,14 @@ import {
   CreateTopicCommand,
   ListSubscriptionsByTopicCommand,
   ListSubscriptionsByTopicResponse,
+  ListSubscriptionsCommand,
+  ListSubscriptionsResponse,
   MessageAttributeValue,
   PublishCommand,
   SNSClient,
-  SubscribeCommand
+  SubscribeCommand,
+  Subscription,
+  UnsubscribeCommand
 } from '@aws-sdk/client-sns'
 import {
   ChangeMessageVisibilityCommand,
@@ -32,7 +36,9 @@ import {
   JsonValue,
   Logger,
   MessageFailure,
+  ProvisionedResource,
   ProvisioningPlan,
+  PruningPlan,
   ResourcesNotProvisioned,
   toFailureHeader,
   Transport,
@@ -41,6 +47,7 @@ import {
   TransportInitializationOptions,
   TransportMessage,
   TransportProvisionOptions,
+  TransportPruneOptions,
   TransportSendOptions
 } from '@node-ts/bus-core'
 import {
@@ -131,8 +138,8 @@ interface SqsResources {
 }
 
 /**
- * The most SNS and SQS calls `initialize()` makes at once when it checks resources exist, to stay clear of
- * throttling
+ * The most SNS and SQS calls `initialize()` makes at once when it checks resources exist, and `prune()` when it
+ * unsubscribes, to stay clear of throttling
  */
 const VERIFY_CONCURRENCY = 10
 
@@ -776,6 +783,122 @@ export class SqsTransport implements Transport<SQSMessage> {
     )
     await this.syncQueueAttributes(this.queueUrl, serviceQueue.attributes)
     return plan
+  }
+
+  /**
+   * Finds the subscriptions of the service queue to topics the bus no longer handles, such as the topic of a message
+   * whose handler was removed, or of a custom handler that's gone, and with `apply`, unsubscribes the queue from them.
+   * Only subscriptions whose endpoint is this transport's own queue are considered, so other queues' subscriptions to
+   * the same topics are left as they are. Topics, queues and the queue policy are never changed or deleted.
+   *
+   * SNS has no call that lists a queue's subscriptions, so it reads every page of `ListSubscriptions`, which covers
+   * the account and region. It needs `sns:ListSubscriptions` on `*`, and with `apply`, `sns:Unsubscribe` on the topics
+   * it unsubscribes from. A subscription still pending confirmation can't be removed, so it's skipped with a warning.
+   * @param options the messages the bus handles, and whether to remove what's found
+   * @returns the subscriptions the bus no longer needs, and whether they were removed
+   */
+  async prune(options: TransportPruneOptions): Promise<PruningPlan> {
+    // A send-only transport has no queue, so nothing is subscribed to anything
+    if (options.sendOnly) {
+      return { adapter: 'SqsTransport', resources: [], removed: false }
+    }
+    this.resolveResourceNames(options.sendOnly)
+    const { subscriptions } = this.planResources(options)
+    const neededTopicArns = new Set(
+      subscriptions.map(({ topicArn }) => topicArn)
+    )
+    const orphaned = (await this.listQueueSubscriptions(this.queueArn)).filter(
+      ({ TopicArn }) => !neededTopicArns.has(TopicArn!)
+    )
+    const pending = orphaned.filter(
+      ({ SubscriptionArn }) => !SubscriptionArn?.startsWith('arn:')
+    )
+    if (pending.length) {
+      this.logger.warn(
+        "Skipping subscriptions of the queue that aren't confirmed, since they can't be removed until they are",
+        { topicArns: pending.map(({ TopicArn }) => TopicArn) }
+      )
+    }
+    const removable = orphaned.filter(({ SubscriptionArn }) =>
+      SubscriptionArn?.startsWith('arn:')
+    )
+    const plan: PruningPlan = {
+      adapter: 'SqsTransport',
+      resources: removable.map(
+        ({ TopicArn, SubscriptionArn }): ProvisionedResource => ({
+          type: 'sns-subscription',
+          name: `${TopicArn} -> ${this.queueArn}`,
+          properties: {
+            topicArn: TopicArn!,
+            protocol: 'sqs',
+            endpoint: this.queueArn,
+            subscriptionArn: SubscriptionArn!
+          }
+        })
+      ),
+      removed: options.apply
+    }
+    if (!options.apply) {
+      return plan
+    }
+
+    this.logger.info('Removing subscriptions the bus no longer needs', {
+      queueArn: this.queueArn,
+      subscriptions: removable.length
+    })
+    await mapWithConcurrency(
+      removable,
+      VERIFY_CONCURRENCY,
+      async ({ TopicArn, SubscriptionArn }) =>
+        this.unsubscribe(TopicArn!, SubscriptionArn!)
+    )
+    return plan
+  }
+
+  /**
+   * Lists the SNS subscriptions whose endpoint is a queue, reading every page of `ListSubscriptions`
+   */
+  private async listQueueSubscriptions(
+    queueArn: string
+  ): Promise<Subscription[]> {
+    const subscriptions: Subscription[] = []
+    let nextToken: string | undefined = undefined
+    do {
+      const response: ListSubscriptionsResponse = await this.sns.send(
+        new ListSubscriptionsCommand({ NextToken: nextToken })
+      )
+      subscriptions.push(
+        ...(response.Subscriptions ?? []).filter(
+          subscription =>
+            subscription.Protocol === 'sqs' &&
+            subscription.Endpoint === queueArn
+        )
+      )
+      nextToken = response.NextToken
+    } while (nextToken)
+    return subscriptions
+  }
+
+  /**
+   * Removes a subscription. One that's already gone is left as it is.
+   */
+  private async unsubscribe(
+    topicArn: string,
+    subscriptionArn: string
+  ): Promise<void> {
+    this.logger.info('Unsubscribing sqs queue from sns topic', {
+      serviceQueueArn: this.queueArn,
+      topicArn
+    })
+    try {
+      await this.sns.send(
+        new UnsubscribeCommand({ SubscriptionArn: subscriptionArn })
+      )
+    } catch (error) {
+      if (!isTopicMissing(error)) {
+        throw error
+      }
+    }
   }
 
   /**

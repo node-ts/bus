@@ -79,7 +79,13 @@ import {
   OutgoingMessageDispatcher,
   PeriodicTask
 } from '../outgoing-message/outgoing-message-dispatcher'
-import { ProvisioningPlan, ProvisionOptions } from '../provisioning'
+import {
+  ProvisioningPlan,
+  ProvisionOptions,
+  PruneOptions,
+  PruneRefused,
+  PruningPlan
+} from '../provisioning'
 import {
   ReceivedMessageFailure,
   ReceivedMessageReturnedToQueue,
@@ -703,6 +709,78 @@ export class BusInstance<TTransportMessage = {}> implements BusSender {
       }
     )
     return plans
+  }
+
+  /**
+   * Finds what the bus' transport has on the broker that its configuration no longer needs, such as a subscription
+   * or binding of its queue to the topic or exchange of a message it stopped handling, and with `apply`, removes it.
+   * Only what's attached to the bus' own queue is considered, never another service's, and no topic, exchange or
+   * queue is ever deleted. It's worked out from the bus' handlers, workflows and custom handlers.
+   *
+   * Run it with deploy credentials once a new version of a service is rolled out, since the old version still needs
+   * what it handled until then, usually through `bus prune` from @node-ts/bus-cli. Provisioning the old version
+   * again restores what was removed. It doesn't initialize or start the bus, so call `dispose()` when it's done.
+   * @param options with `apply`, removes what's found, and with `allowEmpty`, prunes a bus that handles nothing
+   * @returns what each transport that prunes found, and whether it was removed. It's empty when the transport
+   * doesn't implement `prune()`.
+   * @throws PruneRefused if the bus is send-only or a scheduler, handles no message through a topic or exchange and
+   * `allowEmpty` isn't set, or has a custom handler without a `topicIdentifier`, whose subscription was made by hand
+   * @throws the transport's own error if it can't list or remove something, such as when a permission is missing
+   * @example
+   * const bus = Bus.configure().withTransport(transport).withHandler(orderPlacedHandler).build()
+   * try {
+   *   const [plan] = await bus.prune()
+   *   console.log(plan?.resources)
+   * } finally {
+   *   await bus.dispose()
+   * }
+   */
+  async prune(options: PruneOptions = {}): Promise<PruningPlan[]> {
+    const apply = options.apply ?? false
+    if (this.sendOnly || this.scheduler) {
+      throw new PruneRefused(
+        this.transport.endpointName,
+        this.sendOnly ? 'send-only' : 'scheduler'
+      )
+    }
+    await this.registerWorkflows()
+    const handlesNothing =
+      this.handlerRegistry.getMessageNames().length === 0 &&
+      this.handlerRegistry.getExternallyManagedTopicIdentifiers().length === 0
+    if (handlesNothing && !options.allowEmpty) {
+      throw new PruneRefused(this.transport.endpointName, 'handles-nothing')
+    }
+    // Its queue was subscribed by hand, to a topic the bus doesn't know, so that subscription would look orphaned
+    if (
+      this.handlerRegistry
+        .getResolvers()
+        .some(({ topicIdentifier }) => !topicIdentifier)
+    ) {
+      throw new PruneRefused(
+        this.transport.endpointName,
+        'custom-handler-without-topic'
+      )
+    }
+    if (!this.transport.prune) {
+      return []
+    }
+
+    this.logger.info(
+      apply ? 'Pruning resources...' : 'Finding resources to prune'
+    )
+    await this.connectTransport()
+    const plan = await this.transport.prune({
+      handlerRegistry: this.handlerRegistry,
+      sendOnly: false,
+      messageNames: this.getMessageNames(),
+      sendsAnyMessage: false,
+      apply
+    })
+    this.logger.info(apply ? 'Resources pruned' : 'Resources to prune found', {
+      adapter: plan.adapter,
+      resources: plan.resources.length
+    })
+    return [plan]
   }
 
   /**

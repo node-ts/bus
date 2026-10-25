@@ -8,6 +8,7 @@ import {
   Milliseconds,
   ProvisionedResource,
   ProvisioningPlan,
+  PruningPlan,
   ResourcesNotProvisioned,
   toFailureHeader,
   Transport,
@@ -17,6 +18,7 @@ import {
   TransportInitializationOptions,
   TransportMessage,
   TransportProvisionOptions,
+  TransportPruneOptions,
   TransportSendOptions
 } from '@node-ts/bus-core'
 import {
@@ -41,9 +43,14 @@ import { randomUUID } from 'node:crypto'
 import { serializeError } from 'serialize-error'
 import {
   RabbitMqConnectionRecoveryFailed,
+  RabbitMqManagementUrlMissing,
   RabbitMqResourceCheckRefused
 } from './error'
 import { RabbitMqConnectionRecoveryConfiguration } from './rabbitmq-connection-recovery-configuration'
+import {
+  RabbitMqManagementBinding,
+  RabbitMqManagementClient
+} from './rabbitmq-management-client'
 import { RabbitMqTransportConfiguration } from './rabbitmq-transport-configuration'
 import { MAX_RETRY_DELAY, toRetryDelay, toRetryQueueDelay } from './retry-delay'
 
@@ -367,6 +374,129 @@ export class RabbitMqTransport implements Transport<RabbitMqMessage> {
     // Declared again if the channel is reopened, in case the broker lost them
     this.provisionedTopology = topology
     return plan
+  }
+
+  /**
+   * Finds the bindings of the service queue to exchanges the bus no longer handles, such as the exchange of a message
+   * whose handler was removed, or of a custom handler that's gone, and with `apply`, unbinds them. Only bindings shaped
+   * like those `provision()` makes are considered: from a fanout exchange to the service queue, with an empty routing
+   * key and no arguments. Bindings from the default exchange and the queue's own `<queue>` exchange, and those of other
+   * queues, are left as they are, and no exchange or queue is ever deleted.
+   *
+   * AMQP can't list bindings, so they're read from the management API at `managementUrl`
+   * (`GET /api/queues/{vhost}/{queue}/bindings`, and `GET /api/exchanges/{vhost}/{exchange}` for each exchange's
+   * type), which needs a user with the management tag and access to the vhost. They're removed over AMQP, which
+   * needs `write` permission on the service queue and `read` on the exchanges.
+   * @param options the messages the bus handles, and whether to remove what's found
+   * @returns the bindings the bus no longer needs, and whether they were removed
+   * @throws RabbitMqManagementUrlMissing if the transport isn't configured with a `managementUrl`
+   * @throws RabbitMqManagementRequestFailed if the management API can't be reached or refuses a request
+   */
+  async prune(options: TransportPruneOptions): Promise<PruningPlan> {
+    const plan: PruningPlan = {
+      adapter: 'RabbitMqTransport',
+      resources: [],
+      removed: false
+    }
+    // A send-only transport has no queue, so nothing is bound to anything
+    if (options.sendOnly) {
+      return plan
+    }
+    const { managementUrl, connectionString, queueName } = this.configuration
+    if (!managementUrl) {
+      throw new RabbitMqManagementUrlMissing(queueName)
+    }
+    const management = this.createManagementClient(
+      managementUrl,
+      connectionString
+    )
+    const handledExchanges = new Set(
+      this.planTopology(options).handledExchanges
+    )
+    const bindings = await management.getQueueBindings(queueName)
+    if (!bindings) {
+      this.logger.warn(
+        "The service queue doesn't exist on the vhost of connectionString, so it has no bindings to prune",
+        { queueName }
+      )
+      return plan
+    }
+    const candidates = bindings.filter(
+      binding =>
+        this.isBusShapedBinding(binding) &&
+        !handledExchanges.has(binding.source)
+    )
+    const exchanges = await Promise.all(
+      candidates.map(async ({ source }) => management.getExchange(source))
+    )
+    const orphanedExchanges = [
+      ...new Set(
+        candidates
+          .filter((_, index) => exchanges[index]?.type === 'fanout')
+          .map(({ source }) => source)
+      )
+    ]
+
+    plan.resources = orphanedExchanges.map(exchange => ({
+      type: 'rabbitmq-binding',
+      name: `${exchange} -> ${queueName}`,
+      properties: { exchange, queue: queueName, routingKey: '' }
+    }))
+    plan.removed = options.apply
+    if (!options.apply || !orphanedExchanges.length) {
+      return plan
+    }
+
+    this.logger.info('Removing bindings the bus no longer needs', {
+      queueName,
+      exchanges: orphanedExchanges
+    })
+    // A channel of its own, since the broker closes it if an unbind is refused
+    const channel = await this.connection!.createChannel()
+    channel.on('error', error =>
+      this.logger.warn('RabbitMQ channel error while pruning', {
+        error: serializeError(error)
+      })
+    )
+    try {
+      for (const exchange of orphanedExchanges) {
+        this.logger.info('Unbinding exchange from queue', {
+          exchange,
+          queueName
+        })
+        await channel.unbindQueue(queueName, exchange, '')
+      }
+    } finally {
+      await channel.close().catch(() => undefined)
+    }
+    return plan
+  }
+
+  /**
+   * Creates the client of the management API that `prune()` lists bindings with
+   * @param managementUrl the URL of the management API
+   * @param connectionString the AMQP URL, for the vhost, and the credentials unless `managementUrl` has its own
+   */
+  protected createManagementClient(
+    managementUrl: string,
+    connectionString: string
+  ): RabbitMqManagementClient {
+    return new RabbitMqManagementClient(managementUrl, connectionString)
+  }
+
+  /**
+   * Whether a binding is to the service queue, and shaped like those `provision()` makes from a message's exchange:
+   * from a named exchange other than the queue's own, with an empty routing key and no arguments
+   */
+  private isBusShapedBinding(binding: RabbitMqManagementBinding): boolean {
+    return (
+      binding.destination_type === 'queue' &&
+      binding.destination === this.configuration.queueName &&
+      binding.source !== DEFAULT_EXCHANGE &&
+      binding.source !== this.serviceQueueExchange &&
+      binding.routing_key === '' &&
+      Object.keys(binding.arguments ?? {}).length === 0
+    )
   }
 
   async disconnect(): Promise<void> {

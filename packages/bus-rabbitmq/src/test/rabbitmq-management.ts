@@ -64,3 +64,22 @@ export const getQueues = async (
   const queues = await request<ManagementQueue[]>('/queues/%2F')
   return queues.filter(q => q.name.startsWith(namePrefix))
 }
+
+/**
+ * A binding as listed by the management API
+ */
+export interface ManagementBinding {
+  source: string
+  routing_key: string
+  arguments: Record<string, unknown>
+}
+
+/**
+ * Lists the bindings of a queue on the default vhost
+ */
+export const getQueueBindings = async (
+  queueName: string
+): Promise<ManagementBinding[]> =>
+  request<ManagementBinding[]>(
+    `/queues/%2F/${encodeURIComponent(queueName)}/bindings`
+  )

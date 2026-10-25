@@ -3,6 +3,7 @@ import {
   runGenerateMessageTypes
 } from './generate-message-types/run-generate-message-types'
 import { runProvision } from './provision/run-provision'
+import { runPrune } from './prune/run-prune'
 
 type Command = (
   args: string[],
@@ -12,7 +13,8 @@ type Command = (
 
 const COMMANDS: { [name: string]: Command } = {
   'generate-message-types': runGenerateMessageTypes,
-  provision: runProvision
+  provision: runProvision,
+  prune: runPrune
 }
 
 const USAGE = `Usage: bus <command> [options]
@@ -20,6 +22,7 @@ const USAGE = `Usage: bus <command> [options]
 Commands:
   generate-message-types  Generate the runtime types of messages, so Dates and class instances are restored
   provision               Create the queues, topics, tables and indexes a bus needs, at deploy time
+  prune                   Find and remove the subscriptions and bindings a bus no longer needs, after a rollout
 
 Run \`bus <command> --help\` for a command's options.`
 
