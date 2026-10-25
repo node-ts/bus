@@ -2,7 +2,7 @@ import { Command, Event, MessageAttributes } from '@node-ts/bus-messages'
 import { randomUUID } from 'node:crypto'
 import { Bus, BusInstance } from '../service-bus'
 import { messageTypesFor } from '../test'
-import { sleep } from '../util'
+import { InMemoryQueue } from '../transport'
 import { MessageWorkflowMapping } from './message-workflow-mapping'
 import { InMemoryPersistence } from './persistence'
 import { Workflow, WorkflowMapper } from './workflow'
@@ -169,7 +169,7 @@ describe('Workflow', () => {
   const event = new AssignmentCreated('abc')
   let bus: BusInstance
 
-  const CONSUME_TIMEOUT = 2000
+  const queue = new InMemoryQueue()
   const inMemoryPersistence = new InMemoryPersistence()
 
   beforeAll(async () => {
@@ -186,6 +186,7 @@ describe('Workflow', () => {
           'assignment-workflow-state'
         )
       )
+      .withTransport(queue)
       .withPersistence(inMemoryPersistence)
       .withContainer({
         get: type => new type(bus)
@@ -196,7 +197,7 @@ describe('Workflow', () => {
     await bus.initialize()
     await bus.start()
     await bus.send(event)
-    await sleep(CONSUME_TIMEOUT)
+    await queue.idle()
   })
 
   afterAll(async () => {
@@ -242,7 +243,7 @@ describe('Workflow', () => {
 
       beforeAll(async () => {
         await bus.publish(assignmentAssigned)
-        await sleep(CONSUME_TIMEOUT)
+        await queue.idle()
 
         startedWorkflowState = await inMemoryPersistence.getWorkflowState(
           AssignmentWorkflowState,
@@ -267,7 +268,7 @@ describe('Workflow', () => {
           await bus.publish(assignmentReassigned, {
             correlationId: startedWorkflowState[0].$workflowId
           })
-          await sleep(CONSUME_TIMEOUT)
+          await queue.idle()
 
           nextWorkflowState = await inMemoryPersistence.getWorkflowState(
             AssignmentWorkflowState,
@@ -290,7 +291,7 @@ describe('Workflow', () => {
             await bus.publish(finalTask, {
               correlationId: nextWorkflowState[0].$workflowId
             })
-            await sleep(CONSUME_TIMEOUT)
+            await queue.idle()
 
             finalWorkflowState = await inMemoryPersistence.getWorkflowState(
               AssignmentWorkflowState,
