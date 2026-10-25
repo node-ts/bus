@@ -11,7 +11,8 @@ const config: Config = {
     '!**/dist/**',
     '!**/bus-messages/**',
     '!**/error/*',
-    '!docs/**'
+    '!docs/**',
+    '!packages/create-bus-app/template/**'
   ],
   testRegex: '(src\\/.+\\.|/)(integration|spec)\\.ts$',
   testEnvironment: 'node',
@@ -23,7 +24,9 @@ const config: Config = {
     'node_modules/',
     'dist/',
     '<rootDir>/docs/',
-    '<rootDir>/.claude/'
+    '<rootDir>/.claude/',
+    // The app create-bus-app creates, whose tests run with node --test
+    '<rootDir>/packages/create-bus-app/template/'
   ],
   transform: {
     '^.+\\.tsx?$': [

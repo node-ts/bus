@@ -1,0 +1,14 @@
+{
+  "label": "RabbitMQ",
+  "description": "exchanges and queues on a RabbitMQ broker",
+  "order": 2,
+  "dependencies": ["@node-ts/bus-rabbitmq"],
+  "services": { "rabbitmq": "compose.rabbitmq.yaml" },
+  "env": [
+    {
+      "name": "RABBITMQ_URL",
+      "local": "amqp://guest:guest@localhost:5672",
+      "compose": "amqp://guest:guest@rabbitmq:5672"
+    }
+  ]
+}

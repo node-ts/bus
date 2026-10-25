@@ -38,8 +38,13 @@ export default tseslint.config(
     files: ['**/*.ts', '**/*.mts'],
     languageOptions: {
       parserOptions: {
-        // The docs have their own tsconfig, with the snippets and the VitePress config
-        project: ['./tsconfig.eslint.json', './docs/tsconfig.json'],
+        // The docs have their own tsconfig, with the snippets and the VitePress
+        // config, and so does create-bus-app's template, which is ESM
+        project: [
+          './tsconfig.eslint.json',
+          './docs/tsconfig.json',
+          './packages/create-bus-app/template/tsconfig.json'
+        ],
         tsconfigRootDir: import.meta.dirname
       }
     },
@@ -47,6 +52,25 @@ export default tseslint.config(
       '@typescript-eslint/await-thenable': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error'
+    }
+  },
+  {
+    // The template's tests run with node:test, whose describe and it return
+    // promises that the runner awaits
+    files: ['packages/create-bus-app/template/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        {
+          allowForKnownSafeCalls: [
+            {
+              from: 'package',
+              package: 'node:test',
+              name: ['describe', 'it', 'suite', 'test']
+            }
+          ]
+        }
+      ]
     }
   },
   prettier

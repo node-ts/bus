@@ -26,6 +26,12 @@
       "rangeStrategy": "widen"
     },
     {
+      "description": "LocalStack images after 3 need an auth token, so the compose files and CI stay on 3",
+      "matchPackageNames": ["localstack/localstack"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "groupName": "AWS SDK",
       "matchPackageNames": ["@aws-sdk/**"]
     },

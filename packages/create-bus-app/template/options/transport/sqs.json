@@ -1,0 +1,23 @@
+{
+  "label": "Amazon SQS",
+  "description": "SQS queues and SNS topics, with LocalStack in development",
+  "order": 3,
+  "dependencies": [
+    "@node-ts/bus-sqs",
+    "@aws-sdk/client-sns",
+    "@aws-sdk/client-sqs"
+  ],
+  "services": { "localstack": "compose.localstack.yaml" },
+  "env": [
+    { "name": "AWS_REGION", "local": "us-east-1" },
+    { "name": "AWS_ACCOUNT_ID", "local": "000000000000" },
+    { "name": "AWS_ACCESS_KEY_ID", "local": "test" },
+    { "name": "AWS_SECRET_ACCESS_KEY", "local": "test" },
+    {
+      "name": "AWS_ENDPOINT_URL",
+      "local": "http://localhost:4566",
+      "compose": "http://localstack:4566",
+      "comment": "LocalStack. Remove it to use AWS."
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "create-bus-app-template",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The app that @node-ts/create-bus-app scaffolds. Its dependencies are every option's: the scaffolder keeps the chosen ones.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "prebuild": "bus generate-message-types",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "provision": "bus provision dist/bus-configuration.js",
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
+    "test:integration": "tsc && node --test --test-concurrency=1 \"dist/**/*.integration.js\"",
+    "generate:message-types": "bus generate-message-types",
+    "check:message-types": "bus generate-message-types --check"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sns": "^3.1142.0",
+    "@aws-sdk/client-sqs": "^3.1142.0",
+    "@node-ts/bus-core": "workspace:^",
+    "@node-ts/bus-messages": "workspace:^",
+    "@node-ts/bus-mongodb": "workspace:^",
+    "@node-ts/bus-postgres": "workspace:^",
+    "@node-ts/bus-rabbitmq": "workspace:^",
+    "@node-ts/bus-redis": "workspace:^",
+    "@node-ts/bus-sqs": "workspace:^",
+    "redis": "^6.3.0"
+  },
+  "devDependencies": {
+    "@node-ts/bus-cli": "workspace:^",
+    "@tsconfig/node24": "^24.0.5",
+    "@types/node": "^24.19.0",
+    "typescript": "^6.0.3"
+  }
+}

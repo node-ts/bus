@@ -1,0 +1,51 @@
+{
+  "name": "@node-ts/create-bus-app",
+  "version": "0.0.0",
+  "description": "Creates a TypeScript service on @node-ts/bus, with a transport, persistence, tests, docker compose and a Dockerfile: npm create @node-ts/bus-app",
+  "homepage": "https://node-ts.github.io/bus/getting-started/create-app",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "type": "commonjs",
+  "bin": {
+    "create-bus-app": "./bin.mjs"
+  },
+  "files": [
+    "dist",
+    "template",
+    "!template/dist",
+    "!template/node_modules",
+    "bin.mjs",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/node-ts/bus.git",
+    "directory": "packages/create-bus-app"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc && node tools/write-versions.mjs",
+    "build:watch": "pnpm run build --incremental --watch --preserveWatchOutput"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/node-ts/bus/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "typescript": "^6.0.3"
+  },
+  "keywords": [
+    "create",
+    "scaffold",
+    "template",
+    "esb",
+    "bus",
+    "messaging",
+    "typescript"
+  ]
+}

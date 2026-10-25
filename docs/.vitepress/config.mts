@@ -28,6 +28,7 @@ const gettingStarted: DefaultTheme.SidebarItem[] = [
   {
     text: 'Getting started',
     items: [
+      { text: 'Creating an app', link: '/getting-started/create-app' },
       { text: 'Installation', link: '/getting-started/installation' },
       { text: 'Handling messages', link: '/getting-started/handling-messages' },
       { text: 'Shutting down cleanly', link: '/getting-started/shutting-down' }

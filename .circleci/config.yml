@@ -96,6 +96,156 @@ jobs:
           paths:
             - .
 
+  create-bus-app:
+    # Creates apps with create-bus-app, depending on the packages packed as
+    # they'd be published (nothing 2.x is on npm yet), then installs, builds
+    # and tests them against secondary containers, as a new user would.
+    working_directory: ~/repo
+    docker:
+      - image: node:24.11.1
+        environment:
+          # Packed packages the apps depend on instead of the published ones
+          CREATE_BUS_APP_TARBALLS: /tmp/tarballs
+          # The apps' settings. Secondary containers share the primary's network.
+          DATABASE_URL: postgres://postgres:password@127.0.0.1:5432/postgres
+          RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672
+          REDIS_URL: redis://127.0.0.1:6379
+          MONGODB_URL: mongodb://127.0.0.1:27017/?directConnection=true
+          AWS_ENDPOINT_URL: http://127.0.0.1:4566
+          AWS_REGION: us-east-1
+          AWS_ACCOUNT_ID: '000000000000'
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+      - image: rabbitmq:3-management
+      - image: localstack/localstack:3
+        environment:
+          SERVICES: sqs,sns
+      - image: postgres:16
+        environment:
+          POSTGRES_PASSWORD: password
+      - image: mongo:7
+        command: ['--replSet', 'rs0']
+      - image: redis:8
+    steps:
+      # Reuse the workspace from the build job, with the packages built
+      - attach_workspace:
+          at: .
+      - run:
+          name: Install pnpm package manager
+          command: npm install --global pnpm@12.4.1
+      - run:
+          name: Pack the packages
+          command: node tools/pack-packages.mjs "$CREATE_BUS_APP_TARBALLS"
+      - run:
+          name: Create the apps
+          command: |
+            for app in postgres:postgres rabbitmq:postgres sqs:postgres redis:postgres rabbitmq:mongodb; do
+              transport=${app%%:*}
+              persistence=${app##*:}
+              node packages/create-bus-app/bin.mjs "/tmp/apps/library-$transport-$persistence" --transport "$transport" --persistence "$persistence" --yes
+            done
+      - run:
+          name: Wait for the apps' infra
+          command: |
+            wait_for_port() {
+              for i in $(seq 1 60); do
+                node -e "require('net').connect($1, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))" && return 0
+                sleep 2
+              done
+              echo "Timed out waiting for port $1" && return 1
+            }
+            wait_for_port 5672
+            wait_for_port 5432
+            wait_for_port 27017
+            wait_for_port 6379
+            node .circleci/init-mongo-replica-set.mjs
+            for i in $(seq 1 60); do
+              curl -sf http://127.0.0.1:4566/_localstack/health | grep -q '"sqs": "\(available\|running\)"' && break
+              sleep 2
+            done
+            curl -sf http://127.0.0.1:4566/_localstack/health
+      - run:
+          name: Install, build and test the apps with pnpm
+          command: |
+            for app in /tmp/apps/*; do
+              echo "::: $app"
+              cd "$app"
+              # There's no lockfile to keep
+              pnpm install --no-frozen-lockfile
+              pnpm run build
+              pnpm run check:message-types
+              pnpm test
+              pnpm run test:integration
+            done
+      - run:
+          name: Install, build and test an app with npm
+          command: |
+            node packages/create-bus-app/bin.mjs /tmp/npm-app --yes
+            cd /tmp/npm-app
+            npm install
+            npm run build
+            npm run check:message-types
+            npm test
+            npm run test:integration
+
+  create-bus-app-docker:
+    # Checks the compose files create-bus-app writes, and builds and runs the
+    # default app's image, on a machine executor since it needs Docker
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    working_directory: ~/repo
+    environment:
+      CREATE_BUS_APP_TARBALLS: /tmp/tarballs
+    steps:
+      # Reuse the workspace from the build job, with the packages built
+      - attach_workspace:
+          at: .
+      # Each step is a new shell, which starts on the image's own Node.js, so
+      # the steps that need ours switch to it with nvm first
+      - run:
+          name: Install Node.js and pnpm
+          command: |
+            nvm install "$(cat .nvmrc)"
+            npm install --global pnpm@12.4.1
+      - run:
+          name: Pack the packages
+          command: nvm use "$(cat .nvmrc)" && node tools/pack-packages.mjs "$CREATE_BUS_APP_TARBALLS"
+      - run:
+          name: Check the compose files
+          command: |
+            nvm use "$(cat .nvmrc)"
+            for app in postgres:postgres rabbitmq:postgres sqs:postgres redis:postgres rabbitmq:mongodb; do
+              transport=${app%%:*}
+              persistence=${app##*:}
+              dir="/tmp/apps/library-$transport-$persistence"
+              node packages/create-bus-app/bin.mjs "$dir" --transport "$transport" --persistence "$persistence" --yes
+              (cd "$dir" && docker compose --profile app config --quiet)
+            done
+      - run:
+          name: Build the default app's image
+          command: |
+            nvm use "$(cat .nvmrc)"
+            cd /tmp/apps/library-postgres-postgres
+            npm install
+            # The image installs the packed packages, since they aren't published yet
+            sed -i 's#^COPY package.json package-lock.json ./$#&\nCOPY tarballs ./tarballs#' Dockerfile
+            docker build --tag library-postgres-postgres .
+      - run:
+          name: Run the default app in docker compose
+          command: |
+            cd /tmp/apps/library-postgres-postgres
+            docker compose --profile app up --detach --build
+            for i in $(seq 1 60); do
+              docker compose logs app | grep -q 'The bus has started' && break
+              sleep 2
+            done
+            docker compose --profile app ps --all
+            docker compose --profile app logs
+            docker compose logs app | grep 'The bus has started'
+            docker compose --profile app stop app
+            docker compose --profile app ps --all --format '{{.Service}} {{.ExitCode}}' | grep -x 'app 0'
+
   docs:
     <<: *defaults
     steps:
@@ -180,9 +330,17 @@ workflows:
       - docs:
           requires:
             - build
+      - create-bus-app:
+          requires:
+            - build
+      - create-bus-app-docker:
+          requires:
+            - build
       - deploy:
           requires:
             - build
+            - create-bus-app
+            - create-bus-app-docker
           filters:
             branches:
               only:

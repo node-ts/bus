@@ -758,6 +758,61 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/create-bus-app:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.0
+        version: 24.19.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/create-bus-app/template:
+    dependencies:
+      '@aws-sdk/client-sns':
+        specifier: ^3.1142.0
+        version: 3.1142.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.1142.0
+        version: 3.1142.0
+      '@node-ts/bus-core':
+        specifier: workspace:^
+        version: link:../../bus-core
+      '@node-ts/bus-messages':
+        specifier: workspace:^
+        version: link:../../bus-messages
+      '@node-ts/bus-mongodb':
+        specifier: workspace:^
+        version: link:../../bus-mongodb
+      '@node-ts/bus-postgres':
+        specifier: workspace:^
+        version: link:../../bus-postgres
+      '@node-ts/bus-rabbitmq':
+        specifier: workspace:^
+        version: link:../../bus-rabbitmq
+      '@node-ts/bus-redis':
+        specifier: workspace:^
+        version: link:../../bus-redis
+      '@node-ts/bus-sqs':
+        specifier: workspace:^
+        version: link:../../bus-sqs
+      redis:
+        specifier: ^6.3.0
+        version: 6.3.0(@opentelemetry/api@1.9.1)
+    devDependencies:
+      '@node-ts/bus-cli':
+        specifier: workspace:^
+        version: link:../../bus-cli
+      '@tsconfig/node24':
+        specifier: ^24.0.5
+        version: 24.0.5
+      '@types/node':
+        specifier: ^24.19.0
+        version: 24.19.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
 packages:
 
   '@11ty/gray-matter@2.1.0':

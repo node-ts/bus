@@ -1,0 +1,14 @@
+# LocalStack, which stands in for Amazon SQS and SNS in development. It's
+# pinned to 3, since later images need a LocalStack auth token.
+services:
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: sqs,sns
+    ports:
+      - '4566:4566'
+    healthcheck:
+      test: ['CMD', 'curl', '-sf', 'http://localhost:4566/_localstack/health']
+      interval: 2s
+      timeout: 5s
+      retries: 30

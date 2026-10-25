@@ -1,0 +1,15 @@
+{
+  "label": "Postgres",
+  "description": "queues in Postgres tables, with no broker to run",
+  "order": 1,
+  "default": true,
+  "dependencies": ["@node-ts/bus-postgres"],
+  "services": { "postgres": "compose.postgres.yaml" },
+  "env": [
+    {
+      "name": "DATABASE_URL",
+      "local": "postgres://postgres:postgres@localhost:5432/postgres",
+      "compose": "postgres://postgres:postgres@postgres:5432/postgres"
+    }
+  ]
+}

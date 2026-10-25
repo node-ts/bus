@@ -9,6 +9,10 @@ This page installs the bus, generates the message types it uses to restore your 
 
 **@node-ts/bus** needs Node.js 24 or later.
 
+::: tip Starting a new service?
+`npm create @node-ts/bus-app` creates one with a transport, persistence, tests, docker compose and a Dockerfile: see [Creating an app](/getting-started/create-app).
+:::
+
 <Steps>
 
 1. **Install the packages**

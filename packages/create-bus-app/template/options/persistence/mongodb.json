@@ -1,0 +1,14 @@
+{
+  "label": "MongoDB",
+  "description": "workflow state, the outbox and delayed messages in a MongoDB replica set",
+  "order": 2,
+  "dependencies": ["@node-ts/bus-mongodb"],
+  "services": { "mongodb": "compose.mongodb.yaml" },
+  "env": [
+    {
+      "name": "MONGODB_URL",
+      "local": "mongodb://localhost:27017/?directConnection=true",
+      "compose": "mongodb://mongodb:27017/?directConnection=true"
+    }
+  ]
+}
