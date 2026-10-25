@@ -316,8 +316,10 @@ describe('OutgoingMessageDispatcher', () => {
       await new Promise(resolve => setImmediate(resolve))
       stoppedWhileSendPending = stopped
       finishSend()
-      await stopping
+      // Give stop() a turn to notice the send finished; the sendTimeoutMs cap is what it must not wait for
+      await new Promise(resolve => setImmediate(resolve))
       stoppedAfterSendFinished = stopped
+      await stopping
     })
 
     it('should wait for the send that timed out to finish', () => {
@@ -407,6 +409,7 @@ describe('OutgoingMessageDispatcher', () => {
     let claimTimes: number[]
 
     beforeAll(async () => {
+      jest.useFakeTimers()
       createSut({ pauseMs: 20, maxPauseMs: 1_000 })
       claimTimes = []
       let claim = 0
@@ -424,15 +427,21 @@ describe('OutgoingMessageDispatcher', () => {
         .setup(async s => s.send(It.isAny()))
         .returns(async () => Promise.reject(new Error('broker is down')))
       sut.start()
-      await until(() => claimTimes.length >= 6)
+      // On the fake clock, so the gaps are exact: the 20 ms pause plus the wake timer's 1 ms margin. A doubling pause would be 41 ms, then 81 ms
+      await jest.advanceTimersByTimeAsync(300)
       await sut.stop()
     })
 
+    afterAll(() => {
+      jest.useRealTimers()
+    })
+
     it('should not wait any longer between probes', () => {
+      expect(claimTimes.length).toBeGreaterThanOrEqual(6)
       const gaps = claimTimes
         .slice(2)
         .map((time, i) => time - claimTimes[i + 1])
-      expect(Math.max(...gaps)).toBeLessThan(60)
+      expect(Math.max(...gaps)).toBeLessThanOrEqual(21)
     })
   })
 
@@ -440,6 +449,7 @@ describe('OutgoingMessageDispatcher', () => {
     let claimTimes: number[]
 
     beforeAll(async () => {
+      jest.useFakeTimers()
       createSut({
         pollIntervalMs: 10,
         pauseMs: 10,
@@ -459,14 +469,19 @@ describe('OutgoingMessageDispatcher', () => {
         .setup(async s => s.send(It.isAny()))
         .returns(async () => Promise.reject(new Error('bad credentials')))
       sut.start()
-      await until(() => claimTimes.length >= 14)
+      await jest.advanceTimersByTimeAsync(500)
       await sut.stop()
     })
 
+    afterAll(() => {
+      jest.useRealTimers()
+    })
+
     it('should wait longer between probes, up to the longest pause', () => {
+      expect(claimTimes.length).toBeGreaterThanOrEqual(14)
       const gaps = claimTimes.slice(1).map((time, i) => time - claimTimes[i])
-      expect(Math.max(...gaps)).toBeGreaterThanOrEqual(35)
-      expect(Math.max(...gaps)).toBeLessThan(100)
+      // On the fake clock the pause doubles from 10 ms and stops at maxPauseMs (40 ms), plus the wake timer's 1 ms margin
+      expect(Math.max(...gaps)).toEqual(41)
     })
 
     it('should only warn about the first failure and the pause, not every failed probe', () => {
