@@ -15,7 +15,8 @@ export interface Receiver<
 > {
   /**
    * Invoked when a message is received by the application and needs to be converted into a transport message
-   * so that it can be passed to the dispatcher and send to handlers.
+   * so that it can be passed to the dispatcher and send to handlers. Return new transport messages each time, as
+   * `Transport.readNextMessage()` does.
    *
    * @param receivedMessage The message received by the app
    * @param messageSerializer The configured serializer, which can be used to deserialize the incoming message
