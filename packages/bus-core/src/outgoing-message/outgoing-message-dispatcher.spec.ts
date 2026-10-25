@@ -661,33 +661,40 @@ describe('OutgoingMessageDispatcher', () => {
   })
 
   describe('when it is told a message was scheduled before the next poll', () => {
-    let claimTimes: number[]
-    let scheduledAt: number
+    let claimsBeforeDue: number
+    let claimsWhenDue: number
 
     beforeAll(async () => {
+      jest.useFakeTimers()
       createSut()
-      claimTimes = []
+      let claimCount = 0
       store
         .setup(async s =>
           s.claimDueOutgoingMessages(It.isAny(), It.isAny(), It.isAny())
         )
         .returns(async () => {
-          claimTimes.push(Date.now())
+          claimCount++
           return []
         })
       sut.start()
       // Let the first check run, so the dispatcher waits for the next poll
-      await sleep(50)
-      scheduledAt = Date.now() + 200
-      sut.scheduled(new Date(scheduledAt))
-      await sleep(400)
+      await jest.advanceTimersByTimeAsync(50)
+      sut.scheduled(new Date(Date.now() + 200))
+      await jest.advanceTimersByTimeAsync(199)
+      claimsBeforeDue = claimCount
+      // The wake timer is set a millisecond late on purpose, in case a timer fires before the clock reaches its time
+      await jest.advanceTimersByTimeAsync(2)
+      claimsWhenDue = claimCount
       await sut.stop()
     })
 
-    it('should check the store when the message is due', () => {
-      expect(claimTimes.length).toBeGreaterThanOrEqual(2)
-      expect(claimTimes[1]).toBeGreaterThanOrEqual(scheduledAt)
-      expect(claimTimes[1]).toBeLessThan(scheduledAt + 150)
+    afterAll(() => {
+      jest.useRealTimers()
+    })
+
+    it('should check the store when the message is due, and not before', () => {
+      expect(claimsBeforeDue).toEqual(1)
+      expect(claimsWhenDue).toEqual(2)
     })
   })
 
@@ -719,35 +726,55 @@ describe('OutgoingMessageDispatcher', () => {
   })
 
   describe('when it is started with a periodic task', () => {
-    let taskRuns: number[]
-    let startedAt: number
+    const intervalMs = 100
+    const jitterMs = 50
+    let runsBeforeJitterPassed: number
+    let runsAfterJitterPassed: number
+    let runsBeforeIntervalPassed: number
+    let runsAfterIntervalPassed: number
 
     beforeAll(async () => {
-      taskRuns = []
+      // Fake timers and a fixed jitter, so what's asserted doesn't depend on how fast the machine is
+      jest.useFakeTimers()
+      jest.spyOn(Math, 'random').mockReturnValue(0.5)
+      let taskRuns = 0
       createSut(
         { pollIntervalMs: 10 },
         {
           name: 'test task',
-          intervalMs: 100,
-          jitterMs: 50,
+          intervalMs,
+          jitterMs,
           run: async () => {
-            taskRuns.push(Date.now())
+            taskRuns++
           }
         }
       )
       claims()
-      startedAt = Date.now()
       sut.start()
-      await until(() => taskRuns.length >= 2)
+      await jest.advanceTimersByTimeAsync(jitterMs / 2 - 1)
+      runsBeforeJitterPassed = taskRuns
+      await jest.advanceTimersByTimeAsync(1)
+      runsAfterJitterPassed = taskRuns
+      await jest.advanceTimersByTimeAsync(intervalMs - 1)
+      runsBeforeIntervalPassed = taskRuns
+      await jest.advanceTimersByTimeAsync(1 + jitterMs / 2)
+      runsAfterIntervalPassed = taskRuns
       await sut.stop()
     })
 
+    afterAll(() => {
+      jest.restoreAllMocks()
+      jest.useRealTimers()
+    })
+
     it('should run it within its jitter of starting', () => {
-      expect(taskRuns[0] - startedAt).toBeLessThan(50 + 30)
+      expect(runsBeforeJitterPassed).toEqual(0)
+      expect(runsAfterJitterPassed).toEqual(1)
     })
 
     it('should run it again once its interval has passed', () => {
-      expect(taskRuns[1] - taskRuns[0]).toBeGreaterThanOrEqual(100)
+      expect(runsBeforeIntervalPassed).toEqual(1)
+      expect(runsAfterIntervalPassed).toEqual(2)
     })
   })
 
