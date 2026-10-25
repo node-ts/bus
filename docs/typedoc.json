@@ -9,6 +9,7 @@
     "../packages/bus-sqs",
     "../packages/bus-sqs-lambda",
     "../packages/bus-rabbitmq",
+    "../packages/bus-azure-service-bus",
     "../packages/bus-postgres",
     "../packages/bus-redis",
     "../packages/bus-mongodb",

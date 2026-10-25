@@ -79,18 +79,19 @@ A message that was failed with `failMessage()` without anything throwing has a `
 
 <<< @/snippets/recoverability.ts#read-failure
 
-| Transport                            | Where the header is                                                                                                         |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| [RabbitMQ](/transports/rabbitmq)     | an AMQP header on the dead-lettered message                                                                                 |
-| [Amazon SQS](/transports/amazon-sqs) | an SQS message attribute on the dead-lettered message. The SNS envelope in its body, with the message's attributes, is kept |
-| [Redis](/transports/redis)           | a `bus-failure` field of the entry in the queue's dead letter stream                                                        |
-| In-memory queue                      | the dead-lettered message's `raw.headers`                                                                                   |
+| Transport                                          | Where the header is                                                                                                                       |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [RabbitMQ](/transports/rabbitmq)                   | an AMQP header on the dead-lettered message                                                                                               |
+| [Amazon SQS](/transports/amazon-sqs)               | an SQS message attribute on the dead-lettered message. The SNS envelope in its body, with the message's attributes, is kept               |
+| [Azure Service Bus](/transports/azure-service-bus) | an application property on the dead-lettered message, which the service queue forwards to the dead letter queue with its other properties |
+| [Redis](/transports/redis)                         | a `bus-failure` field of the entry in the queue's dead letter stream                                                                      |
+| In-memory queue                                    | the dead-lettered message's `raw.headers`                                                                                                 |
 
 Transports also add it to messages they dead-letter themselves because they can't be parsed. `bus-failure` is reserved, so outgoing middleware can't set it.
 
 ## Replaying dead-lettered messages
 
-Once the cause is fixed, move the messages back to the service queue with the broker's own tools: a [dead letter queue redrive](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-configure-dead-letter-queue-redrive.html) on Amazon SQS, a [shovel](https://www.rabbitmq.com/docs/shovel) on RabbitMQ, or the [redrive script](/transports/redis#retries-and-dead-letters) on Redis. The RabbitMQ transport leaves its attempt count off dead-lettered messages, so a replayed message gets all its attempts again.
+Once the cause is fixed, move the messages back to the service queue with the broker's own tools: a [dead letter queue redrive](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-configure-dead-letter-queue-redrive.html) on Amazon SQS, a [shovel](https://www.rabbitmq.com/docs/shovel) on RabbitMQ, the [redrive script](/transports/redis#retries-and-dead-letters) on Redis, or a tool such as Service Bus Explorer in the Azure portal. The RabbitMQ and Azure Service Bus transports reset the attempt count of dead-lettered messages, so a replayed message gets all its attempts again.
 
 ## Receivers
 

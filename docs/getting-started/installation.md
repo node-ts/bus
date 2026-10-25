@@ -70,4 +70,4 @@ The generator needs TypeScript types. In a JavaScript project, write the message
 
 - [Handling messages](/getting-started/handling-messages), to receive your first message
 - [Serializers](/guide/serializers), for what the message types restore
-- [Transports](/transports), to run on RabbitMQ or Amazon SQS
+- [Transports](/transports), to run on RabbitMQ, Amazon SQS or Azure Service Bus

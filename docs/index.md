@@ -70,6 +70,7 @@ Write messages and handlers once, and pick a transport for the queues and a pers
 <FeatureGrid>
   <Card title="RabbitMQ" tag="@node-ts/bus-rabbitmq" link="/transports/rabbitmq">Exchanges and queues declared for you, with retry queues that follow your recoverability policy.</Card>
   <Card title="Amazon SQS" tag="@node-ts/bus-sqs" link="/transports/amazon-sqs">SNS topics fanned out to SQS queues, created and subscribed for you, or managed by your own infrastructure code.</Card>
+  <Card title="Azure Service Bus" tag="@node-ts/bus-azure-service-bus" link="/transports/azure-service-bus">A topic per message, forwarded into each service's queue, with scheduled retries and native dead-lettering.</Card>
   <Card title="SQS and Lambda" tag="@node-ts/bus-sqs-lambda" link="/transports/sqs-lambda">Handle SQS batches in AWS Lambda, with partial batch failures.</Card>
   <Card title="Postgres" tag="@node-ts/bus-postgres" link="/persistence/postgres">Workflow state in a jsonb table per workflow, with indexes for its lookups.</Card>
   <Card title="MongoDB" tag="@node-ts/bus-mongodb" link="/persistence/mongodb">Workflow state in a collection per workflow, with optimistic concurrency.</Card>

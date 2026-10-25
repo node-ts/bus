@@ -17,9 +17,11 @@
     "check:message-types": "bus generate-message-types --entry 'snippets/**/*.ts' --out snippets/message-types.generated.ts --check"
   },
   "devDependencies": {
+    "@azure/service-bus": "^7.10.0",
     "@nestjs/common": "^12.1.2",
     "@nestjs/core": "^12.1.2",
     "@nestjs/testing": "^12.1.2",
+    "@node-ts/bus-azure-service-bus": "workspace:^",
     "@node-ts/bus-cli": "workspace:^",
     "@node-ts/bus-core": "workspace:^",
     "@node-ts/bus-messages": "workspace:^",

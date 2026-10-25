@@ -86,7 +86,9 @@ jobs:
             curl -sf http://127.0.0.1:4566/_localstack/health
       - run:
           name: Integration Test
-          command: pnpm run test:integration
+          # bus-azure-service-bus' tests need the Service Bus emulator, which
+          # the azure-service-bus job runs, so they're left out here
+          command: pnpm exec dotenv -e test.env -- jest --runInBand '^(?!(.*/)?packages/bus-azure-service-bus/).*(src/.+\.|/)integration\.ts$'
       - run:
           name: Integration Test (Redis transport on Valkey)
           command: REDIS_URL=redis://127.0.0.1:6381 pnpm exec dotenv -e test.env -- jest --runInBand --coverage=false packages/bus-redis/src/redis-transport.integration.ts
@@ -95,6 +97,45 @@ jobs:
           root: .
           paths:
             - .
+
+  azure-service-bus:
+    # The Service Bus emulator needs a mounted config file, SQL Server and
+    # about 2 GB of RAM, so it runs with docker compose on a machine executor
+    # rather than as secondary containers. Starting it accepts the licences of
+    # the emulator and SQL Server (ACCEPT_EULA in docker-compose.yml).
+    machine:
+      image: ubuntu-2404:current
+    resource_class: medium
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - run:
+          name: Start the Service Bus emulator
+          command: docker compose --profile azure-service-bus up -d servicebus servicebus-sql
+      # Each step is a new shell, which starts on the image's own Node.js, so
+      # the steps that need ours switch to it with nvm first
+      - run:
+          name: Install Node.js and pnpm
+          command: |
+            nvm install "$(cat .nvmrc)"
+            npm install --global pnpm@12.4.1
+      - run:
+          name: Install dependencies
+          command: nvm use "$(cat .nvmrc)" && pnpm i
+      - run:
+          name: Build
+          command: nvm use "$(cat .nvmrc)" && pnpm --filter '@node-ts/bus-azure-service-bus...' run build
+      - run:
+          name: Wait for the Service Bus emulator
+          command: |
+            for i in $(seq 1 90); do
+              curl -sf http://localhost:5300/health | grep -q '"healthy"' && break
+              sleep 2
+            done
+            curl -sf http://localhost:5300/health || (docker compose --profile azure-service-bus logs servicebus && exit 1)
+      - run:
+          name: Integration Test
+          command: nvm use "$(cat .nvmrc)" && pnpm exec dotenv -e test.env -- jest --runInBand 'packages/bus-azure-service-bus/.+\.integration\.ts$'
 
   docs:
     <<: *defaults
@@ -177,12 +218,14 @@ workflows:
   build-deploy:
     jobs:
       - build
+      - azure-service-bus
       - docs:
           requires:
             - build
       - deploy:
           requires:
             - build
+            - azure-service-bus
           filters:
             branches:
               only:

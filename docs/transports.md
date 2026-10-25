@@ -12,6 +12,7 @@ By default the bus uses an in-memory queue, `InMemoryQueue`, which needs nothing
 <FeatureGrid>
   <Card title="RabbitMQ" tag="@node-ts/bus-rabbitmq" link="/transports/rabbitmq">An AMQP broker. The transport declares the exchanges and queues, and retries messages after the delay the recoverability policy chooses.</Card>
   <Card title="Amazon SQS" tag="@node-ts/bus-sqs" link="/transports/amazon-sqs">AWS' managed queues, with SNS topics for events. `bus provision` creates the topics, queues and subscriptions, or you manage them.</Card>
+  <Card title="Azure Service Bus" tag="@node-ts/bus-azure-service-bus" link="/transports/azure-service-bus">Microsoft's managed broker, with a topic per message forwarded into each service's queue. `bus provision` creates the topics, queues and subscriptions.</Card>
   <Card title="SQS and Lambda" tag="@node-ts/bus-sqs-lambda" link="/transports/sqs-lambda">Handle SQS messages in AWS Lambda, which reads the queue and passes batches to the bus.</Card>
   <Card title="Postgres" tag="@node-ts/bus-postgres" link="/transports/postgres">Queues in the Postgres database you already have, with no broker to run. Suits one service, or services that share a database.</Card>
   <Card title="Redis" tag="@node-ts/bus-redis" link="/transports/redis">Queues in Redis Streams, on the Redis or Valkey you may already run. Retries and dead letters are built on top, with no modules.</Card>

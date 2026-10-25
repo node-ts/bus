@@ -61,3 +61,32 @@ services:
       interval: 2s
       timeout: 10s
       retries: 30
+
+  # Microsoft's Service Bus emulator, for bus-azure-service-bus. It needs SQL
+  # Server and about 2 GB of RAM, so it only starts with its profile:
+  #   docker compose --profile azure-service-bus up -d
+  # Starting it accepts the licences of both images (ACCEPT_EULA):
+  # https://github.com/Azure/azure-service-bus-emulator-installer/blob/main/EMULATOR_EULA.txt
+  # and https://go.microsoft.com/fwlink/?LinkId=746388. AMQP is on 5673, since
+  # RabbitMQ has 5672, and the management API and /health are on 5300.
+  servicebus:
+    profiles: ['azure-service-bus']
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
+    volumes:
+      - ./packages/bus-azure-service-bus/emulator/config.json:/ServiceBus_Emulator/ConfigFiles/Config.json
+    environment:
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: 'Emulator_Passw0rd'
+      ACCEPT_EULA: 'Y'
+    ports:
+      - '5673:5672'
+      - '5300:5300'
+    depends_on:
+      - servicebus-sql
+
+  servicebus-sql:
+    profiles: ['azure-service-bus']
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
+    environment:
+      MSSQL_SA_PASSWORD: 'Emulator_Passw0rd'
+      ACCEPT_EULA: 'Y'
